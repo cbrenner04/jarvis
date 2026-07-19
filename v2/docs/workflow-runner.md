@@ -21,7 +21,7 @@ passes the resulting write-loop input to `executeWriteLoop`.
 Each write step resolves `iterationTimeoutMs` from `~/.jarvis/config.json`
 (default `600,000` ms). Its watchdog starts immediately after
 `iteration_started`, including before an agent subprocess exists. The resolved
-budget is retained in the workflow snapshot, so resume and revise use it.
+budget is retained in the workflow snapshot, so resume uses it.
 Timeout ends the step as non-resumable `iteration_timeout`.
 
 For a multi-step preset, resolution happens per step when the runner reaches
@@ -90,39 +90,12 @@ the shipped implement preset." Any hand-authored `write` step naming
 `role: "implement"` also runs the hidden shrink pass, even outside the shipped
 preset.
 
-A `human` step (see [`role-resolution.md`](role-resolution.md#role--behavior-reference))
-dispatches to a separate path that never calls `executeWriteLoop`: the runner
-creates or loads that step's `(project, branch, stepId)` run row and sets its
-status to `awaiting-human` directly via the state store, then stops the
-workflow — `executeWorkflow` returns `WorkflowResult.kind === "awaiting-human"`.
-A human step has no attempt/outcome history and no worktree of its own — its
-run identity is `(project, branch)` carried on the step itself, not derived
-from a `write-behavior.md` worktree. Reaching a human step appends no
-`## Blocker` section to any spec file; that helper is contract-miss-specific
-write-loop output, not a human-review signal. A human step whose run is
-already `completed` (via decision-gated resume) is treated like a completed
-write step: the workflow advances past it with no new work.
-
-A human step may configure `onRevise: { repeatStepId, maxRevisions }`, naming
-an earlier step (lower index) in the same authored `steps[]` array and a
-revision budget. The daemon's `revise` decision (see
-[`daemon-host.md`](daemon-host.md#revise-decision)) spawns `repeatStepId`'s
-write loop again under a synthesized stepId `${repeatStepId}~r<n>` and moves
-the human step's run to status `revising`. While `revising`, `executeWorkflow`
-checks the highest-numbered `~r<n>` run for `repeatStepId`: once it reaches a
-terminal outcome (`completed`, `failed`, or `blocked`), the human step's run
-re-converges to `awaiting-human` (same run row) and `executeWorkflow` returns
-`WorkflowResult.kind === "awaiting-human"`; otherwise it returns
-`WorkflowResult.kind === "revising"` and the workflow stops at that step, same
-as `awaiting-human`.
-
 In a two-step composition, step two begins only after step one reaches
 `complete`. Workflow success means both step-local write loops completed, not
 just step one.
 
-Return `WorkflowResult` indicates which step produced the stopping outcome
-(`awaiting-human` included), its run ID, total iterations consumed across all
-steps, and resumability.
+Return `WorkflowResult` indicates which step produced the stopping outcome,
+its run ID, total iterations consumed across all steps, and resumability.
 
 Each durable step run also persists the workflow invocation snapshot that launched it:
 one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`,
@@ -247,10 +220,6 @@ discriminated union on `behavior`, the closed vocabulary from
   `role`/`agents` order. Workflow infrastructure such as `stateStore` and
   `logSink` is not part of the public step contract; the runner normalizes
   those once at workflow scope.
-- `behavior: "human"` — `{ stepId, project, branch }` only. It carries none of
-  the write-loop-only fields (`role`, `agents`, `stepRules`,
-  `agentModelConfig`, `expectedArtifactPath`) and no `worktree` — see
-  [Execution contract](#execution-contract) above.
 - `behavior: "review-debate"` — see
   [Review-debate dispatch](#review-debate-dispatch) below.
 - `behavior: "review"` — `{ stepId, project, branch, cwd, profile,
@@ -292,9 +261,7 @@ through its own `stepId`-scoped run lookup (via
 `findRunByProjectBranch({ project, branch, stepId })`): a step whose run is
 already `completed` returns its stored result idempotently with no new work
 and no binding resolution, and the first non-completed step becomes the first
-step that performs fresh execution. A `human` step re-entered before its
-decision lands re-converges to `awaiting-human` idempotently (same status,
-same run row) rather than performing fresh execution.
+step that performs fresh execution.
 
 The step-level loop-boundary resume rules are unchanged from the single-step
 write loop: an `in-progress` attempt is re-run over a dirty worktree; a
@@ -327,7 +294,7 @@ A one-step workflow runs identically to a single-step `executeWriteLoop` invocat
 
 `startWorkflowRun` returns the first step's run id. That step's row reaches `completed` when the step finishes, but later steps may still be running. A caller reading the returned run's status via `loadRun` gets a durable row status, not the workflow status.
 
-To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. Snapshots record the shared runner durability policy: write and human steps, plus reviewed-intent review, are durable; ordinary review and review-debate are non-durable. Snapshots created before this field default every step to durable, preserving legacy missing-row `killed` behavior.
+To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. Snapshots record the shared runner durability policy: write steps, plus reviewed-intent review, are durable; ordinary review and review-debate are non-durable. Snapshots created before this field default every step to durable, preserving legacy missing-row `killed` behavior.
 
 This rollup is computed at read time, never overwriting a step row's status in place — resume logic skips a completed step on-row, so a stale entry-row status would cause resume to re-run step 0.
 
@@ -345,12 +312,6 @@ Before running any step, `executeWorkflow` validates:
 - For a `review-debate` step, the same check runs independently for each of
   the four debate roles' `agents` orders against the step's
   `agentModelConfig`.
-- A `human` step has no role binding to validate.
-- Every human step's `onRevise.repeatStepId`, if configured, names an earlier
-  step (lower index) in the same `steps` array — a missing, self-referencing,
-  or forward-referencing `repeatStepId` is rejected as a `defineWorkflow`-level
-  error, reported as `(stepId, repeatStepId)` pairs, before any durable state
-  change.
 
 Workflow-source role misses are aggregated and reported as `(stepId, role,
 agent)` tuples (role is the debate role name for a `review-debate` step) in
@@ -366,8 +327,7 @@ ReviewWorkflowStep | ReviewDebateWorkflowStep)[]` (`v2/src/execution/workflow-lo
 the `agents`/`agentModelConfig` that `executeWorkflow` requires from real
 config, ahead of the runner in the pipeline. `WorkflowSourceStep` is a
 behavior-discriminated `write | review | review-debate` union, with each
-branch omitting `agents` and `agentModelConfig`; `human` steps remain outside
-this helper.
+branch omitting `agents` and `agentModelConfig`.
 
 The loader loads the machine's configured agent order (falling back to
 `DEFAULT_WRITE_AGENTS` when machine config has no `agents` key) and the global
@@ -517,9 +477,9 @@ always `false` — there is no durable run/resume for a `review-debate` step in
 this slice (deferred to the first caller that needs mid-cycle resume); its
 `runId` is synthesized for reporting only, not looked up via
 `findRunByProjectBranch`. A `review-debate` step is excluded from the workflow
-snapshot built for `write`/`human` steps (see
+snapshot built for `write` steps (see
 [Per-step attempt history](#per-step-attempt-history)) since it has no durable
-run identity in this slice; mixing a `review-debate` step with `write`/`human`
+run identity in this slice; mixing a `review-debate` step with `write`
 steps in one workflow otherwise composes normally (ordered advancement, same
 stop-on-non-complete rule).
 
@@ -622,10 +582,10 @@ the landing base ref (the base ref reviewed against) and `stagingDir` is
 the staged intent tree under review, not the
 verdict path).
 A review-only invocation gets a fresh snapshot and starts at cycle zero. A mixed workflow may reuse a matching snapshot found through a
-durable write or human step; matching includes each review entry's
+durable write step; matching includes each review entry's
 `(stepId, behavior)`. Review entries remain in authored order in daemon/TUI
 projection, with critic/actuator start and terminal completed/stopped progress,
-while durable run lookup considers only write and human steps.
+while durable run lookup considers only write steps.
 
 **Log events:** Only a reviewed-intent review step (a durable run row)
 appends to that run's log — plain review steps have no run row and stay silent.

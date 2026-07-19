@@ -1,7 +1,7 @@
 # Role resolution
 
 Canonical home for the v2 **role** taxonomy and how roles bind to workflow
-steps. Behavior vocabulary lives in [`v2-vision.md`](v2-vision.md); the layered
+steps. The layered
 model and orchestration context live in [`v2-architecture.md`](v2-architecture.md).
 The `AgentModelConfig` schema and inner rung resolution are documented in
 [`agent-model-config.md`](agent-model-config.md).
@@ -27,7 +27,7 @@ union:
 
 A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt**
 (task text), and **role** (model-resolution key). Behaviors are orchestration
-primitives (`write`, `review`, `review-debate`, `human`); they are not renamed to
+primitives (`write`, `review`, `review-debate`); they are not renamed to
 match roles.
 Workflow-step authoring and named preset resolution for this behavior vocabulary
 live in [`workflow-runner.md`](workflow-runner.md#authoring-helper-and-presets).
@@ -54,7 +54,6 @@ Inner rung detail (consumption modes, flattening, terminal outcomes):
 | `adjudicator` | `review-debate` | Read-only; emits verdict. |
 | `actuator` | `review`, `review-debate` | Verdict application only — not shrink. Plan vs implement context comes from step metadata, not split resolution keys. |
 | `operator` | — | Behavior binding deferred to Phase 9. |
-| — | `human` | No agent resolution; pause for human review, approval, or resume. |
 
 ## Decisions
 
@@ -65,8 +64,8 @@ Load-bearing taxonomy choices recorded here:
   the contract.
 - **Categories retired** — `thinking` / `reviewing` / `executing` are not
   model-resolution keys. Roles align with how agents are actually invoked.
-- **Behaviors stay orchestration primitives** — `write`, `review-debate`,
-  `human`; roles specialize steps, behaviors do not rename to match roles.
+- **Behaviors stay orchestration primitives** — `write`, `review`,
+  `review-debate`; roles specialize steps, behaviors do not rename to match roles.
 - **One `actuator` role** — plan vs implement context comes from step metadata,
   not `actuator-plan` / `actuator-implement` split keys.
 - **Shrink is its own role** — post-completion cleanup has explicit
@@ -82,7 +81,5 @@ Load-bearing taxonomy choices recorded here:
   Phase 9 routes NL prompts.
 - **`cheap` role deferred** — pin when a real non-deterministic consumer exists;
   deterministic commit-message/summary work stays on existing paths.
-- **`v2-build-order.md` aligned** — Phase 5 + forward refs use role→model
-  semantics.
 - **No v1 config migration** — document equivalence only; no dual-write or
   migration tooling in this taxonomy slice.

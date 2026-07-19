@@ -8,13 +8,14 @@ bookkeeping around each successful step.
 
 Two engines ship side by side:
 
-- **`jarvis` (v2)** — the daemon-backed engine being built toward full parity.
-  Durable runs in SQLite, workflow presets, a live TUI, pause/kill steering.
-- **`jarvis1` (v1)** — the stable engine covering the full pipeline
-  (intent → plan → run → review → triage).
+- **`jarvis` (v2)** — the primary engine. Daemon-backed: durable runs in
+  SQLite, workflow presets, a live TUI, pause/kill steering.
+- **`jarvis1` (v1)** — the maintenance-only fallback, kept green with no new
+  investment; covers the original pipeline (intent → plan → run → review →
+  triage).
 
 Both engines read the shared top-level `prompts/` tree, so prompt improvements
-land in both. v1 is not going away; v2 grows phase by phase.
+land in both.
 
 ## Installation
 
@@ -41,10 +42,10 @@ symlink into another `PATH` directory such as `~/.local/bin`.
 
 ## v2 (`jarvis`)
 
-v2 is a working engine: a host-agnostic write loop, a long-running daemon,
+v2 is the primary engine: a host-agnostic write loop, a long-running daemon,
 durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC,
-workflow presets, review behaviors, draft-PR publication, and an ink TUI are
-all implemented. Remaining parity gaps are listed under [Status](#status).
+workflow presets, review behaviors, draft-PR publication, cleanup, and an ink
+TUI are all implemented. Remaining gaps are listed under [Status](#status).
 
 ### Configuration
 
@@ -101,6 +102,9 @@ jarvis run log <run-id>     Stream persisted structured records as JSON lines.
 jarvis run pause|resume|kill|wait <run-id>
 jarvis run workflow intent|plan|implement ...
 jarvis tui [log <run-id>]   Live ink monitor / per-run log follow.
+jarvis cleanup [--abandon] [--dry-run] [<name>]
+                            Retire merged v2 worktrees; archive completed
+                            v2 specs.
 jarvis --version
 ```
 
@@ -109,7 +113,7 @@ jarvis --version
 - **Workflow** — a named, mostly-linear array of steps with bounded loops.
 - **Step** — the reusable unit; binds a behavior, a prompt, and a role.
 - **Behavior** — the loop primitive a step runs: `write`, `review`,
-  `review-debate`, `human`.
+  `review-debate`.
 - **Role** — the model-resolution key (`plan`, `implement`, `shrink`,
   `adversary`, `critic`, `advocate`, `adjudicator`, `actuator`).
 - **Rung / binding** — one `(adapterModel, priceKey)` entry; the resolved
@@ -130,12 +134,12 @@ review behaviors, shrink pass, PR publication, TUI.
 Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume),
 per-invocation `--agent`/`--model` overrides, the local-model terminal
 fallback, and the natural-language prompt router (`jarvis "<intent>"`).
-Roadmap: [v2/docs/v2-build-order.md](v2/docs/v2-build-order.md).
+Roadmap: [v2/spec/v2-meta-index.md](v2/spec/v2-meta-index.md).
 
 ### v2 documentation
 
-- [v2/docs/v2-vision.md](v2/docs/v2-vision.md) — why v2 exists and how it
-  coexists with v1.
+- [v2/docs/v2-vision.md](v2/docs/v2-vision.md) — why v2 exists: guiding
+  principles and architectural constraints.
 - [v2/docs/v2-architecture.md](v2/docs/v2-architecture.md) — layered model,
   workflows, IPC, runs and state, git/PRs.
 - [v2/docs/install-and-config.md](v2/docs/install-and-config.md) — install,
@@ -155,10 +159,10 @@ Roadmap: [v2/docs/v2-build-order.md](v2/docs/v2-build-order.md).
 
 ## v1 (`jarvis1`)
 
-v1 is the shipping pipeline: size work with `intent`, draft specs with `plan`,
-implement with `run`, then post-completion shrink and review passes flip the
-draft PR to ready. Specs are ordinary Markdown; work is complete when the
-active spec has no unchecked task-list items.
+v1 is the maintenance-only fallback pipeline: size work with `intent`, draft
+specs with `plan`, implement with `run`, then post-completion shrink and review
+passes flip the draft PR to ready. Specs are ordinary Markdown; work is
+complete when the active spec has no unchecked task-list items.
 
 ### Quickstart
 

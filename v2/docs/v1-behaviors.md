@@ -1,6 +1,6 @@
-# v1 behavior catalog for v2 parity review
+# v1+v2 behavior parity catalog
 
-This document inventories user-observable v1 behavior so v2 can explicitly preserve, change, or drop each item.
+This document inventories user-observable v1 behavior and records each v2 parity decision — preserve, change, or drop — plus v2-only divergences. Entries reflect the state when each parity call was made; v2 source and `v2/docs/` are authoritative for current v2 behavior.
 
 ## Overview and scope
 

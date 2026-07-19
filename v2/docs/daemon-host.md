@@ -17,7 +17,7 @@ child process; `bun run check` guards `v2/**` and `shared/**` against it.
 ## Restart reconciliation and recovery
 
 Before opening its IPC listener, a daemon marks durable `queued`, `in-progress`,
-`paused`, `budget-soft-stopped`, `awaiting-human`, and `revising` runs whose
+`paused`, and `budget-soft-stopped` runs whose
 **admitting process is gone** as `killed`. Every run row records `owner_identity`
 (`<pid>:<process-start-epoch>`, stamped by `createRun` — daemon admission,
 `jarvis write`, and the workflow runner all stamp their own process's identity,
@@ -94,11 +94,11 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running", loadedRevision: string, recovery: { pending: boolean, reconciled: number, resumed: number } }` | Daemon-host liveness only — not run orchestration status. `loadedRevision` is the daemon's startup Git HEAD commit hash. `recovery` is pending until all startup admissions finish; then its stable counts name rows reconciled and successfully auto-resumed. Unsupported and failed admissions are not resumed. |
-| `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-resume-revise)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow` with `freshDispatch: true`, creating new run rows for every step and minting a fresh `invocationId`; prior `completed` runs are not reused. Returns `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. A `firstStep.workflowInvocationId` request whose prior run is non-terminal (`in-progress`, `paused`, `budget-soft-stopped`, `awaiting-human`, `revising`) and owned by another invocation is rejected `worktree_claimed` (intent ownership guard). Terminal prior runs (`completed`, `failed`, `blocked`, `killed`) do not block a fresh request, allowing new runs to start. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. A failure before step 0's run row exists (e.g. an invalid step shape) returns an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. |
+| `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-and-resume)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow` with `freshDispatch: true`, creating new run rows for every step and minting a fresh `invocationId`; prior `completed` runs are not reused. Returns `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. A `firstStep.workflowInvocationId` request whose prior run is non-terminal (`in-progress`, `paused`, `budget-soft-stopped`) and owned by another invocation is rejected `worktree_claimed` (intent ownership guard). Terminal prior runs (`completed`, `failed`, `blocked`, `killed`) do not block a fresh request, allowing new runs to start. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. A failure before step 0's run row exists (e.g. an invalid step shape) returns an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. |
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, error?, reviewPasses?, reviewBehavior?, workflow?, prNumber?, prUrl?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Optional `prNumber` and `prUrl` when publication confirmed a PR. Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). Implement workflow rows may also carry retained `reviewPasses` and `reviewBehavior` (see [Implement review selection on list rows](#implement-review-selection-on-list-rows)). For workflow entry rows (the returned run id from a `start { steps }` invocation), `status` reflects a rollup over all steps in the invocation: the first authored durable step's terminal-but-not-completed status, `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are completed; while the workflow is live, status is `in-progress` regardless of step row state. Other step rows in that workflow report their own durable statuses. Terminal runs (`completed`, `failed`, `blocked`, `killed`) are bounded to the 50 newest by creation time; all other statuses are exempt and always returned. Step runs of a listed workflow invocation are retained with that invocation regardless of the bound. Retention filters the response only — durable rows are kept (see [Terminal run list retention](#terminal-run-list-retention)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed` when the row is not boundary-terminal (`completed`, `blocked`, `failed`). Leaves the worktree dirty. Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
-| `resume` | `{ runId: string, decision?: "approve" \| "revise" \| "abort", prompt?: string }` | `{ ok: true }` (approve/abort/write resume) or `{ ok: true, stepId: string }` (revise) | Resumes paused, budget-stopped, killed, or retryable-publication workflow write runs only after shared snapshot reconstruction. The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Eligible publication retries are `completion_commit_failed` and `ready_gate_failed`; `ready_flip_failed` is a terminal non-resumable settlement and is rejected with `terminal_run`; `list` and `wait` expose the matching retryable reason with `nextAction: "resume"` or terminal reason with `nextAction: "stop"`. Ad-hoc stopped runs remain unsupported. Human decision flows are unchanged. |
+| `resume` | `{ runId: string }` | `{ ok: true }` | Resumes paused, budget-stopped, killed, or retryable-publication workflow write runs only after shared snapshot reconstruction. The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Eligible publication retries are `completion_commit_failed` and `ready_gate_failed`; `ready_flip_failed` is a terminal non-resumable settlement and is rejected with `terminal_run`; `list` and `wait` expose the matching retryable reason with `nextAction: "resume"` or terminal reason with `nextAction: "stop"`. Ad-hoc stopped runs remain unsupported. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. Unsupported stopped write context returns `error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" }` and forces `resumable: false`, even when the historical loop record was resumable. Otherwise behavior is unchanged; optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
@@ -109,7 +109,7 @@ stays open).
 `list` returns at most the 50 newest terminal runs — statuses `completed`,
 `failed`, `blocked`, and `killed` — ordered by `created_at` descending with
 `rowid` as a tiebreak. All other statuses (`in-progress`, `queued`, `paused`,
-`budget-soft-stopped`, `awaiting-human`, `revising`) are exempt: they are always
+`budget-soft-stopped`) are exempt: they are always
 returned and do not consume retention slots.
 
 When a workflow invocation has any retained run, every step run sharing that
@@ -122,52 +122,6 @@ replay, so retired runs are not loaded while serving `list`. Durable rows are
 not deleted — `loadRun` and other store reads still return retired runs.
 `jarvis run list` and `jarvis tui` render every run the daemon returns and apply
 no bound of their own.
-
-### `revise` decision
-
-`revise` repeats an earlier step's write loop under a synthesized stepId
-`${repeatStepId}~r<n>` (n starting at 1, one past the highest existing `~r<n>`
-for that `(project, branch, repeatStepId)`), consuming one attempt of the
-human step's configured `onRevise: { repeatStepId, maxRevisions }` budget.
-`onRevise` is authored on the human step and validated at workflow-definition
-time (see [`workflow-runner.md`](./workflow-runner.md#validation)); a human
-step with no `onRevise` configured rejects `revise` with `revise_unsupported`.
-
-Gating and error codes:
-
-- `revise_unsupported` — no `onRevise` configured, or no run found for
-  `onRevise.repeatStepId`.
-- `revise_exhausted` — all `~r1..~rN` revision stepIds for `repeatStepId` are
-  already used (`maxRevisions` reached).
-- `revise_requires_input` — the repeated step's worktree is git-clean (`git
-  status --porcelain`) and no `prompt` param was supplied. A supplied `prompt`
-  is appended to that revision attempt's `stepRules` only, never discarded
-  silently.
-
-On success, `revise` sets the human step's run status to `revising` (distinct
-from `awaiting-human`: a `revising` run is not currently accepting a
-`resume` decision — a bare `resume` or another `revise`/`approve`/`abort`
-against it is rejected `revise_in_progress` until it re-converges) and spawns
-the revision write loop via the same executor and per-key guard as `start`
-(no memory-watermark check). When that write loop reaches a terminal outcome
-(`completed`, `failed`, or
-`blocked`), the next `executeWorkflow` call for the same workflow re-dispatches
-the human step by `stepId`, moving its run back to `awaiting-human` — a
-subsequent `resume` decision (`approve`/`revise`/`abort`) is then accepted
-again. Same-run human-decision admission (`approve`/`revise`/`abort`) is
-serialized through the dirty-worktree probe, revision creation, and status
-transition so concurrent requests cannot create duplicate revisions or leave
-ownership inconsistent.
-
-**Revise dirty-worktree responsiveness:** only `resume` with
-`decision: "revise"` awaits `git status --porcelain` on the repeated step's
-worktree (`isWorktreeDirtyAsync` / injectable `isWorktreeDirty`). Ordinary
-paused-run `resume` and `approve`/`abort` do not run that probe. While the
-probe is pending, unrelated daemon IPC (`health`, `list`, steering, `wait`,
-`tail`, …) still dispatches on the same event loop. A probe failure returns
-`internal_error`, creates no revision, leaves the human step `awaiting-human`,
-and a later `revise` may retry. Guarded by
-`v2/src/daemon/daemon-ipc-responsiveness-during-revise-dirty.sandbox-unrunnable.test.ts`.
 
 ### Wait result contract
 
@@ -294,11 +248,7 @@ Rules:
 - `status` is closed: `pending | in_progress | completed | stopped`.
 - `terminalOutcome` is present only for terminal steps:
   `completed -> "complete"` and
-  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed" | "awaiting-human"`.
-  A `human` step converges to run status `awaiting-human`, reported as
-  `status: "stopped"`, `terminalOutcome: "awaiting-human"` — distinct from
-  `blocked`, since a human gate awaits a decision rather than an unresolvable
-  contract miss.
+  `stopped -> "blocked" | "contract_miss" | "invocation_failure" | "budget-exhausted" | "paused" | "killed"`.
 - `attemptCount` counts started durable attempts for that step, including an
   active in-progress attempt.
 - Live snapshots expose at most one `in_progress` step; quiescent snapshots
@@ -352,7 +302,7 @@ durably created — gets a `workflow`-kind entry keyed by that step's `runId`. A
 code as an absent/unknown run; real kill/pause plumbing for a running workflow
 step is deferred to a future consumer.
 
-### Admission guards for `start`, `resume`, `revise`
+### Admission guards for `start` and `resume`
 
 There is no global single in-flight guard — multiple runs may be active
 concurrently across different `(project, branch)` keys.
@@ -373,9 +323,9 @@ concurrently across different `(project, branch)` keys.
 
 3. **Per-`(project, branch)` key (live claim):** Once memory clears the
    floor, `start` is rejected with `code: "worktree_claimed"` when the key is
-   held by a live run — the same guard applies to `resume` and `revise`,
-   which have no memory check and spawn immediately once their key check
-   passes. All three call a single exported `checkWorktreeClaimed` function
+   held by a live run — the same guard applies to `resume`,
+   which has no memory check and spawns immediately once its key check
+   passes. Both call a single exported `checkWorktreeClaimed` function
    against the `WorktreeOwnershipRegistry`, so the check and its error shape
    can't drift between them.
 
@@ -383,7 +333,7 @@ concurrently across different `(project, branch)` keys.
    (queued-run check, then live-claim check) run first, against a key
    derived from the workflow's first step — `worktree.projectName`/
    `worktree.branchName` when that step's `behavior` is `"write"`, else its
-   flat `project`/`branch` fields (`"human"` or `"review-debate"`). A workflow
+   flat `project`/`branch` fields (`"review"` or `"review-debate"`). A workflow
    claim records its daemon-live owner from acquisition through cleanup. If its
    owner is no longer live in daemon memory, admission releases only that stale
    claim and acquires the key for the new workflow; a live owner still rejects
@@ -447,7 +397,7 @@ within `readinessTimeoutMs`.
 ### `stopDaemon(socketPath, options?)`
 
 Normal shutdown first reads the durable run store. `in-progress`, `paused`,
-`budget-soft-stopped`, `awaiting-human`, `revising`, and `queued` rows refuse
+`budget-soft-stopped`, and `queued` rows refuse
 the stop and report every run ID. The refusal happens before shutdown, process
 signals, or PID cleanup. A store read failure also refuses the stop.
 
@@ -575,7 +525,7 @@ profile load, matching `models` validation.
 clears the configured floor: `true` when unconfigured, else compares an
 injectable free-memory reader (default `os.freemem`) against the floor
 converted to bytes. Wired into `start` admission (see
-[Admission guards](#admission-guards-for-start-resume-revise)).
+[Admission guards](#admission-guards-for-start-and-resume)).
 
 `createRunControlHandlers`'s default `hasMemoryHeadroom`/`settleDelayMs` deps
 resolve `profileName` via `resolveMachineProfile()`

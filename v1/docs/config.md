@@ -132,7 +132,7 @@ The optional `targetDir` setting (default `"spec"`) specifies the relative path 
 - Must not begin with `..` (no parent directory access).
 - The default `"spec"` routes new plans to `spec/<timestamp>-<name>/`, the canonical layout documented in [spec-guidance.md](./spec-guidance.md).
 
-**Example:** To route a repository's new plans to `v1/spec/` instead of the default `spec/`:
+**Example:** To route a repository's new plans to `v2/spec/` (the jarvis project default) instead of the default `spec/`:
 
 ```json
 {
@@ -140,14 +140,14 @@ The optional `targetDir` setting (default `"spec"`) specifies the relative path 
     "jarvis": {
       "root": "/path/to/jarvis",
       "plan": {
-        "targetDir": "v1/spec"
+        "targetDir": "v2/spec"
       }
     }
   }
 }
 ```
 
-With this configuration, `jarvis1 plan` creates commits under `v1/spec/<timestamp>-<plan-name>/` instead of `spec/<timestamp>-<plan-name>/`.
+With this configuration, `jarvis1 plan` creates commits under `v2/spec/<timestamp>-<plan-name>/` instead of `spec/<timestamp>-<plan-name>/`.
 
 `jarvis1 plan --target-dir <dir>` provides a per-run override with higher precedence than config:
 `--target-dir` > `projects[<name>].plan.targetDir` > `modes.plan.targetDir` > `"spec"`.

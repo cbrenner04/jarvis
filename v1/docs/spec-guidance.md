@@ -11,9 +11,9 @@ Specs authored with `jarvis1 plan` or `jarvis1 intent` under `modes.plan.commit:
 
 `<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
-**Route by target:** v1 work (seeds and committed specs) lives under `v1/spec/`; genuine v2 planning under `v2/spec/`; a spec touching both surfaces routes to `v1/spec` (shipping surface wins). The default `plan.targetDir` for the jarvis project is `v1/spec`; v2 planning is authored with explicit `--target-dir v2/spec` override (available on both `jarvis1 plan --target-dir <dir>` and `jarvis1 intent --target-dir <dir>`).
+**Route by target:** new jarvis-repo specs default to `v2/spec/` (the jarvis project `plan.targetDir`); `v1/spec/` is only for genuine v1 maintenance fixes, authored with explicit `--target-dir v1/spec` (available on both `plan` and `intent`).
 
-For repositories using the route-by-target pattern, `<targetDir>` is either `v1/spec` (the default for v1 work) or `v2/spec` (for v2-only planning with the explicit override). Repositories can also override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details); per-run `--target-dir` has highest precedence.
+For repositories using the route-by-target pattern, `<targetDir>` is either `v2/spec` (the default) or `v1/spec` (maintenance fixes, explicit override). Repositories can also override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details); per-run `--target-dir` has highest precedence.
 
 The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
 example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older

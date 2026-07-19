@@ -124,5 +124,4 @@ Exemplars:
 - **Bounded `implement` profiles** — contexts such as shrink must not inherit
   open-ended `implement` under `write` bounds wholesale.
 - Operator-visible stall diagnostics at termination.
-- Human-step stall interaction (Phase 6 `human` behavior).
 - `failureKind` / telemetry for stall vs quota vs other stops.

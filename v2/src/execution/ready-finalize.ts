@@ -18,6 +18,8 @@ export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
+type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
   ghReadyFlip?: GhReadyFlip;
@@ -25,6 +27,7 @@ export type ReadyFinalizerSeams = {
   retryNotice?: RetryNotice;
   asyncSubprocessRunner?: AsyncSubprocessRunner;
   runRequiredIntegration?: RequiredIntegrationRunner;
+  runMutationVerification?: MutationVerificationRunner;
 };
 
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
@@ -37,6 +40,17 @@ export class ReadyGateError extends Error {
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
+  }
+}
+
+export class SurvivingMutationError extends Error {
+  constructor(
+    readonly mutation: string,
+    readonly sourceSiteFile: string,
+    readonly sourceSiteLine: number,
+  ) {
+    super(`Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
+    this.name = "SurvivingMutationError";
   }
 }
 
@@ -161,11 +175,15 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const retryNotice = seams?.retryNotice ?? defaultRetryNotice;
   const runRequiredIntegration =
     seams?.runRequiredIntegration ?? createDefaultRunRequiredIntegration(asyncSubprocessRunner);
+  const runMutationVerification = seams?.runMutationVerification;
 
   return async (input) => {
     await runReadyGate(input.worktreePath, input.baseRef);
     if (input.requiredIntegrationScope) {
       await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope);
+    }
+    if (runMutationVerification) {
+      await runMutationVerification(input.worktreePath, input.baseRef);
     }
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
   };

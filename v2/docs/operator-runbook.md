@@ -540,15 +540,7 @@ Operators add bullets here; delete when fixed.
   lands correctly and reports `completed`. The deferred `plan-tree` landing is never resumed. Until
   landing is repaired, **omit the review flags on plan**. Seed:
   `reviewed-plan-workflows-never-land-their-spec`. Cleanup: delete this bullet when landing ships.
-- **A green gate does not mean the code runs — keep reviewing implement diffs (2026-07-16):** a
-  `jarvis cleanup` that could never retire anything shipped **twice**, from two different models,
-  each with 7/7 acceptance criteria ticked and a green gate. Attempt 1 called `gh pr view --head`
-  (an invalid flag → every check threw → fail-closed → permanent silent no-op), hidden by a mock
-  matching the command name without inspecting argv. Attempt 2 fixed the flag and shipped a wholly
-  vacuous suite: restoring the original bug *and* stubbing every guard still gave 7 pass / 0 fail.
-  Neither was caught by `check`, `typecheck`, tests, CI, or the acceptance criteria — only by
-  subagent diff review. **Review every implement diff before merging, and distrust a green suite on
-  code with no test seam.** Seed: `agent-authored-subprocess-mocks-assert-nothing-about-argv`.
+- **Mutation verification requires test coverage — runtime smoke still requires review (2026-07-16):** v2 implement completion now requires diff-derived mutation evidence: each changed guard must be constrained by at least one run-base scoped test (a surviving mutation fails completion). This eliminates the class of vacuous test suites caught only by diff review. However, mutation verification cannot detect runtime behavior divergence (e.g., a subprocess that fails differently or logs to the wrong stream). **Review implement diffs for runtime-smoke edge cases that tests cannot verify.** Seed: `agent-authored-subprocess-mocks-assert-nothing-about-argv`.
 - **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
   nothing can clear it. A stranded row prevents the daemon restart needed after a revision mismatch.

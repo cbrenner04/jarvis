@@ -13,10 +13,11 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
-import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
+import { createReadyFinalizer, type ReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -35,6 +36,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "completion_commit_failed",
   "ready_gate_failed",
   "ready_flip_failed",
+  "surviving_mutation_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
@@ -63,6 +65,9 @@ export type WriteLoopResult = {
   boundaryTelemetryFailure?: string;
   prNumber?: number;
   prUrl?: string;
+  survivingMutation?: string;
+  survivingMutationSourceFile?: string;
+  survivingMutationSourceLine?: number;
 } & Partial<InvocationFailureDetail>;
 
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
@@ -839,7 +844,7 @@ function withBoundaryTelemetry(
 export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
 
 export type CompletionPublishFailure = {
-  kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
+  kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed";
   error?: Error;
   prNumber?: number;
   prUrl?: string;
@@ -951,6 +956,73 @@ export async function publishWithReadyRepair(
     : { failure: outcome, iterationsConsumed };
 }
 
+async function runPublisher(
+  seams: CompletionPublicationSeams,
+  input: {
+    worktreePath: string;
+    baseRef: string;
+    specPath: string;
+    branch: string;
+    creationTitle?: unknown;
+    bodySummary?: string;
+    specTemplate?: boolean;
+    requiredIntegrationScope?: string;
+  },
+): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
+  return await (seams.completionPublisher ?? createCompletionPublisher())(input);
+}
+
+async function runReadyFinalizer(
+  seams: CompletionPublicationSeams,
+  input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
+): Promise<void> {
+  const readyFinalizer =
+    seams.readyFinalizer ??
+    createReadyFinalizer({
+      runMutationVerification: async (worktreePath: string, baseRef: string) => {
+        const verificationResult = await verifyDiffDerivedMutations({
+          worktreePath,
+          runBase: baseRef,
+        });
+        if (verificationResult.kind === "surviving-mutation") {
+          throw new SurvivingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
+          );
+        }
+      },
+    });
+  const finalInput = {
+    worktreePath: input.worktreePath,
+    branch: input.branch,
+    baseRef: input.baseRef,
+    ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+  };
+  await readyFinalizer(finalInput);
+}
+
+function buildFinalizationErrorResponse(
+  err: Error,
+  prNumber: number | undefined,
+  prUrl: string | undefined,
+): CompletionPublishFailure {
+  if (err instanceof SurvivingMutationError) {
+    return {
+      kind: "surviving_mutation_failed",
+      error: err,
+      ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(prUrl !== undefined ? { prUrl } : {}),
+    };
+  }
+  return {
+    kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
+    error: err,
+    ...(prNumber !== undefined ? { prNumber } : {}),
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  };
+}
+
 export async function publishCompletionArtifacts(
   seams: CompletionPublicationSeams,
   input: {
@@ -966,7 +1038,7 @@ export async function publishCompletionArtifacts(
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   try {
-    publisherResult = await (seams.completionPublisher ?? createCompletionPublisher())(input);
+    publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
@@ -979,20 +1051,15 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    await (seams.readyFinalizer ?? createReadyFinalizer())({
+    await runReadyFinalizer(seams, {
       worktreePath: input.worktreePath,
-      branch: input.branch,
       baseRef: input.baseRef,
+      branch: input.branch,
       ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     });
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
-    return {
-      kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
-      error: err,
-      ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
-      ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
-    };
+    return buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);
   }
   return {
     kind: "success",
@@ -1024,30 +1091,43 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
 function readyFailed(
   args: WriteLoopInput,
   result: WriteLoopResult,
-  kind: "ready_gate_failed" | "ready_flip_failed",
+  kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed",
   error?: Error,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
-  const isFlipFailure = kind === "ready_flip_failed";
+  const resumable = kind === "ready_gate_failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
-    resumable: !isFlipFailure,
+    resumable,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
+
+  const mutationDetails =
+    error instanceof SurvivingMutationError
+      ? {
+          survivingMutation: error.mutation,
+          survivingMutationSourceFile: error.sourceSiteFile,
+          survivingMutationSourceLine: error.sourceSiteLine,
+        }
+      : {};
+
   return {
     ...result,
     kind,
-    resumable: !isFlipFailure,
+    resumable,
     ...(kind === "ready_gate_failed"
       ? { readyGateError: error?.message ?? "ready gate failed" }
-      : {
-          readyFlipError: error?.message ?? "ready flip failed",
-          ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
-        }),
+      : kind === "ready_flip_failed"
+        ? {
+            readyFlipError: error?.message ?? "ready flip failed",
+            ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
+          }
+        : {}),
+    ...mutationDetails,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };
 }

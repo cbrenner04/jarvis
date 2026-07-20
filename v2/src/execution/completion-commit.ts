@@ -3,9 +3,15 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
-import { resolvePublicationTitle } from "./spec-creation-title.ts";
 
-export type CompletionCommitInput = { worktreePath: string; baseRef: string; specPath: string; agent: string };
+export type CompletionCommitInput = {
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+  agent: string;
+  /** Authoritative commit subject, resolved by the caller that owns workflow context. */
+  title: string;
+};
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
@@ -39,6 +45,8 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
   return async (input) => {
     const agent = input.agent.trim();
     if (!agent) throw new Error("completion attribution is missing");
+    const subject = input.title.trim();
+    if (!subject) throw new Error("completion title is missing");
     if (!existsSync(join(input.worktreePath, ".git"))) return {};
     const index = join(tmpdir(), `jarvis-index-${crypto.randomUUID()}`);
     const gitDirValue = await runGit(input.worktreePath, ["rev-parse", "--git-dir"]);
@@ -65,7 +73,6 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
               }
             : {};
         }
-        const subject = resolvePublicationTitle(input.worktreePath, input.specPath);
         pending = {
           baseHead: head,
           tree,

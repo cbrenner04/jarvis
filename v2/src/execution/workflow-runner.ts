@@ -14,7 +14,7 @@ import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
+import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
@@ -358,11 +358,6 @@ function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
 }
 
-/** Linked-index routing base: external worktree when present, else registered project root. */
-function resolveLinkedImplementRoutingBase(worktreePath: string, projectRoot: string): string {
-  return existsSync(worktreePath) ? worktreePath : projectRoot;
-}
-
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: false }>,
   totalIterationsConsumed: number,
@@ -488,13 +483,12 @@ async function runLinkedImplementStep(
   touchedStepsInExecution: Set<string>,
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const projectRoot = step.worktree.projectRoot;
+  await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
 
   let totalIterationsConsumed = 0;
 
   for (;;) {
-    const routingBase = resolveLinkedImplementRoutingBase(worktreePath, projectRoot);
-    const indexPath = resolveInWorktree(routingBase, step.specPath);
+    const indexPath = resolveInWorktree(worktreePath, step.specPath);
 
     let beforeIndexContent: string;
     try {
@@ -502,7 +496,7 @@ async function runLinkedImplementStep(
     } catch (error) {
       throw new LinkedIndexReadError(indexPath, error);
     }
-    const routing = resolveActiveLinkedSubspec(indexPath, routingBase);
+    const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
     if (!routing.ok) {
       return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
@@ -510,7 +504,7 @@ async function runLinkedImplementStep(
     const linkStep: WriteWorkflowStep = {
       ...step,
       stepId: `${step.stepId}~link-${routing.active.index}`,
-      expectedArtifactPath: relative(routingBase, routing.active.path),
+      expectedArtifactPath: relative(worktreePath, routing.active.path),
     };
 
     const outcome = await runPreparedLinkedWriteStep(

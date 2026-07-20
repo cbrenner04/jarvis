@@ -18,11 +18,11 @@ A workflow can continue after `git worktree add` fails to produce a valid manage
 
 ## Acceptance criteria
 
-- [ ] A workflow whose managed worktree cannot be created or fails fresh-worktree validation stops before routing reads, run-row creation, and agent invocation.
-- [ ] The daemon `start` response uses `worktree_materialization_failed`, names the managed worktree path, and preserves the underlying Git or validation reason; it does not report `routing_read_failed`.
-- [ ] Regression cases in `v2/src/execution/external-worktree.test.ts` and `v2/src/daemon/daemon-workflow-start.test.ts` simulate a successful `git worktree add` that leaves no valid worktree, assert no callback/routing/agent work occurs, and fail against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document materialization-before-routing and the named start failure.
+- [x] A workflow whose managed worktree cannot be created or fails fresh-worktree validation stops before routing reads, run-row creation, and agent invocation.
+- [x] The daemon `start` response uses `worktree_materialization_failed`, names the managed worktree path, and preserves the underlying Git or validation reason; it does not report `routing_read_failed`.
+- [x] Regression cases in `v2/src/execution/external-worktree.test.ts` and `v2/src/daemon/daemon-workflow-start.test.ts` simulate a successful `git worktree add` that leaves no valid worktree, assert no callback/routing/agent work occurs, and fail against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md` document materialization-before-routing and the named start failure.
 
 ## Documentation updates
 

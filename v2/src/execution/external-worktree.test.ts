@@ -8,6 +8,7 @@ import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
   WorktreeBusyError,
+  WorktreeMaterializationError,
   withExternalWorktree,
 } from "./external-worktree.ts";
 
@@ -179,6 +180,48 @@ describe("external worktree helper", () => {
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     expect(existsSync(lockPath)).toBe(false);
     expect(existsSync(join(result.worktree.path, ".jarvis.lock"))).toBe(false);
+  });
+
+  test("rejects a successful worktree add that does not materialize a valid worktree before its callback", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    let callbackCalled = false;
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") return "";
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const worktreePath = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    await expect(
+      withExternalWorktree(
+        makeInput(jarvisRoot, repoRoot),
+        () => {
+          callbackCalled = true;
+        },
+        runner,
+      ),
+    ).rejects.toMatchObject({
+      name: "WorktreeMaterializationError",
+      worktreePath,
+      message: expect.stringContaining(`created path is not a git worktree: ${worktreePath}`),
+    } satisfies Partial<WorktreeMaterializationError>);
+    expect(callbackCalled).toBe(false);
+  });
+
+  test("preserves an Error cause's message verbatim (no wrapping prefix)", () => {
+    // Pins the `cause instanceof Error ? cause.message : String(cause)` branch: an Error cause
+    // must contribute its bare `.message`, not `String(error)` (which would add an "Error: " prefix).
+    const err = new WorktreeMaterializationError("/managed/wt", new Error("git worktree add left no checkout"));
+    expect(err.worktreePath).toBe("/managed/wt");
+    expect(err.cause).toBeInstanceOf(Error);
+    expect(err.message).toBe("Failed to materialize worktree /managed/wt: git worktree add left no checkout");
+  });
+
+  test("stringifies a non-Error cause", () => {
+    // Pins the `String(cause)` branch: a non-Error cause has no `.message`, so it must be stringified.
+    const err = new WorktreeMaterializationError("/managed/wt", "raw failure");
+    expect(err.message).toBe("Failed to materialize worktree /managed/wt: raw failure");
   });
 
   test("recovers stale lock and reports recovered status", async () => {

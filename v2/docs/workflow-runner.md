@@ -369,12 +369,10 @@ worktree creation, or a run row. Index link checkboxes do not determine this che
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
 to resolve the first unchecked linked subspec via
-`resolveActiveLinkedSubspec`. The active subspec's path relative to the routing
-base is set as `expectedArtifactPath`, and that subspec's body is injected into
-the prompt during iteration. The routing base is the external worktree when it
-exists on disk, otherwise the registered project root — so the first routing read
-on a launch with no worktree yet resolves against the project root instead of
-failing `ENOENT`. Once the write loop materializes the worktree, acceptance-criteria
+`resolveActiveLinkedSubspec`. A linked workflow materializes and validates its
+managed worktree before its first routing read or callback. The active subspec's
+path relative to that worktree is set as `expectedArtifactPath`, and that subspec's
+body is injected into the prompt during iteration. Acceptance-criteria
 verification, the index-mutation guard, and harness checkbox advancement all read
 and write the worktree copy; index ticks land on the branch, not in the operator
 checkout. Routing state is validated and protected during iteration:

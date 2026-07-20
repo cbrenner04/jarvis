@@ -2806,7 +2806,7 @@ describe("executeWorkflow linked implement routing", () => {
         expect.unreachable("Should have thrown");
       } catch (error) {
         expect(error).toBeInstanceOf(LinkedIndexReadError);
-        expect(error).toMatchObject({ indexPath: join(projectRoot, "spec/index.md") });
+        expect(error).toMatchObject({ indexPath: join(getExternalWorktreePath(step.worktree), "spec/index.md") });
         expect((error as Error).message).toContain("ENOENT");
       }
     });

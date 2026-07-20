@@ -4,7 +4,11 @@ import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
-import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import {
+  getExternalWorktreePath,
+  withExternalWorktree as realWithExternalWorktree,
+  WorktreeMaterializationError,
+} from "../execution/external-worktree.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
@@ -620,29 +624,41 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
-      executeWorkflow({
-        steps,
-        stateStore: store,
-        freshDispatch: true,
-        ...(logSink !== undefined ? { logSink } : {}),
-        ...(telemetry !== undefined ? { telemetry } : {}),
-        onReviewDebateProgress: reportReviewProgress,
-        onStepRunCreated: (stepIndex, runId) => {
-          workflowRunIds.add(runId);
-          activeRuns.set(runId, { kind: "workflow", runId });
-          if (stepIndex === 0) {
-            entryRunId = runId;
-            workflowPromisesByEntryRunId.set(runId, trackPromise);
-            resolve({ kind: "response", result: { runId } });
-          }
-        },
-      })
+      const execute = async () => {
+        const firstStep = steps[0];
+        if (firstStep?.behavior === "write" && firstStep.role === "implement" && firstStep.linkedIndexRouting) {
+          await (firstStep.withExternalWorktree ?? realWithExternalWorktree)(firstStep.worktree, () => undefined);
+        }
+        return executeWorkflow({
+          steps,
+          stateStore: store,
+          freshDispatch: true,
+          ...(logSink !== undefined ? { logSink } : {}),
+          ...(telemetry !== undefined ? { telemetry } : {}),
+          onReviewDebateProgress: reportReviewProgress,
+          onStepRunCreated: (stepIndex, runId) => {
+            workflowRunIds.add(runId);
+            activeRuns.set(runId, { kind: "workflow", runId });
+            if (stepIndex === 0) {
+              entryRunId = runId;
+              workflowPromisesByEntryRunId.set(runId, trackPromise);
+              resolve({ kind: "response", result: { runId } });
+            }
+          },
+        });
+      };
+      execute()
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           if (workflowRunIds.size === 0) {
             resolve({
               kind: "error",
-              code: err instanceof LinkedIndexReadError ? "routing_read_failed" : "invalid_params",
+              code:
+                err instanceof WorktreeMaterializationError
+                  ? "worktree_materialization_failed"
+                  : err instanceof LinkedIndexReadError
+                    ? "routing_read_failed"
+                    : "invalid_params",
               message,
             });
           }

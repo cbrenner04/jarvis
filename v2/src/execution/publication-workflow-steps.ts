@@ -421,6 +421,8 @@ export async function buildPlanWorkflowSteps(
   const behavior = input.reviewBehavior ?? "debate";
   if (behavior !== "debate" && behavior !== "light")
     return { ok: false, error: 'plan: reviewBehavior must be "debate" or "light"' };
+  const landing = r.source.landing;
+  if (landing?.kind !== "plan-tree") return { ok: false, error: "plan: missing staged tree landing configuration" };
   const cwd = getExternalWorktreePath(r.source.worktree);
   const review: ReviewWorkflowSourceStep | ReviewDebateWorkflowSourceStep =
     behavior === "light"
@@ -431,10 +433,11 @@ export async function buildPlanWorkflowSteps(
           branch: r.source.worktree.branchName,
           cwd,
           prompt: "",
-          verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
+          verdictPath: join(cwd, PLAN_STAGE, "verdict-plan.md"),
           maxCycles: passes,
           profile: planReviewPromptProfile,
-          profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
+          profileContext: { specPath: join(cwd, PLAN_STAGE), worktreePath: cwd },
+          landing,
         }
       : {
           behavior: "review-debate",
@@ -447,10 +450,11 @@ export async function buildPlanWorkflowSteps(
             advocate: "plan.prompt.review.advocate",
             adjudicator: "plan.prompt.review.adjudicator",
           },
-          verdictPath: join(cwd, r.source.specPath, "verdict-plan.md"),
+          verdictPath: join(cwd, PLAN_STAGE, "verdict-plan.md"),
           maxCycles: passes,
           profile: planReviewPromptProfile,
-          profileContext: { specPath: join(cwd, r.source.specPath), worktreePath: cwd },
+          profileContext: { specPath: join(cwd, PLAN_STAGE), worktreePath: cwd },
+          landing,
         };
   try {
     const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));

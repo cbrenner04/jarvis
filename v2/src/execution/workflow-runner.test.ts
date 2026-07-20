@@ -4129,6 +4129,32 @@ describe("executeWorkflow plan review dispatch", () => {
     claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
     codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
   };
+  const reviewedPlanLandingStep = (
+    root: string,
+    stage: string,
+    durable: string,
+    branch: string,
+    invoke: (agentId: string) => Promise<InvocationResult>,
+  ): ReviewWorkflowStep => ({
+    behavior: "review",
+    stepId: "plan-review",
+    project: "demo",
+    branch,
+    cwd: root,
+    prompt: "",
+    verdictPath: join(stage, "verdict-plan.md"),
+    maxCycles: 1,
+    agents: { critic: ["claude"], actuator: ["codex"] },
+    agentModelConfig: config,
+    profile: planReviewPromptProfile,
+    profileContext: { specPath: stage, worktreePath: root },
+    landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+    createBinding: ({ agentId }) => ({
+      id: agentId,
+      metadata: { agent: agentId, model: agentId },
+      invoke: async () => invoke(agentId),
+    }),
+  });
 
   test("renders live draft context, persists verdict, and publishes actuator edits", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-plan-review-"));
@@ -4182,6 +4208,56 @@ describe("executeWorkflow plan review dispatch", () => {
       expect(actuatorPrompts[0]).toContain("Clarify acceptance criteria");
       expect(actuatorPrompts[0]).toContain("Intent body");
     });
+  });
+
+  test("lands a reviewed plan tree without its verdict", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing", async (agentId) => {
+      if (agentId === "codex") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
+      return { kind: "ok", stdout: agentId === "claude" ? "Apply edit" : "done", stderr: "" };
+    });
+
+    await withStateStore(async (store) => {
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+    });
+
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(join(durable, "index.md"))).toBe(true);
+    expect(existsSync(join(durable, "intent.md"))).toBe(true);
+    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
+    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+  });
+
+  test("retains the staged plan and verdict when deferred landing fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-failure-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed");
+    mkdirSync(stage, { recursive: true });
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+    writeFileSync(join(stage, "01-test.md"), "# Staged", "utf8");
+    writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
+    const verdictPath = join(stage, "verdict-plan.md");
+    const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing-failure", async (agentId) => ({
+      kind: "ok",
+      stdout: agentId === "claude" ? "Keep verdict" : "done",
+      stderr: "",
+    }));
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+    });
+
+    expect(existsSync(stage)).toBe(true);
+    expect(readFileSync(verdictPath, "utf8")).toBe("Keep verdict");
   });
 });
 

@@ -33,13 +33,13 @@ is only in the review step's deferred-landing resumption, which is hardcoded to
 
 ## Acceptance criteria
 
-- [ ] A reviewed plan run (`--review-passes 1`, light or debate) lands its staged tree: after the review step completes, the durable spec dir exists with `index.md`, `intent.md`, and at least one `NN-*.md`, and `.jarvis-plan-stage/` is consumed (removed).
-- [ ] Actuator spec edits made during plan review are present in the landed durable tree.
-- [ ] The landed plan tree does not contain `verdict-plan.md`.
-- [ ] When the deferred plan landing fails, the review step returns a resumable `invocation_failure` and the stage (including the verdict) is retained.
-- [ ] A regression test drives a reviewed **plan** run through review to a landed spec tree and asserts the durable dir is created and the stage consumed; it fails against the pre-fix code (which strands the stage and lands nothing) and passes after the change.
-- [ ] Existing reviewed-intent landing tests in `workflow-runner.test.ts` stay green (intent landing behavior unchanged by the generalization).
-- [ ] The existing `executeWorkflow plan review dispatch` test in `workflow-runner.test.ts` stays green.
+- [x] A reviewed plan run (`--review-passes 1`, light or debate) lands its staged tree: after the review step completes, the durable spec dir exists with `index.md`, `intent.md`, and at least one `NN-*.md`, and `.jarvis-plan-stage/` is consumed (removed).
+- [x] Actuator spec edits made during plan review are present in the landed durable tree.
+- [x] The landed plan tree does not contain `verdict-plan.md`.
+- [x] When the deferred plan landing fails, the review step returns a resumable `invocation_failure` and the stage (including the verdict) is retained.
+- [x] A regression test drives a reviewed **plan** run through review to a landed spec tree and asserts the durable dir is created and the stage consumed; it fails against the pre-fix code (which strands the stage and lands nothing) and passes after the change.
+- [x] Existing reviewed-intent landing tests in `workflow-runner.test.ts` stay green (intent landing behavior unchanged by the generalization).
+- [x] The existing `executeWorkflow plan review dispatch` test in `workflow-runner.test.ts` stays green.
 
 ## Documentation updates
 

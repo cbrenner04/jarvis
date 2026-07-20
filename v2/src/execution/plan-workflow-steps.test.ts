@@ -281,8 +281,9 @@ describe("buildReviewedPlanWorkflowSteps", () => {
       },
       agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
       verdictPath: expect.stringMatching(
-        /worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
+        /worktrees\/demo\/plan\/reviewed-plan\/\.jarvis-plan-stage\/verdict-plan\.md$/,
       ),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage" },
     });
   });
 
@@ -382,11 +383,12 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
       maxCycles: 1,
       agents: { critic: ["claude"], actuator: ["claude"] },
       verdictPath: expect.stringMatching(
-        /worktrees\/demo\/plan\/reviewed-plan\/spec\/\d{8}T\d{6}Z-reviewed-plan\/verdict-plan\.md$/,
+        /worktrees\/demo\/plan\/reviewed-plan\/\.jarvis-plan-stage\/verdict-plan\.md$/,
       ),
       profileContext: expect.objectContaining({
-        specPath: expect.stringMatching(/\/spec\/\d{8}T\d{6}Z-reviewed-plan$/),
+        specPath: expect.stringMatching(/\.jarvis-plan-stage$/),
       }),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage" },
     });
   });
 

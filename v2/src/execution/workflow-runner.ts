@@ -142,6 +142,7 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agents: ReviewDebateStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  landing?: PublicationLanding;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -153,7 +154,6 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agents: ReviewStepAgents;
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-  /** When configured, landing is deferred until after successful review. */
   landing?: PublicationLanding;
 };
 
@@ -691,9 +691,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
     const lastStep = args.steps[args.steps.length - 1];
-    const isReviewLastStep = lastStep?.behavior === "review";
+    const isReviewLastStep = lastStep?.behavior === "review" || lastStep?.behavior === "review-debate";
 
-    // For reviewed intent workflows, landing is deferred until after review completes.
+    // For reviewed workflows, landing is deferred until after review completes.
     // Skip landing if the last step is a review step; it will be handled after review.
     if (
       publicationAgent !== undefined &&
@@ -1363,7 +1363,7 @@ type ReviewDebateStepOutcome =
       kind: "invocation_failure";
       runId: string;
       iterationsConsumed: number;
-      resumable: false;
+      resumable: boolean;
     };
 
 type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
@@ -1390,6 +1390,7 @@ async function runReviewDebateStep(
     agentModelConfig,
     createBinding,
     profile: serializedProfile,
+    landing,
     ...debateInput
   } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
@@ -1454,6 +1455,13 @@ async function runReviewDebateStep(
       ? actuatorExecution.binding.metadata?.agent?.trim()
       : undefined;
 
+  if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
+    const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
+    if (landingError !== undefined) {
+      return { kind: "invocation_failure", runId, iterationsConsumed: result.cycles.length, resumable: true };
+    }
+  }
+
   return {
     kind,
     runId,
@@ -1486,9 +1494,9 @@ function findReviewLandingCheckpoint(
  * Exclude the verdict file from staging, run final validation + transactional landing, then
  * remove the verdict. Returns an error message on failure, or undefined on success.
  */
-async function landReviewedIntentOutput(
+async function landReviewedPublicationOutput(
   worktreePath: string,
-  deferred: Extract<PublicationLanding, { kind: "intent-stage" }>,
+  deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,
 ): Promise<string | undefined> {
   const ownerPath = `${verdictPath}.owner`;
@@ -1527,7 +1535,7 @@ async function finishReviewedIntentLanding(
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
   logSink?.append(runId, { kind: "iteration_started", attemptId });
-  const landingError = await landReviewedIntentOutput(step.cwd, deferred, step.verdictPath);
+  const landingError = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath);
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
       attemptId,
@@ -1723,6 +1731,19 @@ async function runProfileReviewStep(
     kind === "complete" && actuatorExecution?.result.kind === "ok"
       ? actuatorExecution.binding.metadata?.agent?.trim()
       : undefined;
+
+  if (kind === "complete" && step.landing !== undefined && step.landing.kind !== "none") {
+    const landingError = await landReviewedPublicationOutput(step.cwd, step.landing, reviewInput.verdictPath);
+    if (landingError !== undefined) {
+      return {
+        kind: "invocation_failure",
+        runId: ids.runId,
+        iterationsConsumed: result.cycles.length,
+        resumable: true,
+        invocationFailureMessage: landingError,
+      };
+    }
+  }
 
   return {
     kind,

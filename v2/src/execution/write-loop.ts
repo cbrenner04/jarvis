@@ -167,20 +167,22 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         existsSync(join(getExternalWorktreePath(args.worktree), ".git"))
       ) {
         try {
+          const worktreePath = getExternalWorktreePath(args.worktree);
+          const creationTitle = resolveAndPersistCreationTitle(
+            store,
+            prepared.result.runId,
+            worktreePath,
+            args.specPath,
+            prepared.creationTitle,
+          );
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
-            worktreePath: getExternalWorktreePath(args.worktree),
+            worktreePath,
             baseRef: args.worktree.baseRef,
             specPath: args.specPath,
             agent: prepared.result.completionAgent ?? "",
+            title: creationTitle,
           });
           if (published.commitSha !== undefined) {
-            const creationTitle = resolveAndPersistCreationTitle(
-              store,
-              prepared.result.runId,
-              getExternalWorktreePath(args.worktree),
-              args.specPath,
-              prepared.creationTitle,
-            );
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
@@ -423,20 +425,21 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
       if (!agent) return completionCommitFailed(args, attributed);
       try {
+        const creationTitle = resolveAndPersistCreationTitle(
+          store,
+          runId,
+          worktreePath,
+          args.specPath,
+          prepared.creationTitle,
+        );
         const published = await (args.completionCommitter ?? createCompletionCommitter())({
           worktreePath,
           baseRef: args.worktree.baseRef,
           specPath: args.specPath,
           agent,
+          title: creationTitle,
         });
         if (published.commitSha !== undefined) {
-          const creationTitle = resolveAndPersistCreationTitle(
-            store,
-            runId,
-            worktreePath,
-            args.specPath,
-            prepared.creationTitle,
-          );
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
             worktreePath,
             baseRef: args.worktree.baseRef,
@@ -958,6 +961,7 @@ export async function publishWithReadyRepair(
         baseRef: input.baseRef,
         specPath: input.specPath,
         agent: result.completionAgent ?? "",
+        title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
       });
       outcome = await publishCompletionArtifacts(args, input);
     } catch (error) {

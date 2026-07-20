@@ -49,19 +49,77 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     expect(result).toEqual({ commitSha: "new-commit", filesChanged: 2 });
     expect(calls.some((c) => c.args[0] === "update-ref")).toBe(true);
     expect(calls.some((c) => c.args[0] === "diff-tree" && c.args.includes("--no-renames"))).toBe(true);
 
-    // Subject is derived from the spec title, not the fixed "jarvis: complete run".
+    // Subject is the caller-supplied title verbatim; the committer no longer resolves it.
     const commitCall = calls.find((c) => c.args[0] === "commit-tree");
     const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
     expect(message).toContain("Test Spec Title");
     expect(message).toContain("Spec: v2/spec/test/index.md");
     expect(message).toContain("Jarvis-Agent: claude");
-    expect(message).not.toContain("jarvis: complete run");
+  });
+
+  test("an intent landing directory (no index.md) commits with the caller-supplied title", async () => {
+    // Regression: intent workflows land into `v2/spec/ready-intents`, a directory
+    // with no index.md. The committer used to re-resolve its subject from that
+    // directory and threw PublicationTitleResolutionError. It now takes the title
+    // as input, so the shape of specPath is irrelevant to the subject.
+    const { worktreePath, gitDir } = setupWorktree();
+    mkdirSync(join(worktreePath, "v2/spec/ready-intents"), { recursive: true });
+    const calls: GitCall[] = [];
+
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "v2/spec/ready-intents/a.md\nv2/spec/ready-intents/b.md";
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    const result = await committer({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/ready-intents",
+      agent: "codex",
+      title: "intent: my seed",
+    });
+
+    expect(result.commitSha).toBe("new-commit");
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toContain("intent: my seed");
+    expect(message).toContain("Jarvis-Agent: codex");
+  });
+
+  test("an empty title is rejected before any git work", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
+      calls.push({ args, env: undefined });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      return "";
+    };
+
+    await expect(
+      createCompletionCommitter(runGit)({
+        worktreePath,
+        baseRef: "main",
+        specPath: "v2/spec/test/index.md",
+        agent: "codex",
+        title: "   ",
+      }),
+    ).rejects.toThrow("completion title is missing");
+    expect(calls.length).toBe(0);
   });
 
   test("resuming after a successful commit reports the existing completion commit sha, not a no-op", async () => {
@@ -85,6 +143,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     // HEAD is already the completion commit (publish failed earlier); resume must
@@ -112,6 +171,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     expect(result).toEqual({});
@@ -129,6 +189,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     expect(result).toEqual({});
@@ -157,6 +218,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     expect(result.filesChanged).toBe(3);
@@ -179,6 +241,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
     expect(noCommit).toEqual({});
     expect(noCommit.filesChanged).toBeUndefined();
@@ -214,6 +277,7 @@ describe("createCompletionCommitter", () => {
       baseRef: "main",
       specPath: "v2/spec/test/index.md",
       agent: "claude",
+      title: "Test Spec Title",
     });
 
     expect(result).toEqual({ commitSha: "existing-commit", filesChanged: 1 });

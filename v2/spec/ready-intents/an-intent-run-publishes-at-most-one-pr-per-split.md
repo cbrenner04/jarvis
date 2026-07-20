@@ -6,9 +6,9 @@ name: an-intent-run-publishes-at-most-one-pr-per-split
 
 ## Problem
 
-A single `jarvis run workflow intent` invocation opened two PRs for the same split (#1689 and
-# 1692), both adding the identical ready-intent file. The first landed and its `intent/<slug>` branch
-was deleted on merge; a second publication then fired, re-created the just-deleted branch, and
+A single `jarvis run workflow intent` invocation opened two PRs for the same split (#1689
+and #1692), both adding the identical ready-intent file. The first landed and its `intent/<slug>`
+branch was deleted on merge; a second publication then fired, re-created the just-deleted branch, and
 re-published the same file as a duplicate PR that had to be closed by hand. The foreground CLI
 returned `completed` once, then a second publication fired later against the same branch name.
 

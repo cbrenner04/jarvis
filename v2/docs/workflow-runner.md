@@ -371,13 +371,13 @@ worktree creation, or a run row. Index link checkboxes do not determine this che
 to resolve the first unchecked linked subspec via
 `resolveActiveLinkedSubspec`. The active subspec's path relative to the routing
 base is set as `expectedArtifactPath`, and that subspec's body is injected into
-the prompt during iteration. The routing base is the external worktree when it
-exists on disk, otherwise the registered project root — so the first routing read
-on a launch with no worktree yet resolves against the project root instead of
-failing `ENOENT`. Once the write loop materializes the worktree, acceptance-criteria
-verification, the index-mutation guard, and harness checkbox advancement all read
-and write the worktree copy; index ticks land on the branch, not in the operator
-checkout. Routing state is validated and protected during iteration:
+the prompt during iteration. The routing base is the external worktree. Linked
+workflow start materializes and validates that worktree before any routing read,
+callback, or durable run row; a failed materialization therefore cannot fall back
+to the registered project root. The write loop reuses the validated worktree, so
+acceptance-criteria verification, the index-mutation guard, and harness checkbox
+advancement all read and write the worktree copy; index ticks land on the branch,
+not in the operator checkout. Routing state is validated and protected during iteration:
 agent-authored changes to index checkboxes are restored and reported as
 `implement.index_routing_mutated`; agent edits to the active subspec's criteria
 remain allowed. Harness advancement checks non-human-only acceptance criteria

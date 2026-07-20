@@ -19,6 +19,7 @@ import {
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -141,9 +142,38 @@ test("start reports routing_read_failed for an unreadable linked index", async (
   if (response.kind === "error") {
     expect(response.code).toBe("routing_read_failed");
     expect(typeof response.message).toBe("string");
-    expect(response.message.includes("/fake/missing-index.md")).toBe(true);
+    expect(response.message.includes("/worktrees/demo/routing-read-failed/missing-index.md")).toBe(true);
     expect(response.message.includes("ENOENT")).toBe(true);
   }
+});
+
+test("start reports materialization failure before linked routing, run creation, or agent invocation", async () => {
+  let agentInvocations = 0;
+  const step = createWriteStep(
+    "step-1",
+    "materialization-failed",
+    createBindingFactory(async () => {
+      agentInvocations += 1;
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    }),
+  );
+  step.specPath = "missing-index.md";
+  step.linkedIndexRouting = true;
+  const worktreePath = getExternalWorktreePath(step.worktree);
+  step.withExternalWorktree = async () => {
+    throw new WorktreeMaterializationError(worktreePath, new Error("git worktree add returned success without a worktree"));
+  };
+
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "worktree_materialization_failed",
+    message: expect.stringContaining(worktreePath),
+  });
+  expect((response as { message: string }).message).toContain("git worktree add returned success without a worktree");
+  expect(stateStore.listRuns()).toEqual([]);
+  expect(agentInvocations).toBe(0);
 });
 
 test("start with steps reports isLive on list while the workflow step is executing", async () => {

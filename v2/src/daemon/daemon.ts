@@ -4,7 +4,11 @@ import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
-import { getExternalWorktreePath } from "../execution/external-worktree.ts";
+import {
+  getExternalWorktreePath,
+  withExternalWorktree,
+  WorktreeMaterializationError,
+} from "../execution/external-worktree.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
@@ -721,11 +725,25 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: "Insufficient memory headroom to start workflow",
       };
     }
-    const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
-    const claimRunId = crypto.randomUUID();
-    _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
-    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
-    return startWorkflowRun(steps, workflowKey, claimRunId);
+    const start = (): StartResult => {
+      const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
+      const claimRunId = crypto.randomUUID();
+      _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
+      activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
+      return startWorkflowRun(steps, workflowKey, claimRunId);
+    };
+    if (firstStep?.behavior !== "write" || !firstStep.linkedIndexRouting) return start();
+
+    const materialize = firstStep.withExternalWorktree ?? withExternalWorktree;
+    return materialize(firstStep.worktree, () => undefined)
+      .then(() => start())
+      .catch((error) => {
+        if (error instanceof WorktreeMaterializationError) {
+          return { kind: "error" as const, code: "worktree_materialization_failed", message: error.message };
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return { kind: "error" as const, code: "invalid_params", message };
+      });
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {

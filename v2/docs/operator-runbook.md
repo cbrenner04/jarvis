@@ -192,9 +192,13 @@ project-relative path in `--base` before daemon contact. If it is unavailable,
 commit or select a base ref that contains the spec and retry; launching from a
 project subdirectory is supported.
 
-If that first routing index read fails, the daemon returns `routing_read_failed`.
-The operator message names the resolved index path and the underlying read
-reason; use both to diagnose missing or unreadable spec state.
+Before a linked workflow reads its routing index, the daemon materializes and
+validates the managed worktree. If that fails, `start` returns
+`worktree_materialization_failed`, naming the managed path and the Git or
+validation reason; no run is available to wait on. Resolve the Git/worktree
+condition and retry `start`. A later routing index read failure returns
+`routing_read_failed`; its message names the resolved index path and underlying
+read reason.
 
 Before daemon contact, `jarvis run workflow implement` reads the requested spec
 tree. If all non-human-only criteria are checked, it exits `1` with

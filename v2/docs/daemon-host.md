@@ -127,9 +127,12 @@ no bound of their own.
 
 `wait` validates `params.runId` before reading logs. Missing or empty `runId`
 returns `invalid_params`; unknown runs return `unknown_run`. A linked implement
-routing-index read before step 0's row exists returns `routing_read_failed`,
-with the resolved index path and underlying read reason; other pre-row
-rejections remain `invalid_params`.
+workflow materializes and validates its managed worktree before routing or step
+0's row creation. A failure returns `worktree_materialization_failed`, naming the
+managed path and preserving the Git or validation reason; it creates no row. A
+later routing-index read failure returns `routing_read_failed`, with the resolved
+index path and underlying read reason; other pre-row rejections remain
+`invalid_params`.
 
 The response is deferred on the same request `id` while a run is in progress.
 Other RPCs on that connection continue to receive normal correlated responses

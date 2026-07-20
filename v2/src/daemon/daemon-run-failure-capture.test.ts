@@ -324,7 +324,7 @@ test("workflow async-path failure after step 0's row demotes durable status and 
   expect(secondResponse.kind).toBe("response");
 });
 
-test("a run already terminal at rejection time is not re-demoted and gets no terminal record", async () => {
+test("a run already terminal at rejection time is not re-demoted but still records the failure", async () => {
   const branch = "workflow-killed";
   const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"), 2);
   const workflowHandlers = createRunControlHandlers({
@@ -351,5 +351,5 @@ test("a run already terminal at rejection time is not re-demoted and gets no ter
 
   const records = openLogReader(logsPath).tail(killedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
-  expect(terminalRecords).toHaveLength(0);
+  expect(terminalRecords).toHaveLength(1);
 });

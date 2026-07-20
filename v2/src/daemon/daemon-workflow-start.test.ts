@@ -542,3 +542,43 @@ test("intent request against a terminal prior run of another invocation creates 
   // Verify the new run ID is different from the first
   expect(secondRunId).not.toBe(firstRunId);
 });
+
+test("a workflow that dies after its step runs settle keeps their status and appends run_execution_failed", async () => {
+  const logsPath = join(tmpdir(), `jarvis-workflow-logs-${process.pid}-${Date.now()}.jsonl`);
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    logsPath,
+    logReader: openLogReader(logsPath),
+  });
+
+  // A rehydrated implement profile with no profileContext makes the debate render throw
+  // after the write step (and shrink) already completed their run rows.
+  const debate: ReviewDebateWorkflowStep = {
+    ...createDebateStep("implement-review", "swallow-branch"),
+    profile: implementReviewProfile as NonNullable<ReviewDebateWorkflowStep["profile"]>,
+  };
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep("step-1", "swallow-branch", doneWithArtifactBindingFactory),
+    debate,
+  ];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+  const runId = (response as { result: { runId: string } }).result.runId;
+
+  const wait = await waitDirect(handlers, runId);
+  expect(wait.kind).toBe("response");
+  expect((wait as { result: { runStatus?: string; error?: { reason?: string } } }).result).toMatchObject({
+    runStatus: "completed",
+    error: { reason: "harness_failure" },
+  });
+
+  expect(stateStore.loadRun(runId)?.status).toBe("completed");
+  const kinds = openLogReader(logsPath)
+    .tail(runId)
+    .map((record) => record.event.kind);
+  expect(kinds.at(-1)).toBe("run_execution_failed");
+  rmSync(logsPath, { force: true });
+});

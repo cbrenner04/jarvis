@@ -311,6 +311,20 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
 
+### Workflow ends "complete" but produced no PR
+
+A workflow can die after its step runs settle (review step, publication) — step
+rows then all read `completed` while nothing was committed, pushed, or published.
+Diagnose with:
+
+- `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
+- `jarvis run log <id>` — trailing `run_execution_failed` record with the message
+- `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
+- `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran
+
+Review-debate steps have no durable run row, so their absence from `run list` is
+not evidence they didn't run; telemetry is.
+
 ### Workflow reports a stale worktree claim
 
 If a workflow start returns `worktree_claimed` after its prior owner is no longer

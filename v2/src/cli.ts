@@ -99,6 +99,28 @@ export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
 }
 
+function levenshteinDistance(left: string, right: string): number {
+  const leftCharacters = Array.from(left);
+  const rightCharacters = Array.from(right);
+  let previous = Array.from({ length: rightCharacters.length + 1 }, (_, index) => index);
+
+  for (let leftIndex = 1; leftIndex <= leftCharacters.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= rightCharacters.length; rightIndex += 1) {
+      current.push(
+        Math.min(
+          current[rightIndex - 1]! + 1,
+          previous[rightIndex]! + 1,
+          previous[rightIndex - 1]! + Number(leftCharacters[leftIndex - 1] !== rightCharacters[rightIndex - 1]),
+        ),
+      );
+    }
+    previous = current;
+  }
+
+  return previous[rightCharacters.length]!;
+}
+
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
     stdout: (s) => process.stdout.write(s),
@@ -121,11 +143,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   const entry = findCommand(command);
   if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
 
-  out.stderr(
-    `unknown command: ${command}; expected one of: ${enumerateCommands()
-      .map(({ name }) => name)
-      .join(", ")}\n`,
-  );
+  const closeMatches = enumerateCommands().filter((entry) => levenshteinDistance(command, entry.name) <= 2);
+  const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;
+  out.stderr(`unknown command: ${command}\n`);
+  if (closeCommand !== undefined) out.stderr(`did you mean ${closeCommand.name}?\n`);
+  out.stderr("run `jarvis help` for available commands\n");
   return 1;
 }
 

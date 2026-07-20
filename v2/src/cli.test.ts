@@ -13,6 +13,10 @@ import { captureIo, cliMain as main } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
 
+function unknownCommandError(command: string, suggestion?: string): string {
+  return `unknown command: ${command}\n${suggestion === undefined ? "" : `did you mean ${suggestion}?\n`}run \`jarvis help\` for available commands\n`;
+}
+
 /** Top-level dispatch only; per-command behavior is covered next to each module in `commands/`. */
 describe("v2 cli dispatch", () => {
   test("no args prints v2 boundary message and exits 0", async () => {
@@ -24,15 +28,37 @@ describe("v2 cli dispatch", () => {
     expect(cap.read()).toEqual({ stdout: "v2 not ready\n", stderr: "" });
   });
 
-  test("an unknown command writes a diagnostic to stderr and exits non-zero", async () => {
+  test.each([
+    ["unique deletion", "writ", "write"],
+    ["insertion", "writex", "write"],
+    ["substitution", "wrote", "write"],
+    ["distance two", "wte", "write"],
+    ["Unicode distance two", "run😀😀", "run"],
+  ])("a %s close match suggests the registered command", async (_kind, command, suggestion) => {
     const cap = captureIo();
 
-    const code = await main(["bogus"], cap.io);
+    const code = await main([command], cap.io);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: `unknown command: bogus; expected one of: ${commandNames}\n`,
+      stderr: unknownCommandError(command, suggestion),
+    });
+  });
+
+  test.each([
+    ["absent", "zzzz"],
+    ["ambiguous", "rux"],
+    ["distance three", "wr"],
+  ])("a %s match omits a suggestion", async (_kind, command) => {
+    const cap = captureIo();
+
+    const code = await main([command], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: unknownCommandError(command),
     });
   });
 
@@ -98,7 +124,7 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: `unknown command: ${command}; expected one of: ${commandNames}\n`,
+      stderr: unknownCommandError(command),
     });
   });
 

@@ -3,9 +3,9 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isProcessAlive, startDaemon } from "./daemon-lifecycle.ts";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
+import { isProcessAlive } from "./daemon-lifecycle.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 const testDaemons = createTestDaemonLifecycle();
@@ -25,7 +25,10 @@ async function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<void> {
   expect(check()).toBe(true);
 }
 
-async function launchDaemonLauncher(owner: boolean, socketPath: string): Promise<{ launcher: ReturnType<typeof Bun.spawn>; pid: number }> {
+async function launchDaemonLauncher(
+  owner: boolean,
+  socketPath: string,
+): Promise<{ launcher: ReturnType<typeof Bun.spawn>; pid: number }> {
   const script = `import { startDaemon } from ${JSON.stringify(join(import.meta.dir, "daemon-lifecycle.ts"))}; const daemon = await startDaemon(process.env.SOCKET_PATH, { daemonScript: process.env.DAEMON_SCRIPT, ${owner ? "testOwnerPid: process.pid" : ""} }); console.log(daemon.pid); setInterval(() => {}, 1000);`;
   const launcher = Bun.spawn([process.execPath, "-e", script], {
     env: { ...process.env, SOCKET_PATH: socketPath, DAEMON_SCRIPT: entrypoint },

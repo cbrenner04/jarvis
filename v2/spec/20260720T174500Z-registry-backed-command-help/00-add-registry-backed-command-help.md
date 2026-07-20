@@ -22,16 +22,16 @@ The v2 CLI dispatches through repeated command branches and separately hard-code
 
 ## Acceptance criteria
 
-- [ ] `jarvis help` writes exactly `write`, `daemon`, `config`, `run`, `tui`, `cleanup`, and `help`, in registry order, as `name<TAB>summary` lines plus one trailing newline; each summary is non-whitespace and newline-free, stdout is otherwise empty, stderr is empty, and it exits `0`.
-- [ ] A `v2/src/cli.test.ts` regression independently expects the complete `write`, `daemon`, `config`, `run`, `tui`, `cleanup`, and `help` overview and fails against the baseline before passing after implementation.
-- [ ] `v2/src/cli.test.ts` covers `help foo` and `help --version` reporting `jarvis help` usage on stderr and exiting non-zero.
-- [ ] Registry enumeration and exact-name lookup expose exactly one entry for every dispatched command; every `name`, `summary`, and `usage` is non-whitespace, summaries contain no newline, each entry owns its handler, and each usage matches its existing authoritative command usage text (or `jarvis help` for help).
-- [ ] `v2/src/cli.test.ts` proves dispatch, help rendering, and unknown-command recognized names are derived from registry entries, without an independent handler-name mapping.
-- [ ] Unknown-command regressions in `v2/src/cli.test.ts` expect `help` in the recognized names while preserving stderr output and a non-zero exit; `constructor` and `toString` remain unknown commands.
-- [ ] Existing dispatch coverage in `v2/src/cli.test.ts` and `v2/src/commands/*.test.ts` stays green.
-- [ ] No-argument and `--version` coverage in `v2/src/cli.test.ts` stays green.
-- [ ] `README.md` keeps its exhaustive v2 command catalog synchronized with `help`; `v2/docs/write-behavior.md` documents `jarvis help` and the top-level registry source of truth; `v2/docs/v1-behaviors.md` records the v2 help and registry-backed dispatch behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `jarvis help` writes exactly `write`, `daemon`, `config`, `run`, `tui`, `cleanup`, and `help`, in registry order, as `name<TAB>summary` lines plus one trailing newline; each summary is non-whitespace and newline-free, stdout is otherwise empty, stderr is empty, and it exits `0`.
+- [x] A `v2/src/cli.test.ts` regression independently expects the complete `write`, `daemon`, `config`, `run`, `tui`, `cleanup`, and `help` overview and fails against the baseline before passing after implementation.
+- [x] `v2/src/cli.test.ts` covers `help foo` and `help --version` reporting `jarvis help` usage on stderr and exiting non-zero.
+- [x] Registry enumeration and exact-name lookup expose exactly one entry for every dispatched command; every `name`, `summary`, and `usage` is non-whitespace, summaries contain no newline, each entry owns its handler, and each usage matches its existing authoritative command usage text (or `jarvis help` for help).
+- [x] `v2/src/cli.test.ts` proves dispatch, help rendering, and unknown-command recognized names are derived from registry entries, without an independent handler-name mapping.
+- [x] Unknown-command regressions in `v2/src/cli.test.ts` expect `help` in the recognized names while preserving stderr output and a non-zero exit; `constructor` and `toString` remain unknown commands.
+- [x] Existing dispatch coverage in `v2/src/cli.test.ts` and `v2/src/commands/*.test.ts` stays green.
+- [x] No-argument and `--version` coverage in `v2/src/cli.test.ts` stays green.
+- [x] `README.md` keeps its exhaustive v2 command catalog synchronized with `help`; `v2/docs/write-behavior.md` documents `jarvis help` and the top-level registry source of truth; `v2/docs/v1-behaviors.md` records the v2 help and registry-backed dispatch behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -2,7 +2,15 @@ import packageJson from "../../package.json";
 import type { CliDeps } from "./cli/deps.ts";
 import { createRuntimeDeps } from "./cli/deps.ts";
 import type { Io } from "./cli/io.ts";
-import { WRITE_USAGE } from "./cli/usage.ts";
+import {
+  CLEANUP_USAGE,
+  CONFIG_USAGE,
+  DAEMON_USAGE,
+  HELP_USAGE,
+  RUN_USAGE,
+  TUI_USAGE,
+  WRITE_USAGE,
+} from "./cli/usage.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
@@ -11,6 +19,85 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+
+type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
+
+export type CommandEntry = {
+  name: string;
+  summary: string;
+  usage: string;
+  handler: CommandHandler;
+};
+
+async function runWriteCommand(
+  argv: readonly string[],
+  out: Io,
+  runtimeDeps: CliDeps,
+  operatorSessionId: string,
+): Promise<number> {
+  const parsed = parseWriteCliInput(argv, runtimeDeps);
+  if (!parsed.ok) {
+    if (parsed.message !== undefined) out.stderr(parsed.message);
+    out.stderr(WRITE_USAGE);
+    return 1;
+  }
+
+  const resolved = resolveWriteLoopBindings(parsed.input);
+  if (!resolved.ok) {
+    out.stderr(`${resolved.message}\n`);
+    return 1;
+  }
+
+  const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(resolved.input, operatorSessionId));
+
+  out.stdout(`${writeStdoutJson(loopResult)}\n`);
+
+  return exitCodeForWriteResult(loopResult.kind);
+}
+
+function renderHelp(out: Io): number {
+  out.stdout(
+    `${enumerateCommands()
+      .map(({ name, summary }) => `${name}\t${summary}`)
+      .join("\n")}\n`,
+  );
+  return 0;
+}
+
+const commandEntries: readonly CommandEntry[] = [
+  { name: "write", summary: "Run an in-process write loop.", usage: WRITE_USAGE, handler: runWriteCommand },
+  { name: "daemon", summary: "Manage the background daemon.", usage: DAEMON_USAGE, handler: runDaemonCommand },
+  { name: "config", summary: "Show or update machine configuration.", usage: CONFIG_USAGE, handler: runConfigCommand },
+  { name: "run", summary: "Manage daemon-backed runs.", usage: RUN_USAGE, handler: runRunCommand },
+  { name: "tui", summary: "Open the interactive run monitor.", usage: TUI_USAGE, handler: runTuiCommand },
+  {
+    name: "cleanup",
+    summary: "Retire completed worktrees and specs.",
+    usage: CLEANUP_USAGE,
+    handler: runCleanupCliCommand,
+  },
+  {
+    name: "help",
+    summary: "List top-level commands.",
+    usage: HELP_USAGE,
+    handler: (argv, io) => {
+      if (argv.length !== 0) {
+        io.stderr(HELP_USAGE);
+        return Promise.resolve(1);
+      }
+      return Promise.resolve(renderHelp(io));
+    },
+  },
+];
+
+/** The single source of truth for top-level command dispatch and discovery. */
+export function enumerateCommands(): readonly CommandEntry[] {
+  return commandEntries;
+}
+
+export function findCommand(name: string): CommandEntry | undefined {
+  return commandEntries.find((entry) => entry.name === name);
+}
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -26,53 +113,19 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return 0;
   }
 
-  if (command === "write") {
-    const parsed = parseWriteCliInput(argv.slice(1), runtimeDeps);
-    if (!parsed.ok) {
-      if (parsed.message !== undefined) out.stderr(parsed.message);
-      out.stderr(WRITE_USAGE);
-      return 1;
-    }
-
-    const resolved = resolveWriteLoopBindings(parsed.input);
-    if (!resolved.ok) {
-      out.stderr(`${resolved.message}\n`);
-      return 1;
-    }
-
-    const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(resolved.input, operatorSessionId));
-
-    out.stdout(`${writeStdoutJson(loopResult)}\n`);
-
-    return exitCodeForWriteResult(loopResult.kind);
-  }
-
-  if (command === "daemon") {
-    return runDaemonCommand(argv.slice(1), out, runtimeDeps);
-  }
-
-  if (command === "config") {
-    return runConfigCommand(argv.slice(1), out, runtimeDeps);
-  }
-
-  if (command === "run") {
-    return runRunCommand(argv.slice(1), out, runtimeDeps);
-  }
-
-  if (command === "tui") {
-    return runTuiCommand(argv.slice(1), out, runtimeDeps);
-  }
-
-  if (command === "cleanup") {
-    return runCleanupCliCommand(argv.slice(1), out, runtimeDeps);
-  }
-
   if (command === undefined) {
     out.stdout("v2 not ready\n");
     return 0;
   }
 
-  out.stderr(`unknown command: ${command}; expected one of: write, daemon, config, run, tui, cleanup\n`);
+  const entry = findCommand(command);
+  if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+
+  out.stderr(
+    `unknown command: ${command}; expected one of: ${enumerateCommands()
+      .map(({ name }) => name)
+      .join(", ")}\n`,
+  );
   return 1;
 }
 

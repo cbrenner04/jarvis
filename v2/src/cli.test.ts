@@ -12,13 +12,16 @@ describe("v2 cli dispatch", () => {
     expect(cap.read()).toEqual({ stdout: "v2 not ready\n", stderr: "" });
   });
 
-  test("an unknown command falls through to the v2 boundary message", async () => {
+  test("an unknown command writes a diagnostic to stderr and exits non-zero", async () => {
     const cap = captureIo();
 
     const code = await main(["bogus"], cap.io);
 
-    expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "v2 not ready\n", stderr: "" });
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "unknown command: bogus; expected one of: write, daemon, config, run, tui, cleanup\n",
+    });
   });
 
   test("--version prints package version and exits 0", async () => {

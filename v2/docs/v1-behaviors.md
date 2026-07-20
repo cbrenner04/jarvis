@@ -29,6 +29,8 @@ flags override alias defaults. Invalid values fail with usage before daemon cont
 
 - The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `runbook`, `plan`, `intent`, `prompt`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
 
+- **[v2 behavior change]** A v2 unknown top-level command writes `unknown command: <command>; expected one of: write, daemon, config, run, tui, cleanup` to stderr, writes nothing to stdout, and exits 1. Sources: `v2/src/cli.ts`
+
 - **v2 cleanup parity delta:** v2's shared archival policy derives completeness only from linked (or single-file) non-human-only acceptance criteria, rejects vacuous specs, and fails closed on open-PR or materialized-worktree ownership uncertainty. It moves the whole artifact into its existing home's `completed/` directory and prunes a same-named ready-intent only on byte identity with `intent.md`, rolling back the move on prune failure. Durable run rows remain untouched. Sources: `v2/src/commands/cleanup-artifacts.ts`, `shared/spec-parser.ts`
 
 - **v2 cleanup retirement archival:** after `git worktree remove`, v2 derives the spec's configured home and timestamped directory identity from the durable run's `specPath`, then archives eligible completed artifacts. `--dry-run` previews the worktree, archive destination, and byte-proven ready-intent prune. Failed retirement leaves artifacts untouched; incomplete specs, open matching PRs, and other materialized owners remain at the root with stdout refusal reasons. Sources: `v2/src/commands/cleanup.ts`, `v2/src/commands/cleanup-artifacts.ts`

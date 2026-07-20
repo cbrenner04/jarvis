@@ -8,7 +8,7 @@ import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
   WorktreeBusyError,
-  type WorktreeMaterializationError,
+  WorktreeMaterializationError,
   withExternalWorktree,
 } from "./external-worktree.ts";
 
@@ -207,6 +207,21 @@ describe("external worktree helper", () => {
       message: expect.stringContaining(`created path is not a git worktree: ${worktreePath}`),
     } satisfies Partial<WorktreeMaterializationError>);
     expect(callbackCalled).toBe(false);
+  });
+
+  test("preserves an Error cause's message verbatim (no wrapping prefix)", () => {
+    // Pins the `cause instanceof Error ? cause.message : String(cause)` branch: an Error cause
+    // must contribute its bare `.message`, not `String(error)` (which would add an "Error: " prefix).
+    const err = new WorktreeMaterializationError("/managed/wt", new Error("git worktree add left no checkout"));
+    expect(err.worktreePath).toBe("/managed/wt");
+    expect(err.cause).toBeInstanceOf(Error);
+    expect(err.message).toBe("Failed to materialize worktree /managed/wt: git worktree add left no checkout");
+  });
+
+  test("stringifies a non-Error cause", () => {
+    // Pins the `String(cause)` branch: a non-Error cause has no `.message`, so it must be stringified.
+    const err = new WorktreeMaterializationError("/managed/wt", "raw failure");
+    expect(err.message).toBe("Failed to materialize worktree /managed/wt: raw failure");
   });
 
   test("recovers stale lock and reports recovered status", async () => {

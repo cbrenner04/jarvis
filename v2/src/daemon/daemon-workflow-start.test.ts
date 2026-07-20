@@ -20,6 +20,7 @@ import {
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -169,6 +170,28 @@ test("start reports materialization failure before linked routing, run-row creat
   }
   expect(fakeExecutor.pendingCount()).toBe(0);
   expect(await listRunsDirect(handlers)).toEqual([]);
+});
+
+test("eagerly provisions the managed worktree before dispatch for a linked implement step", async () => {
+  // Pins the daemon eager-materialization guard (behavior === "write" && role === "implement"
+  // && linkedIndexRouting). The daemon provisions once before executeWorkflow; the linked
+  // implement step provisions again inside the workflow loop => exactly two invocations. Break
+  // any conjunct (or drop the eager call) and only the in-loop provisioning runs (count 1).
+  let calls = 0;
+  const step = createWriteStep("step-1", "eager-materialize");
+  step.specPath = "missing-index.md";
+  step.linkedIndexRouting = true;
+  const fake = createFakeWithExternalWorktree(step.worktree.jarvisRoot);
+  step.withExternalWorktree = (args, run) => {
+    calls += 1;
+    return fake(args, run);
+  };
+
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+
+  expect(calls).toBe(2);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") expect(response.code).toBe("routing_read_failed");
 });
 
 test("start with steps reports isLive on list while the workflow step is executing", async () => {

@@ -436,7 +436,6 @@ describe("write loop", () => {
     });
   });
 
-
   test("blocked outcome truncates very long blocker text in log", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();

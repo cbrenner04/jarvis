@@ -362,9 +362,7 @@ async function executeDefaultWrite(
         ? expectedArtifactPath
         : undefined;
   const blockerTextContract: BlockerTextContract | undefined =
-    blockerTextTargetPath !== undefined &&
-    existsSync(blockerTextTargetPath) &&
-    statSync(blockerTextTargetPath).isFile()
+    blockerTextTargetPath !== undefined && existsSync(blockerTextTargetPath) && statSync(blockerTextTargetPath).isFile()
       ? {
           id: "write.blocker-text",
           specPath: blockerTextTargetPath,

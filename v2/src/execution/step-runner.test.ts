@@ -832,7 +832,6 @@ describe("step runner blocker-text contract", () => {
     }
   });
 
-
   test("blocked after blocker reprompt persists blocker text in result", async () => {
     const { dir, specPath } = tempSpecPath();
     const specBefore = "- [ ] work\n";

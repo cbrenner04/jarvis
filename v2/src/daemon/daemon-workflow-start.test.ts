@@ -19,8 +19,8 @@ import {
   neverResolvingBindingFactory,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
-import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
+import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();

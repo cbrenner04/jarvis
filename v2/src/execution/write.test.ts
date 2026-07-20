@@ -705,3 +705,76 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
   });
 });
+
+// Pins the implement-path arm of executeDefaultWrite's blocker-text-contract path selection:
+// the contract must attach for promptId "patch.prompt.body", keyed on the active subspec
+// (expectedArtifactPath), not on specPath. The fake worktree always seeds a spec.md WITHOUT
+// a `## Blocker`, so a subspec-keyed contract and a specPath-keyed one diverge observably.
+describe("write behavior: implement-path blocker-text contract", () => {
+  test("blocked with no blocker on the active subspec resolves to missing_blocker", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(jarvisRoot, "- [ ] work\n");
+    let invocations = 0;
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            invocations += 1;
+            if (invocations === 1) {
+              return { kind: "ok", stdout: "blocked", stderr: "" };
+            }
+            return { kind: "ok", stdout: "still stuck", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.result.kind).toBe("missing_blocker");
+  });
+
+  test("blocked with a genuine blocker on the active subspec resolves to blocked", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(jarvisRoot, "- [ ] work\n");
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            appendFileSync(subspec, "\n## Blocker\n\nimplement path blocker\n", "utf8");
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    // Contract keys on the subspec: the blocker appended there (not to the seeded, blocker-free
+    // spec.md) is what makes this blocked. A specPath-keyed contract would reprompt to missing_blocker.
+    expect(result.result.kind).toBe("blocked");
+    if (result.result.kind === "blocked") {
+      expect(result.result.blockerText).toBe("implement path blocker");
+    }
+  });
+
+  test("blocked with a missing target subspec attaches no contract and stays blocked without throwing", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: "missing-subspec.md",
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }) }],
+    });
+
+    expect(result.result.kind).toBe("blocked");
+  });
+});

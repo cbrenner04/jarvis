@@ -737,4 +737,163 @@ describe("step runner blocker-text contract", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("implement path: blocked without blocker text triggers reprompt and missing_blocker", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "## Acceptance criteria\n\n- [ ] work\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "blocked", stderr: "" };
+              }
+              return { kind: "ok", stdout: "still stuck on implement path", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("missing_blocker");
+      if (result.kind === "missing_blocker") {
+        expect(result.responseText).toBe("still stuck on implement path");
+      }
+      expect(result.blockerReprompt?.responseText).toBe("still stuck on implement path");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("implement path: blocked with new blocker text resolves as blocked", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "## Acceptance criteria\n\n- [ ] work\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              appendFileSync(specPath, "\n## Blocker\n\nimplementation blocked\n", "utf8");
+              return { kind: "ok", stdout: "blocked", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+      });
+
+      expect(result.kind).toBe("blocked");
+      expect(result.blockerReprompt).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocked outcome persists agent blocker text in result", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "- [ ] work\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              appendFileSync(specPath, "\n## Blocker\n\nStuck on the database migration\n", "utf8");
+              return { kind: "ok", stdout: "blocked", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+      });
+
+      expect(result.kind).toBe("blocked");
+      if (result.kind === "blocked") {
+        expect(result.blockerText).toBe("Stuck on the database migration");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("unreadable contract spec path is treated as unsatisfied, not satisfied", async () => {
+    const { dir, specPath } = tempSpecPath();
+    // Never create specPath: readFileSync throws in evaluateBlockerTextContract's try, which must
+    // resolve to unsatisfied (reprompt -> missing_blocker), not silently pass as a genuine blocker.
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              invocations += 1;
+              return { kind: "ok", stdout: invocations === 1 ? "blocked" : "no file", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore: "- [ ] work\n" },
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("missing_blocker");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocked after blocker reprompt persists blocker text in result", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "- [ ] work\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "blocked", stderr: "" };
+              }
+              appendFileSync(specPath, "\n## Blocker\n\nNeed API documentation\n", "utf8");
+              return { kind: "ok", stdout: "wrote blocker", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+      });
+
+      expect(result.kind).toBe("blocked");
+      if (result.kind === "blocked") {
+        expect(result.blockerReprompt).toBeDefined();
+        expect(result.blockerText).toBe("Need API documentation");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

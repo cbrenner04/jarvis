@@ -367,6 +367,14 @@ supported it.) To continue the work, resolve the blocker and **re-run the spec**
 [Implement workflow](#implement-workflow)); uncommitted work in the prior worktree is not carried
 forward.
 
+When an agent emits a `blocked` token without appending a `## Blocker` section to the spec (or active
+subspec on the implement path), the harness reprompts for blocker text. If the agent still fails to
+provide it, the run reports as `missing_blocker` harness defect (`error.reason: "missing_blocker"`,
+`error.retryable: true`, `error.nextAction: "resume"`), not bare `agent_blocked`. This applies to
+both the write (run/plan) path and the implement workflow path.
+
+**Blocker text persistence**: When a `blocked` outcome satisfies the blocker-text contract (agent appended non-empty `## Blocker`), the agent's blocker body is extracted and persisted as a durable `blocker_text_detail` log record. This allows you to retrieve the blocker reason from `jarvis run log <run-id>` without requiring access to the worktree spec file, which may not survive after the run completes. The persisted text is truncated to 500 characters for storage efficiency. Query the run log via `jarvis run log <run-id> | grep blocker_text_detail` to see the persisted blocker text inline, or parse the structured log for the `blocker_text_detail` event with its `blockerText` field.
+
 ### Orphaned non-terminal runs after daemon restart
 
 Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason

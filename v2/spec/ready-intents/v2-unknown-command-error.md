@@ -10,6 +10,12 @@ fallthrough: print an error to **stderr** that names the unrecognized command an
 recognized v2 commands (the existing dispatch set — `write`, `daemon`, `config`, `run`, `tui`,
 `cleanup`), and exit **non-zero**.
 
+## Prerequisites
+
+- None. The recognized command set is the existing hardcoded dispatch chain in `v2/src/cli.ts`
+  (`write`, `daemon`, `config`, `run`, `tui`, `cleanup`); no registry or new infrastructure is
+  needed for this intent.
+
 ## Out of scope
 
 - A `jarvis help` command and a queryable command registry (`{name, summary, usage}`) — deferred

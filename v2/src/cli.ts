@@ -67,8 +67,13 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return runCleanupCliCommand(argv.slice(1), out, runtimeDeps);
   }
 
-  out.stdout("v2 not ready\n");
-  return 0;
+  if (command === undefined) {
+    out.stdout("v2 not ready\n");
+    return 0;
+  }
+
+  out.stderr(`unknown command: ${command}; expected one of: write, daemon, config, run, tui, cleanup\n`);
+  return 1;
 }
 
 if (import.meta.main) {

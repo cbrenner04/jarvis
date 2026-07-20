@@ -16,10 +16,10 @@ Unknown top-level v2 commands currently print `v2 not ready` to stdout and repor
 
 ## Acceptance criteria
 
-- [ ] An unknown top-level command writes nothing to stdout, writes stderr that names the supplied command and lists `write`, `daemon`, `config`, `run`, `tui`, and `cleanup`, and exits non-zero.
-- [ ] The unknown-command regression in `v2/src/cli.test.ts` fails against the pre-fix code and passes after the change.
-- [ ] The no-argument dispatch test in `v2/src/cli.test.ts` stays green.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 unknown-command diagnostic, stream, recognized-command list, and exit semantics.
+- [x] An unknown top-level command writes nothing to stdout, writes stderr that names the supplied command and lists `write`, `daemon`, `config`, `run`, `tui`, and `cleanup`, and exits non-zero.
+- [x] The unknown-command regression in `v2/src/cli.test.ts` fails against the pre-fix code and passes after the change.
+- [x] The no-argument dispatch test in `v2/src/cli.test.ts` stays green.
+- [x] `v2/docs/v1-behaviors.md` records the v2 unknown-command diagnostic, stream, recognized-command list, and exit semantics.
 
 ## Documentation updates
 

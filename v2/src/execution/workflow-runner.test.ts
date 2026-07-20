@@ -4259,6 +4259,134 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(stage)).toBe(true);
     expect(readFileSync(verdictPath, "utf8")).toBe("Keep verdict");
   });
+
+  // review-debate is the debate plan's last step; its deferred landing must land the staged
+  // tree (verdict excluded) exactly like the light-review path, and fail resumably otherwise.
+  test("lands a reviewed plan tree from a review-debate last step, without its verdict", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-debate");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    const verdictPath = join(stage, "verdict-plan.md");
+    writeFileSync(verdictPath, "Apply edit", "utf8");
+    const step = createDebateStep({
+      stepId: "review-debate",
+      cwd: root,
+      verdictPath,
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ACT") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+    });
+
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(join(durable, "index.md"))).toBe(true);
+    expect(existsSync(join(durable, "intent.md"))).toBe(true);
+    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
+    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+  });
+
+  test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-failure-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-debate");
+    mkdirSync(stage, { recursive: true });
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+    writeFileSync(join(stage, "01-test.md"), "# Staged", "utf8");
+    writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
+    const verdictPath = join(stage, "verdict-plan.md");
+    const step = createDebateStep({
+      stepId: "review-debate",
+      cwd: root,
+      verdictPath,
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      createBinding: createDebateBindingFactory(
+        async ({ adapterModel }) =>
+          ({ kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" }) as const,
+      ),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+    });
+
+    // Stage is retained (never consumed) and the verdict is restored, not cleaned up.
+    expect(existsSync(stage)).toBe(true);
+    expect(existsSync(join(durable, "index.md"))).toBe(false);
+    expect(existsSync(verdictPath)).toBe(true);
+  });
+
+  // A review-debate last step must be treated as review-last so post-loop eager landing of the
+  // completion (write) step's tree is suppressed; the review step's own deferred landing is
+  // authoritative. Isolated via distinct durable targets: only the review step's deferred landing
+  // should run. If the write step's landing were eager-applied, it would hit the already-consumed
+  // stage and fail (pre-publication) instead of completing.
+  test("treats a review-debate last step as review-last and skips eager landing of the write step's tree", async () => {
+    const harness = createIntentWorktreeHarness("reviewed-plan-debate-defer");
+    const workspace = harness.workspace;
+    const stage = join(workspace, ".jarvis-plan-stage");
+    const reviewDurable = join(workspace, "spec", "2026-reviewed-debate");
+    const writeDurable = join(workspace, "spec", "2026-eager-write");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    const verdictPath = join(stage, "verdict-plan.md");
+
+    const writeStep = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "reviewed-plan-debate-defer",
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: writeDurable },
+      publishCompletion: false,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+    });
+    writeStep.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: "reviewed-plan-debate-defer",
+      baseRef: "HEAD",
+      git: false,
+      localPath: workspace,
+    };
+    writeStep.withExternalWorktree = harness.withExternalWorktree;
+
+    const debateStep = createDebateStep({
+      stepId: "review-debate",
+      branch: "reviewed-plan-debate-defer",
+      cwd: workspace,
+      verdictPath,
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: reviewDurable },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ACT") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [writeStep, debateStep], stateStore: store });
+      expect(result).toMatchObject({ kind: "complete" });
+    });
+
+    // Only the review step's deferred landing ran; the write step's landing was never eager-applied.
+    expect(existsSync(stage)).toBe(false);
+    expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review");
+    expect(existsSync(join(reviewDurable, "verdict-plan.md"))).toBe(false);
+    expect(existsSync(writeDurable)).toBe(false);
+  });
 });
 
 describe("executeWorkflow load-time role validation", () => {

@@ -17,8 +17,8 @@ A failed materialization can leave an ordinary directory at the managed external
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/external-worktree.test.ts` includes a regression test that leaves an unregistered non-Git directory at the managed path, then proves one retry removes it, materializes the expected branch there, and reaches the callback without manual prune/removal; the test fails against the pre-fix code.
-- [ ] Existing paths with Git worktree state, including a worktree for another repository or branch, are refused and left intact; ambiguous ownership or validation failures also leave the path intact.
-- [ ] Reclamation and replacement complete within one branch-lock acquisition, and the lock is released on success or failure.
-- [ ] `v2/docs/operator-runbook.md` describes automatic husk recovery and the fail-closed cases that still require operator diagnosis.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 external-worktree retry behavior and source paths.
+- [x] `v2/src/execution/external-worktree.test.ts` includes a regression test that leaves an unregistered non-Git directory at the managed path, then proves one retry removes it, materializes the expected branch there, and reaches the callback without manual prune/removal; the test fails against the pre-fix code.
+- [x] Existing paths with Git worktree state, including a worktree for another repository or branch, are refused and left intact; ambiguous ownership or validation failures also leave the path intact.
+- [x] Reclamation and replacement complete within one branch-lock acquisition, and the lock is released on success or failure.
+- [x] `v2/docs/operator-runbook.md` describes automatic husk recovery and the fail-closed cases that still require operator diagnosis.
+- [x] `v2/docs/v1-behaviors.md` records the v2 external-worktree retry behavior and source paths.

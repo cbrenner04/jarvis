@@ -832,6 +832,35 @@ describe("step runner blocker-text contract", () => {
     }
   });
 
+  test("unreadable contract spec path is treated as unsatisfied, not satisfied", async () => {
+    const { dir, specPath } = tempSpecPath();
+    // Never create specPath: readFileSync throws in evaluateBlockerTextContract's try, which must
+    // resolve to unsatisfied (reprompt -> missing_blocker), not silently pass as a genuine blocker.
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              invocations += 1;
+              return { kind: "ok", stdout: invocations === 1 ? "blocked" : "no file", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore: "- [ ] work\n" },
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("missing_blocker");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("blocked after blocker reprompt persists blocker text in result", async () => {
     const { dir, specPath } = tempSpecPath();
     const specBefore = "- [ ] work\n";

@@ -221,7 +221,12 @@ describe("buildImplementWorkflowSteps", () => {
     expect(review.maxCycles).toBe(2);
     expect(review.verdictPath).toContain("verdict-patch.md");
     expect(review.profile?.domain).toBe("implement");
-    expect(review.profileContext).toBeInstanceOf(Function);
+    // Must survive the daemon IPC JSON round-trip: a function context is silently dropped.
+    expect(JSON.parse(JSON.stringify(review.profileContext))).toMatchObject({
+      specPath: INPUT.specPath,
+      passNumber: 1,
+      totalPasses: 2,
+    });
     expect(review.prompts?.adversary).toBe("patch.prompt.review.adversary");
   });
 
@@ -260,7 +265,11 @@ describe("buildImplementWorkflowSteps", () => {
     expect(review.maxCycles).toBe(2);
     expect(review.verdictPath).toContain("verdict-patch.md");
     expect(review.profile?.domain).toBe("implement");
-    expect(review.profileContext).toBeInstanceOf(Function);
+    expect(JSON.parse(JSON.stringify(review.profileContext))).toMatchObject({
+      specPath: INPUT.specPath,
+      passNumber: 1,
+      totalPasses: 2,
+    });
     expect(review.prompt).toBe("patch.prompt.review.critic");
   });
 

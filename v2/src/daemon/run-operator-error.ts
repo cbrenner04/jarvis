@@ -153,7 +153,15 @@ export function composeRunOperatorError(
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
   if (run.status === "in-progress") return undefined;
-  if (run.status === "completed" && terminalRecord?.event.kind !== "loop_finished") return undefined;
+  // A completed run can still carry a trailing `run_execution_failed`: its workflow died
+  // after the step run settled (review step, publication). Surface that, not silence.
+  if (
+    run.status === "completed" &&
+    terminalRecord?.event.kind !== "loop_finished" &&
+    terminalRecord?.event.kind !== "run_execution_failed"
+  ) {
+    return undefined;
+  }
 
   const lastAttempt = lastCommittedAttempt(run.attempts);
   if (lastAttempt?.outcomeKind === "invalid_token") {

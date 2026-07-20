@@ -7,6 +7,7 @@ import type {
 } from "../../../shared/invocation/execute.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import { cycleProfileContext } from "./review-profile-context.ts";
 import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 /** Fixed debate role order: adversary -> advocate -> adjudicator -> actuator. */
@@ -82,10 +83,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
-    const profileContext =
-      typeof args.profileContext === "function"
-        ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict)
-        : args.profileContext;
+    const profileContext = cycleProfileContext(args.profileContext, cycle + 1, cycles.at(-1)?.verdict ?? undefined);
 
     const adversary = await invokeReviewRole(
       args,

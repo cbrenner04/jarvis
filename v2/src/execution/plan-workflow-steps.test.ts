@@ -112,6 +112,7 @@ describe("plan preset draft write step", () => {
     const step = result.steps[0];
     if (step?.behavior !== "write") throw new Error("expected write step");
     expect(step.intentSeed).toBe(intent.content);
+    expect(step.creationTitle).toBe("plan: reviewed-plan");
     expect(step.landing).toMatchObject({
       kind: "plan-tree",
       inputs: {

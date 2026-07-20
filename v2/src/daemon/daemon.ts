@@ -584,15 +584,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   /**
    * Demote one non-terminal workflow run to `failed` and record why. Both steps are
    * best-effort and independent: a persist fault must not skip the log append, and an
-   * append fault must not roll back the demote.
+   * append fault must not roll back the demote. Already-settled runs keep their status
+   * but still get the log record — a workflow can die after its step runs completed
+   * (e.g. in a review step or publication), and that failure must stay visible.
    */
   const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
     const run = store.loadRun(runId);
-    if (run && isSettledRunStatus(run.status)) return;
-    try {
-      store.setRunStatus(runId, "failed");
-    } catch {
-      // best-effort persist; append still runs
+    if (!(run && isSettledRunStatus(run.status))) {
+      try {
+        store.setRunStatus(runId, "failed");
+      } catch {
+        // best-effort persist; append still runs
+      }
     }
     try {
       logSink?.append(runId, { kind: "run_execution_failed", message });
@@ -650,6 +653,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       execute()
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
+          console.error(`Workflow execution failed (${workflowTelemetryLabel(steps)}): ${message}`);
           if (workflowRunIds.size === 0) {
             resolve({
               kind: "error",

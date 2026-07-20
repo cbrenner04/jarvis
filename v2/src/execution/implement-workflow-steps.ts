@@ -395,14 +395,15 @@ export async function buildImplementWorkflowSteps(
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
   const verdictPath = join(cwd, dirname(resolvedInput.specPath), "verdict-patch.md");
-  const profileContext = (passNumber: number, priorCycleVerdict?: string) => ({
+  // Serializable: steps cross the daemon IPC boundary as JSON, which drops functions.
+  // The review executors stamp passNumber/priorCycleVerdict per cycle.
+  const profileContext = {
     specPath: resolvedInput.specPath,
     cwd,
     baseBranch: input.baseRef,
-    passNumber,
+    passNumber: 1,
     totalPasses: reviewPasses,
-    ...(priorCycleVerdict !== undefined ? { priorCycleVerdict } : {}),
-  });
+  };
 
   if (reviewBehavior === "light") {
     const reviewStep: ReviewWorkflowSourceStep = {

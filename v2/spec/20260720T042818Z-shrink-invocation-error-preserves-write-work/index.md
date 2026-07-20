@@ -7,8 +7,8 @@ the hidden shrink pass and publication own the only commit. A shrink
 `invocation_error` after a successful write settles terminal `stop`, stranding
 finished implementation uncommitted and forcing a from-scratch re-run.
 
-- [ ] [00 - Commit implement write output before the shrink pass](./00-commit-write-before-shrink.md)
-- [ ] [01 - Shrink invocation error after committed write is resumable](./01-resumable-shrink-failure.md)
+- [x] [00 - Commit implement write output before the shrink pass](./00-commit-write-before-shrink.md)
+- [x] [01 - Shrink invocation error after committed write is resumable](./01-resumable-shrink-failure.md)
 
 ## Out of scope
 

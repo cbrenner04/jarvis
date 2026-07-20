@@ -24,10 +24,10 @@ abandon and re-run the write step from scratch, re-spending tokens.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/workflow-runner.test.ts` drives `implement`→`complete` (committed) then injects a shrink `invocation_error`, and asserts the workflow result is `resumable: true` (not terminal stop); it fails against the pre-fix code.
-- [ ] A resume test re-enters after the shrink `invocation_error`: the completed `implement` write step is not re-invoked, the shrink pass runs again, and on shrink `complete` the workflow reaches publication and settles `complete`.
-- [ ] A `run-operator-error.ts` test asserts a shrink `invocation_error` over a committed write composes to `retryable: true` / `nextAction: "resume"`, not `invocation_error` / `stop`.
-- [ ] A quota (or `model_config`) shrink outcome retains its existing operator-error classification (unchanged by this subspec).
+- [x] A new test in `v2/src/execution/workflow-runner.test.ts` drives `implement`→`complete` (committed) then injects a shrink `invocation_error`, and asserts the workflow result is `resumable: true` (not terminal stop); it fails against the pre-fix code.
+- [x] A resume test re-enters after the shrink `invocation_error`: the completed `implement` write step is not re-invoked, the shrink pass runs again, and on shrink `complete` the workflow reaches publication and settles `complete`.
+- [x] A `run-operator-error.ts` test asserts a shrink `invocation_error` over a committed write composes to `retryable: true` / `nextAction: "resume"`, not `invocation_error` / `stop`.
+- [x] A quota (or `model_config`) shrink outcome retains its existing operator-error classification (unchanged by this subspec).
 
 ## Documentation updates
 

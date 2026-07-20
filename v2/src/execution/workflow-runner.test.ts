@@ -147,6 +147,33 @@ function createIntentWorktreeHarness(branchName: string) {
   };
 }
 
+function createShrinkTestStep(
+  branchName: string,
+  invoke: (args: { cwd: string; shrink: boolean }) => Promise<InvocationResult>,
+) {
+  const harness = createIntentWorktreeHarness(branchName);
+  const step = createStep({
+    stepId: "implement",
+    role: "implement",
+    branchName,
+    createBinding: ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      invoke: ({ cwd, prompt }) => invoke({ cwd, shrink: prompt.includes("Post-completion Shrink") }),
+      metadata: { agent: agentId, model: adapterModel },
+    }),
+  });
+  step.worktree = {
+    projectRoot: harness.workspace,
+    projectName: "demo",
+    branchName,
+    baseRef: "HEAD",
+    git: false,
+    localPath: harness.workspace,
+  };
+  step.withExternalWorktree = harness.withExternalWorktree;
+  return { harness, step };
+}
+
 function seedLandedIntentFiles(workspace: string, invocationId: string, files: readonly string[]): void {
   const durableDir = join(workspace, "ready-intents");
   mkdirSync(durableDir, { recursive: true });
@@ -1014,6 +1041,67 @@ describe("executeWorkflow", () => {
         store.findRunByProjectBranch({ project: "demo", branch: "implement-shrink", stepId: "implement~shrink" })
           ?.status,
       ).toBe("completed");
+    });
+  });
+
+  test("commits implement output before a shrink invocation error", async () => {
+    const branchName = "shrink-invocation-error-commit";
+    const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) return { kind: "error", exitCode: 1, stderr: "shrink invocation error" };
+      writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result.kind).toBe("invocation_failure");
+      expect(result.resumable).toBe(true);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement~shrink" })?.status,
+      ).toBe("paused");
+      expect(execFileSync("git", ["show", "HEAD:proof.txt"], { cwd: harness.workspace, encoding: "utf8" })).toBe(
+        "implemented\n",
+      );
+      expect(() => execFileSync("git", ["diff", "--quiet"], { cwd: harness.workspace })).not.toThrow();
+    });
+  });
+
+  test("resumes a shrink invocation error without re-invoking implement and publishes after shrink completes", async () => {
+    const branchName = "resume-shrink-invocation-error";
+    const calls: string[] = [];
+    let shrinkAttempts = 0;
+    const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        calls.push("shrink");
+        shrinkAttempts += 1;
+        return shrinkAttempts === 1
+          ? { kind: "error", exitCode: 1, stderr: "shrink invocation error" }
+          : { kind: "ok", stdout: "done", stderr: "" };
+      }
+      calls.push("implement");
+      writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      const resumed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({ pushSha: "published", prNumber: 1, prUrl: "https://example.test/pr/1" }),
+        readyFinalizer: async () => {},
+      });
+      expect(resumed.kind).toBe("complete");
+      expect(calls).toEqual(["implement", "shrink", "shrink"]);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement~shrink" })?.status,
+      ).toBe("completed");
+      expect(execFileSync("git", ["show", "HEAD:proof.txt"], { cwd: harness.workspace, encoding: "utf8" })).toBe(
+        "implemented\n",
+      );
     });
   });
 

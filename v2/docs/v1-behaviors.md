@@ -549,7 +549,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 
 - [v2 ported] Completion publication stages the whole external worktree with
   `git add -A`, creates one completion commit after durable success, and uses a
-  `Jarvis-Agent` trailer. The v1 subject (`chore: complete-but-dirty commit`),
+  `Jarvis-Agent` trailer. Implement output is checkpointed before its hidden
+  shrink pass; successful publication folds that checkpoint and shrink edits
+  into the one completion commit. A shrink invocation error after that checkpoint
+  is resumable: resume skips implement, re-runs shrink, then publishes. The v1 subject (`chore: complete-but-dirty commit`),
   label selection (`completion-ready`), managed worktree lifecycle, push, and PR
   behavior remain unported. Sources: `v2/src/execution/completion-commit.ts`,
   `v2/src/execution/write-loop.ts`, `v2/src/execution/workflow-runner.ts`.

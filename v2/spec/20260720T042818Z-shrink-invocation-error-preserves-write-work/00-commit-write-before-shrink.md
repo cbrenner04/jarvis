@@ -25,11 +25,11 @@ lost if the operator abandons the run.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/workflow-runner.test.ts` drives an `implement` write step to `complete`, injects a shrink `invocation_error`, and asserts the branch HEAD carries the completed implementation as a commit (the worktree is not left with the implementation uncommitted); it fails against the pre-fix code.
-- [ ] The pre-shrink commit fires only for `implement`-role write steps routing to the shrink pass; a non-implement write step's commit timing is unchanged.
-- [ ] Existing completion-commit and publication tests in `v2/src/execution/workflow-runner.test.ts` and `v2/src/execution/write.test.ts` stay green (success-path published branch shape unchanged).
-- [ ] An `implement` run in a no-`.git` worktree completes the pre-shrink step without error.
-- [ ] `v2/docs/workflow-runner.md` describes the commit-before-shrink ordering.
+- [x] A new test in `v2/src/execution/workflow-runner.test.ts` drives an `implement` write step to `complete`, injects a shrink `invocation_error`, and asserts the branch HEAD carries the completed implementation as a commit (the worktree is not left with the implementation uncommitted); it fails against the pre-fix code.
+- [x] The pre-shrink commit fires only for `implement`-role write steps routing to the shrink pass; a non-implement write step's commit timing is unchanged.
+- [x] Existing completion-commit and publication tests in `v2/src/execution/workflow-runner.test.ts` and `v2/src/execution/write.test.ts` stay green (success-path published branch shape unchanged).
+- [x] An `implement` run in a no-`.git` worktree completes the pre-shrink step without error.
+- [x] `v2/docs/workflow-runner.md` describes the commit-before-shrink ordering.
 
 ## Documentation updates
 

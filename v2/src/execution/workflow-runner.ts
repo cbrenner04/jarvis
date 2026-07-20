@@ -576,6 +576,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastStepId = "";
     let completionAgent: string | undefined;
     let shrinkNarrative: string | undefined;
+    let preShrinkCommit: { worktreePath: string; sha: string } | undefined;
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
@@ -636,6 +637,16 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       }
 
       if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink && implementReviewEligible) {
+        const worktreePath = getExternalWorktreePath(step.worktree);
+        const title = resolvePublicationTitle(worktreePath, step.specPath, workflowSnapshot.creationTitle);
+        const committed = await createCompletionCommitter()({
+          worktreePath,
+          baseRef: step.worktree.baseRef,
+          specPath: step.specPath,
+          agent: completionAgent ?? step.agents[0] ?? "implement",
+          title,
+        });
+        if (committed.commitSha !== undefined) preShrinkCommit = { worktreePath, sha: committed.commitSha };
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
@@ -650,6 +661,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
         lastResult = shrinkResult;
         lastStepId = step.stepId;
+        if (shrinkResult.kind === "invocation_failure" && shrinkResult.failureKind === "error") {
+          // The implement output is already checkpointed. Leave only this shrink run resumable.
+          store.setRunStatus(shrinkResult.runId, "paused");
+          shrinkResult.resumable = true;
+        }
         if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;
         }
@@ -708,6 +724,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const worktreePath = getExternalWorktreePath(worktree);
         const publicationPath = publicationSpecPath ?? completionStep.specPath;
         try {
+          if (preShrinkCommit !== undefined) {
+            await realAsyncSubprocessRunner.runAsync(
+              "git",
+              ["reset", "--mixed", `${preShrinkCommit.sha}^`],
+              preShrinkCommit.worktreePath,
+            );
+          }
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
           store.setCreationTitle(lastResult.runId, creationTitle);
           const completionRun = store.findRunByProjectBranch({

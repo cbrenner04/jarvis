@@ -725,7 +725,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const publicationPath = publicationSpecPath ?? completionStep.specPath;
         try {
           if (preShrinkCommit !== undefined) {
-            await realAsyncSubprocessRunner.runAsync("git", ["reset", "--mixed", `${preShrinkCommit.sha}^`], preShrinkCommit.worktreePath);
+            await realAsyncSubprocessRunner.runAsync(
+              "git",
+              ["reset", "--mixed", `${preShrinkCommit.sha}^`],
+              preShrinkCommit.worktreePath,
+            );
           }
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
           store.setCreationTitle(lastResult.runId, creationTitle);

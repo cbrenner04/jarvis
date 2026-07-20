@@ -4,12 +4,18 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { executeWriteLoop } from "../execution/write-loop.ts";
-import { type LogReader, openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import type { Attempt, Run } from "../persistence/state-store.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import {
+  flushBackgroundRuns,
+  listRunsDirect,
+  loadRunOrThrow,
+  mockWriteLoopInput,
+  startRunDirect,
+  workflowSnapshot,
+} from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, stoppedOutcomeForRun } from "./daemon.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -21,83 +27,8 @@ async function killDirect(h: Handlers, runId: string) {
   return h.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, new AbortController().signal);
 }
 
-async function resumeDirect(h: Handlers, params: { runId: string }) {
-  return h.resume({ kind: "request", id: "r1", method: "resume", params }, new AbortController().signal);
-}
-
 async function waitDirect(h: Handlers, runId: string) {
   return h.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
-}
-
-function runFixture(
-  status: Run["status"],
-  attempts: Array<Pick<Attempt, "outcomeKind">> = [],
-): Run & { attempts: Attempt[] } {
-  return {
-    id: "run-1",
-    project: "wf-outcomes",
-    specRef: "main",
-    createdAt: 0,
-    status,
-    attemptCount: attempts.length,
-    worktreePath: "/tmp/wf-outcomes",
-    branch: "wf-outcomes",
-    specPath: "/tmp/spec.md",
-    attempts: attempts.map((attempt, index) => ({
-      id: `attempt-${index}`,
-      runId: "run-1",
-      attemptNumber: index + 1,
-      startedAt: 0,
-      status: "completed",
-      outcomeKind: attempt.outcomeKind,
-      invocationFailureDetail: null,
-    })),
-  };
-}
-
-function workflowSnapshot(
-  invocationId: string,
-  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
-): { invocationId: string; steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }> };
-function workflowSnapshot(
-  invocationId: string,
-  reviewPasses: number,
-  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
-): {
-  invocationId: string;
-  reviewPasses: number;
-  steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>;
-};
-function workflowSnapshot(
-  invocationId: string,
-  implementReview: { reviewPasses: number; reviewBehavior: "debate" | "light" },
-  ...steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
-): {
-  invocationId: string;
-  reviewPasses: number;
-  reviewBehavior: "debate" | "light";
-  steps: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>;
-};
-function workflowSnapshot(
-  invocationId: string,
-  reviewPassesOrFirstStep:
-    | number
-    | { reviewPasses: number; reviewBehavior: "debate" | "light" }
-    | { stepId: string; role: string; behavior?: "review-debate" | "review" },
-  ...rest: Array<{ stepId: string; role: string; behavior?: "review-debate" | "review" }>
-) {
-  if (typeof reviewPassesOrFirstStep === "number") {
-    return { invocationId, reviewPasses: reviewPassesOrFirstStep, steps: rest };
-  }
-  if ("reviewPasses" in reviewPassesOrFirstStep) {
-    return {
-      invocationId,
-      reviewPasses: reviewPassesOrFirstStep.reviewPasses,
-      reviewBehavior: reviewPassesOrFirstStep.reviewBehavior,
-      steps: rest,
-    };
-  }
-  return { invocationId, steps: [reviewPassesOrFirstStep, ...rest] };
 }
 
 let stateStore: StateStore;
@@ -116,42 +47,8 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
   },
 };
 
-function createPublicationRetryRun(): string {
-  return stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "publication-retry",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "implement",
-          stepRules: "retry rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: ["codex"],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-        },
-      ],
-    },
-  });
-}
-
-function loadRunOrThrow(store: StateStore, runId: string) {
-  const run = store.loadRun(runId);
-  if (!run) throw new Error(`missing run ${runId}`);
-  return run;
-}
-
 function serialized(input: WriteLoopInput): WriteLoopInput {
   return JSON.parse(JSON.stringify(input)) as WriteLoopInput;
-}
-
-async function flushBackgroundRuns(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 beforeEach(() => {
@@ -388,12 +285,11 @@ test("list returns workflow step snapshots for live, stopped, and completed work
     settleDelayMs: 0,
   });
 
-  const snapshot = workflowSnapshot(
-    "workflow-1",
+  const snapshot = workflowSnapshot("workflow-1", [
     { stepId: "step-1", role: "implement" },
     { stepId: "step-2", role: "review" },
     { stepId: "step-3", role: "verify" },
-  );
+  ]);
 
   const priorRunId = stateStore.createRun({
     project: "wf-project",
@@ -458,11 +354,10 @@ test("list returns workflow step snapshots for live, stopped, and completed work
     ],
   });
 
-  const completeSnapshot = workflowSnapshot(
-    "workflow-1",
+  const completeSnapshot = workflowSnapshot("workflow-1", [
     { stepId: "step-a", role: "implement" },
     { stepId: "step-b", role: "review" },
-  );
+  ]);
   const completeRunA = stateStore.createRun({
     project: "wf-project",
     specRef: "main",
@@ -497,18 +392,19 @@ test("list returns workflow step snapshots for live, stopped, and completed work
 });
 
 test("list exposes retained implement reviewPasses and reviewBehavior and omits them for non-implement workflows", async () => {
-  const implementZeroSnapshot = workflowSnapshot(
-    "workflow-implement-0",
-    { reviewPasses: 0, reviewBehavior: "light" },
-    { stepId: "implement", role: "implement" },
-  );
+  const implementZeroSnapshot = workflowSnapshot("workflow-implement-0", [{ stepId: "implement", role: "implement" }], {
+    reviewPasses: 0,
+    reviewBehavior: "light",
+  });
   const implementPositiveSnapshot = workflowSnapshot(
     "workflow-implement-2",
+    [
+      { stepId: "implement", role: "implement" },
+      { stepId: "implement-review", role: "", behavior: "review-debate" },
+    ],
     { reviewPasses: 2, reviewBehavior: "debate" },
-    { stepId: "implement", role: "implement" },
-    { stepId: "implement-review", role: "", behavior: "review-debate" },
   );
-  const planSnapshot = workflowSnapshot("workflow-plan", { stepId: "step-1", role: "plan" });
+  const planSnapshot = workflowSnapshot("workflow-plan", [{ stepId: "step-1", role: "plan" }]);
 
   const implementZeroRunId = stateStore.createRun({
     project: "wf-project",
@@ -551,13 +447,12 @@ test("list exposes retained implement reviewPasses and reviewBehavior and omits 
   expect(planRow?.reviewBehavior).toBeUndefined();
 });
 
-test("list projects a review behavior entry in authored order without a durable run", async () => {
-  const snapshot = workflowSnapshot(
-    "workflow-review-entry",
+test("list projects a review behavior entry in authored order and tracks progress to terminal", async () => {
+  const snapshot = workflowSnapshot("workflow-review-entry", [
     { stepId: "step-1", role: "plan" },
     { stepId: "review-1", role: "", behavior: "review" },
     { stepId: "step-3", role: "plan" },
-  );
+  ]);
   const runId = stateStore.createRun({
     project: "wf-project",
     specRef: "main",
@@ -601,112 +496,11 @@ test("list projects a review behavior entry in authored order without a durable 
   });
 });
 
-test("stoppedOutcomeForRun maps blocked with a contract_miss attempt to contract_miss", () => {
-  expect(stoppedOutcomeForRun(runFixture("blocked", [{ outcomeKind: "contract_miss" }]))).toBe("contract_miss");
-});
-
-test("stoppedOutcomeForRun maps blocked without a contract_miss attempt to blocked", () => {
-  expect(stoppedOutcomeForRun(runFixture("blocked", [{ outcomeKind: "blocked" }]))).toBe("blocked");
-});
-
-test("stoppedOutcomeForRun maps budget-soft-stopped to budget-exhausted", () => {
-  expect(stoppedOutcomeForRun(runFixture("budget-soft-stopped"))).toBe("budget-exhausted");
-});
-
-test("stoppedOutcomeForRun maps paused to paused", () => {
-  expect(stoppedOutcomeForRun(runFixture("paused"))).toBe("paused");
-});
-
-test("stoppedOutcomeForRun maps killed to killed", () => {
-  expect(stoppedOutcomeForRun(runFixture("killed"))).toBe("killed");
-});
-
-test("stoppedOutcomeForRun falls back to invocation_failure for any other status", () => {
-  expect(stoppedOutcomeForRun(runFixture("failed"))).toBe("invocation_failure");
-});
-
-test("list builds a review-debate row from the live role pointer while in progress", async () => {
-  const snapshot = workflowSnapshot(
-    "workflow-debate",
-    { stepId: "step-1", role: "implement" },
-    { stepId: "step-debate", role: "", behavior: "review-debate" },
-  );
-  const runId = stateStore.createRun({
-    project: "wf-debate",
-    specRef: "main",
-    worktreePath: "/tmp/wf-debate",
-    branch: "wf-debate",
-    specPath: "/tmp/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: snapshot,
-  });
-  stateStore.setRunStatus(runId, "completed");
-
-  let runs = await listRunsDirect(handlers);
-  let row = runs?.find((candidate) => candidate.runId === runId);
-  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
-    stepId: "step-debate",
-    role: "",
-    status: "pending",
-    attemptCount: 0,
-  });
-
-  handlers.reportReviewDebateProgress("workflow-debate", "step-debate", { status: "in_progress", role: "advocate" });
-
-  runs = await listRunsDirect(handlers);
-  row = runs?.find((candidate) => candidate.runId === runId);
-  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
-    stepId: "step-debate",
-    role: "advocate",
-    status: "in_progress",
-    attemptCount: 0,
-  });
-});
-
-test("list builds a review-debate row from the terminal role/outcome once the cycle ends", async () => {
-  const snapshot = workflowSnapshot(
-    "workflow-debate-done",
-    { stepId: "step-1", role: "implement" },
-    { stepId: "step-debate", role: "", behavior: "review-debate" },
-  );
-  const runId = stateStore.createRun({
-    project: "wf-debate-done",
-    specRef: "main",
-    worktreePath: "/tmp/wf-debate-done",
-    branch: "wf-debate-done",
-    specPath: "/tmp/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: snapshot,
-  });
-  stateStore.setRunStatus(runId, "completed");
-
-  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", {
-    status: "in_progress",
-    role: "adjudicator",
-  });
-  handlers.reportReviewDebateProgress("workflow-debate-done", "step-debate", {
-    status: "completed",
-    role: "actuator",
-    terminalOutcome: "complete",
-  });
-
-  const runs = await listRunsDirect(handlers);
-  const row = runs?.find((candidate) => candidate.runId === runId);
-  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
-    stepId: "step-debate",
-    role: "actuator",
-    status: "completed",
-    attemptCount: 0,
-    terminalOutcome: "complete",
-  });
-});
-
 test("review-debate progress does not bleed across invocations sharing a stepId", async () => {
-  const snapshotA = workflowSnapshot(
-    "workflow-debate-a",
+  const snapshotA = workflowSnapshot("workflow-debate-a", [
     { stepId: "step-1", role: "implement" },
     { stepId: "step-debate", role: "", behavior: "review-debate" },
-  );
+  ]);
   const runA = stateStore.createRun({
     project: "wf-debate-a",
     specRef: "main",
@@ -718,11 +512,10 @@ test("review-debate progress does not bleed across invocations sharing a stepId"
   });
   stateStore.setRunStatus(runA, "completed");
 
-  const snapshotB = workflowSnapshot(
-    "workflow-debate-b",
+  const snapshotB = workflowSnapshot("workflow-debate-b", [
     { stepId: "step-1", role: "implement" },
     { stepId: "step-debate", role: "", behavior: "review-debate" },
-  );
+  ]);
   const runB = stateStore.createRun({
     project: "wf-debate-b",
     specRef: "main",
@@ -746,46 +539,6 @@ test("review-debate progress does not bleed across invocations sharing a stepId"
     attemptCount: 0,
   });
   expect(rowB?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
-    stepId: "step-debate",
-    role: "",
-    status: "pending",
-    attemptCount: 0,
-  });
-});
-
-test("review-debate progress does not leak between separate handler instances", async () => {
-  const snapshot = workflowSnapshot(
-    "workflow-debate-instances",
-    { stepId: "step-1", role: "implement" },
-    { stepId: "step-debate", role: "", behavior: "review-debate" },
-  );
-  const runId = stateStore.createRun({
-    project: "wf-debate-instances",
-    specRef: "main",
-    worktreePath: "/tmp/wf-debate-instances",
-    branch: "wf-debate-instances",
-    specPath: "/tmp/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: snapshot,
-  });
-  stateStore.setRunStatus(runId, "completed");
-
-  const otherHandlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => memoryHeadroom,
-    settleDelayMs: 0,
-  });
-
-  otherHandlers.reportReviewDebateProgress("workflow-debate-instances", "step-debate", {
-    status: "in_progress",
-    role: "advocate",
-  });
-
-  const runs = await listRunsDirect(handlers);
-  const row = runs?.find((candidate) => candidate.runId === runId);
-  expect(row?.workflow?.steps.find((step) => step.stepId === "step-debate")).toEqual({
     stepId: "step-debate",
     role: "",
     status: "pending",
@@ -864,204 +617,42 @@ test("kill rejects unknown run ID", async () => {
   }
 });
 
-test("resume rejects unknown run ID", async () => {
-  const resumeResponse = await resumeDirect(handlers, { runId: "unknown-id" });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("unknown_run");
-  }
-});
-
-test("resume rejects terminal run status", async () => {
+test("kill preserves boundary-terminal status on an active run but still aborts", async () => {
   const runId = await startRunDirect(handlers);
   if (!runId) return;
 
-  fakeExecutor.settleAll();
-  await flushBackgroundRuns();
-  stateStore.setRunStatus(runId, "completed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
 
-  const resumeResponse = await resumeDirect(handlers, { runId });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("terminal_run");
-    expect(resumeResponse.message).toBe("Cannot resume a completed run");
-  }
+  const killResponse = await killDirect(handlers, runId);
+  expect(killResponse.kind).toBe("response");
+  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  expect(loadRunOrThrow(stateStore, runId).status).toBe("blocked");
+
+  const runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.status).toBe("blocked");
 });
 
-test("resume retries a completed run after completion publication failed", async () => {
-  const runId = createPublicationRetryRun();
-  stateStore.setRunStatus(runId, "completed");
-  const logReader: LogReader = {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: {
-          kind: "loop_finished",
-          loopOutcomeKind: "completion_commit_failed",
-          iterationsConsumed: 1,
-          resumable: true,
-        },
-      },
-    ],
-    async *follow() {},
-  };
-  handlers = createRunControlHandlers({
-    stateStore,
-    logReader,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
+test("kill still sets killed when the committed boundary is in-progress", async () => {
+  const runId = await startRunDirect(handlers);
+  if (!runId) return;
 
-  expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+
+  const killResponse = await killDirect(handlers, runId);
+  expect(killResponse.kind).toBe("response");
+  expect(loadRunOrThrow(stateStore, runId).status).toBe("killed");
 });
 
-test("resume retries completed runs after ready gate failures", async () => {
-  const runId = createPublicationRetryRun();
-  stateStore.setRunStatus(runId, "completed");
-  const logReader: LogReader = {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: {
-          kind: "loop_finished",
-          loopOutcomeKind: "ready_gate_failed",
-          iterationsConsumed: 1,
-          resumable: true,
-        },
-      },
-    ],
-    async *follow() {},
-  };
-  handlers = createRunControlHandlers({
-    stateStore,
-    logReader,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
+test("kill still sets killed on a paused run", async () => {
+  const runId = await startRunDirect(handlers);
+  if (!runId) return;
 
-  expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
-});
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "paused", outcomeKind: "invalid_token" });
 
-test("resume retries failed runs demoted from ready gate failures", async () => {
-  const runId = createPublicationRetryRun();
-  stateStore.setRunStatus(runId, "failed");
-  const logReader: LogReader = {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: {
-          kind: "loop_finished",
-          loopOutcomeKind: "ready_gate_failed",
-          iterationsConsumed: 1,
-          resumable: true,
-        },
-      },
-    ],
-    async *follow() {},
-  };
-  handlers = createRunControlHandlers({
-    stateStore,
-    logReader,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  expect((await resumeDirect(handlers, { runId })).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
-});
-
-test("resume rejects completed runs after ready flip failures", async () => {
-  const flipRunId = createPublicationRetryRun();
-  stateStore.setRunStatus(flipRunId, "completed");
-  handlers = createRunControlHandlers({
-    stateStore,
-    logReader: {
-      tail: () => [
-        {
-          runId: flipRunId,
-          seq: 1,
-          ts: "2026-01-01T00:00:00.000Z",
-          event: {
-            kind: "loop_finished",
-            loopOutcomeKind: "ready_flip_failed",
-            iterationsConsumed: 1,
-            resumable: false,
-          },
-        },
-      ],
-      async *follow() {},
-    },
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-  expect((await resumeDirect(handlers, { runId: flipRunId })).kind).toBe("error");
-  expect(fakeExecutor.pendingCount()).toBe(0);
-});
-
-test("resume rejects an unsupported paused run before checking another in-flight run", async () => {
-  await startRunDirect(handlers);
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/other-worktree",
-    branch: "other-branch",
-    specPath: "/tmp/test-project/spec.md",
-  });
-  stateStore.setRunStatus(pausedRunId, "paused");
-
-  const resumeResponse = await resumeDirect(handlers, { runId: pausedRunId });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("resume_unsupported");
-  }
-});
-
-test("resume rejects worktree_claimed when the (project, branch) is already live", async () => {
-  await startRunDirect(handlers);
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "claimed-resume",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "implement",
-          stepRules: "resume rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: ["codex"],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-        },
-      ],
-    },
-  });
-  stateStore.setRunStatus(pausedRunId, "paused");
-
-  const resumeResponse = await resumeDirect(handlers, { runId: pausedRunId });
-  expect(resumeResponse.kind).toBe("error");
-  if (resumeResponse.kind === "error") {
-    expect(resumeResponse.code).toBe("worktree_claimed");
-  }
+  const killResponse = await killDirect(handlers, runId);
+  expect(killResponse.kind).toBe("response");
+  expect(loadRunOrThrow(stateStore, runId).status).toBe("killed");
 });

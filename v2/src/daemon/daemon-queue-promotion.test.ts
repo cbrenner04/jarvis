@@ -6,7 +6,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   createRunControlHandlers,
@@ -39,11 +39,6 @@ const AGENT_MODEL_CONFIG: AgentModelConfig = {
   },
 };
 
-async function flushBackgroundRuns(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  await new Promise<void>((resolve) => setImmediate(resolve));
-}
-
 async function startRunDirectExpectingId(handlers: Handlers, input: WriteLoopInput): Promise<string> {
   const runId = await startRunDirect(handlers, input);
   expect(runId).toBeDefined();
@@ -69,7 +64,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   fakeExecutor.abortAll();
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
   try {
     stateStore.close();
   } catch {
@@ -262,7 +257,7 @@ test("promoting one queued run does not touch an already-running run when headro
   // A start on a distinct, unrelated key admits directly and triggers the post-admit
   // promotion check; project-running is never touched by it.
   await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-trigger" }));
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
 
   expect(stateStore.loadRun(queuedId)?.status).toBe("in-progress");
   expect(stateStore.loadRun(runningId)?.status).toBe("in-progress");
@@ -270,7 +265,7 @@ test("promoting one queued run does not touch an already-running run when headro
   // Memory now drops below the watermark again; project-running's status must never
   // change as a side effect of headroom checks — there is no preemption.
   memoryHeadroom = false;
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
   expect(stateStore.loadRun(runningId)?.status).toBe("in-progress");
 });
 
@@ -290,7 +285,7 @@ test("a start that queues because memory is briefly tight is promoted immediatel
   });
 
   const runId = await startRunDirectExpectingId(handlers, mockWriteLoopInput({ projectName: "project-recovering" }));
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
 
   expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
 });
@@ -308,7 +303,7 @@ test("a run reaching a paused status frees its key for promotion of an eligible 
   memoryHeadroom = true;
   stateStore.setRunStatus(pausingRunId, "paused");
   fakeExecutor.settleFirst();
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
 
   expect(stateStore.loadRun(queuedId)?.status).toBe("in-progress");
 });
@@ -321,7 +316,7 @@ test("list reports a promoted run as in-progress and live", async () => {
 
   memoryHeadroom = true;
   await startRunDirect(handlers, mockWriteLoopInput({ projectName: "project-trigger-list" }));
-  await flushBackgroundRuns();
+  await flushBackgroundRuns(2);
 
   const runs = await listRunsDirect(handlers);
   const row = runs?.find((candidate) => candidate.runId === queuedId);

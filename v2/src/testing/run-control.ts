@@ -4,6 +4,40 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
+import type { StateStore } from "../persistence/state-store.ts";
+
+/** Yields `times` macrotask turns so background run spawns/settlements land. */
+export async function flushBackgroundRuns(times = 1): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
+export function loadRunOrThrow(store: StateStore, runId: string): NonNullable<ReturnType<StateStore["loadRun"]>> {
+  const run = store.loadRun(runId);
+  if (!run) throw new Error(`missing run ${runId}`);
+  return run;
+}
+
+type SnapshotStep = {
+  stepId: string;
+  role: string;
+  behavior?: "review-debate" | "review";
+};
+
+/** Minimal workflow snapshot for list/retention tests. */
+export function workflowSnapshot(
+  invocationId: string,
+  steps: SnapshotStep[],
+  extras: { reviewPasses?: number; reviewBehavior?: "debate" | "light" } = {},
+): { invocationId: string; steps: SnapshotStep[]; reviewPasses?: number; reviewBehavior?: "debate" | "light" } {
+  return {
+    invocationId,
+    steps,
+    ...(extras.reviewPasses !== undefined ? { reviewPasses: extras.reviewPasses } : {}),
+    ...(extras.reviewBehavior !== undefined ? { reviewBehavior: extras.reviewBehavior } : {}),
+  };
+}
 
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;

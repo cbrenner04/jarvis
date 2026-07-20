@@ -8,10 +8,13 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
+import { startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
+import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
-import { startDaemonRuntime as startInProcessDaemon } from "./daemon";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
+import { createRunControlHandlers, startDaemonRuntime as startInProcessDaemon } from "./daemon";
 import { startDaemon, stopDaemon } from "./daemon-lifecycle";
 import { parseListRuns } from "./daemon-wire";
 
@@ -135,5 +138,41 @@ describe("daemon (real process)", () => {
     shutdownClient.send({ kind: "request", id: "sd1", method: "shutdown" });
     await shutdownClient.nextFrame();
     shutdownClient.close();
+  });
+
+  // Round-trip smoke: run-control handlers marshal start/list params and results
+  // through production IPC framing. Handler behavior itself is covered in-process
+  // by daemon-start-list.test.ts.
+  socketTest("start and list round-trip over production IPC", async () => {
+    const stateStore = openStateStore(join(tmpdir(), `jarvis-smoke-state-${process.pid}-${Date.now()}.db`));
+    const fakeExecutor = createFakeWriteLoopExecutor();
+    const handlers = createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+    const socketPath = join(tmpdir(), `jarvis-daemon-smoke-${process.pid}-${Date.now()}.sock`);
+    rmSync(socketPath, { force: true });
+    const server = await startIpcServer(socketPath, toIpcHandlers(handlers));
+    try {
+      const client = await connectIpcClient(socketPath, 2_000);
+      const runId = await startRun(client);
+      expect(typeof runId).toBe("string");
+
+      const runs = await listRuns(client);
+      expect(runs?.length).toBeGreaterThan(0);
+      expect(runs?.[0]).toMatchObject({ runId, status: "in-progress", isLive: true });
+      expect(runs?.[0]).toHaveProperty("project");
+      expect(runs?.[0]).toHaveProperty("branch");
+      client.close();
+    } finally {
+      await server.close();
+      rmSync(socketPath, { force: true });
+      fakeExecutor.abortAll();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      stateStore.close();
+    }
   });
 });

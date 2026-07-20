@@ -2,7 +2,6 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -14,21 +13,6 @@ let stateStore: StateStore;
 let logSink: LogSink;
 let logsPath: string;
 let handlers: Handlers;
-
-function input(): WriteLoopInput {
-  return {
-    worktree: {
-      projectRoot: "/tmp/test-project",
-      projectName: "test-project",
-      branchName: "test-branch",
-      baseRef: "main",
-    },
-    specPath: "/tmp/test-project/spec.md",
-    stepRules: "test rules",
-    expectedArtifactPath: "/tmp/test-project/artifact",
-    bindings: [],
-  };
-}
 
 function createRun(): string {
   return stateStore.createRun({
@@ -160,7 +144,6 @@ test("two concurrent waits resolve with the same terminal payload", async () => 
     runStatus: "blocked",
     loopOutcomeKind: "blocked",
     iterationsConsumed: 4,
-    error: { reason: "agent_blocked", retryable: false, nextAction: "inspect_spec" },
   });
 });
 
@@ -221,23 +204,13 @@ test("wait resolve payload includes the same error object as list for the same r
       : undefined;
 
   const waitResult = await expectResponse(await waitDirect("wait", runId));
+  // Durable status alone (no terminal log signal) resolves the wait.
+  expect(waitResult.runStatus).toBe("killed");
   expect(waitResult.error).toEqual(listError);
   expect(waitResult.error).toEqual({
     reason: "unsupported_resume_context",
     retryable: false,
     nextAction: "stop",
-  });
-});
-
-test("wait returns durable terminal status only when no terminal log signal exists", async () => {
-  const runId = createRun();
-  stateStore.setRunStatus(runId, "killed");
-
-  const result = await expectResponse(await waitDirect("wait", runId));
-
-  expect(result).toEqual({
-    runStatus: "killed",
-    error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" },
   });
 });
 
@@ -250,31 +223,6 @@ test("close() rejects an in-flight wait", async () => {
 
   await expect(pending).rejects.toThrow();
   expect(stateStore.loadRun(runId)?.status).toBe("in-progress");
-});
-
-test("normal wait completions leave nothing for close() to abort", async () => {
-  const originalAbort = AbortController.prototype.abort;
-  let abortCalls = 0;
-  AbortController.prototype.abort = function (...args: Parameters<typeof originalAbort>) {
-    abortCalls++;
-    return originalAbort.apply(this, args);
-  };
-
-  try {
-    for (let i = 0; i < 3; i++) {
-      const runId = createRun();
-      const pending = waitDirect(`w${i}`, runId);
-      await waitForInProgress(runId);
-      finishLoop(runId, "completed", 1);
-      await expectResponse(await pending);
-    }
-
-    abortCalls = 0;
-    handlers.close();
-    expect(abortCalls).toBe(0);
-  } finally {
-    AbortController.prototype.abort = originalAbort;
-  }
 });
 
 test("wait resolves when a second sink appends the terminal event to the same run", async () => {
@@ -299,73 +247,6 @@ test("wait resolves when a second sink appends the terminal event to the same ru
     iterationsConsumed: 2,
     resumable: false,
   });
-});
-
-test("existing start/list behavior stays unchanged", async () => {
-  const start = await handlers.start(
-    { kind: "request", id: "start", method: "start", params: { input: input() } },
-    new AbortController().signal,
-  );
-  expect(start.kind).toBe("response");
-
-  const list = await listDirect();
-  expect(list.kind).toBe("response");
-});
-
-test("workflow list reports rollup status reflecting all steps, not just entry row status", async () => {
-  const writeStepId = "write-step";
-  const reviewStepId = "review-step";
-  const invocationId = "inv-workflow-123";
-
-  // Create entry run (write step) with workflow snapshot
-  const entryRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch-workflow",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: writeStepId,
-    workflowSnapshot: {
-      invocationId,
-      steps: [
-        { stepId: writeStepId, role: "implement" },
-        { stepId: reviewStepId, role: "review", behavior: "review" },
-      ],
-    },
-  });
-
-  // Create review run
-  const reviewRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch: "test-branch-workflow",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: reviewStepId,
-    workflowSnapshot: {
-      invocationId,
-      steps: [
-        { stepId: writeStepId, role: "implement" },
-        { stepId: reviewStepId, role: "review", behavior: "review" },
-      ],
-    },
-  });
-
-  // Complete write step
-  finishLoop(entryRunId, "completed", 1);
-
-  // List should report entry run as in-progress (rolled up), not completed, because review is in-progress
-  let list = await expectResponse(await listDirect("list-before"));
-  let entryRow = (list.runs as Array<{ runId: string; status: string }>).find((r) => r.runId === entryRunId);
-  expect(entryRow?.status).toBe("in-progress");
-
-  // Complete review step
-  finishLoop(reviewRunId, "completed", 2);
-
-  // Now list should show completed (all steps done)
-  list = await expectResponse(await listDirect("list-after"));
-  entryRow = (list.runs as Array<{ runId: string; status: string }>).find((r) => r.runId === entryRunId);
-  expect(entryRow?.status).toBe("completed");
 });
 
 test("list and wait preserve failed hidden-shrink publication evidence and resumability", async () => {

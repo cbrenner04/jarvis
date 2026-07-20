@@ -105,6 +105,8 @@ export async function startDaemon(
     logCapBytes?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
+    testOwnerPid?: number;
+    onSpawn?: (pid: number) => void;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
@@ -124,7 +126,11 @@ export async function startDaemon(
   const proc = spawn("bun", [daemonScript], {
     detached: true,
     stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
-    env: { ...process.env, DAEMON_SOCKET_PATH: socketPath },
+    env: {
+      ...process.env,
+      DAEMON_SOCKET_PATH: socketPath,
+      ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
+    },
   });
 
   // Close parent's copy of the log fd
@@ -140,6 +146,7 @@ export async function startDaemon(
     throw new Error("Failed to spawn daemon process: pid is undefined");
   }
   const pid = proc.pid;
+  options?.onSpawn?.(pid);
   proc.unref();
 
   if (options?.pidPath) {

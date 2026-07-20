@@ -667,6 +667,10 @@ or symlink-escaped inputs are skipped. Control files remain staged and
 successful landing removes transient staging. Failures retain staging and
 diagnostics. `none` performs no filesystem landing.
 
+## Publication idempotency
+
+When a split's output branch (`intent/<slug>` or `plan/<name>`) already has a merged PR on the base ref, `findOrCreatePr` treats that merged PR as evidence of an already-published split and returns it as an idempotent success without creating a second PR. The check is keyed on the branch name and base ref, not file content or run id. If the merged PR's branch was deleted after merge and recreated from base, re-publication returns the original merged PR and does not open a duplicate. Only merged PRs are short-circuited; an open PR on the same branch uses the existing reuse path unchanged.
+
 ## Completion publication failures
 
 Workflow completion publishes before running the ready gate, then runs diff-derived mutation verification and runtime smoke verification before flipping the draft PR. The ordering is: (1) commit and push → (2) draft PR → body refresh → (3) ready gate (scoped tests) → (4) mutation verification (adversarial test of changed guards) → (5) runtime smoke verification (discovery and execution of changed runnable entrypoint) → (6) draft→ready flip. Publication failures return `completion_commit_failed` with `completionCommitError`; red gates return `ready_gate_failed` with `readyGateError`; surviving mutations return `surviving_mutation_failed` with `survivingMutation` and source-file details; smoke failures return `runtime_smoke_failed` with `runtimeSmokeCommand` and `runtimeSmokeObservation`; failed flips return `ready_flip_failed` with `readyFlipError`. Completion-commit and ready-gate failures exit `1`, preserve durable `completed` status, and are resumed with `nextAction: "resume"`. Surviving-mutation, smoke-failure, and failed-flip failures are terminal non-resumable outcomes: they exit `1`, preserve durable `completed` status, and reject `resume` with `code: "terminal_run"`.

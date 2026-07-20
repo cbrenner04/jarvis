@@ -782,6 +782,42 @@ describe("createCompletionPublisher", () => {
     await expect(publisher(baseInput)).rejects.toThrow("gh pr edit failed");
   });
 
+  it("returns a merged PR without creating a second PR when the branch already has a merged PR", async () => {
+    const ghCalls: string[] = [];
+
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") {
+          if (args.includes("--state") && args.includes("open")) {
+            return JSON.stringify([]); // No open PRs
+          }
+          if (args.includes("--state") && args.includes("merged")) {
+            return JSON.stringify([{ number: 88, baseRefName: "main" }]); // Merged PR found
+          }
+          return JSON.stringify([]);
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(88, "https://github.com/user/repo/pull/88");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(88);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/88");
+    expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
+  });
+
   it("awaits upstream detection, push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
     const events: string[] = [];
 
@@ -833,6 +869,7 @@ describe("createCompletionPublisher", () => {
       "upstream",
       "push",
       "head",
+      "pr-lookup",
       "pr-lookup",
       "pr-create",
       "pr-confirm",

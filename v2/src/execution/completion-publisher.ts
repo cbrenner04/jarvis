@@ -149,6 +149,18 @@ type PrEvidence = {
   url: string;
 };
 
+async function findMatchingPr(
+  gh: GhCommand,
+  cwd: string,
+  branch: string,
+  baseRef: string,
+  state: "open" | "merged",
+): Promise<number | undefined> {
+  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", state, "--json", "number,baseRefName"]);
+  const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
+  return prs.find((pr) => pr.baseRefName === baseRef)?.number;
+}
+
 async function findOrCreatePr(
   gh: GhCommand,
   cwd: string,
@@ -157,13 +169,14 @@ async function findOrCreatePr(
   specPath: string,
   creationTitle: string,
 ): Promise<PrEvidence> {
-  const prListJson = await gh(cwd, ["pr", "list", "--head", branch, "--state", "open", "--json", "number,baseRefName"]);
-  const prs = JSON.parse(prListJson) as Array<{ number: number; baseRefName: string }>;
+  const openPr = await findMatchingPr(gh, cwd, branch, baseRef, "open");
+  if (openPr !== undefined) {
+    return confirmPr(gh, cwd, branch, baseRef, openPr);
+  }
 
-  const matching = prs.filter((pr) => pr.baseRefName === baseRef);
-
-  if (matching.length > 0 && matching[0]) {
-    return confirmPr(gh, cwd, branch, baseRef, matching[0].number);
+  const mergedPr = await findMatchingPr(gh, cwd, branch, baseRef, "merged");
+  if (mergedPr !== undefined) {
+    return confirmPr(gh, cwd, branch, baseRef, mergedPr);
   }
 
   await gh(cwd, [

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Publication is idempotent against a merged split branch](./00-idempotent-publication-merged-branch.md)
+- [x] [00 - Publication is idempotent against a merged split branch](./00-idempotent-publication-merged-branch.md)

@@ -28,10 +28,10 @@ consults the already-landed/merged state of the split before creating a PR.
 
 ## Acceptance criteria
 
-- [ ] `completion-publisher.test.ts` gains a case where the split branch's only PR is merged (PR list returns a merged PR and no open PR); it asserts `gh pr create` is never invoked and publication resolves to that merged PR as an idempotent success. It fails against the pre-fix code and passes after.
-- [ ] When a split's branch already has a merged PR, a re-fired publication in the same run opens no second `intent/<slug>` PR — it reports the prior merged publication instead.
-- [ ] `completion-publisher.test.ts:682` ("reuses existing PR ... without creating a second PR") stays green — a legitimate re-publish against a still-open PR still targets that same open PR (behavior unchanged).
-- [ ] `v2/docs/workflow-runner.md` documents that publication is idempotent against a merged/deleted split branch: a merged split is not re-published.
+- [x] `completion-publisher.test.ts` gains a case where the split branch's only PR is merged (PR list returns a merged PR and no open PR); it asserts `gh pr create` is never invoked and publication resolves to that merged PR as an idempotent success. It fails against the pre-fix code and passes after.
+- [x] When a split's branch already has a merged PR, a re-fired publication in the same run opens no second `intent/<slug>` PR — it reports the prior merged publication instead.
+- [x] `completion-publisher.test.ts:682` ("reuses existing PR ... without creating a second PR") stays green — a legitimate re-publish against a still-open PR still targets that same open PR (behavior unchanged).
+- [x] `v2/docs/workflow-runner.md` documents that publication is idempotent against a merged/deleted split branch: a merged split is not re-published.
 
 ## Documentation updates
 

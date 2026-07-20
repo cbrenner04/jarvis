@@ -1,5 +1,5 @@
 // Real launcher coverage for the test-only detached-daemon ownership contract.
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,26 @@ import { isProcessAlive } from "./daemon-lifecycle.ts";
 const socketTest = test.skipIf(!canUseUnixSockets());
 const testDaemons = createTestDaemonLifecycle();
 const entrypoint = join(import.meta.dir, "..", "daemon-entrypoint.ts");
+
+// Guaranteed teardown for EVERY process this file spawns -- daemon pids (owned
+// and production) plus every launcher/child subprocess. Captured at spawn time
+// so an abrupt per-test timeout (which still runs afterEach) or a skipped
+// in-body finally cannot leak a reparented daemon.
+const spawnedPids = new Set<number>();
+function track(pid: number): number {
+  if (Number.isInteger(pid) && pid > 0) spawnedPids.add(pid);
+  return pid;
+}
+afterEach(() => {
+  for (const pid of spawnedPids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // Already gone (ESRCH) or unkillable -- best-effort reap.
+    }
+  }
+  spawnedPids.clear();
+});
 
 function paths(name: string) {
   const base = `${name}-${process.pid}-${Date.now()}-${Math.random()}`;
@@ -35,11 +55,13 @@ async function launchDaemonLauncher(
     stdout: "pipe",
     stderr: "pipe",
   });
+  track(launcher.pid);
   const reader = launcher.stdout.getReader();
   const first = await reader.read();
   reader.releaseLock();
   const pid = Number(new TextDecoder().decode(first.value).trim().split("\n")[0]);
   expect(pid).toBeGreaterThan(0);
+  track(pid);
   return { launcher, pid };
 }
 
@@ -59,13 +81,33 @@ test("${fails ? "fails" : "completes"}", async () => {
   expect(true).toBe(${!fails});
 });`,
   );
+  // Capture the grandchild daemon pid as soon as the nested run writes it, so
+  // teardown reaps it even if this parent test times out mid-flight.
+  let capturing = true;
+  const captured = (async () => {
+    while (capturing) {
+      try {
+        const pid = Number(readFileSync(pidPath, "utf-8"));
+        if (pid > 0) {
+          track(pid);
+          return;
+        }
+      } catch {
+        // Not written yet.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  })();
   try {
     const child = Bun.spawn([process.execPath, "test", scriptPath], { stdout: "ignore", stderr: "ignore" });
+    track(child.pid);
     await child.exited;
-    const pid = Number(readFileSync(pidPath, "utf-8"));
+    const pid = track(Number(readFileSync(pidPath, "utf-8")));
     await waitFor(() => !isProcessAlive(pid));
     return child.exitCode ?? -1;
   } finally {
+    capturing = false;
+    await captured;
     rmSync(scriptPath, { force: true });
     rmSync(socketPath, { force: true });
     rmSync(pidPath, { force: true });

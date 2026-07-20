@@ -245,6 +245,11 @@ Merged worktrees are retired by `jarvis cleanup`. A leaked worktree from a **fai
 is reset automatically on the next incomplete `jarvis run workflow implement` re-run (see above);
 for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
+If a failed materialization leaves an ordinary directory at its managed path, retry the workflow:
+v2 removes that proven unregistered non-Git husk and rematerializes it under the same branch lock.
+It refuses and leaves the path intact when Git recognizes it as a worktree, the target repository
+still registers it, or Git ownership/validation is inconclusive; inspect that state before manual removal.
+
 ## Implementation on jarvis specs
 
 Two valid paths:

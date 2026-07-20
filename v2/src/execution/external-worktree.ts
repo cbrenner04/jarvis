@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -130,15 +130,22 @@ async function ensureExternalWorktree(
   signal?: AbortSignal,
 ): Promise<ExternalWorktree> {
   const worktreePath = getExternalWorktreePath(args);
-  if (await isValidGitWorktree(worktreePath, runner)) {
+  const worktreeState = await classifyGitWorktree(worktreePath, runner);
+  if (worktreeState === "worktree") {
     throwIfAborted(signal);
     await assertReusableWorktreeMatches(args, worktreePath, runner);
     throwIfAborted(signal);
     return { path: worktreePath, reused: true };
   }
   throwIfAborted(signal);
+  if (worktreeState === "unknown") {
+    throw new Error(`could not validate existing path as a git worktree: ${worktreePath}`);
+  }
   if (existsSync(worktreePath)) {
-    throw new Error(`existing path is not a git worktree: ${worktreePath}`);
+    if (await isRegisteredWorktreePath(args.projectRoot, worktreePath, runner)) {
+      throw new Error(`existing path is registered as a git worktree: ${worktreePath}`);
+    }
+    rmSync(worktreePath, { recursive: true, force: true });
   }
 
   try {
@@ -163,7 +170,7 @@ async function ensureExternalWorktree(
       await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
     }
     throwIfAborted(signal);
-    if (!(await isValidGitWorktree(worktreePath, runner))) {
+    if ((await classifyGitWorktree(worktreePath, runner)) !== "worktree") {
       throw new Error(`created path is not a git worktree: ${worktreePath}`);
     }
     await assertReusableWorktreeMatches(args, worktreePath, runner);
@@ -175,13 +182,28 @@ async function ensureExternalWorktree(
   }
 }
 
-async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<boolean> {
-  if (!existsSync(worktreePath)) return false;
+type GitWorktreeState = "not-worktree" | "worktree" | "unknown";
+
+async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<GitWorktreeState> {
+  if (!existsSync(worktreePath)) return "not-worktree";
   try {
-    return (await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath)).trim() === "true";
-  } catch {
-    return false;
+    return (await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath)).trim() === "true"
+      ? "worktree"
+      : "not-worktree";
+  } catch (error) {
+    return error instanceof Error && error.message.includes("not a git repository") ? "not-worktree" : "unknown";
   }
+}
+
+async function isRegisteredWorktreePath(
+  projectRoot: string,
+  worktreePath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  const output = await runner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot);
+  return output
+    .split("\n")
+    .some((line) => line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === resolve(worktreePath));
 }
 
 async function assertReusableWorktreeMatches(

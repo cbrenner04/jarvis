@@ -63,7 +63,7 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
           return "local-sha\n";
         }
         if (key === "--is-inside-work-tree") {
-          if (!state.worktrees.has(cwd)) throw new Error("not a worktree");
+          if (!state.worktrees.has(cwd)) throw new Error("fatal: not a git repository");
           return "true\n";
         }
         if (key === "--path-format=absolute --git-common-dir") {
@@ -103,6 +103,15 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
 
       if (subcmd === "worktree" && rest[0] === "prune") {
         return "";
+      }
+
+      if (subcmd === "worktree" && rest[0] === "list" && rest[1] === "--porcelain") {
+        const repo = state.repos.get(cwd);
+        if (!repo) throw new Error("fatal: not a git repository");
+        return [...state.worktrees.entries()]
+          .filter(([, worktree]) => worktree.repoCommonDir === repo.commonDir)
+          .map(([path]) => `worktree ${path}\n`)
+          .join("");
       }
 
       if (subcmd === "checkout") {
@@ -264,6 +273,7 @@ describe("external worktree helper", () => {
     await expect(withExternalWorktree(makeInput(jarvisRoot, otherRepoRoot), () => "never", runner)).rejects.toThrow(
       "belongs to a different repository",
     );
+    expect(existsSync(getExternalWorktreePath(makeInput(jarvisRoot, otherRepoRoot)))).toBe(true);
   });
 
   test("refuses to reuse a worktree on a different branch", async () => {
@@ -275,6 +285,7 @@ describe("external worktree helper", () => {
     await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
       "is on branch other-branch, expected write-run",
     );
+    expect(existsSync(result.worktree.path)).toBe(true);
   });
 
   test("refuses busy lock with v1-compatible payload", async () => {
@@ -298,14 +309,86 @@ describe("external worktree helper", () => {
     );
   });
 
-  test("refuses reusing a non-worktree directory", async () => {
+  test("reclaims an unregistered non-Git directory and reaches its callback in one retry", async () => {
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
     mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "failed-materialization"), "husk");
+    let callbackBranch: string | undefined;
+
+    const result = await withExternalWorktree(
+      makeInput(jarvisRoot, repoRoot),
+      async (worktree) => {
+        callbackBranch = (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], worktree.path)).trim();
+      },
+      runner,
+    );
+
+    expect(result.worktree).toEqual({ path, reused: false });
+    expect(callbackBranch).toBe("write-run");
+    expect(existsSync(join(path, "failed-materialization"))).toBe(false);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+  });
+
+  test("refuses a registered non-Git directory and leaves it intact", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "registered-residue"), "keep");
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args.join(" ") === "worktree list --porcelain") return `worktree ${path}\n`;
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
 
     await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
-      `existing path is not a git worktree: ${path}`,
+      `existing path is registered as a git worktree: ${path}`,
     );
+    expect(existsSync(join(path, "registered-residue"))).toBe(true);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+  });
+
+  test("refuses an ambiguous Git-worktree probe and leaves the path intact", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "ambiguous-residue"), "keep");
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args.join(" ") === "rev-parse --is-inside-work-tree") {
+          throw new Error("validation probe failed");
+        }
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      `could not validate existing path as a git worktree: ${path}`,
+    );
+    expect(existsSync(join(path, "ambiguous-residue"))).toBe(true);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
+  });
+
+  test("refuses an inconclusive worktree-registration probe and leaves the path intact", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    const path = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "registration-residue"), "keep");
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args.join(" ") === "worktree list --porcelain") {
+          throw new Error("worktree registration probe failed");
+        }
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await expect(withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "never", runner)).rejects.toThrow(
+      "worktree registration probe failed",
+    );
+    expect(existsSync(join(path, "registration-residue"))).toBe(true);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
 
   test("releases lock when callback fails", async () => {

@@ -184,10 +184,7 @@ async function ensureExternalWorktree(
 
 type GitWorktreeState = "not-worktree" | "worktree" | "unknown";
 
-async function classifyGitWorktree(
-  worktreePath: string,
-  runner: AsyncSubprocessRunner,
-): Promise<GitWorktreeState> {
+async function classifyGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<GitWorktreeState> {
   if (!existsSync(worktreePath)) return "not-worktree";
   try {
     return (await runner.runAsync("git", ["rev-parse", "--is-inside-work-tree"], worktreePath)).trim() === "true"

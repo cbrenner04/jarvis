@@ -319,9 +319,7 @@ describe("external worktree helper", () => {
     const result = await withExternalWorktree(
       makeInput(jarvisRoot, repoRoot),
       async (worktree) => {
-        callbackBranch = (
-          await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], worktree.path)
-        ).trim();
+        callbackBranch = (await runner.runAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], worktree.path)).trim();
       },
       runner,
     );

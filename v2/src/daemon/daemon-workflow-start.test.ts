@@ -1,56 +1,27 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationResult } from "../../../shared/invocation/execute.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
-import type {
-  AnyWorkflowStep,
-  ReviewDebateWorkflowStep,
-  ReviewWorkflowStep,
-  WriteWorkflowStep,
-} from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
-import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import {
+  createBindingFactory,
+  doneBindingFactory,
+  doneWithArtifactBindingFactory,
+  neverResolvingBindingFactory,
+  writeStepFixtures,
+} from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
-const { roots } = trackedTempRoots();
-
-const DEFAULT_AGENT_MODEL_CONFIG = {
-  claude: {
-    implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
-    shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
-  },
-};
-
-function createBindingFactory(
-  invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
-): NonNullable<WriteWorkflowStep["createBinding"]> {
-  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
-    return {
-      id: `${agentId}/${adapterModel}`,
-      invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
-      metadata: { agent: agentId, model: adapterModel },
-    } satisfies InvocationBinding;
-  };
-}
-
-const doneBindingFactory = createBindingFactory(async () => ({ kind: "ok", stdout: "done", stderr: "" }) as const);
-
-const doneWithArtifactBindingFactory = createBindingFactory(async ({ cwd }) => {
-  writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
-  return { kind: "ok", stdout: "done", stderr: "" } as const;
-});
-
-// Never settles, so the step's write loop stays live for the duration of the test.
-const neverResolvingBindingFactory = createBindingFactory(() => new Promise<InvocationResult>(() => {}));
+const { createWriteStep } = writeStepFixtures();
 
 const DEBATE_AGENT_MODEL_CONFIG = {
   claude: {
@@ -94,34 +65,6 @@ function createDebateStep(stepId: string, branch: string): ReviewDebateWorkflowS
   };
 }
 
-function createWriteStep(
-  stepId: string,
-  branchName: string,
-  createBinding: NonNullable<WriteWorkflowStep["createBinding"]> = doneBindingFactory,
-): WriteWorkflowStep {
-  const home = createJarvisHome();
-  roots.push(home.jarvisRoot);
-  return {
-    behavior: "write",
-    worktree: {
-      projectRoot: "/fake",
-      projectName: "demo",
-      branchName,
-      baseRef: "HEAD",
-      jarvisRoot: home.jarvisRoot,
-    },
-    specPath: "spec.md",
-    stepRules: "Return exactly one terminal token.",
-    expectedArtifactPath: "proof.txt",
-    role: "implement",
-    agents: ["claude"],
-    agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-    createBinding,
-    withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
-    stepId,
-  };
-}
-
 async function waitDirect(handlers: ReturnType<typeof createRunControlHandlers>, runId: string) {
   return handlers.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
 }
@@ -140,10 +83,6 @@ let registry: WorktreeOwnershipRegistry;
 
 function requestFrame(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, params };
-}
-
-async function flushBackgroundRuns(): Promise<void> {
-  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 beforeEach(() => {

@@ -5,20 +5,33 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
+import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
+import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+
+type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 let stateStore: StateStore;
 let starts: WriteLoopInput[];
+let fakeExecutor: FakeWriteLoopExecutor;
+let handlers: Handlers;
 let dbPath: string;
 
 beforeEach(() => {
   dbPath = join(tmpdir(), `jarvis-state-resume-${process.pid}-${Date.now()}.db`);
   stateStore = openStateStore(dbPath);
   starts = [];
+  fakeExecutor = createFakeWriteLoopExecutor((input) => {
+    starts.push(input);
+  });
+  handlers = createHandlers();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  fakeExecutor.abortAll();
+  await flushBackgroundRuns();
   try {
     stateStore.close();
   } catch {
@@ -26,6 +39,17 @@ afterEach(() => {
   }
   rmSync(dbPath, { force: true });
 });
+
+function createHandlers(logReader?: LogReader): Handlers {
+  return createRunControlHandlers({
+    stateStore,
+    ...(logReader !== undefined ? { logReader } : {}),
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+}
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   codex: {
@@ -52,17 +76,91 @@ function resumeFrame(runId: string): IpcFrame & { kind: "request" } {
   };
 }
 
-test("resume on an ad-hoc paused run returns resume_unsupported without invoking the executor", async () => {
-  const handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
+async function resumeDirect(h: Handlers, runId: string) {
+  return h.resume(resumeFrame(runId), new AbortController().signal);
+}
 
+function createWorkflowRun(overrides: {
+  invocationId: string;
+  role?: string;
+  agents?: readonly string[];
+  iterationTimeoutMs?: number;
+  stepRules?: string;
+}): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project-worktree",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: {
+      invocationId: overrides.invocationId,
+      steps: [
+        {
+          stepId: "step-1",
+          role: overrides.role ?? "implement",
+          stepRules: overrides.stepRules ?? "resume rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: overrides.agents ?? ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+          ...(overrides.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: overrides.iterationTimeoutMs } : {}),
+        },
+      ],
+    },
+  });
+}
+
+test("resume rejects unknown run ID", async () => {
+  const response = await resumeDirect(handlers, "unknown-id");
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("unknown_run");
+  }
+});
+
+test("resume rejects terminal run status", async () => {
+  const runId = await startRunDirect(handlers);
+  if (!runId) return;
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  stateStore.setRunStatus(runId, "completed");
+
+  const response = await resumeDirect(handlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+    expect(response.message).toBe("Cannot resume a completed run");
+  }
+});
+
+test("resume retries a completed run after a resumable publication failure", async () => {
+  const runId = createWorkflowRun({ invocationId: "publication-retry" });
+  stateStore.setRunStatus(runId, "completed");
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          iterationsConsumed: 1,
+          resumable: true,
+        },
+      },
+    ],
+    async *follow() {},
+  };
+  const localHandlers = createHandlers(logReader);
+
+  expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+});
+
+test("resume on an ad-hoc paused run returns resume_unsupported without invoking the executor", async () => {
   const pausedRunId = stateStore.createRun({
     project: "test-project",
     specRef: "main",
@@ -72,7 +170,7 @@ test("resume on an ad-hoc paused run returns resume_unsupported without invoking
   });
   stateStore.setRunStatus(pausedRunId, "paused");
 
-  const response = await handlers.resume(resumeFrame(pausedRunId), new AbortController().signal);
+  const response = await resumeDirect(handlers, pausedRunId);
 
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
@@ -84,41 +182,14 @@ test("resume on an ad-hoc paused run returns resume_unsupported without invoking
 });
 
 test("resume on a workflow paused run respawns with resolved bindings", async () => {
-  const handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project-worktree",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "workflow-1",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "implement",
-          stepRules: "resume rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: ["codex", "cursor"],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-          iterationTimeoutMs: 123,
-        },
-      ],
-    },
+  const pausedRunId = createWorkflowRun({
+    invocationId: "workflow-1",
+    agents: ["codex", "cursor"],
+    iterationTimeoutMs: 123,
   });
   stateStore.setRunStatus(pausedRunId, "paused");
 
-  const response = await handlers.resume(resumeFrame(pausedRunId), new AbortController().signal);
+  const response = await resumeDirect(handlers, pausedRunId);
 
   expect(response).toEqual({ kind: "response", result: { ok: true } });
   expect(starts).toHaveLength(1);
@@ -133,41 +204,14 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
 });
 
 test("resume on a killed workflow write run uses the persisted step contract", async () => {
-  const handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  const runId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project-worktree",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "workflow-killed",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "implement",
-          stepRules: "persisted rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: ["codex"],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-          iterationTimeoutMs: 456,
-        },
-      ],
-    },
+  const runId = createWorkflowRun({
+    invocationId: "workflow-killed",
+    stepRules: "persisted rules",
+    iterationTimeoutMs: 456,
   });
   stateStore.setRunStatus(runId, "killed");
 
-  const response = await handlers.resume(resumeFrame(runId), new AbortController().signal);
+  const response = await resumeDirect(handlers, runId);
 
   expect(response).toEqual({ kind: "response", result: { ok: true } });
   expect(starts).toHaveLength(1);
@@ -187,40 +231,10 @@ test("resume on a killed workflow write run uses the persisted step contract", a
 });
 
 test("resume on a workflow paused run with an empty agents list returns resume_unsupported", async () => {
-  const handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project-worktree",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "workflow-1",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "implement",
-          stepRules: "resume rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: [],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-        },
-      ],
-    },
-  });
+  const pausedRunId = createWorkflowRun({ invocationId: "workflow-1", agents: [] });
   stateStore.setRunStatus(pausedRunId, "paused");
 
-  const response = await handlers.resume(resumeFrame(pausedRunId), new AbortController().signal);
+  const response = await resumeDirect(handlers, pausedRunId);
 
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
@@ -230,40 +244,10 @@ test("resume on a workflow paused run with an empty agents list returns resume_u
 });
 
 test("resume on a workflow paused run with a non-executable role returns a controlled error", async () => {
-  const handlers = createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: async (input) => {
-      starts.push(input);
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-  });
-
-  const pausedRunId = stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project-worktree",
-    branch: "test-branch",
-    specPath: "/tmp/test-project/spec.md",
-    stepId: "step-1",
-    workflowSnapshot: {
-      invocationId: "workflow-1",
-      steps: [
-        {
-          stepId: "step-1",
-          role: "review",
-          stepRules: "resume rules",
-          expectedArtifactPath: "/tmp/test-project/artifact",
-          agents: ["codex"],
-          agentModelConfig: AGENT_MODEL_CONFIG,
-        },
-      ],
-    },
-  });
+  const pausedRunId = createWorkflowRun({ invocationId: "workflow-1", role: "review" });
   stateStore.setRunStatus(pausedRunId, "paused");
 
-  const response = await handlers.resume(resumeFrame(pausedRunId), new AbortController().signal);
+  const response = await resumeDirect(handlers, pausedRunId);
 
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
@@ -271,4 +255,36 @@ test("resume on a workflow paused run with a non-executable role returns a contr
   }
   expect(starts).toHaveLength(0);
   expect(stateStore.loadRun(pausedRunId)?.status).toBe("paused");
+});
+
+test("resume rejects an unsupported paused run before checking another in-flight run", async () => {
+  await startRunDirect(handlers);
+
+  const pausedRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/other-worktree",
+    branch: "other-branch",
+    specPath: "/tmp/test-project/spec.md",
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  const response = await resumeDirect(handlers, pausedRunId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("resume_unsupported");
+  }
+});
+
+test("resume rejects worktree_claimed when the (project, branch) is already live", async () => {
+  await startRunDirect(handlers);
+
+  const pausedRunId = createWorkflowRun({ invocationId: "claimed-resume" });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  const response = await resumeDirect(handlers, pausedRunId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("worktree_claimed");
+  }
 });

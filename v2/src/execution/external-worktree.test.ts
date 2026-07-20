@@ -8,7 +8,7 @@ import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
   WorktreeBusyError,
-  WorktreeMaterializationError,
+  type WorktreeMaterializationError,
   withExternalWorktree,
 } from "./external-worktree.ts";
 

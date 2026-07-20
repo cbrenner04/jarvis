@@ -7,6 +7,7 @@ import {
   intentReviewProfile,
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
+import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -19,7 +20,6 @@ import {
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -161,7 +161,10 @@ test("start reports materialization failure before linked routing, run creation,
   step.linkedIndexRouting = true;
   const worktreePath = getExternalWorktreePath(step.worktree);
   step.withExternalWorktree = async () => {
-    throw new WorktreeMaterializationError(worktreePath, new Error("git worktree add returned success without a worktree"));
+    throw new WorktreeMaterializationError(
+      worktreePath,
+      new Error("git worktree add returned success without a worktree"),
+    );
   };
 
   const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);

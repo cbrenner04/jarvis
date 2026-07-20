@@ -572,6 +572,7 @@ function planSource(
       } satisfies PublicationLanding,
       intentSeed: ready.content,
       workflowInvocationId: crypto.randomUUID(),
+      creationTitle: `plan: ${ready.name}`,
       publishCompletion: true,
     };
     return { source, identity: { name: ready.name, branch } };

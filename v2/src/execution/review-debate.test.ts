@@ -289,3 +289,36 @@ test("a hung adversary is aborted at the role wall clock", async () => {
   });
   expect(result).toMatchObject({ cycles: [{ kind: "role_failed", failedRole: "adversary" }] });
 });
+
+test("stamps pass metadata onto serializable object profile contexts", async () => {
+  const contexts: unknown[] = [];
+  const calls: string[] = [];
+  const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "verdict.md");
+  const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 2 });
+  const result = await executeReviewDebate({
+    ...input,
+    profile: {
+      domain: "implement",
+      promptIds: { critic: "patch.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
+      render: {
+        critic: () => "inspect",
+        actuator: () => "apply",
+        debateRole: (role: string, context: unknown) => {
+          if (role === "adversary") contexts.push(context);
+          return role;
+        },
+      },
+      verdict: { source: "adjudicator", empty: "stop", persist: "stdout" },
+      boundaries: {
+        light: { critic: "read-only", actuator: "write" },
+        debate: { critic: "read-only", actuator: "write" },
+      },
+    },
+    profileContext: { specPath: "index.md", totalPasses: 2 },
+  });
+  expect(result.cycles).toHaveLength(2);
+  expect(contexts).toEqual([
+    { specPath: "index.md", totalPasses: 2, passNumber: 1 },
+    { specPath: "index.md", totalPasses: 2, passNumber: 2, priorCycleVerdict: "apply this fix" },
+  ]);
+});

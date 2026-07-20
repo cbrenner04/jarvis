@@ -7,6 +7,7 @@ import type {
 } from "../../../shared/invocation/execute.ts";
 import type { ReviewPromptProfile } from "../../../shared/prompts/review-profile.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import { cycleProfileContext } from "./review-profile-context.ts";
 import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 export type ReviewCycleRole = "critic" | "actuator";
@@ -87,10 +88,7 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
     }
 
     const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
-    const profileContext =
-      typeof args.profileContext === "function"
-        ? args.profileContext(cycle + 1, cycles.at(-1)?.verdict ?? undefined)
-        : args.profileContext;
+    const profileContext = cycleProfileContext(args.profileContext, cycle + 1, cycles.at(-1)?.verdict ?? undefined);
     const criticPrompt = await resolveCriticPrompt(args, profileContext);
     const critic = await invokeReviewRole(args, "critic", criticPrompt, args.bindings.critic);
     roleResults.critic = critic;

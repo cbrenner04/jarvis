@@ -170,3 +170,37 @@ test("a hung critic is aborted at the role wall clock", async () => {
   });
   expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "critic" });
 });
+
+test("stamps pass metadata onto serializable object profile contexts", async () => {
+  const contexts: unknown[] = [];
+  const calls: string[] = [];
+  const path = join(dir(), "verdict.md");
+  const result = await executeReviewCycle({
+    cwd: "/fake",
+    profile: {
+      domain: "implement",
+      promptIds: { critic: "patch.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
+      render: {
+        critic: (context: unknown) => {
+          contexts.push(context);
+          return "inspect";
+        },
+        actuator: () => "apply",
+      },
+      verdict: { source: "critic", empty: "stop", persist: "stdout" },
+      boundaries: {
+        light: { critic: "read-only", actuator: "write" },
+        debate: { critic: "read-only", actuator: "write" },
+      },
+    },
+    profileContext: { specPath: "index.md", totalPasses: 2 },
+    bindings: { critic: [binding("critic.1", "fix", calls)], actuator: [binding("actuator.1", "done", calls)] },
+    verdictPath: path,
+    maxCycles: 2,
+  });
+  expect(result.kind).toBe("complete");
+  expect(contexts).toEqual([
+    { specPath: "index.md", totalPasses: 2, passNumber: 1 },
+    { specPath: "index.md", totalPasses: 2, passNumber: 2, priorCycleVerdict: "fix" },
+  ]);
+});

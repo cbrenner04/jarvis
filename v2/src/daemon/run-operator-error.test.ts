@@ -213,3 +213,7 @@ test("composeRunOperatorError returns harness_failure after budget-soft-stopped 
     err("harness_failure", "stop"),
   );
 });
+
+test("composeRunOperatorError surfaces run_execution_failed trailing a completed run", () => {
+  expect(composeRunOperatorError(runWith("completed"), runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+});

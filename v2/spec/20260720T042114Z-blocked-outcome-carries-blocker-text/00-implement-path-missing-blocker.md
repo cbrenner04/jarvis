@@ -31,10 +31,10 @@ subspec file the agent actually writes.
 
 ## Acceptance criteria
 
-- [ ] A new regression test drives a `patch.prompt.body` (implement) write to a `blocked` token where the agent appends no `## Blocker` to the active subspec, and asserts the terminal outcome is `missing_blocker`, not `blocked`; it fails against the pre-fix code.
-- [ ] On the implement path, a `blocked` token that does append a genuine `## Blocker` to the active subspec still resolves as `blocked` (the contract is satisfied), verified by a test.
-- [ ] A `missing_blocker` implement outcome composes to operator reason `missing_blocker` (not `agent_blocked`), verified against `composeRunOperatorError`.
-- [ ] `v2/src/execution/write-loop.test.ts` and `step-runner.test.ts` stay green (existing run-path blocker-contract behavior unchanged).
+- [x] A new regression test drives a `patch.prompt.body` (implement) write to a `blocked` token where the agent appends no `## Blocker` to the active subspec, and asserts the terminal outcome is `missing_blocker`, not `blocked`; it fails against the pre-fix code.
+- [x] On the implement path, a `blocked` token that does append a genuine `## Blocker` to the active subspec still resolves as `blocked` (the contract is satisfied), verified by a test.
+- [x] A `missing_blocker` implement outcome composes to operator reason `missing_blocker` (not `agent_blocked`), verified against `composeRunOperatorError`.
+- [x] `v2/src/execution/write-loop.test.ts` and `step-runner.test.ts` stay green (existing run-path blocker-contract behavior unchanged).
 
 ## Documentation updates
 

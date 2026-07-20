@@ -380,6 +380,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           responseText: truncateLogText(result.responseText),
         });
       }
+      if (result.kind === "blocked" && result.blockerText !== undefined) {
+        args.logSink?.append(runId, {
+          kind: "blocker_text_detail",
+          attemptId,
+          blockerText: truncateLogText(result.blockerText),
+        });
+      }
 
       const boundaryStamp: BoundaryStamp = {
         runId,

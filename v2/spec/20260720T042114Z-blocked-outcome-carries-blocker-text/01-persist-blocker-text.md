@@ -29,9 +29,9 @@ persist it durably.
 
 ## Acceptance criteria
 
-- [ ] A new regression test drives a write step to a genuine `blocked` outcome (agent appends a non-empty `## Blocker`) and asserts the agent's blocker body is retrievable from the durable run log without reading the worktree spec file; it fails against the pre-fix code.
-- [ ] A `blocked` outcome whose `## Blocker` body is empty does not emit a blocker-text record (it is the `missing_blocker` defect path from subspec 00), verified by a test.
-- [ ] Persisted blocker text is truncated by the same log-text truncation applied to `missing_blocker_detail` / `blocker_reprompt`, verified by a test with over-long blocker text.
+- [x] A new regression test drives a write step to a genuine `blocked` outcome (agent appends a non-empty `## Blocker`) and asserts the agent's blocker body is retrievable from the durable run log without reading the worktree spec file; it fails against the pre-fix code.
+- [x] A `blocked` outcome whose `## Blocker` body is empty does not emit a blocker-text record (it is the `missing_blocker` defect path from subspec 00), verified by a test.
+- [x] Persisted blocker text is truncated by the same log-text truncation applied to `missing_blocker_detail` / `blocker_reprompt`, verified by a test with over-long blocker text.
 
 ## Documentation updates
 

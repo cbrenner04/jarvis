@@ -403,6 +403,70 @@ describe("write loop", () => {
     expect(result.outcomeKind).toBe("blocked");
   });
 
+  test("blocked outcome persists blocker text detail in run log", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            appendFileSync(join(cwd, "spec.md"), "\n## Blocker\n\nWaiting for external API approval\n", "utf8");
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(invocations).toBe(1);
+    expect(result.kind).toBe("blocked");
+    expect(result.runStatus).toBe("blocked");
+    const events = sink.getEventsForRun(result.runId).map((event: LogEvent) => event.kind);
+    expect(events).toContain("blocker_text_detail");
+    const detail = sink.getEventsForRun(result.runId).find((event: LogEvent) => event.kind === "blocker_text_detail");
+    expect(detail).toMatchObject({
+      kind: "blocker_text_detail",
+      blockerText: "Waiting for external API approval",
+    });
+  });
+
+
+  test("blocked outcome truncates very long blocker text in log", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const longText = "a".repeat(600);
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            appendFileSync(join(cwd, "spec.md"), `\n## Blocker\n\n${longText}\n`, "utf8");
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(invocations).toBe(1);
+    expect(result.kind).toBe("blocked");
+    const detail = sink.getEventsForRun(result.runId).find((event: LogEvent) => event.kind === "blocker_text_detail");
+    const blockerText = detail && "blockerText" in detail ? detail.blockerText : undefined;
+    expect(blockerText).toMatch(/^a+…$/);
+    expect(blockerText?.length).toBeLessThanOrEqual(501);
+  });
+
   test("blocked with pre-existing harness blocker and no new text is rejected", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const worktreePath = join(jarvisRoot, "worktrees", "demo", "stale-blocker-run");
@@ -1771,7 +1835,7 @@ describe("write loop", () => {
         );
       }
 
-      const finishedEvent = events[2];
+      const finishedEvent = events.find((e: LogEvent) => e.kind === "loop_finished");
       expect(finishedEvent?.kind === "loop_finished" && finishedEvent.loopOutcomeKind).toBe(
         testCase.expectedFinishedOutcomeKind,
       );

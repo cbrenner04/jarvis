@@ -9,7 +9,7 @@ import {
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
-import { hasGenuineBlocker } from "../../../shared/spec-parser.ts";
+import { extractBlockerBody, hasGenuineBlocker } from "../../../shared/spec-parser.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
@@ -57,7 +57,7 @@ export type StepRunResult = {
 } & (
   | { kind: "complete"; token: "done" | "no-work" }
   | { kind: "progress"; token: "progress" }
-  | { kind: "blocked"; token: "blocked" }
+  | { kind: "blocked"; token: "blocked"; blockerText?: string }
   | {
       kind: "contract_miss";
       token: "done" | "no-work";
@@ -134,14 +134,18 @@ function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution
   });
 }
 
-function blockerTextContractSatisfied(contract: BlockerTextContract): boolean {
+function evaluateBlockerTextContract(contract: BlockerTextContract): { satisfied: boolean; blockerText?: string } {
   let specAfter: string;
   try {
     specAfter = readFileSync(contract.specPath, "utf8");
   } catch {
-    return false;
+    return { satisfied: false };
   }
-  return hasGenuineBlocker(contract.specBefore, specAfter);
+  if (!hasGenuineBlocker(contract.specBefore, specAfter)) {
+    return { satisfied: false };
+  }
+  const blockerText = extractBlockerBody(specAfter)?.body;
+  return { satisfied: true, ...(blockerText !== undefined ? { blockerText } : {}) };
 }
 
 type StepTokenResolution =
@@ -198,12 +202,14 @@ async function resolveBlockedResult(
     };
   }
 
-  if (blockerTextContractSatisfied(contract)) {
+  const firstEval = evaluateBlockerTextContract(contract);
+  if (firstEval.satisfied) {
     return {
       kind: "blocked",
       token: "blocked",
       invocation,
       ...repromptField,
+      ...(firstEval.blockerText !== undefined ? { blockerText: firstEval.blockerText } : {}),
     };
   }
 
@@ -212,13 +218,15 @@ async function resolveBlockedResult(
   const responseText = repromptResult?.kind === "ok" ? repromptResult.stdout.trim() : "";
   const blockerReprompt: BlockerReprompt = { responseText, invocation: blockerRepromptInvocation };
 
-  if (blockerTextContractSatisfied(contract)) {
+  const secondEval = evaluateBlockerTextContract(contract);
+  if (secondEval.satisfied) {
     return {
       kind: "blocked",
       token: "blocked",
       invocation,
       ...repromptField,
       blockerReprompt,
+      ...(secondEval.blockerText !== undefined ? { blockerText: secondEval.blockerText } : {}),
     };
   }
 

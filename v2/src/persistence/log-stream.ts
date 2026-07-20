@@ -77,6 +77,13 @@ export type MissingBlockerDetailEvent = {
   responseText: string;
 };
 
+/** Agent's `## Blocker` body text persisted when a `blocked` outcome satisfies the blocker-text contract; truncated at append time. */
+export type BlockerTextDetailEvent = {
+  kind: "blocker_text_detail";
+  attemptId: string;
+  blockerText: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -88,7 +95,8 @@ export type LogEvent =
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent
-  | MissingBlockerDetailEvent;
+  | MissingBlockerDetailEvent
+  | BlockerTextDetailEvent;
 
 /** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;

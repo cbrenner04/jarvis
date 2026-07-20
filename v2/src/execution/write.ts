@@ -353,20 +353,31 @@ async function executeDefaultWrite(
     }
   }
 
+  // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
+  // and implement path (patch.prompt.body on expectedArtifactPath, the active subspec).
+  const blockerTextTargetPath =
+    promptId === DEFAULT_PROMPT_ID
+      ? specPath
+      : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
+        ? expectedArtifactPath
+        : undefined;
+  const blockerTextContract: BlockerTextContract | undefined =
+    blockerTextTargetPath !== undefined &&
+    existsSync(blockerTextTargetPath) &&
+    statSync(blockerTextTargetPath).isFile()
+      ? {
+          id: "write.blocker-text",
+          specPath: blockerTextTargetPath,
+          specBefore: readFileSync(blockerTextTargetPath, "utf8"),
+        }
+      : undefined;
+
   return runWriteStep({
     worktreePath,
     bindings: args.bindings,
     prompt,
     contracts,
-    ...(promptId === DEFAULT_PROMPT_ID && existsSync(specPath) && statSync(specPath).isFile()
-      ? {
-          blockerTextContract: {
-            id: "write.blocker-text",
-            specPath,
-            specBefore: readFileSync(specPath, "utf8"),
-          },
-        }
-      : {}),
+    ...(blockerTextContract !== undefined ? { blockerTextContract } : {}),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),

@@ -1,5 +1,13 @@
 # Write behavior
 
+## Top-level command help
+
+`jarvis help` writes the registered top-level commands as `name<TAB>summary`
+lines. The registry in `v2/src/cli.ts` is the source of truth for command
+dispatch, this overview, and unknown-command diagnostics; each entry owns its
+handler and command usage. `jarvis help` accepts no operands or options;
+invalid help arguments print `usage: jarvis help` to stderr and exit 1.
+
 ## Completed-spec archival
 
 Cleanup may archive a v2 spec only when every linked subspec (or the sole spec

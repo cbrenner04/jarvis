@@ -12,10 +12,11 @@ import { startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
 import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
+import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets, socketProbeErrored } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
 import { createRunControlHandlers, startDaemonRuntime as startInProcessDaemon } from "./daemon";
-import { startDaemon, stopDaemon } from "./daemon-lifecycle";
+import { stopDaemon } from "./daemon-lifecycle";
 import { parseListRuns } from "./daemon-wire";
 
 if (socketProbeErrored) {
@@ -29,6 +30,7 @@ const STATE_DB_PATH = join(tmpdir(), `jarvis-daemon-list-test-${process.pid}-${D
 const PRIOR_OWNER_IDENTITY = "11111:1000000";
 const SWEEP_OWNER_IDENTITY = "22222:2000000";
 const socketTest = test.skipIf(!canUseUnixSockets());
+const testDaemons = createTestDaemonLifecycle();
 
 beforeEach(() => {
   if (!canUseUnixSockets()) {
@@ -52,7 +54,7 @@ afterEach(() => {
 
 describe("daemon (real process)", () => {
   socketTest("detached daemon serves health and status, socket unbinds on stop", async () => {
-    const metadata = await startDaemon(SOCKET_PATH, { pidPath: PID_PATH });
+    const metadata = await testDaemons.start(SOCKET_PATH, { pidPath: PID_PATH });
 
     expect(typeof metadata.pid).toBe("number");
     expect(metadata.socketPath).toBe(SOCKET_PATH);

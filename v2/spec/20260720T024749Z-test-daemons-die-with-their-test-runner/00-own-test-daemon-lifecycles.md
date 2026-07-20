@@ -24,12 +24,12 @@ backstop without changing production daemon independence.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-test-lifecycle.sandbox-unrunnable.test.ts` (or an equivalently named integration test) fails against the pre-fix lifecycle and proves that ordinary teardown and an assertion-failed launcher leave no registered daemon alive.
-- [ ] The same regression test kills a launcher and proves its opted-in `daemon-entrypoint.ts` child exits without test teardown running.
-- [ ] The same regression test proves a production-mode daemon remains alive after its launcher exits, then explicitly reaps it.
-- [ ] Every sandbox-unrunnable test launch of the detached daemon entrypoint uses the lifecycle-owned fixture; PID registration occurs before readiness polling can fail.
-- [ ] `v2/docs/test-writing.md` requires test-spawned daemons to be reaped after completed, failed, and interrupted runs; `v2/docs/v1-behaviors.md` records the opt-in test lifecycle and production independence.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-test-lifecycle.sandbox-unrunnable.test.ts` (or an equivalently named integration test) fails against the pre-fix lifecycle and proves that ordinary teardown and an assertion-failed launcher leave no registered daemon alive.
+- [x] The same regression test kills a launcher and proves its opted-in `daemon-entrypoint.ts` child exits without test teardown running.
+- [x] The same regression test proves a production-mode daemon remains alive after its launcher exits, then explicitly reaps it.
+- [x] Every sandbox-unrunnable test launch of the detached daemon entrypoint uses the lifecycle-owned fixture; PID registration occurs before readiness polling can fail.
+- [x] `v2/docs/test-writing.md` requires test-spawned daemons to be reaped after completed, failed, and interrupted runs; `v2/docs/v1-behaviors.md` records the opt-in test lifecycle and production independence.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

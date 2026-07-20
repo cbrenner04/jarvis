@@ -48,19 +48,27 @@ abort wins over the throw and terminates as resumable `progress`.
 
 For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
-2. If the outcome is `complete` and the step role is `implement`, run one
-   hidden shrink write loop before advancing.
+2. If the outcome is `complete` and the step role is `implement`, commit its
+   output, then run one hidden shrink write loop before advancing. On a
+   successful publication, that checkpoint and shrink edits fold into the
+   single completion commit.
 3. If the outcome is `complete`, advance to the next step.
 4. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
 
 The hidden shrink pass is not an authored workflow step. It reuses the completed
 `implement` step's worktree, spec path, artifact path, step rules, agent order,
 and model config, but resolves bindings as `(agent, role: "shrink") → rungs`
-and uses prompt id `patch.prompt.shrink`. It runs only after `implement`
-returns `complete`; `budget-exhausted`, `paused`, `blocked`, `contract_miss`,
-and `invocation_failure` do not trigger shrink. A non-`complete` shrink outcome
-replaces the workflow result kind at the implement step and prevents later
-steps from running.
+and uses prompt id `patch.prompt.shrink`. The completed implement output is
+committed first, so a shrink invocation failure preserves it on the branch. It
+runs only after `implement` returns `complete`; `budget-exhausted`, `paused`,
+`blocked`, `contract_miss`, and `invocation_failure` do not trigger shrink. A
+non-`complete` shrink outcome replaces the workflow result kind at the
+implement step and prevents later steps from running.
+
+A shrink `invocation_failure` with `failureKind: "error"` after that checkpoint
+is resumable. Resuming skips the completed implement write, re-runs shrink, and
+continues to publication when shrink completes. Other shrink failure kinds keep
+their normal classifications.
 
 The `intent` preset is one `plan` write step with prompt `intent.prompt.split`.
 When its step supplies `intentOutput`, completion validates the shared

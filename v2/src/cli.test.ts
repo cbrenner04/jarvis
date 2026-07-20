@@ -11,6 +11,8 @@ import {
 } from "./cli/usage.ts";
 import { captureIo, cliMain as main } from "./testing/cli-test-helpers.ts";
 
+const commandNames = "write, daemon, config, run, tui, cleanup, help";
+
 /** Top-level dispatch only; per-command behavior is covered next to each module in `commands/`. */
 describe("v2 cli dispatch", () => {
   test("no args prints v2 boundary message and exits 0", async () => {
@@ -30,7 +32,7 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: "unknown command: bogus; expected one of: write, daemon, config, run, tui, cleanup, help\n",
+      stderr: `unknown command: bogus; expected one of: ${commandNames}\n`,
     });
   });
 
@@ -65,7 +67,7 @@ describe("v2 cli dispatch", () => {
   test("registry owns dispatched commands, metadata, and exact-name lookup", () => {
     const entries = enumerateCommands();
 
-    expect(entries.map(({ name }) => name)).toEqual(["write", "daemon", "config", "run", "tui", "cleanup", "help"]);
+    expect(entries.map(({ name }) => name).join(", ")).toBe(commandNames);
     expect(entries.map(({ usage }) => usage)).toEqual([
       WRITE_USAGE,
       DAEMON_USAGE,
@@ -96,7 +98,7 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
       stdout: "",
-      stderr: `unknown command: ${command}; expected one of: write, daemon, config, run, tui, cleanup, help\n`,
+      stderr: `unknown command: ${command}; expected one of: ${commandNames}\n`,
     });
   });
 

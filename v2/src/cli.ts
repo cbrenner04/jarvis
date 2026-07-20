@@ -67,11 +67,11 @@ function renderHelp(out: Io): number {
 
 const commandEntries: readonly CommandEntry[] = [
   { name: "write", summary: "Run an in-process write loop.", usage: WRITE_USAGE, handler: runWriteCommand },
-  { name: "daemon", summary: "Manage the background daemon.", usage: DAEMON_USAGE, handler: (argv, io, deps) => runDaemonCommand(argv, io, deps) },
-  { name: "config", summary: "Show or update machine configuration.", usage: CONFIG_USAGE, handler: (argv, io, deps) => runConfigCommand(argv, io, deps) },
-  { name: "run", summary: "Manage daemon-backed runs.", usage: RUN_USAGE, handler: (argv, io, deps) => runRunCommand(argv, io, deps) },
-  { name: "tui", summary: "Open the interactive run monitor.", usage: TUI_USAGE, handler: (argv, io, deps) => runTuiCommand(argv, io, deps) },
-  { name: "cleanup", summary: "Retire completed worktrees and specs.", usage: CLEANUP_USAGE, handler: (argv, io, deps) => runCleanupCliCommand(argv, io, deps) },
+  { name: "daemon", summary: "Manage the background daemon.", usage: DAEMON_USAGE, handler: runDaemonCommand },
+  { name: "config", summary: "Show or update machine configuration.", usage: CONFIG_USAGE, handler: runConfigCommand },
+  { name: "run", summary: "Manage daemon-backed runs.", usage: RUN_USAGE, handler: runRunCommand },
+  { name: "tui", summary: "Open the interactive run monitor.", usage: TUI_USAGE, handler: runTuiCommand },
+  { name: "cleanup", summary: "Retire completed worktrees and specs.", usage: CLEANUP_USAGE, handler: runCleanupCliCommand },
   {
     name: "help",
     summary: "List top-level commands.",
@@ -92,7 +92,7 @@ export function enumerateCommands(): readonly CommandEntry[] {
 }
 
 export function findCommand(name: string): CommandEntry | undefined {
-  return enumerateCommands().find((entry) => entry.name === name);
+  return commandEntries.find((entry) => entry.name === name);
 }
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {

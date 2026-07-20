@@ -7,8 +7,8 @@ import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
-  WorktreeMaterializationError,
   WorktreeBusyError,
+  type WorktreeMaterializationError,
   withExternalWorktree,
 } from "./external-worktree.ts";
 
@@ -194,9 +194,13 @@ describe("external worktree helper", () => {
 
     const worktreePath = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
     await expect(
-      withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => {
-        callbackCalled = true;
-      }, runner),
+      withExternalWorktree(
+        makeInput(jarvisRoot, repoRoot),
+        () => {
+          callbackCalled = true;
+        },
+        runner,
+      ),
     ).rejects.toMatchObject({
       name: "WorktreeMaterializationError",
       worktreePath,

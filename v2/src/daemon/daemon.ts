@@ -6,8 +6,8 @@ import { resolveExecutableRole, resolveInvocationBindings } from "../config/agen
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
   getExternalWorktreePath,
-  WorktreeMaterializationError,
   withExternalWorktree as realWithExternalWorktree,
+  WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
 import {
   type AnyWorkflowStep,

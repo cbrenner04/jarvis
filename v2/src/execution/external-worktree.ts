@@ -34,6 +34,20 @@ export class WorktreeBusyError extends Error {
   }
 }
 
+/** Raised when a fresh managed worktree could not be created and validated. */
+export class WorktreeMaterializationError extends Error {
+  readonly worktreePath: string;
+  override readonly cause: unknown;
+
+  constructor(worktreePath: string, cause: unknown) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Failed to materialize worktree ${worktreePath}: ${reason}`);
+    this.name = "WorktreeMaterializationError";
+    this.worktreePath = worktreePath;
+    this.cause = cause;
+  }
+}
+
 /** Result of a lock-scoped worktree operation. */
 export type WithExternalWorktreeResult<T> = {
   worktree: ExternalWorktree;
@@ -127,29 +141,38 @@ async function ensureExternalWorktree(
     throw new Error(`existing path is not a git worktree: ${worktreePath}`);
   }
 
-  mkdirSync(dirname(worktreePath), { recursive: true });
-  await pruneMissingWorktrees(args.projectRoot, runner);
-  throwIfAborted(signal);
-
-  const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
-  throwIfAborted(signal);
-  const branchExistsRemote = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner);
-  throwIfAborted(signal);
-
-  if (branchExists || branchExistsRemote) {
-    if (!branchExists && branchExistsRemote) {
-      await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
-      throwIfAborted(signal);
-    }
-    await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
-  } else {
-    await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+  try {
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await pruneMissingWorktrees(args.projectRoot, runner);
     throwIfAborted(signal);
-    await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
+
+    const branchExists = await branchExistsLocalAsync(args.projectRoot, args.branchName, runner);
+    throwIfAborted(signal);
+    const branchExistsRemote = await branchExistsOnOriginAsync(args.projectRoot, args.branchName, runner);
+    throwIfAborted(signal);
+
+    if (branchExists || branchExistsRemote) {
+      if (!branchExists && branchExistsRemote) {
+        await runner.runAsync("git", ["branch", args.branchName, `origin/${args.branchName}`], args.projectRoot);
+        throwIfAborted(signal);
+      }
+      await runner.runAsync("git", ["worktree", "add", "--checkout", worktreePath, args.branchName], args.projectRoot);
+    } else {
+      await runner.runAsync("git", ["branch", args.branchName, args.baseRef], args.projectRoot);
+      throwIfAborted(signal);
+      await runner.runAsync("git", ["worktree", "add", worktreePath, args.branchName], args.projectRoot);
+    }
+    throwIfAborted(signal);
+    if (!(await isValidGitWorktree(worktreePath, runner))) {
+      throw new Error(`created path is not a git worktree: ${worktreePath}`);
+    }
+    await assertReusableWorktreeMatches(args, worktreePath, runner);
+    throwIfAborted(signal);
+    symlinkSync(join(args.projectRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+    return { path: worktreePath, reused: false };
+  } catch (error) {
+    throw new WorktreeMaterializationError(worktreePath, error);
   }
-  throwIfAborted(signal);
-  symlinkSync(join(args.projectRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
-  return { path: worktreePath, reused: false };
 }
 
 async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessRunner): Promise<boolean> {

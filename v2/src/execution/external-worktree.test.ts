@@ -7,6 +7,7 @@ import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
+  WorktreeMaterializationError,
   WorktreeBusyError,
   withExternalWorktree,
 } from "./external-worktree.ts";
@@ -179,6 +180,29 @@ describe("external worktree helper", () => {
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     expect(existsSync(lockPath)).toBe(false);
     expect(existsSync(join(result.worktree.path, ".jarvis.lock"))).toBe(false);
+  });
+
+  test("rejects a successful worktree add that does not materialize a valid worktree before its callback", async () => {
+    const { repoRoot, jarvisRoot, runner: innerRunner } = setupMockRepo();
+    let callbackCalled = false;
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "add") return "";
+        return innerRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    const worktreePath = getExternalWorktreePath(makeInput(jarvisRoot, repoRoot));
+    await expect(
+      withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => {
+        callbackCalled = true;
+      }, runner),
+    ).rejects.toMatchObject({
+      name: "WorktreeMaterializationError",
+      worktreePath,
+      message: expect.stringContaining(`created path is not a git worktree: ${worktreePath}`),
+    } satisfies Partial<WorktreeMaterializationError>);
+    expect(callbackCalled).toBe(false);
   });
 
   test("recovers stale lock and reports recovered status", async () => {

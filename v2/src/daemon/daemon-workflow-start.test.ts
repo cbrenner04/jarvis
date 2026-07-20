@@ -8,6 +8,7 @@ import {
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -141,9 +142,33 @@ test("start reports routing_read_failed for an unreadable linked index", async (
   if (response.kind === "error") {
     expect(response.code).toBe("routing_read_failed");
     expect(typeof response.message).toBe("string");
-    expect(response.message.includes("/fake/missing-index.md")).toBe(true);
+    expect(response.message.includes(`${getExternalWorktreePath(step.worktree)}/missing-index.md`)).toBe(true);
     expect(response.message.includes("ENOENT")).toBe(true);
   }
+});
+
+test("start reports materialization failure before linked routing, run-row creation, or agent execution", async () => {
+  const managedPath = "/managed/worktree";
+  const step = createWriteStep("step-1", "materialization-failed");
+  step.specPath = "missing-index.md";
+  step.linkedIndexRouting = true;
+  step.withExternalWorktree = async () => {
+    throw new WorktreeMaterializationError(managedPath, new Error("git worktree add left no checkout"));
+  };
+
+  const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "worktree_materialization_failed",
+    message: expect.stringContaining(managedPath),
+  });
+  if (response.kind === "error") {
+    expect(response.message).toContain("git worktree add left no checkout");
+    expect(response.message).not.toContain("routing");
+  }
+  expect(fakeExecutor.pendingCount()).toBe(0);
+  expect(await listRunsDirect(handlers)).toEqual([]);
 });
 
 test("start with steps reports isLive on list while the workflow step is executing", async () => {

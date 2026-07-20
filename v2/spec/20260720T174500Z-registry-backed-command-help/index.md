@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Add registry-backed command help](./00-add-registry-backed-command-help.md)
+- [x] [00 - Add registry-backed command help](./00-add-registry-backed-command-help.md)

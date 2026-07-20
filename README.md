@@ -105,6 +105,7 @@ jarvis tui [log <run-id>]   Live ink monitor / per-run log follow.
 jarvis cleanup [--abandon] [--dry-run] [<name>]
                             Retire merged v2 worktrees; archive completed
                             v2 specs.
+jarvis help                 List top-level commands.
 jarvis --version
 ```
 

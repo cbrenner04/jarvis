@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { enumerateCommands, findCommand } from "./cli.ts";
 import {
   CLEANUP_USAGE,
   CONFIG_USAGE,
@@ -9,6 +8,7 @@ import {
   TUI_USAGE,
   WRITE_USAGE,
 } from "./cli/usage.ts";
+import { enumerateCommands, findCommand } from "./cli.ts";
 import { captureIo, cliMain as main } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
@@ -90,7 +90,7 @@ describe("v2 cli dispatch", () => {
     expect(findCommand("toString")).toBeUndefined();
   });
 
-  test.each(["constructor", "toString"]) ("%s remains an unknown command", async (command) => {
+  test.each(["constructor", "toString"])("%s remains an unknown command", async (command) => {
     const cap = captureIo();
 
     const code = await main([command], cap.io);

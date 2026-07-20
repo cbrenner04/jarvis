@@ -20,12 +20,7 @@ import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./c
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
 
-type CommandHandler = (
-  argv: readonly string[],
-  io: Io,
-  deps: CliDeps,
-  operatorSessionId: string,
-) => Promise<number>;
+type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
 export type CommandEntry = {
   name: string;
@@ -61,7 +56,11 @@ async function runWriteCommand(
 }
 
 function renderHelp(out: Io): number {
-  out.stdout(`${enumerateCommands().map(({ name, summary }) => `${name}\t${summary}`).join("\n")}\n`);
+  out.stdout(
+    `${enumerateCommands()
+      .map(({ name, summary }) => `${name}\t${summary}`)
+      .join("\n")}\n`,
+  );
   return 0;
 }
 
@@ -71,7 +70,12 @@ const commandEntries: readonly CommandEntry[] = [
   { name: "config", summary: "Show or update machine configuration.", usage: CONFIG_USAGE, handler: runConfigCommand },
   { name: "run", summary: "Manage daemon-backed runs.", usage: RUN_USAGE, handler: runRunCommand },
   { name: "tui", summary: "Open the interactive run monitor.", usage: TUI_USAGE, handler: runTuiCommand },
-  { name: "cleanup", summary: "Retire completed worktrees and specs.", usage: CLEANUP_USAGE, handler: runCleanupCliCommand },
+  {
+    name: "cleanup",
+    summary: "Retire completed worktrees and specs.",
+    usage: CLEANUP_USAGE,
+    handler: runCleanupCliCommand,
+  },
   {
     name: "help",
     summary: "List top-level commands.",
@@ -117,7 +121,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   const entry = findCommand(command);
   if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
 
-  out.stderr(`unknown command: ${command}; expected one of: ${enumerateCommands().map(({ name }) => name).join(", ")}\n`);
+  out.stderr(
+    `unknown command: ${command}; expected one of: ${enumerateCommands()
+      .map(({ name }) => name)
+      .join(", ")}\n`,
+  );
   return 1;
 }
 

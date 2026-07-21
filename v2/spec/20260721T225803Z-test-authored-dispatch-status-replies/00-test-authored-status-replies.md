@@ -23,7 +23,8 @@
 - [ ] The docs-only-merge regression in `v2/src/commands/run.test.ts` fails when `advanceLoadedRevision` no longer advances matching-digest HEAD drift and passes with the production behavior intact.
 - [ ] CLI dispatch tests author the status revision and executable digest they assert, while unrelated users of `makeIpcClient` retain a fixed default reply.
 - [ ] Existing CLI dispatch coverage in `v2/src/commands/run.test.ts` and `v2/src/commands/workflow.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [ ] No test awaits `makeIpcClient().nextFrame()` for a reply that `send()` already delivered. `send()` delivers a `status` reply synchronously; with no waiter parked it does `queue.unshift(frame)`, and `nextFrame()` parks a new waiter without draining the queue whenever `drainFrames` is false — so `send(...)` then `await nextFrame()` hangs forever and blows the per-file test budget. Either park the waiter before sending, or make `nextFrame()` drain a queued frame before parking. **A prior attempt (PR #1914) failed CI exactly here**: `v2/src/commands/run.test.ts` timed out at 180s on two consecutive runs while the local gate passed.
+- [ ] `bun run typecheck` and `bun run test:v2` pass, and `v2/src/commands/run.test.ts` completes well inside the 180-second per-file budget rather than merely not asserting.
 - [ ] `v2/docs/operator-runbook.md` Gate trust states that mutation verification depends on test expectations independent of the mutated production behavior and that self-referential doubles invalidate that evidence.
 
 ## Documentation updates

@@ -163,23 +163,13 @@ index 1234567..abcdefg 100644
   });
 
   it("executes the CLI entrypoint for a CLI-only production diff", async () => {
-    const result = await verifyMappedEntrypoint(
-      "v2/src/cli/deps.ts",
-      "v2/src/cli.ts",
-      ["help"],
-      false,
-    );
+    const result = await verifyMappedEntrypoint("v2/src/cli/deps.ts", "v2/src/cli.ts", ["help"], false);
 
     expect(result.kind).toBe("smoke-failure");
   });
 
   it("selects the CLI for daemon modules not loaded by the daemon entrypoint", async () => {
-    const result = await verifyMappedEntrypoint(
-      "v2/src/daemon/daemon-lifecycle.ts",
-      "v2/src/cli.ts",
-      ["help"],
-      true,
-    );
+    const result = await verifyMappedEntrypoint("v2/src/daemon/daemon-lifecycle.ts", "v2/src/cli.ts", ["help"], true);
 
     expect(result.kind).toBe("observed-clean");
   });

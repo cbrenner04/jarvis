@@ -1,6 +1,6 @@
-import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 import { readFile } from "node:fs/promises";
 import { dirname, normalize, relative, resolve } from "node:path";
+import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
   runBase: string;

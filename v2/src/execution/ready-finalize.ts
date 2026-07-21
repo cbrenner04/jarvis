@@ -37,6 +37,7 @@ export type ReadyFinalizerSeams = {
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
+// biome-ignore lint/suspicious/noConfusingVoidType: test finalizers may omit the optional smoke outcome.
 export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<SmokePass | void>;
 
 export class ReadyGateError extends Error {

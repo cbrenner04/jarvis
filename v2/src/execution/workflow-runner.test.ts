@@ -1891,7 +1891,11 @@ describe("executeWorkflow completion publication", () => {
 
     for (const [index, testCase] of cases.entries()) {
       const logSink = new TestLogSink();
-      const step = createStep({ stepId: `runtime-smoke-${index}`, role: "implement", branchName: `runtime-smoke-${index}` });
+      const step = createStep({
+        stepId: `runtime-smoke-${index}`,
+        role: "implement",
+        branchName: `runtime-smoke-${index}`,
+      });
       await withStateStore(async (store) => {
         const result = await executeWorkflow({
           steps: [step],

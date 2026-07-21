@@ -948,18 +948,17 @@ function hasAgentRoleBinding(agentModelConfig: AgentModelConfig, agent: string, 
   return agentEntry !== undefined && Object.hasOwn(agentEntry, role);
 }
 
-/** `(project, branch)` run identity for a step that carries durable run identity. */
-function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
-  return { project: step.worktree.projectName, branch: step.worktree.branchName };
-}
-
 /** Shared row-persistence policy used for both execution and workflow snapshots. */
 function isDurableWorkflowStep(
   step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
 ): step is ReviewWorkflowStep & { landing: Extract<PublicationLanding, { kind: "intent-stage" }> };
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean;
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
-  return step.behavior === "write" || (step.behavior === "review" && step.landing?.kind === "intent-stage");
+  return (
+    step.behavior === "write" ||
+    step.behavior === "review-debate" ||
+    (step.behavior === "review" && step.landing?.kind === "intent-stage")
+  );
 }
 
 /**
@@ -994,11 +993,10 @@ function buildWorkflowSnapshot(
 
   // When freshDispatch is set, skip reusing prior invocation's snapshot and mint a new invocationId
   if (!freshDispatch) {
-    const identifiableSteps = steps.filter(
-      (step): step is WriteWorkflowStep => isDurableWorkflowStep(step) && step.behavior === "write",
-    );
+    const identifiableSteps = steps.filter(isDurableWorkflowStep);
     for (const step of identifiableSteps) {
-      const { project, branch } = stepIdentity(step);
+      const { project, branch } =
+        step.behavior === "write" ? { project: step.worktree.projectName, branch: step.worktree.branchName } : step;
       const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
       const candidate = existingRun?.workflowSnapshot;
       if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
@@ -1370,9 +1368,7 @@ type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_
 
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
- * the debate. No durable run/resume for a review-debate step in this slice (deferred to
- * first consumer); `runId` is synthesized for reporting only. `onProgress`, if supplied,
- * is fed the currently-executing role as the cycle advances, then the terminal role/outcome.
+ * the debate. The fixed cycle is one durable attempt; mid-cycle resume remains deferred.
  */
 async function runReviewDebateStep(
   step: ReviewDebateWorkflowStep,
@@ -1381,6 +1377,8 @@ async function runReviewDebateStep(
   onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
+  workflowSnapshot: WorkflowSnapshot,
 ): Promise<ReviewDebateStepOutcome> {
   const {
     stepId,
@@ -1394,8 +1392,16 @@ async function runReviewDebateStep(
     ...debateInput
   } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
-  const runId = crypto.randomUUID();
-  const attemptId = crypto.randomUUID();
+  const runId = store.createRun({
+    project,
+    specRef: "",
+    worktreePath: step.cwd,
+    branch,
+    specPath: step.verdictPath,
+    stepId,
+    workflowSnapshot,
+  });
+  const attemptId = store.recordAttemptStart(runId);
   onStepRunCreated?.(stepIndex, runId);
 
   const bindings = Object.fromEntries(
@@ -1458,8 +1464,20 @@ async function runReviewDebateStep(
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
     const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
     if (landingError !== undefined) {
+      store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
       return { kind: "invocation_failure", runId, iterationsConsumed: result.cycles.length, resumable: true };
     }
+  }
+
+  if (kind === "invocation_failure") {
+    store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
+  } else {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      ...(completionAgent ? { completionAgent } : {}),
+    });
   }
 
   return {
@@ -1908,7 +1926,16 @@ async function runReviewDispatch(
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, stepIndex, invocationId, onProgress, telemetry, onStepRunCreated);
+    return runReviewDebateStep(
+      step,
+      stepIndex,
+      invocationId,
+      onProgress,
+      telemetry,
+      onStepRunCreated,
+      store,
+      workflowSnapshot,
+    );
   }
 
   const { landing, ...reviewInput } = step;

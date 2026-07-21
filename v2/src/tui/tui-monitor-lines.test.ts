@@ -245,6 +245,54 @@ describe("monitorTextLines", () => {
     expect(lines).toContain("  step-3 verify pending attempts=0");
   });
 
+  test("renders distinct durable draft and debate rows with terminal status tones", () => {
+    const draft: DaemonListRunRow = {
+      runId: "run-plan-draft",
+      project: "demo",
+      branch: "plan",
+      status: "completed",
+      isLive: false,
+    };
+    const debate = (status: "completed" | "failed" | "interrupted"): DaemonListRunRow => ({
+      runId: `run-authored-review-${status}`,
+      project: "demo",
+      branch: "plan",
+      status,
+      isLive: false,
+      workflow: {
+        steps: [
+          { stepId: "plan-draft", role: "plan", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+          {
+            stepId: "authored-plan-review",
+            role: "",
+            status: status === "completed" ? "completed" : "stopped",
+            attemptCount: 1,
+            terminalOutcome: status === "completed" ? "complete" : status === "failed" ? "invocation_failure" : status,
+          },
+        ],
+      },
+    });
+
+    for (const status of ["completed", "failed", "interrupted"] as const) {
+      const rows = monitorSegmentRows(
+        monitorState({ runs: [draft, debate(status)], selectedRunId: `run-authored-review-${status}` }),
+      );
+      expect(rows.map(joinMonitorRow)).toEqual(
+        expect.arrayContaining([
+          "  run-plan-draft demo plan completed not-live",
+          `> run-authored-review-${status} demo plan ${status} not-live`,
+          "  authored-plan-review  " +
+            (status === "completed"
+              ? "completed complete"
+              : `stopped ${status === "failed" ? "invocation_failure" : status}`) +
+            " attempts=1",
+        ]),
+      );
+      const statusSegment = rows.flatMap((line) => line.segments).find((segment) => segment.text === status);
+      expect(statusSegment?.tone).toBe(status === "completed" ? "success" : "failure");
+    }
+  });
+
   test("single-step selected run renders no workflow chrome", () => {
     const lines = monitorTextLines(
       monitorState({

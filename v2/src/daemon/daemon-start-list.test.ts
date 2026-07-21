@@ -32,6 +32,7 @@ async function waitDirect(h: Handlers, runId: string) {
 }
 
 let stateStore: StateStore;
+let stateStorePath: string;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
 let handlers: Handlers;
@@ -52,7 +53,8 @@ function serialized(input: WriteLoopInput): WriteLoopInput {
 }
 
 beforeEach(() => {
-  stateStore = openStateStore(join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`));
+  stateStorePath = join(tmpdir(), `jarvis-state-${process.pid}-${Date.now()}.db`);
+  stateStore = openStateStore(stateStorePath);
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
 
@@ -542,6 +544,115 @@ test("review-debate progress does not bleed across invocations sharing a stepId"
     stepId: "step-debate",
     role: "",
     status: "pending",
+    attemptCount: 0,
+  });
+});
+
+test("list retains durable plan debate rows across live, terminal, and restart projection", async () => {
+  const snapshot = {
+    ...workflowSnapshot("workflow-plan-debate", []),
+    steps: [
+      { stepId: "plan-draft", role: "plan", durable: true },
+      { stepId: "authored-plan-review", role: "", behavior: "review-debate" as const, durable: true },
+    ],
+  };
+  const draftRunId = stateStore.createRun({
+    project: "plan-project",
+    specRef: "main",
+    worktreePath: "/tmp/plan-project",
+    branch: "plan-debate",
+    specPath: "/tmp/plan.md",
+    stepId: "plan-draft",
+    workflowSnapshot: snapshot,
+  });
+  const draftAttemptId = stateStore.recordAttemptStart(draftRunId);
+  stateStore.commitCompletionBoundary({ attemptId: draftAttemptId, runStatus: "completed", outcomeKind: "done" });
+  const debateRunId = stateStore.createRun({
+    project: "plan-project",
+    specRef: "main",
+    worktreePath: "/tmp/plan-project",
+    branch: "plan-debate",
+    specPath: "/tmp/plan.md",
+    stepId: "authored-plan-review",
+    workflowSnapshot: snapshot,
+  });
+  const debateAttemptId = stateStore.recordAttemptStart(debateRunId);
+
+  handlers.reportReviewDebateProgress("workflow-plan-debate", "authored-plan-review", {
+    status: "in_progress",
+    role: "adjudicator",
+  });
+  let rows = await listRunsDirect(handlers);
+  const liveDebate = rows?.find((row) => row.runId === debateRunId);
+  expect(rows?.map((row) => row.runId)).toEqual(expect.arrayContaining([draftRunId, debateRunId]));
+  expect(liveDebate?.status).toBe("in-progress");
+  expect(liveDebate?.workflow?.steps.find((step) => step.stepId === "authored-plan-review")).toEqual({
+    stepId: "authored-plan-review",
+    role: "adjudicator",
+    status: "in_progress",
+    attemptCount: 1,
+  });
+
+  stateStore.commitCompletionBoundary({ attemptId: debateAttemptId, runStatus: "completed", outcomeKind: "done" });
+  rows = await listRunsDirect(handlers);
+  expect(rows?.find((row) => row.runId === debateRunId)?.status).toBe("completed");
+
+  stateStore.setRunStatus(debateRunId, "failed");
+  expect((await listRunsDirect(handlers))?.find((row) => row.runId === debateRunId)?.status).toBe("failed");
+
+  stateStore.setRunStatus(debateRunId, "interrupted");
+  stateStore.close();
+  stateStore = openStateStore(stateStorePath);
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+  const restartedDebate = (await listRunsDirect(handlers))?.find((row) => row.runId === debateRunId);
+  expect(restartedDebate).toMatchObject({ status: "interrupted" });
+  expect(restartedDebate?.workflow?.steps.find((step) => step.stepId === "authored-plan-review")).toEqual({
+    stepId: "authored-plan-review",
+    role: "",
+    status: "stopped",
+    attemptCount: 1,
+    terminalOutcome: "interrupted",
+  });
+});
+
+test("list projects an in-flight durable review step from its live progress, not as a stopped failure", async () => {
+  const snapshot = {
+    ...workflowSnapshot("workflow-intent-review", []),
+    steps: [
+      { stepId: "intent-split", role: "intent", durable: true },
+      { stepId: "intent-review", role: "", behavior: "review" as const, durable: true },
+    ],
+  };
+  const reviewRunId = stateStore.createRun({
+    project: "intent-project",
+    specRef: "main",
+    worktreePath: "/tmp/intent-project",
+    branch: "intent-review",
+    specPath: "/tmp/intent.md",
+    stepId: "intent-review",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.recordAttemptStart(reviewRunId);
+
+  handlers.reportReviewDebateProgress("workflow-intent-review", "intent-review", {
+    status: "in_progress",
+    role: "critic",
+  });
+
+  // The run is in-progress but absent from liveRunIds; without the progress branch it falls
+  // through to stoppedOutcomeForRun and renders "invocation_failure" while still running.
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === reviewRunId);
+  expect(row?.status).toBe("in-progress");
+  expect(row?.workflow?.steps.find((step) => step.stepId === "intent-review")).toEqual({
+    stepId: "intent-review",
+    role: "critic",
+    status: "in_progress",
     attemptCount: 0,
   });
 });

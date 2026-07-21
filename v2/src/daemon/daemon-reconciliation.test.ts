@@ -105,6 +105,117 @@ test("leaves terminal statuses unchanged without reconciliation events", async (
   sweepStore.close();
 });
 
+test("reconciles an orphaned review-debate row to interrupted and retains its workflow snapshot", async () => {
+  const runId = seedStore.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree-debate",
+    branch: "branch-debate",
+    specPath: "/tmp/verdict.md",
+    stepId: "review-debate",
+    workflowSnapshot: {
+      invocationId: "workflow-debate",
+      steps: [{ stepId: "review-debate", role: "", behavior: "review-debate", durable: true }],
+    },
+  });
+  const attemptId = seedStore.recordAttemptStart(runId);
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const sweepStore = openSweepStore(async () => false);
+
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
+
+  expect(sweepStore.loadRun(runId)).toMatchObject({
+    status: "interrupted",
+    attempts: [{ id: attemptId, status: "in-progress" }],
+    workflowSnapshot: { steps: [{ stepId: "review-debate", behavior: "review-debate", durable: true }] },
+  });
+  expect(events).toEqual([
+    { runId, event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" } },
+  ]);
+  sweepStore.close();
+});
+
+test("dedupes run_reconciled per settled status, so a stale killed event does not suppress an interrupted append", async () => {
+  const runId = seedStore.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree-debate-stale",
+    branch: "branch-debate-stale",
+    specPath: "/tmp/verdict.md",
+    stepId: "review-debate",
+    workflowSnapshot: {
+      invocationId: "workflow-debate-stale",
+      steps: [{ stepId: "review-debate", role: "", behavior: "review-debate", durable: true }],
+    },
+  });
+
+  // A prior incarnation persisted a run_reconciled for a *different* settled status. The dedupe
+  // guard must match on status: this row settles to "interrupted", so its event is still owed.
+  const staleRecords: PersistedRecord[] = [
+    {
+      runId,
+      seq: 1,
+      ts: "earlier",
+      event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
+    },
+  ];
+  const staleReader: LogReader = { tail: () => staleRecords, async *follow() {} };
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const sweepStore = openSweepStore(async () => false);
+
+  await reconcileOrphanedRuns(
+    sweepStore,
+    { append: (id, event) => events.push({ runId: id, event }), close: () => undefined },
+    staleReader,
+  );
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("interrupted");
+  expect(events).toEqual([
+    { runId, event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" } },
+  ]);
+  sweepStore.close();
+});
+
+test("suppresses a duplicate run_reconciled when one already matches the settled status", async () => {
+  const runId = seedStore.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree-debate-dupe",
+    branch: "branch-debate-dupe",
+    specPath: "/tmp/verdict.md",
+    stepId: "review-debate",
+    workflowSnapshot: {
+      invocationId: "workflow-debate-dupe",
+      steps: [{ stepId: "review-debate", role: "", behavior: "review-debate", durable: true }],
+    },
+  });
+
+  const matchingRecords: PersistedRecord[] = [
+    {
+      runId,
+      seq: 1,
+      ts: "earlier",
+      event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" },
+    },
+  ];
+  const matchingReader: LogReader = { tail: () => matchingRecords, async *follow() {} };
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const sweepStore = openSweepStore(async () => false);
+
+  await reconcileOrphanedRuns(
+    sweepStore,
+    { append: (id, event) => events.push({ runId: id, event }), close: () => undefined },
+    matchingReader,
+  );
+
+  expect(sweepStore.loadRun(runId)?.status).toBe("interrupted");
+  expect(events).toEqual([]);
+  sweepStore.close();
+});
+
 test("leaves a non-terminal run owned by a live different process untouched, with no reconciliation event", async () => {
   const runId = createRun(seedStore, "in-progress");
   const events: Array<{ runId: string; event: LogEvent }> = [];

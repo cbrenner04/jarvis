@@ -302,7 +302,7 @@ A one-step workflow runs identically to a single-step `executeWriteLoop` invocat
 
 `startWorkflowRun` returns the first step's run id. That step's row reaches `completed` when the step finishes, but later steps may still be running. A caller reading the returned run's status via `loadRun` gets a durable row status, not the workflow status.
 
-To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. Snapshots record the shared runner durability policy: write steps, plus reviewed-intent review, are durable; ordinary review and review-debate are non-durable. Snapshots created before this field default every step to durable, preserving legacy missing-row `killed` behavior.
+To answer "is the workflow terminal?", the daemon computes a rollup: given the entry step's run, its workflow snapshot, and all sibling runs for that invocation, the rollup reports the first authored durable step whose status is terminal-but-not-`completed`, or `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are `completed`. When the invocation is still live (`executeWorkflow` running), the rollup reports `in-progress` regardless of row state. Snapshots record the shared runner durability policy: write steps, reviewed-intent review, and review-debate are durable; ordinary review is non-durable. Snapshots created before this field default every step to durable, preserving legacy missing-row `killed` behavior.
 
 This rollup is computed at read time, never overwriting a step row's status in place — resume logic skips a completed step on-row, so a stale entry-row status would cause resume to re-run step 0.
 
@@ -478,16 +478,13 @@ implement's appended `review-debate` step.
 Outcome mapping for a `review-debate` step reuses `WorkflowResult`
 (`kind: WriteLoopOutcomeKind`, no new kind added): all configured cycles
 completing without a role failure is `kind: "complete"`; a cycle aborting on
-a role invocation failure is `kind: "invocation_failure"`. `resumable` is
-always `false` — there is no durable run/resume for a `review-debate` step in
-this slice (deferred to the first caller that needs mid-cycle resume); its
-`runId` is synthesized for reporting only, not looked up via
-`findRunByProjectBranch`. A `review-debate` step is excluded from the workflow
-snapshot built for `write` steps (see
-[Per-step attempt history](#per-step-attempt-history)) since it has no durable
-run identity in this slice; mixing a `review-debate` step with `write`
-steps in one workflow otherwise composes normally (ordered advancement, same
-stop-on-non-complete rule).
+a role invocation failure is `kind: "invocation_failure"`. Each reached
+`review-debate` step creates one durable `(project, branch, stepId)` run row
+and one attempt for all roles and cycles. It commits `completed` only after
+the debate and any deferred landing succeed; role and landing failures commit
+`failed`. The row carries the complete authored workflow snapshot and joins
+workflow rollup like a write row. `resumable` remains `false`: a fresh dispatch
+creates a new row, and mid-cycle debate replay/resume is deliberately deferred.
 
 Programmatic source loading through `workflow-loader.ts` supports both `write`
 and `review-debate` steps. A `review-debate` step may also be constructed as an

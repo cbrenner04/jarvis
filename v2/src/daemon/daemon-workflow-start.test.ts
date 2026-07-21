@@ -543,7 +543,7 @@ test("intent request against a terminal prior run of another invocation creates 
   expect(secondRunId).not.toBe(firstRunId);
 });
 
-test("a workflow that dies after its step runs settle keeps their status and appends run_execution_failed", async () => {
+test("a workflow that dies in durable review-debate marks its debate row failed and appends run_execution_failed", async () => {
   const logsPath = join(tmpdir(), `jarvis-workflow-logs-${process.pid}-${Date.now()}.jsonl`);
   handlers = createRunControlHandlers({
     stateStore,
@@ -571,11 +571,15 @@ test("a workflow that dies after its step runs settle keeps their status and app
   const wait = await waitDirect(handlers, runId);
   expect(wait.kind).toBe("response");
   expect((wait as { result: { runStatus?: string; error?: { reason?: string } } }).result).toMatchObject({
-    runStatus: "completed",
+    runStatus: "failed",
     error: { reason: "harness_failure" },
   });
 
   expect(stateStore.loadRun(runId)?.status).toBe("completed");
+  expect(
+    stateStore.findRunByProjectBranch({ project: "demo", branch: "swallow-branch", stepId: "implement-review" })
+      ?.status,
+  ).toBe("failed");
   const kinds = openLogReader(logsPath)
     .tail(runId)
     .map((record) => record.event.kind);

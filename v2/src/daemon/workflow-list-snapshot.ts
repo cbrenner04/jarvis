@@ -12,6 +12,7 @@ export type WorkflowStepTerminalOutcome =
   | "budget-exhausted"
   | "paused"
   | "invalid_token"
+  | "interrupted"
   | "killed";
 
 export type WorkflowStepListSnapshot = {
@@ -52,8 +53,17 @@ function workflowStepSnapshot(
   invocationId: string,
   reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
 ): WorkflowStepListSnapshot {
-  if (step.behavior === "review-debate" || step.behavior === "review") {
-    const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
+  const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
+  if (step.behavior === "review-debate" && run?.status === "in-progress" && progress?.status === "in_progress") {
+    return {
+      stepId: step.stepId,
+      role: progress.role,
+      status: "in_progress",
+      attemptCount: run.attempts.length,
+    };
+  }
+
+  if (step.behavior === "review" || (step.behavior === "review-debate" && !step.durable)) {
     if (!progress) {
       return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
     }
@@ -111,6 +121,7 @@ export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTermin
     return run.attempts[run.attempts.length - 1]?.outcomeKind === "invalid_token" ? "invalid_token" : "paused";
   }
   if (run.status === "killed") return "killed";
+  if (run.status === "interrupted") return "interrupted";
   if (run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout") return "iteration_timeout";
   return "invocation_failure";
 }

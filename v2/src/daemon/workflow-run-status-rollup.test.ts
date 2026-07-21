@@ -148,17 +148,18 @@ describe("rollupWorkflowRunStatus", () => {
     ).toBe("killed");
   });
 
-  test("skips review-debate steps when walking authored steps", () => {
+  test("rolls up durable review-debate completion, failure, and interruption", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
         { stepId: "step-0", role: "implement" },
-        { stepId: "step-debate", role: "debate", behavior: "review-debate", durable: false },
+        { stepId: "step-debate", role: "", behavior: "review-debate", durable: true },
         { stepId: "step-1", role: "review", behavior: "review" },
       ],
     });
     const siblingRuns = [
       createRun({ id: "run-0", stepId: "step-0", status: "completed" }),
+      createRun({ id: "run-debate", stepId: "step-debate", status: "completed" }),
       createRun({ id: "run-1", stepId: "step-1", status: "completed" }),
     ];
 
@@ -170,6 +171,19 @@ describe("rollupWorkflowRunStatus", () => {
     });
 
     expect(status).toBe("completed");
+
+    for (const debateStatus of ["failed", "interrupted"] as const) {
+      expect(
+        rollupWorkflowRunStatus({
+          entryRun,
+          workflowSnapshot: snapshot,
+          siblingRuns: siblingRuns.map((run) =>
+            run.stepId === "step-debate" ? { ...run, status: debateStatus } : run,
+          ),
+          isLive: false,
+        }),
+      ).toBe(debateStatus);
+    }
   });
 
   test("returns blocked when a durable step is blocked", () => {
@@ -235,12 +249,12 @@ describe("rollupWorkflowRunStatus", () => {
     expect(status).toBe("completed");
   });
 
-  test("returns killed when only review-debate steps are present and none have rows", () => {
+  test("returns killed when a durable review-debate step has no row", () => {
     const entryRun = createRun({ stepId: "step-0", status: "completed" });
     const snapshot = createSnapshot({
       steps: [
         { stepId: "step-0", role: "implement" },
-        { stepId: "step-debate", role: "debate", behavior: "review-debate", durable: false },
+        { stepId: "step-debate", role: "", behavior: "review-debate", durable: true },
       ],
     });
     const siblingRuns = [createRun({ id: "run-0", stepId: "step-0", status: "completed" })];
@@ -252,7 +266,7 @@ describe("rollupWorkflowRunStatus", () => {
       isLive: false,
     });
 
-    expect(status).toBe("completed");
+    expect(status).toBe("killed");
   });
 
   test("returns entry run status when workflowSnapshot is null", () => {

@@ -87,7 +87,7 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
-/** Marks runs whose recorded owner is gone as killed before IPC is exposed. */
+/** Marks orphaned runs before IPC is exposed. Review-debate rows are interrupted. */
 export async function reconcileOrphanedRuns(
   stateStore: StateStore,
   logSink: LogSink,
@@ -101,11 +101,11 @@ export async function reconcileOrphanedRuns(
       .some(
         (record) =>
           record.event.kind === "run_reconciled" &&
-          record.event.runStatus === "killed" &&
+          record.event.runStatus === run?.status &&
           record.event.reason === "daemon_restart",
       );
-    if (run?.status === "killed" && !eventPersisted) {
-      logSink.append(runId, { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" });
+    if ((run?.status === "killed" || run?.status === "interrupted") && !eventPersisted) {
+      logSink.append(runId, { kind: "run_reconciled", runStatus: run.status, reason: "daemon_restart" });
     }
     stateStore.finishRunReconciliation(runId);
     reconciledRunIds.push(runId);

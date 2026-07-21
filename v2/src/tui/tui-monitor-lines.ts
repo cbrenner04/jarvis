@@ -10,6 +10,7 @@ function isActiveRunStatus(status: RunStatus): boolean {
       return true;
     case "completed":
     case "failed":
+    case "interrupted":
     case "killed":
     case "blocked":
     case "queued":
@@ -59,6 +60,7 @@ export const RUN_STATUS_TONES: Record<RunStatus, MonitorSegmentTone> = {
   "budget-soft-stopped": "failure",
   paused: "active",
   failed: "failure",
+  interrupted: "failure",
   killed: "failure",
   queued: "active",
 };

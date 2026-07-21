@@ -14,6 +14,7 @@ export const RUN_STATUSES = [
   "budget-soft-stopped",
   "paused",
   "failed",
+  "interrupted",
   "killed",
   "queued",
 ] as const;
@@ -27,13 +28,19 @@ export function isRunStatus(value: unknown): value is RunStatus {
 }
 
 /** Statuses that end a run row; `paused` is excluded (resumable). */
-export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "killed"]);
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "failed",
+  "blocked",
+  "interrupted",
+  "killed",
+]);
 
 export function isTerminalRunStatus(status: RunStatus): boolean {
   return TERMINAL_RUN_STATUSES.has(status);
 }
 
-const BOUNDARY_TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "blocked", "failed"]);
+const BOUNDARY_TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "blocked", "failed", "interrupted"]);
 
 /** Statuses a committed completion boundary can leave permanently; `paused` and `killed` are excluded. */
 export function isBoundaryTerminalRunStatus(status: RunStatus): boolean {
@@ -182,11 +189,6 @@ export interface StateStore {
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
-  /**
-   * Mark runs whose recorded owner is gone (no owner, or a dead non-current
-   * owner) as killed; return reconciliation events still owed. A run owned by
-   * a live process — this one or another — is left untouched.
-   */
   beginRunReconciliation(): Promise<string[]>;
 
   /** Mark a persisted reconciliation event as complete. */
@@ -542,14 +544,21 @@ class StateStoreImpl implements StateStore {
 
   async beginRunReconciliation(): Promise<string[]> {
     const candidates = this.db
-      .prepare(`SELECT id, owner_identity AS ownerIdentity FROM runs WHERE status IN (${ORPHAN_STATUSES})`)
-      .all() as Array<{ id: string; ownerIdentity: string | null }>;
+      .prepare(
+        `SELECT id, owner_identity AS ownerIdentity, step_id AS stepId, workflow_snapshot AS workflowSnapshotJson FROM runs WHERE status IN (${ORPHAN_STATUSES})`,
+      )
+      .all() as Array<{
+      id: string;
+      ownerIdentity: string | null;
+      stepId: string | null;
+      workflowSnapshotJson: string | null;
+    }>;
 
-    const killIds: string[] = [];
+    const orphaned: typeof candidates = [];
     const aliveByIdentity = new Map<string, boolean>();
     for (const candidate of candidates) {
       if (candidate.ownerIdentity === null) {
-        killIds.push(candidate.id);
+        orphaned.push(candidate);
         continue;
       }
       if (candidate.ownerIdentity === this.currentIdentity) continue;
@@ -558,17 +567,23 @@ class StateStoreImpl implements StateStore {
         alive = await this.isOwnerAliveProbe(candidate.ownerIdentity);
         aliveByIdentity.set(candidate.ownerIdentity, alive);
       }
-      if (!alive) killIds.push(candidate.id);
+      if (!alive) orphaned.push(candidate);
     }
 
     return this.db.transaction(() => {
-      if (killIds.length > 0) {
-        const placeholders = killIds.map(() => "?").join(", ");
+      for (const candidate of orphaned) {
+        const snapshot =
+          candidate.workflowSnapshotJson === null
+            ? undefined
+            : (JSON.parse(candidate.workflowSnapshotJson) as WorkflowSnapshot);
+        const isReviewDebate = snapshot?.steps.some(
+          (step) => step.stepId === candidate.stepId && step.behavior === "review-debate",
+        );
         this.db
           .prepare(
-            `UPDATE runs SET status = 'killed', reconciliation_pending = 1 WHERE id IN (${placeholders}) AND status IN (${ORPHAN_STATUSES})`,
+            `UPDATE runs SET status = ?, reconciliation_pending = 1 WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
           )
-          .run(...killIds);
+          .run(isReviewDebate ? "interrupted" : "killed", candidate.id);
       }
       return (
         this.db

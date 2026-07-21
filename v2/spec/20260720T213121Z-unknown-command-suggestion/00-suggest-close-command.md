@@ -19,14 +19,14 @@ Unknown v2 commands should direct operators to canonical help and offer one unam
 
 ## Acceptance criteria
 
-- [ ] Every unknown top-level command preserves `unknown command: <input>` on stderr; a unique suggestion follows it when present, and `jarvis help` guidance is last. Stdout is empty and the exit is 1.
-- [ ] An unknown name within inclusive Levenshtein distance 2 of exactly one registered top-level command writes `did you mean <name>?`; insertion, deletion, and substitution matches qualify.
-- [ ] An unknown name at distance 3, or with zero or multiple registered names within distance 2, omits `did you mean` while retaining the base diagnostic and `jarvis help` guidance.
-- [ ] `v2/src/cli.test.ts` covers unique, absent, ambiguous, insertion, deletion, substitution, distance-two, and distance-three matches; the regressions fail against the pre-fix code and pass after implementation.
-- [ ] Suggestion candidates come only from the shipped top-level registry; the diagnostic points to canonical `jarvis help` and no longer renders `expected one of: ...` or another command-name list.
-- [ ] `v2/docs/write-behavior.md` documents canonical help guidance and unique close-match suggestions for unknown top-level commands.
-- [ ] `v2/docs/v1-behaviors.md` replaces the bare unknown-command divergence with the shipped help-pointer and suggestion semantics.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Every unknown top-level command preserves `unknown command: <input>` on stderr; a unique suggestion follows it when present, and `jarvis help` guidance is last. Stdout is empty and the exit is 1.
+- [x] An unknown name within inclusive Levenshtein distance 2 of exactly one registered top-level command writes `did you mean <name>?`; insertion, deletion, and substitution matches qualify.
+- [x] An unknown name at distance 3, or with zero or multiple registered names within distance 2, omits `did you mean` while retaining the base diagnostic and `jarvis help` guidance.
+- [x] `v2/src/cli.test.ts` covers unique, absent, ambiguous, insertion, deletion, substitution, distance-two, and distance-three matches; the regressions fail against the pre-fix code and pass after implementation.
+- [x] Suggestion candidates come only from the shipped top-level registry; the diagnostic points to canonical `jarvis help` and no longer renders `expected one of: ...` or another command-name list.
+- [x] `v2/docs/write-behavior.md` documents canonical help guidance and unique close-match suggestions for unknown top-level commands.
+- [x] `v2/docs/v1-behaviors.md` replaces the bare unknown-command divergence with the shipped help-pointer and suggestion semantics.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

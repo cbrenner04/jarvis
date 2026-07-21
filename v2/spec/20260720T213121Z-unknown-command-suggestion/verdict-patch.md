@@ -1,0 +1,2 @@
+- Unknown-command distance must count Unicode characters correctly, so `run😀😀` is distance 2 from `run` and receives the unique suggestion. Add regression coverage; the current UTF-16 code-unit behavior violates the unrestricted Levenshtein acceptance contract.
+- Restore the established citation format in `v2/docs/v1-behaviors.md`: `Sources: \`v2/src/cli.ts\``.

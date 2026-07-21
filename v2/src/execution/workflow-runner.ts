@@ -20,6 +20,7 @@ import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
+import { survivingMutationLogFields } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -184,6 +185,9 @@ export type WorkflowResult = {
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;
+  survivingMutation?: string;
+  survivingMutationSourceFile?: string;
+  survivingMutationSourceLine?: number;
   boundaryTelemetryFailure?: string;
   prePublicationError?: string;
   invocationFailureMessage?: string;
@@ -807,6 +811,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               });
             }
             const repairInput = buildCompletionStepWriteLoopInput(completionStep, workflowSnapshot, args, store);
+            store.setRunStatus(lastResult.runId, "in-progress");
             const publication = await publishWithReadyRepair(
               repairInput,
               store,
@@ -833,11 +838,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 loopOutcomeKind: publication.failure.kind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
+                ...survivingMutationLogFields(publication.failure.error),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
-              if (!isFlipFailure) {
-                store.setRunStatus(lastResult.runId, "failed");
-              }
+              // The row was marked `in-progress` for the finalization tail, so both branches must
+              // restore a terminal status. A flip failure keeps its documented `completed` status;
+              // leaving `in-progress` strands it non-live and hangs `run wait`.
+              store.setRunStatus(lastResult.runId, isFlipFailure ? "completed" : "failed");
               return {
                 kind: publication.failure.kind,
                 stepIndex: args.steps.length - 1,
@@ -854,10 +861,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                           ? { readyFlipPrNumber: publication.failure.prNumber }
                           : {}),
                       }
-                    : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
+                    : publication.failure.kind === "surviving_mutation_failed"
+                      ? survivingMutationLogFields(publication.failure.error)
+                      : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }
+            store.setRunStatus(lastResult.runId, "completed");
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

@@ -33,7 +33,7 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 
 ## Semantics
 
-- A run's durable `status` must agree with its terminal log signal; harness guesses (`killed`, reconcile) never overwrite a boundary-terminal status committed by `commitCompletionBoundary`.
+- A run's durable `status` must agree with its terminal log signal; harness guesses (`killed`, reconcile) never overwrite a boundary-terminal status committed by `commitCompletionBoundary`. A terminal `loop_finished` row must not combine `runStatus: "completed"` with `resumable: true`; surviving-mutation failures settle `failed` with `resumable: true` and matching operator `error` fields.
 
 - Outcomes are deterministic classifications, not free-form payloads; the runner branches on them. No transcripts or cost streams — the store carries only what resume reads. Token/cost and per-invocation usage belong in the telemetry JSONL substrate, not here — see [`telemetry-capture.md`](telemetry-capture.md).
 - Recovery derives from durable state only: the `(project, branch, stepId)` lookup, run status, and attempt/outcome history. A durable review-debate row has one attempt spanning its fixed cycles and roles; a restart stores `interrupted` without mid-cycle replay. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.

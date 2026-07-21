@@ -1193,14 +1193,18 @@ describe("write loop", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
-      expect(result.resumable).toBe(false);
+      expect(result.resumable).toBe(true);
       expect(result.survivingMutation).toBe("operator-flip: === → !==");
       expect(result.survivingMutationSourceFile).toBe("src/test.ts");
       expect(result.survivingMutationSourceLine).toBe(42);
+      expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "surviving_mutation_failed",
-        resumable: false,
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/test.ts",
+        survivingMutationSourceLine: 42,
       });
     });
 
@@ -1228,6 +1232,42 @@ describe("write loop", () => {
         loopOutcomeKind: "runtime_smoke_failed",
         resumable: false,
       });
+    });
+
+    test("every finalization exit restores a terminal durable status, never leaving the tail marker", async () => {
+      // Publication marks the row `in-progress` for the finalization tail. A row left there is
+      // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
+      const cases = [
+        {
+          kind: "ready_flip_failed",
+          status: "completed",
+          finalizer: async () => {
+            throw new Error("gh pr ready failed");
+          },
+        },
+        {
+          kind: "runtime_smoke_failed",
+          status: "completed",
+          finalizer: async () => {
+            throw new RuntimeSmokeFailedError("bun run v2/src/cli.ts --help", "error: command failed");
+          },
+        },
+      ] as const;
+
+      for (const { kind, status, finalizer } of cases) {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+          completionPublisher: async () => ({ prNumber: 7 }),
+          readyFinalizer: finalizer,
+        });
+
+        expect(result.kind).toBe(kind);
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe(status);
+      }
     });
   });
 

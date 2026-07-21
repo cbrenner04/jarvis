@@ -1,4 +1,5 @@
 import type { PublicationFailure } from "../execution/publication-retry.ts";
+import { survivingMutationLogFields } from "../execution/ready-finalize.ts";
 import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
@@ -21,6 +22,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "completion_commit_failed",
   "ready_gate_failed",
   "ready_flip_failed",
+  "surviving_mutation_failed",
   "iteration_timeout",
   "unsupported_resume_context",
 ] as const;
@@ -38,6 +40,9 @@ export type RunOperatorError = {
   retryable: boolean;
   nextAction: RunOperatorNextAction;
   publicationFailure?: PublicationFailure;
+  survivingMutation?: string;
+  survivingMutationSourceFile?: string;
+  survivingMutationSourceLine?: number;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -128,6 +133,11 @@ function mapFromLoopFinished(
       return {
         ...op("ready_flip_failed", "stop", false),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+      };
+    case "surviving_mutation_failed":
+      return {
+        ...op("surviving_mutation_failed", "resume", true),
+        ...survivingMutationLogFields(event),
       };
     case "blocked":
       return op("agent_blocked", "inspect_spec");

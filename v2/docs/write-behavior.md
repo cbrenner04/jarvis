@@ -160,10 +160,10 @@ thrown `gh` error whose combined stdout+stderr contains (case-insensitive)
 error is handed to the transient classifier unchanged. Gate, mutation, smoke, or flip failure
 (except the success-guarded flip cases) leaves the PR draft, demotes the durable
 run to `failed` on gate or mutation failure (or keeps it `completed` on smoke or flip failure), and returns
-retryable `ready_gate_failed` with `readyGateError`, non-resumable `surviving_mutation_failed` with `survivingMutation` and source details,
+retryable `ready_gate_failed` with `readyGateError`, retryable `surviving_mutation_failed` with `survivingMutation` and source details,
 non-resumable `runtime_smoke_failed` with `runtimeSmokeCommand` and `runtimeSmokeObservation`, or non-resumable `ready_flip_failed`
 with `readyFlipError`, distinct from publication's `completion_commit_failed` (retryable via `resume`).
-Resume of a gate or mutation failure retries publication first (idempotent), then re-runs the gate,
+Resume of a gate, mutation, or publication failure retries publication first (idempotent), then re-runs the gate,
 mutation, smoke, and flip; smoke and flip failures reject resume as terminal runs. On flip failure, when the
 publication returned a PR number, the result includes `readyFlipPrNumber` to
 identify the PR for manual fixing; omitted when publication returned no PR.
@@ -835,14 +835,15 @@ caller-supplied bindings, same seam as write-step invocations.
 ## Exit codes
 
 - `0`: `complete` (success)
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, or `ready_flip_failed`
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, or `ready_flip_failed`
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
-`completion_commit_failed` and `ready_gate_failed` leave the durable run
+`completion_commit_failed`, `ready_gate_failed`, and `surviving_mutation_failed` leave the durable run
 `failed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
 creating a duplicate commit or PR. `ready_flip_failed` is a terminal non-resumable settlement:
 the run stays `completed` with `resumable: false`, and `resume` is rejected as a terminal run.
+During the post-completion verification tail (ready gate, mutation verification, smoke, flip), the durable row is `in-progress` so `list` / `wait` do not report `completed` until finalization settles.
 
 ### Wait exit codes
 
@@ -854,12 +855,13 @@ needing lifecycle success should loop `wait` until exit `0` or inspect stdout
 When `loopOutcomeKind` is present it wins over `runStatus`:
 
 - `0`: `complete`
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `ready_flip_failed`, `paused`, `progress`, or any other present kind
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, `ready_flip_failed`, `paused`, `progress`, or any other present kind
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
 `completion_commit_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 `ready_gate_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`surviving_mutation_failed` carries `runStatus: failed`, `resumable: true`, and `error` with `reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, plus `survivingMutation` and source file/line; exit `1` is retryable via `jarvis run resume`.
 `ready_flip_failed` carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
 
 When `loopOutcomeKind` is omitted:

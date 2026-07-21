@@ -282,7 +282,7 @@ insufficient without a green gate on the branch head.
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
 consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
-resume a `ready_gate_failed` run after fixing the gate, or a `ready_flip_failed` run after checking the PR state.
+resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
@@ -440,7 +440,7 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed` or `ready_gate_failed` on `list` / `wait`: inspect `error.publicationFailure` first for the operation, message, exit code, and command-output tails; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, then
+Retryable `completion_commit_failed`, `ready_gate_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access or test coverage, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
 publication; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
@@ -576,13 +576,12 @@ Operators add bullets here; delete when fixed.
   process under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
   `workflow-commands-block-the-operator-terminal`, ready-intent
   `workflow-command-reports-terminal-workflow-failure`.
-- **A `completed` row may be a failed run (2026-07-21):** a run ending
-  `loopOutcomeKind: "surviving_mutation_failed"` is reported `completed` by `run list` with empty
-  `error` / `retryable` / `nextAction`, advertises `resumable: true` in its log, and is refused by
-  `run resume` with `terminal_run: Cannot resume a failed run`. Its PR correctly stays draft — the
-  draft state is the trustworthy signal, not the run status. Check the run log's final
-  `loop_finished` record before believing `completed`. Ready-intent:
-  `surviving-mutation-failure-is-resumable-failed`. Cleanup: delete when it ships.
+- **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
+  `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
+  `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the
+  surviving mutation text plus source file and line. `run resume` accepts that row. During the
+  post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
+  `surviving-mutation-failure-is-resumable-failed`.
 - **Merging anything mid-session halts all dispatch (2026-07-21):** the revision guard compares
   HEAD SHAs, so even a markdown-only merge makes the running daemon stale. With any run live it
   can neither auto-bounce nor dispatch (`cannot restart while live runs`), and `--no-auto-bounce`

@@ -322,6 +322,76 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
   });
 });
 
+test("list and wait report surviving_mutation_failed as failed, resumable, and mutation-specific", async () => {
+  const workflowSnapshot = {
+    invocationId: "inv-surviving-mutation",
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({
+    status: "failed",
+    error: {
+      reason: "surviving_mutation_failed",
+      retryable: true,
+      nextAction: "resume",
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "src/guard.ts",
+      survivingMutationSourceLine: 17,
+    },
+  });
+  expect(await expectResponse(await waitDirect("surviving-mutation", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    error: {
+      reason: "surviving_mutation_failed",
+      retryable: true,
+      nextAction: "resume",
+      survivingMutation: "operator-flip: === → !==",
+      survivingMutationSourceFile: "src/guard.ts",
+      survivingMutationSourceLine: 17,
+    },
+  });
+});
+
 test("workflow wait returns killed when review step never runs and workflow is not live", async () => {
   const writeStepId = "write-step-killed";
   const reviewStepId = "review-step-killed";

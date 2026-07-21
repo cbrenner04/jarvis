@@ -593,6 +593,16 @@ Operators add bullets here; delete when fixed.
   ```sh
   lsof +D ~/.jarvis/worktrees/<project>/<branch> | tail -n +2 | awk '{print $1}' | sort -u
   ```
+
+  **Do not poll this on a loop.** `lsof +D` walks the worktree recursively and is expensive: on
+  2026-07-21, running it across every worktree every 30 seconds put two `lsof` processes at the top
+  of the CPU table (25% and 14%), above every agent it was measuring. Use it as a one-shot check
+  before drawing a conclusion about a specific run. To *wait* for the fleet to settle, count agent
+  processes instead — O(process table) rather than O(files in tree), same answer:
+
+  ```sh
+  ps ax -o comm= | grep -cE 'codex|cursor-agent|claude'
+  ```
 - **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
   `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
   `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the

@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { GetExecutableDigest } from "../cli/dispatch-revision.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
@@ -276,6 +278,8 @@ export type DaemonStatusResult =
 
 export type GetCurrentRevisionFn = () => Promise<string>;
 
+const jarvisRepoRoot = resolve(import.meta.dir, "../../..");
+
 export async function getDaemonStatus(
   pid: number,
   socketPath: string,
@@ -284,6 +288,8 @@ export async function getDaemonStatus(
     processProber?: ProcessProber;
     socketProber?: SocketProber;
     getCurrentRevision?: GetCurrentRevisionFn;
+    getExecutableDigest?: GetExecutableDigest;
+    connectIpcClient?: typeof connectIpcClient;
   },
 ): Promise<DaemonStatusResult> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
@@ -300,9 +306,11 @@ export async function getDaemonStatus(
   }
 
   let loadedRevision: string | undefined;
+  let loadedExecutableDigest: string | undefined;
+  const connectClient = options?.connectIpcClient ?? connectIpcClient;
 
   try {
-    const client = await connectIpcClient(socketPath);
+    const client = await connectClient(socketPath);
     const transport = createRpcTransport(client);
     try {
       const response = await transport.request("status", undefined, { timeoutMs: healthTimeoutMs });
@@ -313,6 +321,7 @@ export async function getDaemonStatus(
       }
 
       loadedRevision = daemonStatus.loadedRevision;
+      loadedExecutableDigest = daemonStatus.loadedExecutableDigest;
     } finally {
       transport.close();
     }
@@ -320,22 +329,28 @@ export async function getDaemonStatus(
     return { state: "stopped" };
   }
 
-  if (!loadedRevision) {
+  if (!loadedRevision || !loadedExecutableDigest) {
     return { state: "stopped" };
   }
 
   let currentRevision = "unknown";
+  let currentExecutableDigest = "unknown";
   try {
     if (options?.getCurrentRevision) {
       currentRevision = await options.getCurrentRevision();
     } else {
-      currentRevision = await getCurrentHeadAsync(resolve(import.meta.dir, "../../.."), realAsyncSubprocessRunner);
+      currentRevision = await getCurrentHeadAsync(jarvisRepoRoot, realAsyncSubprocessRunner);
+    }
+    if (options?.getExecutableDigest) {
+      currentExecutableDigest = await options.getExecutableDigest();
+    } else {
+      currentExecutableDigest = await getExecutableTreeDigest(jarvisRepoRoot, realAsyncSubprocessRunner);
     }
   } catch {
-    // Leave as "unknown" if we can't determine current revision
+    // Leave as "unknown" if we can't determine current revision or digest
   }
 
-  const isSame = loadedRevision === currentRevision;
+  const isSame = loadedExecutableDigest === currentExecutableDigest;
   return {
     state: isSame ? "running" : "stale",
     loadedRevision,

@@ -1,4 +1,10 @@
-import { type GetCurrentRevision, getInvokingRevision, revisionMismatchMessage } from "../cli/dispatch-revision.ts";
+import {
+  type GetCurrentRevision,
+  type GetExecutableDigest,
+  dispatchRevisionMismatch,
+  getInvokingExecutableDigest,
+  getInvokingRevision,
+} from "../cli/dispatch-revision.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -18,7 +24,7 @@ import { DAEMON_SOCKET_PATH } from "../paths.ts";
 type TuiDaemonHealthResult = { ok: true };
 
 /** Successful IPC `status` RPC payload when the daemon host is live. */
-type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string };
+type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string; loadedExecutableDigest?: string };
 
 /** Successful IPC `start` RPC payload with the spawned run id. */
 type TuiDaemonStartResult = { runId: string };
@@ -54,6 +60,7 @@ export type ConnectTuiDaemonOptions = {
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
   getCurrentRevision?: GetCurrentRevision;
+  getExecutableDigest?: GetExecutableDigest;
 };
 
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
@@ -72,6 +79,7 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
   const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
   const getCurrentRevision = options?.getCurrentRevision ?? getInvokingRevision;
+  const getExecutableDigest = options?.getExecutableDigest ?? getInvokingExecutableDigest;
 
   let client: IpcClient;
   try {
@@ -89,13 +97,13 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     );
 
   const guard = async (): Promise<void> => {
-    const status = parseStatusResult(await transport.request("status"));
-    if (status?.loadedRevision === undefined) {
-      throw new RpcConnectionError("malformed RPC reply: invalid daemon status result");
-    }
-    const currentRevision = await getCurrentRevision();
-    if (status.loadedRevision !== currentRevision) {
-      throw new RpcConnectionError(revisionMismatchMessage(status.loadedRevision, currentRevision).trim());
+    const mismatch = await dispatchRevisionMismatch(
+      (params) => transport.request("status", params),
+      getCurrentRevision,
+      getExecutableDigest,
+    );
+    if (mismatch !== undefined) {
+      throw new RpcConnectionError(mismatch.trim());
     }
   };
 

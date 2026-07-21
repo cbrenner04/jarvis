@@ -7,6 +7,8 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
+  STALE_EXECUTABLE_DIGEST,
+  TEST_EXECUTABLE_DIGEST,
   stubAgentModelConfig,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
@@ -171,7 +173,7 @@ describe("revision mismatch and auto-bounce", () => {
     const sent: unknown[] = [];
     const code = await main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
       loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
+      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
     });
 
     expect(code).toBe(1);
@@ -187,7 +189,7 @@ describe("revision mismatch and auto-bounce", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const code = await main(["run", "resume", "run-123", "--no-auto-bounce"], cap.io, {
-      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision" }),
+      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
     });
 
     expect(code).toBe(1);
@@ -210,6 +212,7 @@ describe("revision mismatch and auto-bounce", () => {
             ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
                 sent,
                 loadedRevision: "loaded-revision",
+                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
               })
             : makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-bounced" } }], {
                 sent,
@@ -256,7 +259,7 @@ describe("revision mismatch and auto-bounce", () => {
                 },
               },
             ],
-            { loadedRevision: "loaded-revision" },
+            { loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST },
           ),
         stopDaemon: async () => {
           stopped += 1;
@@ -283,9 +286,13 @@ describe("revision mismatch and auto-bounce", () => {
         connectIpcClient: async () => {
           connections += 1;
           return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old" })
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
+                loadedRevision: "old",
+                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
+              })
             : makeIpcClient([], {
                 loadedRevision: "still-old",
+                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
                 recovery: { pending: false, reconciled: 0, resumed: 0 },
               });
         },
@@ -312,7 +319,11 @@ describe("revision mismatch and auto-bounce", () => {
         connectIpcClient: async () => {
           connections += 1;
           return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old", sent })
+            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
+                loadedRevision: "old",
+                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
+                sent,
+              })
             : makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
                 recovery: { pending: false, reconciled: 1, resumed: 1 },
                 sent,
@@ -326,13 +337,102 @@ describe("revision mismatch and auto-bounce", () => {
     expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
   });
 
+  test("a docs-only merge dispatches without bounce while live runs exist", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const statusCalls: Array<{ params: unknown }> = [];
+    const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
+    let stopped = 0;
+    let started = 0;
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        getCurrentRevision: async () => "docs-merge-head",
+        getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-docs-merge" } }], {
+            sent,
+            statusCalls,
+            statusResponses,
+            loadedRevision: "pre-docs-merge-head",
+            loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
+          }),
+        stopDaemon: async () => {
+          stopped += 1;
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "test.sock" };
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect({ stopped, started }).toEqual({ stopped: 0, started: 0 });
+    expect(statusCalls).toEqual([
+      {
+        params: {
+          currentRevision: "docs-merge-head",
+          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
+        },
+      },
+    ]);
+    expect(statusResponses).toEqual([
+      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+    ]);
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+    expect(cap.read()).toEqual({ stdout: "run-docs-merge\n", stderr: "" });
+  });
+
+  test("a docs-only merge resumes without bounce while live runs exist", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const statusCalls: Array<{ params: unknown }> = [];
+    const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
+    const code = await withFixedUuid(["operator", "status", "resume"], () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        getCurrentRevision: async () => "docs-merge-head",
+        getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
+            sent,
+            statusCalls,
+            statusResponses,
+            loadedRevision: "pre-docs-merge-head",
+            loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
+          }),
+        stopDaemon: async () => {
+          throw new Error("should not stop");
+        },
+        startDaemon: async () => {
+          throw new Error("should not start");
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(statusCalls).toEqual([
+      {
+        params: {
+          currentRevision: "docs-merge-head",
+          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
+        },
+      },
+    ]);
+    expect(statusResponses).toEqual([
+      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+    ]);
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
+  });
+
   test("a bounce lifecycle failure reports its actionable reason", async () => {
     const cap = captureIo();
     const code = await withFixedUuid(["operator", "status", "list"], () =>
       main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], { loadedRevision: "old" }),
+          makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
+            loadedRevision: "old",
+            loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
+          }),
         stopDaemon: async () => undefined,
         startDaemon: async () => {
           throw new Error("daemon start failed: address in use");

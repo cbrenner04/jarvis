@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
 import { main as runtimeMain } from "../cli.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
@@ -29,14 +30,20 @@ export function captureIo() {
 }
 
 export const TEST_REVISION = "test-revision";
+export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
+export const STALE_EXECUTABLE_DIGEST = "stale-executable-digest";
 
-/** `runtimeMain` with a fixed current revision so revision preflights are deterministic. */
+/** `runtimeMain` with fixed revision/digest preflights so dispatch guards are deterministic. */
 export function cliMain(
   argv: readonly string[],
   io?: Parameters<typeof runtimeMain>[1],
   deps?: Parameters<typeof runtimeMain>[2],
 ): Promise<number> {
-  return runtimeMain(argv, io, { getCurrentRevision: async () => TEST_REVISION, ...deps });
+  return runtimeMain(argv, io, {
+    getCurrentRevision: async () => TEST_REVISION,
+    getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+    ...deps,
+  });
 }
 
 /** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
@@ -45,7 +52,10 @@ export function makeIpcClient(
   options?: {
     sent?: unknown[];
     loadedRevision?: string;
+    loadedExecutableDigest?: string;
     recovery?: { pending: boolean; reconciled: number; resumed: number };
+    statusCalls?: Array<{ params: unknown }>;
+    statusResponses?: Array<{ loadedRevision: string; loadedExecutableDigest: string }>;
   },
 ): IpcClient {
   const queue = [...frames] as IpcFrame[];
@@ -68,12 +78,21 @@ export function makeIpcClient(
     send(frame: unknown): void {
       const request = frame as { kind?: string; id?: string; method?: string };
       if (request.kind === "request" && request.method === "status" && typeof request.id === "string") {
+        options?.statusCalls?.push({ params: (frame as { params?: unknown }).params });
+        const loadedExecutableDigest = options?.loadedExecutableDigest ?? TEST_EXECUTABLE_DIGEST;
+        const loadedRevision = advanceLoadedRevision(
+          options?.loadedRevision ?? TEST_REVISION,
+          loadedExecutableDigest,
+          (frame as { params?: unknown }).params,
+        );
+        options?.statusResponses?.push({ loadedRevision, loadedExecutableDigest });
         deliver({
           kind: "response",
           id: request.id,
           result: {
             state: "running",
-            loadedRevision: options?.loadedRevision ?? TEST_REVISION,
+            loadedRevision,
+            loadedExecutableDigest,
             ...(options?.recovery === undefined ? {} : { recovery: options.recovery }),
           },
         });

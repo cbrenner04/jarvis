@@ -15,6 +15,7 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
 }
 
 import type { Run } from "../persistence/state-store";
+import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import {
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
@@ -458,6 +459,52 @@ describe("daemon-lifecycle", () => {
   });
 
   describe("getDaemonStatus", () => {
+    test("returns running when executable digests match even if HEAD differs", async () => {
+      const processProber: ProcessProber = { isAlive: () => true };
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+      const status = await getDaemonStatus(1000, "/fake/socket", {
+        processProber,
+        socketProber,
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            loadedRevision: "daemon-head",
+            loadedExecutableDigest: "same-digest",
+          }),
+        getCurrentRevision: async () => "cli-head",
+        getExecutableDigest: async () => "same-digest",
+      });
+      expect(status).toEqual({
+        state: "running",
+        loadedRevision: "daemon-head",
+        currentRevision: "cli-head",
+      });
+    });
+
+    test("returns stale when executable digests differ", async () => {
+      const processProber: ProcessProber = { isAlive: () => true };
+      const socketProber: SocketProber = {
+        probe: async () => true,
+      };
+      const status = await getDaemonStatus(1000, "/fake/socket", {
+        processProber,
+        socketProber,
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            loadedRevision: "daemon-head",
+            loadedExecutableDigest: "daemon-digest",
+          }),
+        getCurrentRevision: async () => "cli-head",
+        getExecutableDigest: async () => "cli-digest",
+      });
+      expect(status).toEqual({
+        state: "stale",
+        loadedRevision: "daemon-head",
+        currentRevision: "cli-head",
+      });
+    });
+
     test("returns stopped if process not alive", async () => {
       const processProber: ProcessProber = {
         isAlive: () => false,

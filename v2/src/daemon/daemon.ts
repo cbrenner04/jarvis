@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
+import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -1265,10 +1267,13 @@ export async function startDaemonRuntime(
   const operatorSessionId = crypto.randomUUID();
 
   let loadedRevision: string;
+  let loadedExecutableDigest: string;
   try {
     loadedRevision = await getCurrentHeadAsync(import.meta.dir, realAsyncSubprocessRunner);
+    loadedExecutableDigest = await getExecutableTreeDigest(import.meta.dir, realAsyncSubprocessRunner);
   } catch {
     loadedRevision = "unknown";
+    loadedExecutableDigest = "unknown";
   }
 
   const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
@@ -1293,8 +1298,12 @@ export async function startDaemonRuntime(
   };
 
   let recoveryStatus = { pending: true, reconciled: reconciledRunIds.length, resumed: 0 };
-  const statusHandler: RpcHandler = () => {
-    return { kind: "response", result: { state: "running", loadedRevision, recovery: recoveryStatus } };
+  const statusHandler: RpcHandler = (frame) => {
+    loadedRevision = advanceLoadedRevision(loadedRevision, loadedExecutableDigest, frame.params);
+    return {
+      kind: "response",
+      result: { state: "running", loadedRevision, loadedExecutableDigest, recovery: recoveryStatus },
+    };
   };
 
   const shutdownHandler: RpcHandler = () => {

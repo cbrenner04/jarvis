@@ -13,6 +13,10 @@ These tests are the default because they are:
 - Sandbox-runnable (available in the coding agent's restricted execution context)
 - Fast (no real process overhead or sleep delays)
 
+## Prompt changes
+
+When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`.
+
 ## Real-process / real-clock tests (marked exception)
 
 Tests that require real OS processes or wall-clock timing are **marked exceptions**, not the default. Such tests must:

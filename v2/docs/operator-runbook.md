@@ -361,6 +361,7 @@ not clear this debris. Use `jarvis cleanup --abandon <name>` to retire one named
 ```sh
 jarvis cleanup --abandon <name>  # preview planned removal
 jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
+jarvis cleanup --yes --abandon <name>  # agent/scripted removal
 ```
 
 `--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions (close PR, remove worktree, delete local and remote branches), prompts for confirmation, then best-effort closes the PR, force-removes the worktree, and deletes both branches. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
@@ -372,7 +373,7 @@ jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
 
 A single open draft PR passes these gates and retirement proceeds. Zero matching PRs also pass.
 
-Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`.
+Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`. For agent-driven or scripted close-out, pass `--yes` (or `-y`) to apply the same plan without a TTY prompt; without it, non-interactive stdin assumes no and changes nothing.
 
 ### Blocked run: inspect and resume
 
@@ -576,10 +577,20 @@ Operators add bullets here; delete when fixed.
   deliberately broken source (the verifier flips a guard, e.g. `===` → `!==`, then runs scoped
   tests). Reading the tree in that window shows uncommitted garbage that looks exactly like a
   harness defect. This cost three misdiagnoses in one session, one of which became a seed before
-  being retracted. **Before concluding anything about a v2 run, require all three: no `bun`
-  process under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
+  being retracted. **Before concluding anything about a v2 run, require all three: no process at all
+  under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
   `workflow-commands-block-the-operator-terminal`, ready-intent
   `workflow-command-reports-terminal-workflow-failure`.
+  **Match on any process, not on `bun` (corrected 2026-07-21).** This bullet previously said "no
+  `bun` process". `bun` only appears during the test/gate/mutation phase; the *agent* write phase
+  runs the agent binary — `codex-aar`, `claude`, or `cursor-agent`. Grepping `lsof` output for `bun`
+  reports an actively-writing worktree as idle, which is the same wrong conclusion this entry exists
+  to prevent. Observed 2026-07-21: seven worktrees all read "0 bun" while every one of them had a
+  live `codex-aar` writing in it. Use the process list itself:
+
+  ```sh
+  lsof +D ~/.jarvis/worktrees/<project>/<branch> | tail -n +2 | awk '{print $1}' | sort -u
+  ```
 - **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
   `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
   `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the
@@ -627,7 +638,7 @@ Operators add bullets here; delete when fixed.
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
 - **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
-  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees,
+  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`; use `--yes` for scripted apply) to retire merged worktrees,
   delete their local branches, and archive eligible open-home specs under `v2/spec/completed/`.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.

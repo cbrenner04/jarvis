@@ -1251,7 +1251,7 @@ export async function startDaemonRuntime(
   stateStore?: StateStore,
   logReader?: LogReader,
   startupDeps: DaemonStartupDeps = {},
-): Promise<void> {
+): Promise<{ close: () => Promise<void> }> {
   const store = stateStore ?? openStateStore();
   const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
@@ -1360,27 +1360,37 @@ export async function startDaemonRuntime(
   process.on("SIGTERM", signalHandler);
   process.on("SIGINT", signalHandler);
 
+  let closed = false;
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    clearInterval(checkShutdown);
+    process.off("SIGTERM", signalHandler);
+    process.off("SIGINT", signalHandler);
+    _closeRunControlHandlers();
+    await server.close();
+    if (!logReader) {
+      const closeable = logReaderInstance as { close?: () => void };
+      closeable.close?.();
+    }
+    if (!stateStore) {
+      store.close();
+    }
+  };
+
   const checkShutdown = setInterval(() => {
     if (shutdownRequested) {
-      clearInterval(checkShutdown);
-      (async () => {
-        try {
-          await server.close();
-          if (!logReader) {
-            const closeable = logReaderInstance as { close?: () => void };
-            closeable.close?.();
-          }
-          if (!stateStore) {
-            store.close();
-          }
+      void close()
+        .then(() => {
           process.exit(0);
-        } catch (err) {
+        })
+        .catch((err: unknown) => {
           console.error("Error during shutdown:", err);
           process.exit(1);
-        }
-      })();
+        });
     }
   }, 100);
 
   console.error(`Daemon running on socket ${socketPath} with PID ${process.pid}`);
+  return { close };
 }

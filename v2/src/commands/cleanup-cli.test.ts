@@ -52,7 +52,10 @@ describe("runCleanupCliCommand argument parsing", () => {
   });
 
   test("--yes and -y parse without changing abandon resolution", async () => {
-    for (const argv of [["--yes", "--abandon", "some-workspace"], ["-y", "--abandon", "some-workspace"]]) {
+    for (const argv of [
+      ["--yes", "--abandon", "some-workspace"],
+      ["-y", "--abandon", "some-workspace"],
+    ]) {
       const cap = captureIo();
       const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
 

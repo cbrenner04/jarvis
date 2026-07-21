@@ -3185,16 +3185,18 @@ describe("executeWorkflow implement patch review", () => {
       expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
       expect(snapshots).toEqual(["apply review edit"]);
 
-      expect(await executeWorkflow({
-        steps: [implementStep, reviewStep],
-        stateStore: store,
-        completionCommitter: async (input) => {
-          snapshots.push(readFileSync(join(input.worktreePath, "verdict-patch.md"), "utf8"));
-          return { commitSha: "review-commit", filesChanged: 1 };
-        },
-        completionPublisher: async () => ({}),
-        readyFinalizer: async () => {},
-      })).toMatchObject({ kind: "complete" });
+      expect(
+        await executeWorkflow({
+          steps: [implementStep, reviewStep],
+          stateStore: store,
+          completionCommitter: async (input) => {
+            snapshots.push(readFileSync(join(input.worktreePath, "verdict-patch.md"), "utf8"));
+            return { commitSha: "review-commit", filesChanged: 1 };
+          },
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        }),
+      ).toMatchObject({ kind: "complete" });
       expect(reviewCalls).toBe(4);
       expect(snapshots).toEqual(["apply review edit", "apply review edit"]);
     });

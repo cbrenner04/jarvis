@@ -1473,18 +1473,16 @@ async function runReviewDebateStep(
       ? actuatorExecution.binding.metadata?.agent?.trim()
       : undefined;
 
-  if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
-    const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
-    if (landingError !== undefined) {
-      store?.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
-      });
-      return { kind: "invocation_failure", runId, iterationsConsumed: result.cycles.length, resumable: true };
-    }
-  }
+  const landingFailure = await reviewDebateLandingFailure(
+    kind,
+    step,
+    landing,
+    attemptId,
+    runId,
+    result.cycles.length,
+    store,
+  );
+  if (landingFailure !== undefined) return landingFailure;
 
   store?.commitCompletionBoundary({
     attemptId,
@@ -1500,6 +1498,27 @@ async function runReviewDebateStep(
     resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
   };
+}
+
+async function reviewDebateLandingFailure(
+  kind: ReviewDebateStepOutcome["kind"],
+  step: ReviewDebateWorkflowStep,
+  landing: PublicationLanding | undefined,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  store: StateStore | undefined,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  if (kind !== "complete" || landing === undefined || landing.kind === "none") return undefined;
+  const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
+  if (landingError === undefined) return undefined;
+  store?.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+  });
+  return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
 }
 
 /**
@@ -1976,14 +1995,10 @@ async function runReviewDispatch(
   logSink: LogSink | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
+  const resumed = await resumeReviewLanding(step, stepIndex, onStepRunCreated, store, logSink);
+  if (resumed !== undefined) return resumed;
+
   if (step.behavior === "review-debate") {
-    if (shouldReuseReviewCheckpoint(step)) {
-      const checkpoint = findReviewLandingCheckpoint(store, step);
-      if (checkpoint !== undefined) {
-        onStepRunCreated?.(stepIndex, checkpoint.id);
-        return await finishReviewedLanding(step, step.landing, checkpoint.id, store, reviewCompletionAgent(checkpoint));
-      }
-    }
     const outcome = await runReviewDebateStep(
       step,
       stepIndex,
@@ -2008,21 +2023,6 @@ async function runReviewDispatch(
 
   const { landing, ...reviewInput } = step;
 
-  if (shouldReuseReviewCheckpoint(step)) {
-    const checkpoint = findReviewLandingCheckpoint(store, step);
-    if (checkpoint !== undefined) {
-      onStepRunCreated?.(stepIndex, checkpoint.id);
-      return await finishReviewedLanding(
-        step,
-        step.landing,
-        checkpoint.id,
-        store,
-        reviewCompletionAgent(checkpoint),
-        logSink,
-      );
-    }
-  }
-
   const bindings = resolveReviewStepBindings(step);
   const runId = isDurableWorkflowStep(step)
     ? store.createRun({
@@ -2030,7 +2030,8 @@ async function runReviewDispatch(
         specRef: step.landing?.kind === "intent-stage" ? step.landing.baseRef : "",
         worktreePath: step.cwd,
         branch: step.branch,
-        specPath: step.landing?.kind === "none" || step.landing === undefined ? step.verdictPath : step.landing.stagingDir,
+        specPath:
+          step.landing?.kind === "none" || step.landing === undefined ? step.verdictPath : step.landing.stagingDir,
         stepId: step.stepId,
         workflowSnapshot,
       })
@@ -2070,4 +2071,25 @@ async function runReviewDispatch(
   }
 
   return outcome;
+}
+
+async function resumeReviewLanding(
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
+  stepIndex: number,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
+  logSink: LogSink | undefined,
+): Promise<ReviewDebateStepOutcome | ReviewStepOutcome | undefined> {
+  if (!shouldReuseReviewCheckpoint(step)) return undefined;
+  const checkpoint = findReviewLandingCheckpoint(store, step);
+  if (checkpoint === undefined) return undefined;
+  onStepRunCreated?.(stepIndex, checkpoint.id);
+  return await finishReviewedLanding(
+    step,
+    step.landing,
+    checkpoint.id,
+    store,
+    reviewCompletionAgent(checkpoint),
+    logSink,
+  );
 }

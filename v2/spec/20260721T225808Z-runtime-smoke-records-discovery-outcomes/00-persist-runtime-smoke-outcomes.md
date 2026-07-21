@@ -17,10 +17,10 @@ Completion discards successful runtime-smoke results, so the durable run log can
 
 ## Acceptance criteria
 
-- [ ] A successful `not-runnable` runtime smoke for production changes under `v2/src/**` or `shared/**` appends a durable `runtime_smoke_outcome` record with outcome `not-runnable`, every inspected production path, and a non-empty discovery reason.
-- [ ] A successful executed smoke appends a durable `runtime_smoke_outcome` record with outcome `observed-clean`, distinguishable from `not-runnable` by run-log consumers.
-- [ ] `v2/src/execution/workflow-runner.test.ts` drives completion through a successful injected `not-runnable` verifier result and asserts the durable event; the test fails against the pre-fix result-discarding path and passes after the change.
-- [ ] `v2/docs/operator-runbook.md` Gate trust explains how to inspect runtime-smoke evidence and what `not-runnable` certifies; `v2/docs/workflow-runner.md` defines the durable outcome fields; `v2/docs/v1-behaviors.md` records the changed v2 completion evidence.
+- [x] A successful `not-runnable` runtime smoke for production changes under `v2/src/**` or `shared/**` appends a durable `runtime_smoke_outcome` record with outcome `not-runnable`, every inspected production path, and a non-empty discovery reason.
+- [x] A successful executed smoke appends a durable `runtime_smoke_outcome` record with outcome `observed-clean`, distinguishable from `not-runnable` by run-log consumers.
+- [x] `v2/src/execution/workflow-runner.test.ts` drives completion through a successful injected `not-runnable` verifier result and asserts the durable event; the test fails against the pre-fix result-discarding path and passes after the change.
+- [x] `v2/docs/operator-runbook.md` Gate trust explains how to inspect runtime-smoke evidence and what `not-runnable` certifies; `v2/docs/workflow-runner.md` defines the durable outcome fields; `v2/docs/v1-behaviors.md` records the changed v2 completion evidence.
 
 ## Documentation updates
 

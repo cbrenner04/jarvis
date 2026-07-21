@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { type LogSink, truncateLogText } from "../persistence/log-stream.ts";
+import { runtimeSmokeOutcomeEvent, type LogSink, truncateLogText } from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,
@@ -21,11 +21,12 @@ import {
   createReadyFinalizer,
   type ReadyFinalizer,
   ReadyGateError,
+  ReadyFlipError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
-import { verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -202,7 +203,20 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-                : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+                : readyFailed(
+                    args,
+                    store,
+                    publishedResult,
+                    publication.failure.kind,
+                    publication.failure.error,
+                    publication.failure.runtimeSmokeOutcome,
+                  );
+            }
+            if (publication.success?.runtimeSmokeOutcome !== undefined) {
+              args.logSink?.append(
+                prepared.result.runId,
+                runtimeSmokeOutcomeEvent(publication.success.runtimeSmokeOutcome),
+              );
             }
             store.setRunStatus(prepared.result.runId, "completed");
             if (
@@ -473,7 +487,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-              : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+              : readyFailed(
+                  args,
+                  store,
+                  publishedResult,
+                  publication.failure.kind,
+                  publication.failure.error,
+                  publication.failure.runtimeSmokeOutcome,
+                );
+          }
+          if (publication.success?.runtimeSmokeOutcome !== undefined) {
+            args.logSink?.append(runId, runtimeSmokeOutcomeEvent(publication.success.runtimeSmokeOutcome));
           }
           store.setRunStatus(runId, "completed");
           if (
@@ -887,11 +911,13 @@ export type CompletionPublishFailure = {
   error?: Error;
   prNumber?: number;
   prUrl?: string;
+  runtimeSmokeOutcome?: SmokePass;
 };
 
 export type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
+  runtimeSmokeOutcome?: SmokePass;
 };
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
@@ -1015,7 +1041,7 @@ async function runPublisher(
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
-): Promise<void> {
+): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
     createReadyFinalizer({
@@ -1040,6 +1066,7 @@ async function runReadyFinalizer(
         if (verificationResult.kind === "smoke-failure") {
           throw new RuntimeSmokeFailedError(verificationResult.command, verificationResult.observation);
         }
+        return verificationResult;
       },
     });
   const finalInput = {
@@ -1048,7 +1075,7 @@ async function runReadyFinalizer(
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
   };
-  await readyFinalizer(finalInput);
+  return (await readyFinalizer(finalInput)) ?? undefined;
 }
 
 function buildFinalizationErrorResponse(
@@ -1077,6 +1104,9 @@ function buildFinalizationErrorResponse(
     error: err,
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
+    ...(err instanceof ReadyFlipError && err.runtimeSmokeOutcome !== undefined
+      ? { runtimeSmokeOutcome: err.runtimeSmokeOutcome }
+      : {}),
   };
 }
 
@@ -1094,6 +1124,7 @@ export async function publishCompletionArtifacts(
   },
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
+  let runtimeSmokeOutcome: SmokePass | undefined;
   try {
     publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
@@ -1108,7 +1139,7 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    await runReadyFinalizer(seams, {
+    runtimeSmokeOutcome = await runReadyFinalizer(seams, {
       worktreePath: input.worktreePath,
       baseRef: input.baseRef,
       branch: input.branch,
@@ -1120,6 +1151,7 @@ export async function publishCompletionArtifacts(
   }
   return {
     kind: "success",
+    ...(runtimeSmokeOutcome !== undefined ? { runtimeSmokeOutcome } : {}),
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
   };
@@ -1157,6 +1189,7 @@ function readyFailed(
   result: WriteLoopResult,
   kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed" | "runtime_smoke_failed",
   error?: Error,
+  runtimeSmokeOutcome?: SmokePass,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const resumable = kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
@@ -1169,6 +1202,9 @@ function readyFailed(
     result.runId,
     kind === "surviving_mutation_failed" || kind === "ready_gate_failed" ? "failed" : "completed",
   );
+  if (runtimeSmokeOutcome !== undefined) {
+    args.logSink?.append(result.runId, runtimeSmokeOutcomeEvent(runtimeSmokeOutcome));
+  }
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,

@@ -287,6 +287,11 @@ A red ready gate is handed back to the agent for up to three bounded repair iter
 consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
 resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
 
+Inspect runtime-smoke evidence with `jarvis run log <id>`: successful verification appends a
+`runtime_smoke_outcome` row before `loop_finished`. `observed-clean` certifies that a changed runnable
+entrypoint executed cleanly. `not-runnable` certifies only that discovery inspected the listed changed
+production paths and found no runnable entrypoint; its non-empty `discoveryReason` explains that absence.
+
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
 exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate

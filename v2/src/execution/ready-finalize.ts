@@ -9,6 +9,7 @@ import {
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
+import type { SmokePass } from "./runtime-smoke-verifier.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -23,7 +24,7 @@ type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
 type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
-type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<SmokePass>;
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
@@ -36,7 +37,7 @@ export type ReadyFinalizerSeams = {
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
-export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
+export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<SmokePass | void>;
 
 export class ReadyGateError extends Error {
   constructor(
@@ -46,6 +47,17 @@ export class ReadyGateError extends Error {
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
+  }
+}
+
+export class ReadyFlipError extends Error {
+  constructor(
+    error: unknown,
+    readonly runtimeSmokeOutcome: SmokePass | undefined,
+  ) {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = "ReadyFlipError";
+    this.cause = error;
   }
 }
 
@@ -223,9 +235,14 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);
     }
-    if (runRuntimeSmokeVerification) {
-      await runRuntimeSmokeVerification(input.worktreePath, input.baseRef);
+    const runtimeSmokeOutcome = runRuntimeSmokeVerification
+      ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef)
+      : undefined;
+    try {
+      await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+    } catch (error) {
+      throw new ReadyFlipError(error, runtimeSmokeOutcome);
     }
-    await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+    return runtimeSmokeOutcome;
   };
 }

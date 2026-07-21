@@ -10,7 +10,7 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import type { LogSink } from "../persistence/log-stream.ts";
+import { runtimeSmokeOutcomeEvent, type LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
@@ -833,6 +833,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const publicationFailure = publicationFailureFor(publication.failure.error);
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
               const isGateFailure = publication.failure.kind === "ready_gate_failed";
+              if (publication.failure.runtimeSmokeOutcome !== undefined) {
+                args.logSink?.append(lastResult.runId, runtimeSmokeOutcomeEvent(publication.failure.runtimeSmokeOutcome));
+              }
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: publication.failure.kind,
@@ -866,6 +869,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                       : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
+            }
+            if (publication.success?.runtimeSmokeOutcome !== undefined) {
+              args.logSink?.append(lastResult.runId, runtimeSmokeOutcomeEvent(publication.success.runtimeSmokeOutcome));
             }
             store.setRunStatus(lastResult.runId, "completed");
           }

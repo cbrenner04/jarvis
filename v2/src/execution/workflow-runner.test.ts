@@ -32,7 +32,7 @@ import {
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { landPublication } from "./publication-landing.ts";
-import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -1868,6 +1868,99 @@ describe("executeWorkflow fresh dispatch", () => {
 });
 
 describe("executeWorkflow completion publication", () => {
+  test("persists successful runtime-smoke outcomes", async () => {
+    const cases = [
+      {
+        outcome: {
+          kind: "not-runnable" as const,
+          inspectedPaths: ["v2/src/cli.ts", "shared/subprocess.ts"],
+          discoveryReason: "no changed runnable entrypoint found",
+        },
+        expected: {
+          kind: "runtime_smoke_outcome" as const,
+          outcome: "not-runnable" as const,
+          inspectedPaths: ["v2/src/cli.ts", "shared/subprocess.ts"],
+          discoveryReason: "no changed runnable entrypoint found",
+        },
+      },
+      {
+        outcome: { kind: "observed-clean" as const },
+        expected: { kind: "runtime_smoke_outcome" as const, outcome: "observed-clean" as const },
+      },
+    ];
+
+    for (const [index, testCase] of cases.entries()) {
+      const logSink = new TestLogSink();
+      const step = createStep({ stepId: `runtime-smoke-${index}`, role: "implement", branchName: `runtime-smoke-${index}` });
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          logSink,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => testCase.outcome,
+        });
+        expect(result.kind).toBe("complete");
+        const events = logSink.getEventsForRun(result.runId);
+        expect(events).toContainEqual(testCase.expected);
+        expect(events.findIndex((event) => event.kind === "runtime_smoke_outcome")).toBeLessThan(
+          events.findIndex((event) => event.kind === "loop_finished"),
+        );
+      });
+    }
+  });
+
+  test("persists successful smoke evidence before ready-flip failure", async () => {
+    for (const runtimeSmokeOutcome of [
+      { kind: "observed-clean" as const },
+      {
+        kind: "not-runnable" as const,
+        inspectedPaths: ["v2/src/cli.ts"],
+        discoveryReason: "no changed runnable entrypoint found",
+      },
+    ]) {
+      const logSink = new TestLogSink();
+      const step = createStep({ stepId: `flip-smoke-${runtimeSmokeOutcome.kind}`, role: "implement" });
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          logSink,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: createReadyFinalizer({
+            runRuntimeSmokeVerification: async () => runtimeSmokeOutcome,
+            ghReadyFlip: async () => {
+              throw new Error("gh pr ready failed");
+            },
+          }),
+        });
+        expect(result.kind).toBe("ready_flip_failed");
+        const events = logSink.getEventsForRun(result.runId);
+        expect(events.findIndex((event) => event.kind === "runtime_smoke_outcome")).toBeLessThan(
+          events.findIndex((event) => event.kind === "loop_finished"),
+        );
+      });
+    }
+  });
+
+  test("rejects blank not-runnable discovery reasons from injected finalizers", async () => {
+    for (const discoveryReason of ["", "  \t"]) {
+      const step = createStep({ stepId: "blank-runtime-smoke-reason", role: "implement" });
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => ({ kind: "not-runnable", inspectedPaths: [], discoveryReason }),
+        });
+        expect(result.kind).toBe("completion_commit_failed");
+      });
+    }
+  });
+
   test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
     const cases: Array<{
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";

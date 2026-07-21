@@ -700,6 +700,11 @@ Workflow completion publishes before running the ready gate, then runs diff-deri
 
 For publication and ready-flip failures, the result and terminal row also retain normalized operation, message, exit code, and bounded labelled stdout/stderr tails. Ready-flip failures record `resumable: false` in the `loop_finished` terminal row.
 
+Each successful runtime smoke appends a durable `runtime_smoke_outcome` event before the terminal
+`loop_finished` row. The discriminated `outcome` is `observed-clean`, or `not-runnable`; the latter
+always includes `inspectedPaths` and a non-empty `discoveryReason`. Smoke failures remain represented by
+the terminal `runtime_smoke_failed` path.
+
 ## Ready gate repair
 
 When the ready gate raises `ReadyGateError` during publication, the workflow runs a bounded repair loop: it reprompts the agent with the gate failure details, records the boundary, re-commits, and republishes up to 3 times (configurable via `MAX_READY_GATE_REPAIRS`). Each repair iteration consumes an iteration from the workflow's budget; repair stops early if the agent returns `blocked`. Non-`ReadyGateError` failures (ready-flip failures) skip repair and settle immediately as `ready_flip_failed`. Repair iterations are recorded as `ready_gate_repair` log events with attempt count and gate exit code.

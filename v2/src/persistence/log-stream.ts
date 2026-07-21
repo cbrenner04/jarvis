@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
+import type { SmokePass } from "../execution/runtime-smoke-verifier.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
@@ -21,6 +22,36 @@ type ReadyGateRepairEvent = {
   attempt: number;
   gateExitCode: number | undefined;
 };
+
+export type RuntimeSmokeOutcomeEvent =
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "observed-clean";
+    }
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "not-runnable";
+      inspectedPaths: string[];
+      discoveryReason: string;
+    };
+
+export function runtimeSmokeOutcomeEvent(outcome: SmokePass): RuntimeSmokeOutcomeEvent {
+  return outcome.kind === "observed-clean"
+    ? { kind: "runtime_smoke_outcome", outcome: "observed-clean" }
+    : runtimeSmokeNotRunnableEvent(outcome);
+}
+
+function runtimeSmokeNotRunnableEvent(outcome: Extract<SmokePass, { kind: "not-runnable" }>): RuntimeSmokeOutcomeEvent {
+  if (outcome.discoveryReason.trim().length === 0) {
+    throw new Error("runtime smoke discovery reason must be non-empty");
+  }
+  return {
+    kind: "runtime_smoke_outcome",
+    outcome: "not-runnable",
+    inspectedPaths: outcome.inspectedPaths,
+    discoveryReason: outcome.discoveryReason,
+  };
+}
 
 export type LoopFinishedEvent = {
   kind: "loop_finished";
@@ -91,6 +122,7 @@ export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
+  | RuntimeSmokeOutcomeEvent
   | LoopFinishedEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent

@@ -47,13 +47,13 @@ content with stat/path orientation preserved.
 
 ## Acceptance criteria
 
-- [ ] Rendered implement-review critic prompt `BRANCH_DIFF` includes stat/`Changed paths:` orientation and unified-diff hunk markers (`diff --git`, `@@`); `shared/prompts/review-implement.test.ts` fails against the pre-fix stat/name-only helper and passes after.
-- [ ] `shared/prompts/review-implement.test.ts` asserts rendered `BRANCH_DIFF` for critic and all three debate roles against a non-`main` `baseBranch` (merge-base resolution via `ReviewDebateRenderContext.baseBranch`).
-- [ ] Rendered implement-review adversary, advocate, and adjudicator prompts carry the same unified `BRANCH_DIFF` payload via the shared helper (`shared/prompts/review-implement.test.ts`).
-- [ ] `patch.prompt.review.critic` describes merge-base unified diff input without "not a unified diff" prose; critic revision is bumped; `patch.prompt.review.{adversary,advocate,adjudicator}` revisions and summary-worded section prose are unchanged; `patch.prompt.review` (`prompts/patch/review.md`) revision is unchanged.
-- [ ] `v1/test/modes/patch/review.test.ts` stays green (v1 `getBranchDiffSummary` path unchanged).
-- [ ] `v2/docs/workflow-runner.md` documents implement review `BRANCH_DIFF` as stat/path orientation plus merge-base unified diff and cites `shared/prompts/review-implement.ts` (not `review-debate-render.ts`) as the implement-review render source.
-- [ ] `v2/docs/v1-behaviors.md` records v2 implement review `BRANCH_DIFF` carrying unified diff via an additive **[v2 additive]** bullet with a sibling note that implement-review payload semantics diverge from the v2 async parity bullet at line 605 (patch-review branch-diff rendering remains stat + name-only); v1 patch-review summary bullets at lines 106/109 are unchanged.
+- [x] Rendered implement-review critic prompt `BRANCH_DIFF` includes stat/`Changed paths:` orientation and unified-diff hunk markers (`diff --git`, `@@`); `shared/prompts/review-implement.test.ts` fails against the pre-fix stat/name-only helper and passes after.
+- [x] `shared/prompts/review-implement.test.ts` asserts rendered `BRANCH_DIFF` for critic and all three debate roles against a non-`main` `baseBranch` (merge-base resolution via `ReviewDebateRenderContext.baseBranch`).
+- [x] Rendered implement-review adversary, advocate, and adjudicator prompts carry the same unified `BRANCH_DIFF` payload via the shared helper (`shared/prompts/review-implement.test.ts`).
+- [x] `patch.prompt.review.critic` describes merge-base unified diff input without "not a unified diff" prose; critic revision is bumped; `patch.prompt.review.{adversary,advocate,adjudicator}` revisions and summary-worded section prose are unchanged; `patch.prompt.review` (`prompts/patch/review.md`) revision is unchanged.
+- [x] `v1/test/modes/patch/review.test.ts` stays green (v1 `getBranchDiffSummary` path unchanged).
+- [x] `v2/docs/workflow-runner.md` documents implement review `BRANCH_DIFF` as stat/path orientation plus merge-base unified diff and cites `shared/prompts/review-implement.ts` (not `review-debate-render.ts`) as the implement-review render source.
+- [x] `v2/docs/v1-behaviors.md` records v2 implement review `BRANCH_DIFF` carrying unified diff via an additive **[v2 additive]** bullet with a sibling note that implement-review payload semantics diverge from the v2 async parity bullet at line 605 (patch-review branch-diff rendering remains stat + name-only); v1 patch-review summary bullets at lines 106/109 are unchanged.
 
 ## Documentation updates
 

@@ -475,6 +475,8 @@ changing worktrees, branches, specs, intents, or run rows. A failed retirement d
 not inspect or move its artifact. If archival is refused (incomplete criteria, an
 open matching PR, or another materialized owner), retirement remains successful and
 stdout names the artifact and refusal; resolve that condition, then rerun cleanup.
+Eligible workflow-produced specs archive in that same successful cleanup invocation;
+they do not require a second cleanup.
 
 Cleanup also scans immediate open directories in every registered `v2/spec/` home, even
 when no workspace is retired. It ignores `completed/`, `seeds/`, and `ready-intents/`.

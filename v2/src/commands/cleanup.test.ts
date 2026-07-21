@@ -18,6 +18,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   let tempRoot: string;
   let projectRoot: string;
   let jarvisRoot: string;
+  const emptyStore = { listRuns: () => [] } as unknown as StateStore;
 
   function createSpec(name: string, criterion: string, intent?: string): { source: string; readyIntent?: string } {
     const source = join(projectRoot, "v2", "spec", name);
@@ -74,7 +75,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store = emptyStore;
 
     let stdout = "";
     const io = {
@@ -116,7 +117,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store = emptyStore;
 
     let stdout = "";
     const io = {
@@ -153,17 +154,38 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
-  test("retires before archiving a complete durable spec and prunes only its consumed intent", async () => {
+  test("retires before archiving the implemented spec after review and prunes only its consumed intent", async () => {
     const branch = "plan/archive-me";
     const specName = "20260717T000000Z-archive-me";
     const intent = "---\nname: archive-me\n---\n";
     const { source } = createSpec(specName, "[x] Done", intent);
     const worktreePath = await materializeWorktree(branch, "spec");
-    const run = {
-      status: "completed",
-      specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+    const workflowSnapshot = {
+      invocationId: "workflow",
+      steps: [
+        { stepId: "implement", role: "implement" },
+        { stepId: "implement-review", role: "", behavior: "review-debate" as const },
+      ],
     };
-    const store: StateStore = { findRunByProjectBranch: () => run } as unknown as StateStore;
+    const run = {
+      project: "project",
+      branch,
+      stepId: "implement",
+      status: "completed",
+      worktreePath,
+      specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+      workflowSnapshot,
+    };
+    const review = {
+      project: "project",
+      branch,
+      stepId: "implement-review",
+      status: "completed",
+      worktreePath,
+      specPath: join(worktreePath, "v2", "spec", specName, "verdict-patch.md"),
+      workflowSnapshot,
+    };
+    const store: StateStore = { listRuns: () => [review, run] } as unknown as StateStore;
     const order: string[] = [];
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
@@ -196,6 +218,20 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
     expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(false);
     expect(stdout).toContain("pruned consumed ready-intent");
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
   });
 
   test("preserves artifacts when retirement fails and reports post-retirement archive refusals", async () => {
@@ -204,10 +240,16 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const { source, readyIntent } = createSpec(specName, "[ ] Incomplete", "intent\n");
     const worktreePath = await materializeWorktree(branch, "incomplete spec");
     const store: StateStore = {
-      findRunByProjectBranch: () => ({
-        status: "completed",
-        specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
-      }),
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          stepId: "implement",
+          status: "completed",
+          worktreePath,
+          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+        },
+      ],
     } as unknown as StateStore;
     let failRemoval = true;
     let stdout = "";
@@ -252,6 +294,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     ).toBe(0);
     expect(existsSync(source)).toBe(true);
     expect(stdout).toContain("unchecked acceptance criterion");
+    expect(stdout).toContain("Incomplete");
   });
 
   test("dry-run previews archive and proven intent pruning without changes", async () => {
@@ -261,10 +304,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     if (readyIntent === undefined) throw new Error("expected ready intent");
     const worktreePath = await materializeWorktree(branch, "preview spec");
     const store: StateStore = {
-      findRunByProjectBranch: () => ({
-        status: "completed",
-        specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
-      }),
+      listRuns: () => [
+        { project: "project", branch, status: "completed", worktreePath, specPath: join(worktreePath, "v2", "spec", specName, "index.md") },
+      ],
     } as unknown as StateStore;
     let stdout = "";
     const mockRunner: AsyncSubprocessRunner = {
@@ -502,7 +544,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       daemonCalls += 1;
       return daemonCalls === 1 ? [] : [{ isLive: true }];
     };
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store = emptyStore;
 
     let stdout = "";
     const io = {
@@ -555,7 +597,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const daemonClient: DaemonClient = async () => {
       throw new Error("Daemon unreachable");
     };
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store = emptyStore;
 
     let stdout = "";
     const io = {
@@ -595,7 +637,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store = emptyStore;
 
     let stdout = "";
     const io = {

@@ -155,11 +155,11 @@ export interface StateStore {
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
-  /** Most recent run for the `(project, branch, stepId)` resume key; null when none. */
+  /** Most recent run for the explicit `(project, branch, stepId)` resume key; null when none. */
   findRunByProjectBranch(args: {
     project: string;
     branch: string;
-    stepId?: string;
+    stepId: string | null;
   }): (Run & { attempts: Attempt[] }) | null;
 
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
@@ -449,12 +449,12 @@ class StateStoreImpl implements StateStore {
   findRunByProjectBranch(args: {
     project: string;
     branch: string;
-    stepId?: string;
+    stepId: string | null;
   }): (Run & { attempts: Attempt[] }) | null {
     let query: string;
     let params: (string | null)[];
 
-    if (args.stepId !== undefined) {
+    if (args.stepId !== null) {
       query =
         "SELECT id FROM runs WHERE project = ? AND branch = ? AND step_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1";
       params = [args.project, args.branch, args.stepId];

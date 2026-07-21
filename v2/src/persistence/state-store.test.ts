@@ -187,7 +187,7 @@ describe("StateStore", () => {
     const newerRunId = seedRun(store, { specRef: "new-ref", worktreePath: "/tmp/worktree-b", specPath: "spec-b.md" });
     seedRun(store, { specRef: "other-ref", worktreePath: "/tmp/worktree-c", branch: "other-branch" });
 
-    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch" });
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: null });
 
     expect(run?.id).toBe(newerRunId);
     expect(run?.id).not.toBe(olderRunId);
@@ -271,12 +271,12 @@ describe("StateStore", () => {
     expect(run?.stepId).toBe("step-1");
   });
 
-  test("findRunByProjectBranch without stepId returns latest run with NULL step_id", () => {
+  test("findRunByProjectBranch with explicit null stepId returns latest no-step run", () => {
     const runWithStepId = seedRun(store, { stepId: "step-1" });
     const runWithoutStepId1 = seedRun(store);
     const runWithoutStepId2 = seedRun(store);
 
-    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch" });
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: null });
 
     expect(run?.id).toBe(runWithoutStepId2);
     expect(run?.id).not.toBe(runWithStepId);
@@ -284,12 +284,12 @@ describe("StateStore", () => {
     expect(run?.stepId === null || run?.stepId === undefined).toBe(true);
   });
 
-  test("a run created before migration (NULL step_id) still resolves correctly without stepId argument", () => {
+  test("a run created before migration (NULL step_id) resolves with explicit null stepId", () => {
     const runId = seedRun(store);
     store.close();
 
     store = openStateStore(TEST_DB_PATH);
-    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch" });
+    const run = store.findRunByProjectBranch({ project: "test-project", branch: "test-branch", stepId: null });
 
     expect(run?.id).toBe(runId);
     expect(run?.stepId === null || run?.stepId === undefined).toBe(true);

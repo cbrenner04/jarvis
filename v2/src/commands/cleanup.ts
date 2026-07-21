@@ -157,11 +157,13 @@ export async function checkEligibility(
   }
 
   // Check durable run store for non-terminal runs
-  const run = store.findRunByProjectBranch({ project, branch });
-  if (run && !isBoundaryTerminalRunStatus(run.status)) {
+  const runs: Run[] =
+    store.listRuns?.().filter((run) => run.project === project && run.branch === branch) ??
+    [store.findRunByProjectBranch({ project, branch, stepId: null })].filter((run) => run !== null);
+  if (runs.some((run) => !isBoundaryTerminalRunStatus(run.status))) {
     return {
       status: "ineligible",
-      reason: `Non-terminal run exists: status=${run.status}`,
+      reason: "Non-terminal run exists",
     };
   }
 
@@ -214,16 +216,30 @@ function artifactForRetiredWorktree(
   projectRoot: string,
   store: StateStore,
 ): ArtifactSpec | undefined {
-  const run = store.findRunByProjectBranch({ project: candidate.project, branch: candidate.worktree.branch });
-  if (run === null || run === undefined) return undefined;
-  const source = sourceForRun(run, candidate.worktree.path, projectRoot);
-  if (source === undefined) return undefined;
-  return {
-    home: dirname(source),
-    source,
-    name: basename(source, ".md"),
-    branch: candidate.worktree.branch,
-  };
+  const runs = store
+    .listRuns()
+    .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch);
+  for (const run of runs) {
+    if (isReviewArtifactRun(run)) continue;
+    const source = sourceForRun(run, candidate.worktree.path, projectRoot);
+    if (source === undefined) continue;
+    return {
+      home: dirname(source),
+      source,
+      name: basename(source, ".md"),
+      branch: candidate.worktree.branch,
+    };
+  }
+  return undefined;
+}
+
+function isReviewArtifactRun(run: Run): boolean {
+  const step = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
+  return (
+    step?.behavior === "review" ||
+    step?.behavior === "review-debate" ||
+    basename(run.specPath) === "verdict-patch.md"
+  );
 }
 
 function sourceForRun(run: Run, worktreePath: string, projectRoot: string): string | undefined {

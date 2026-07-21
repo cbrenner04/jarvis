@@ -589,13 +589,23 @@ Operators add bullets here; delete when fixed.
   `revision-mismatch-halts-dispatch-on-a-docs-only-merge`. Cleanup: delete when it ships.
 
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
-- **Drive plans with plain `plan` — the reviewed plan path strands the spec (2026-07-16):**
-  `plan --review-passes 1 --review-behavior light` produced, 3 for 3, a PR containing
-  `.jarvis-plan-stage/` and **no spec**. Same ready-intent through plain `jarvis run workflow plan`
-  lands correctly and reports `completed`. The deferred `plan-tree` landing is never resumed. Until
-  landing is repaired, **omit the review flags on plan**. Seed:
-  `reviewed-plan-workflows-never-land-their-spec`. Cleanup: delete this bullet when landing ships.
-- **v2 implement completion now requires runtime smoke verification (2026-07-19):** v2 implement completion requires three mandatory adversarial boundaries: diff-derived mutation verification (each changed guard constrained by at least one run-base scoped test), runtime smoke verification (changed runnable entrypoint discovered and executed cleanly, or no runnable entrypoint found), and the green ready gate. These three gates together certify both test coverage and runtime wiring. No additional manual review needed.
+- **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding
+  (`plan --review-passes 1` producing a PR with `.jarvis-plan-stage/` and no spec) is **fixed** —
+  the reviewed-plan verdict landing work (#1869) repaired it. Verified end to end with
+  `--review-passes 1 --review-behavior debate`: the PR carried `index.md`, the subspec, `intent.md`,
+  and `verdict-plan.md`, with no stage directory. Scope of the check: debate behavior only; `light`
+  was not re-tested.
+- **The three mechanical gates do not replace review (corrected 2026-07-21):** v2 implement
+  completion runs diff-derived mutation verification, runtime smoke verification, and the green
+  ready gate. This entry previously concluded "no additional manual review needed." **That is
+  wrong.** On 2026-07-21, three of five implement PRs passed all three gates — plus green CI, fully
+  ticked criteria, and in one case an automatic draft→ready flip — while carrying defects that only
+  independent diff review caught: a review checkpoint reused across dispatches (silently skipping
+  patch review on re-runs), a durable-step exclusion rendering live review rows as
+  `invocation_failure`, and a finalization path leaving `ready_flip_failed` / `runtime_smoke_failed`
+  rows stuck `in-progress` (stranding them non-live and hanging `run wait`). Mutation verification
+  proves changed guards are *covered*; it cannot judge whether a transition is *correct*. Run the
+  review step, and read the diff.
 - **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
   nothing can clear it. A stranded row prevents the daemon restart needed after a revision mismatch.

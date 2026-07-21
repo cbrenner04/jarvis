@@ -446,6 +446,9 @@ published worktree and timestamped spec directory. The executor clears
 `verdict-plan.md` before each critic invocation, writes the critic stdout verbatim
 on success, and skips the actuator when the trimmed verdict is empty.
 
+Successful reviewed-plan landing includes the final overwritten `verdict-plan.md`
+verbatim in the durable spec tree, including a zero-byte no-findings verdict.
+
 **Role boundary:** the critic is advisory-only. After each critic invocation the
 executor snapshots the worktree and fails the cycle when any filesystem change
 occurred; unauthorized edits are restored before the actuator runs. The actuator
@@ -730,7 +733,9 @@ invocation with named diagnostics: `implement.malformed_link`,
 shrink. The step runs in the implement worktree, renders `patch.prompt.review.*`
 per cycle, writes `verdict-patch.md` beside the executed index (overwritten each
 cycle), and commits actuator edits through the same completion committer as
-implement write edits. Empty or already-complete indexes, and any non-`complete`
+implement write edits. Its final artifact is in that shared completion snapshot,
+including a zero-byte no-findings verdict; publication retry reuses it without
+rerunning review. Empty or already-complete indexes, and any non-`complete`
 implement or shrink outcome, skip the review without hard-fail.
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.

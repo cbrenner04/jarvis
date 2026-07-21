@@ -108,6 +108,7 @@ describe("publication landing hooks", () => {
     writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "intent.md"), "intent\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# First\n");
+    writeFileSync(join(root, ".jarvis-plan-stage", "verdict-plan.md"), "");
     const result = await landPublication(
       { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" },
       root,
@@ -115,6 +116,7 @@ describe("publication landing hooks", () => {
     expect(result.specPath).toBe("v2/spec/tree");
     expect(readFileSync(join(root, "v2/spec/tree/index.md"), "utf8")).toContain("Plan");
     expect(readFileSync(join(root, "v2/spec/tree/intent.md"), "utf8")).toBe("intent\n");
+    expect(readFileSync(join(root, "v2/spec/tree/verdict-plan.md"), "utf8")).toBe("");
   });
 
   test("retains staged plans on shape failure and rejects differing collisions", async () => {

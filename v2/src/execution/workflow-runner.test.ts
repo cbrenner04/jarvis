@@ -3129,6 +3129,8 @@ describe("executeWorkflow implement patch review", () => {
 
   test("commits review actuator edits with the same completion committer as implement", async () => {
     const published: Array<{ specPath: string; agent: string }> = [];
+    const snapshots: string[] = [];
+    let reviewCalls = 0;
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -3147,6 +3149,7 @@ describe("executeWorkflow implement patch review", () => {
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        reviewCalls += 1;
         if (adapterModel === "ACT") {
           writeFileSync(join(worktreePath, "review-edit.txt"), "applied\n", "utf8");
         }
@@ -3171,6 +3174,7 @@ describe("executeWorkflow implement patch review", () => {
         stateStore: store,
         completionCommitter: async (input) => {
           published.push({ specPath: input.specPath, agent: input.agent });
+          snapshots.push(readFileSync(join(input.worktreePath, "verdict-patch.md"), "utf8"));
           return { commitSha: "review-commit", filesChanged: 1 };
         },
         completionPublisher: async () => ({}),
@@ -3179,6 +3183,20 @@ describe("executeWorkflow implement patch review", () => {
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
       expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
+      expect(snapshots).toEqual(["apply review edit"]);
+
+      expect(await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          snapshots.push(readFileSync(join(input.worktreePath, "verdict-patch.md"), "utf8"));
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      })).toMatchObject({ kind: "complete" });
+      expect(reviewCalls).toBe(4);
+      expect(snapshots).toEqual(["apply review edit", "apply review edit"]);
     });
   });
 });
@@ -3254,6 +3272,7 @@ describe("executeWorkflow implement patch light review", () => {
     );
     const verdictPath = join(worktreePath, "verdict-patch.md");
     const actuatorPrompts: string[] = [];
+    const snapshots: string[] = [];
     const reviewStep = createPatchLightReviewStep({
       branchName: implementStep.worktree.branchName,
       verdictPath,
@@ -3281,7 +3300,16 @@ describe("executeWorkflow implement patch light review", () => {
     };
 
     await withStateStore(async (store) => {
-      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          snapshots.push(readFileSync(join(input.worktreePath, "verdict-patch.md"), "utf8"));
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
 
       expect(result.kind).toBe("complete");
       expect(prompts.indexOf("implement")).toBeLessThan(prompts.indexOf("shrink"));
@@ -3290,6 +3318,7 @@ describe("executeWorkflow implement patch light review", () => {
       expect(actuatorPrompts[0]).toContain("fix it");
       expect(readFileSync(join(worktreePath, "critic-edit.txt"), "utf8")).toBe("oops\n");
       expect(readFileSync(verdictPath, "utf8")).toBe("");
+      expect(snapshots).toEqual([""]);
       const run = store.findRunByProjectBranch({
         project: "demo",
         branch: implementStep.worktree.branchName,
@@ -3621,6 +3650,7 @@ describe("executeWorkflow review dispatch", () => {
     });
 
     await withStateStore(async (store) => {
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
       expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
     });
     expect(calls).toEqual(["claude"]);
@@ -4210,7 +4240,7 @@ describe("executeWorkflow plan review dispatch", () => {
     });
   });
 
-  test("lands a reviewed plan tree without its verdict", async () => {
+  test("lands a reviewed plan tree with its final verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
@@ -4218,7 +4248,9 @@ describe("executeWorkflow plan review dispatch", () => {
     writeFileSync(join(stage, "index.md"), "# Index", "utf8");
     writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
     writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    let reviewCalls = 0;
     const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing", async (agentId) => {
+      reviewCalls += 1;
       if (agentId === "codex") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
       return { kind: "ok", stdout: agentId === "claude" ? "Apply edit" : "done", stderr: "" };
     });
@@ -4231,7 +4263,10 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Apply edit");
+
+    expect(reviewCalls).toBe(2);
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Apply edit");
   });
 
   test("retains the staged plan and verdict when deferred landing fails", async () => {
@@ -4260,9 +4295,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(readFileSync(verdictPath, "utf8")).toBe("Keep verdict");
   });
 
-  // review-debate is the debate plan's last step; its deferred landing must land the staged
-  // tree (verdict excluded) exactly like the light-review path, and fail resumably otherwise.
-  test("lands a reviewed plan tree from a review-debate last step, without its verdict", async () => {
+  test("lands a reviewed plan tree from a review-debate last step with its final verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
@@ -4292,7 +4325,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
   });
 
   test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {
@@ -4384,7 +4417,7 @@ describe("executeWorkflow plan review dispatch", () => {
     // Only the review step's deferred landing ran; the write step's landing was never eager-applied.
     expect(existsSync(stage)).toBe(false);
     expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(reviewDurable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(reviewDurable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
     expect(existsSync(writeDurable)).toBe(false);
   });
 });

@@ -956,10 +956,15 @@ function stepIdentity(step: WorkflowStep): { project: string; branch: string } {
 /** Shared row-persistence policy used for both execution and workflow snapshots. */
 function isDurableWorkflowStep(
   step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
-): step is ReviewWorkflowStep & { landing: Extract<PublicationLanding, { kind: "intent-stage" }> };
+): step is ReviewDebateWorkflowStep | ReviewWorkflowStep;
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean;
 function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
-  return step.behavior === "write" || (step.behavior === "review" && step.landing?.kind === "intent-stage");
+  return (
+    step.behavior === "write" ||
+    ((step.behavior === "review" || step.behavior === "review-debate") &&
+      step.landing?.kind !== undefined &&
+      step.landing.kind !== "none")
+  );
 }
 
 /**
@@ -1377,11 +1382,13 @@ type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_
 async function runReviewDebateStep(
   step: ReviewDebateWorkflowStep,
   stepIndex: number,
-  invocationId: string,
+  workflowSnapshot: WorkflowSnapshot,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store?: StateStore,
 ): Promise<ReviewDebateStepOutcome> {
+  const { invocationId } = workflowSnapshot;
   const {
     stepId,
     project,
@@ -1394,8 +1401,19 @@ async function runReviewDebateStep(
     ...debateInput
   } = step;
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
-  const runId = crypto.randomUUID();
-  const attemptId = crypto.randomUUID();
+  const runId =
+    store === undefined
+      ? crypto.randomUUID()
+      : store.createRun({
+          project,
+          specRef: "",
+          worktreePath: step.cwd,
+          branch,
+          specPath: landing?.kind === "none" || landing === undefined ? step.verdictPath : landing.stagingDir,
+          stepId,
+          workflowSnapshot,
+        });
+  const attemptId = store === undefined ? crypto.randomUUID() : store.recordAttemptStart(runId);
   onStepRunCreated?.(stepIndex, runId);
 
   const bindings = Object.fromEntries(
@@ -1458,9 +1476,22 @@ async function runReviewDebateStep(
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
     const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
     if (landingError !== undefined) {
+      store?.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+      });
       return { kind: "invocation_failure", runId, iterationsConsumed: result.cycles.length, resumable: true };
     }
   }
+
+  store?.commitCompletionBoundary({
+    attemptId,
+    runStatus: kind === "complete" ? "completed" : "failed",
+    outcomeKind: kind === "complete" ? "done" : "invocation_failure",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
 
   return {
     kind,
@@ -1478,7 +1509,7 @@ async function runReviewDebateStep(
  */
 function findReviewLandingCheckpoint(
   store: StateStore,
-  step: ReviewWorkflowStep,
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "project" | "branch" | "stepId">,
 ): NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>> | undefined {
   const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
   const lastAttempt = existing?.attempts.at(-1);
@@ -1490,6 +1521,35 @@ function findReviewLandingCheckpoint(
     : undefined;
 }
 
+function shouldReuseReviewCheckpoint(step: ReviewDebateWorkflowStep | ReviewWorkflowStep): boolean {
+  return (step.landing !== undefined && step.landing.kind !== "none") || step.stepId === "implement-review";
+}
+
+function recordCompletedReviewCheckpoint(
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
+  workflowSnapshot: WorkflowSnapshot,
+  store: StateStore,
+  completionAgent: string | undefined,
+): string {
+  const runId = store.createRun({
+    project: step.project,
+    specRef: "",
+    worktreePath: step.cwd,
+    branch: step.branch,
+    specPath: step.verdictPath,
+    stepId: step.stepId,
+    workflowSnapshot,
+  });
+  const attemptId = store.recordAttemptStart(runId);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+  return runId;
+}
+
 /**
  * Exclude the verdict file from staging, run final validation + transactional landing, then
  * remove the verdict. Returns an error message on failure, or undefined on success.
@@ -1499,6 +1559,14 @@ async function landReviewedPublicationOutput(
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,
 ): Promise<string | undefined> {
+  if (deferred.kind === "plan-tree") {
+    try {
+      await landPublication(deferred, worktreePath);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
@@ -1525,9 +1593,9 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
-async function finishReviewedIntentLanding(
-  step: ReviewWorkflowStep,
-  deferred: Extract<PublicationLanding, { kind: "intent-stage" }>,
+async function finishReviewedLanding(
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath">,
+  deferred: PublicationLanding | undefined,
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
@@ -1535,7 +1603,10 @@ async function finishReviewedIntentLanding(
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
   logSink?.append(runId, { kind: "iteration_started", attemptId });
-  const landingError = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath);
+  const landingError =
+    deferred === undefined || deferred.kind === "none"
+      ? undefined
+      : await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath);
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
       attemptId,
@@ -1837,14 +1908,12 @@ async function runStandardReviewStep(
 
   if (result.kind === "invocation_failure") {
     const message = reviewedIntentFailureMessage(result);
-    if (landing?.kind === "intent-stage") {
-      store.commitCompletionBoundary({
-        attemptId: ids.attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [], message },
-      });
-    }
+    store.commitCompletionBoundary({
+      attemptId: ids.attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [], message },
+    });
     return {
       kind: "invocation_failure",
       runId: ids.runId,
@@ -1877,7 +1946,13 @@ async function runStandardReviewStep(
     result.cycles.at(-1)?.kind === "completed"
       ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
       : undefined;
-  if (landing?.kind !== "intent-stage") {
+  store.commitCompletionBoundary({
+    attemptId: ids.attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+  if (landing === undefined || landing.kind === "none") {
     return {
       kind: "complete",
       runId: ids.runId,
@@ -1886,13 +1961,7 @@ async function runStandardReviewStep(
       ...(completionAgent ? { completionAgent } : {}),
     };
   }
-  store.commitCompletionBoundary({
-    attemptId: ids.attemptId,
-    runStatus: "completed",
-    outcomeKind: "done",
-    ...(completionAgent ? { completionAgent } : {}),
-  });
-  const landed = await finishReviewedIntentLanding(step, landing, ids.runId, store, completionAgent);
+  const landed = await finishReviewedLanding(step, landing, ids.runId, store, completionAgent);
   return { ...landed, iterationsConsumed: result.cycles.length };
 }
 
@@ -1908,18 +1977,42 @@ async function runReviewDispatch(
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, stepIndex, invocationId, onProgress, telemetry, onStepRunCreated);
+    if (shouldReuseReviewCheckpoint(step)) {
+      const checkpoint = findReviewLandingCheckpoint(store, step);
+      if (checkpoint !== undefined) {
+        onStepRunCreated?.(stepIndex, checkpoint.id);
+        return await finishReviewedLanding(step, step.landing, checkpoint.id, store, reviewCompletionAgent(checkpoint));
+      }
+    }
+    const outcome = await runReviewDebateStep(
+      step,
+      stepIndex,
+      workflowSnapshot,
+      onProgress,
+      telemetry,
+      onStepRunCreated,
+      isDurableWorkflowStep(step) ? store : undefined,
+    );
+    if (
+      step.stepId === "implement-review" &&
+      (step.landing === undefined || step.landing.kind === "none") &&
+      outcome.kind === "complete"
+    ) {
+      return {
+        ...outcome,
+        runId: recordCompletedReviewCheckpoint(step, workflowSnapshot, store, outcome.completionAgent),
+      };
+    }
+    return outcome;
   }
 
   const { landing, ...reviewInput } = step;
 
-  // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
-  // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
-  if (isDurableWorkflowStep(step)) {
+  if (shouldReuseReviewCheckpoint(step)) {
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return await finishReviewedIntentLanding(
+      return await finishReviewedLanding(
         step,
         step.landing,
         checkpoint.id,
@@ -1934,10 +2027,10 @@ async function runReviewDispatch(
   const runId = isDurableWorkflowStep(step)
     ? store.createRun({
         project: step.project,
-        specRef: step.landing.baseRef,
+        specRef: step.landing?.kind === "intent-stage" ? step.landing.baseRef : "",
         worktreePath: step.cwd,
         branch: step.branch,
-        specPath: step.landing.stagingDir,
+        specPath: step.landing?.kind === "none" || step.landing === undefined ? step.verdictPath : step.landing.stagingDir,
         stepId: step.stepId,
         workflowSnapshot,
       })
@@ -1963,6 +2056,17 @@ async function runReviewDispatch(
       iterationsConsumed: outcome.iterationsConsumed,
       resumable: outcome.resumable,
     });
+  }
+
+  if (
+    step.stepId === "implement-review" &&
+    (step.landing === undefined || step.landing.kind === "none") &&
+    outcome.kind === "complete"
+  ) {
+    return {
+      ...outcome,
+      runId: recordCompletedReviewCheckpoint(step, workflowSnapshot, store, outcome.completionAgent),
+    };
   }
 
   return outcome;

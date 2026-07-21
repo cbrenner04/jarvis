@@ -513,12 +513,15 @@ implement worktree; the operator checkout is never substituted.
 
 Deferred review landing is generic over `intent-stage` and `plan-tree`.
 Reviewed intent reserves its verdict for the owning invocation; plan writes its
-verdict into `.jarvis-plan-stage/`. Both verdicts are excluded from the landed
-tree, retained with staging on landing failure, and removed after successful
-landing. A completed-review or landing-failed intent checkpoint resumes at
-landing without reinvoking review roles. Plan permits actuator spec edits.
+verdict into `.jarvis-plan-stage/`. Intent verdicts are excluded from the landed
+tree and removed after successful landing. Plan landing includes the final
+`verdict-plan.md` verbatim, including an empty file. A completed-review or
+landing-failed checkpoint resumes at landing without reinvoking review roles.
+Plan permits actuator spec edits.
 Implement keeps the completed spec tree immutable while permitting implementation
-edits.
+edits. Its final `verdict-patch.md` is committed with that completion snapshot;
+completion publication retries reuse the recorded review checkpoint without
+rerunning review roles.
 
 For reviewed intents, `cwd`, verdict handling, boundary enforcement, staging,
 landing, and any enabled commit, push, and draft-PR publication all use the split
@@ -664,13 +667,14 @@ forward across re-publications without clobbering operator edits.
 Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
 `none`. The hook runs after the final write or review boundary and before
 completion commit, push, PR, or durable no-Git completion. Deferred review
-landing applies to both intent and plan trees; generic plan review remains
-non-durable. Successful write work and pending landing are durable checkpoints;
-retries resume at landing or later publication without rerunning agents.
+landing applies to both intent and plan trees. Reviewed plan and implementation
+checkpoints are durable; retries resume at landing or later publication without
+rerunning review roles.
 
 `intent-stage` validates ownership and boundaries, then transactionally lands
 validated Markdown into ready-intents. `plan-tree` validates `index.md`,
-`intent.md`, and numbered subspecs and transactionally lands them at the
+`intent.md`, numbered subspecs, and an optional final `verdict-plan.md`
+verbatim and transactionally lands them at the
 precomputed spec path. Both hooks consume recorded queue inputs only after
 landing: Git runs delete the mapped worktree inputs in the completion commit;
 no-Git runs delete source inputs after durable output lands. Missing, external,

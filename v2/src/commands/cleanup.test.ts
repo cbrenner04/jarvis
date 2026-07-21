@@ -221,7 +221,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       branch: "implement/reviewed-archive",
       stepId: "implement",
       reviewStepId: "implement-review",
-      authoredSpecPath: (worktreePath: string, specName: string) => join(worktreePath, "v2", "spec", specName, "index.md"),
+      authoredSpecPath: (worktreePath: string, specName: string) =>
+        join(worktreePath, "v2", "spec", specName, "index.md"),
       reviewSpecPath: (worktreePath: string, specName: string) =>
         join(worktreePath, "v2", "spec", specName, "verdict-patch.md"),
     },

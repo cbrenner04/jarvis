@@ -159,7 +159,10 @@ export async function checkEligibility(
   // Check durable run store for non-terminal runs
   const run = store
     .listRuns()
-    .find((candidate) => candidate.project === project && candidate.branch === branch && !isBoundaryTerminalRunStatus(candidate.status));
+    .find(
+      (candidate) =>
+        candidate.project === project && candidate.branch === branch && !isBoundaryTerminalRunStatus(candidate.status),
+    );
   if (run !== undefined) {
     return {
       status: "ineligible",

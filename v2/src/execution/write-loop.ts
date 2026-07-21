@@ -1161,9 +1161,14 @@ function readyFailed(
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const resumable = kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
   const mutationFields = survivingMutationLogFields(error);
-  if (kind === "surviving_mutation_failed" || kind === "ready_gate_failed") {
-    store.setRunStatus(result.runId, "failed");
-  }
+  // Publication marks the row `in-progress` for the finalization tail, so every exit from that
+  // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
+  // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
+  // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
+  store.setRunStatus(
+    result.runId,
+    kind === "surviving_mutation_failed" || kind === "ready_gate_failed" ? "failed" : "completed",
+  );
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,

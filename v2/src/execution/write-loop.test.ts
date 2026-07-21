@@ -1233,6 +1233,42 @@ describe("write loop", () => {
         resumable: false,
       });
     });
+
+    test("every finalization exit restores a terminal durable status, never leaving the tail marker", async () => {
+      // Publication marks the row `in-progress` for the finalization tail. A row left there is
+      // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
+      const cases = [
+        {
+          kind: "ready_flip_failed",
+          status: "completed",
+          finalizer: async () => {
+            throw new Error("gh pr ready failed");
+          },
+        },
+        {
+          kind: "runtime_smoke_failed",
+          status: "completed",
+          finalizer: async () => {
+            throw new RuntimeSmokeFailedError("bun run v2/src/cli.ts --help", "error: command failed");
+          },
+        },
+      ] as const;
+
+      for (const { kind, status, finalizer } of cases) {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+          completionPublisher: async () => ({ prNumber: 7 }),
+          readyFinalizer: finalizer,
+        });
+
+        expect(result.kind).toBe(kind);
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe(status);
+      }
+    });
   });
 
   test("publishes index and spec-path titles, with named failure for unreadable indexes", async () => {

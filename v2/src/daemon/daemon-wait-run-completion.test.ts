@@ -412,20 +412,40 @@ test("workflow entry wait and list report surviving_mutation_failed from hidden 
   finishLoop(entryRunId, "completed", 1);
   stateStore.setRunStatus(shrinkRunId, "failed");
   logSink.append(shrinkRunId, {
-    kind: "loop_finished", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 2, resumable: true,
-    survivingMutation: "operator-flip: === → !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
   });
 
   const wait = await expectResponse(await waitDirect("entry-surviving-mutation", entryRunId));
   expect(wait).toMatchObject({
-    runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 2, resumable: false,
-    error: { reason: "surviving_mutation_failed", retryable: false, nextAction: "stop", survivingMutation: "operator-flip: === → !==" },
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: false,
+    error: {
+      reason: "surviving_mutation_failed",
+      retryable: false,
+      nextAction: "stop",
+      survivingMutation: "operator-flip: === → !==",
+    },
   });
   const list = await expectResponse(await listDirect());
   const entry = (list.runs as Array<Record<string, unknown>>).find((row) => row.runId === entryRunId);
   expect(entry).toMatchObject({
-    status: "failed", loopOutcomeKind: "surviving_mutation_failed", resumable: false,
-    error: { reason: "surviving_mutation_failed", nextAction: "stop", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17 },
+    status: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    resumable: false,
+    error: {
+      reason: "surviving_mutation_failed",
+      nextAction: "stop",
+      survivingMutationSourceFile: "src/guard.ts",
+      survivingMutationSourceLine: 17,
+    },
   });
 });
 
@@ -438,11 +458,15 @@ test("workflow entry wait and list retain complete outcome after hidden shrink c
   finishLoop(shrinkRunId, "completed", 2);
 
   expect(await expectResponse(await waitDirect("entry-complete", entryRunId))).toMatchObject({
-    runStatus: "completed", loopOutcomeKind: "complete", resumable: false,
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
+    resumable: false,
   });
   const list = await expectResponse(await listDirect());
   expect((list.runs as Array<Record<string, unknown>>).find((row) => row.runId === entryRunId)).toMatchObject({
-    status: "completed", loopOutcomeKind: "complete", resumable: false,
+    status: "completed",
+    loopOutcomeKind: "complete",
+    resumable: false,
   });
 });
 

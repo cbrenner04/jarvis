@@ -215,18 +215,23 @@ describe("run workflow dispatch", () => {
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
         connectIpcClient: async () =>
-          makeIpcClient(workflowFrames("start", "wait", "run-failed", {
-            runStatus: "failed",
-            loopOutcomeKind: "surviving_mutation_failed",
-            iterationsConsumed: 2,
-            resumable: false,
-            error: {
-              reason: "surviving_mutation_failed", retryable: false, nextAction: "stop",
-              survivingMutation: "operator-flip: === → !==",
-              survivingMutationSourceFile: "src/guard.ts",
-              survivingMutationSourceLine: 17,
-            },
-          }), { sent }),
+          makeIpcClient(
+            workflowFrames("start", "wait", "run-failed", {
+              runStatus: "failed",
+              loopOutcomeKind: "surviving_mutation_failed",
+              iterationsConsumed: 2,
+              resumable: false,
+              error: {
+                reason: "surviving_mutation_failed",
+                retryable: false,
+                nextAction: "stop",
+                survivingMutation: "operator-flip: === → !==",
+                survivingMutationSourceFile: "src/guard.ts",
+                survivingMutationSourceLine: 17,
+              },
+            }),
+            { sent },
+          ),
       }),
     );
 

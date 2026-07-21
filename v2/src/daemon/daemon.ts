@@ -599,9 +599,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       loopOutcomeKind: projection.record.event.loopOutcomeKind,
       iterationsConsumed: projection.record.event.iterationsConsumed,
       resumable: false,
-      ...(ownerError === undefined
-        ? {}
-        : { error: { ...ownerError, retryable: false, nextAction: "stop" as const } }),
+      ...(ownerError === undefined ? {} : { error: { ...ownerError, retryable: false, nextAction: "stop" as const } }),
     };
   };
 
@@ -952,7 +950,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...(entryResult?.loopOutcomeKind !== undefined
         ? {
             loopOutcomeKind: entryResult.loopOutcomeKind,
-            ...(entryResult.iterationsConsumed === undefined ? {} : { iterationsConsumed: entryResult.iterationsConsumed }),
+            ...(entryResult.iterationsConsumed === undefined
+              ? {}
+              : { iterationsConsumed: entryResult.iterationsConsumed }),
             ...(entryResult.resumable === undefined ? {} : { resumable: entryResult.resumable }),
           }
         : {}),
@@ -1116,7 +1116,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * live, then report the rollup status over its sibling step rows.
    */
   const waitForWorkflowEntryRun = async (
-    reader: LogReader,
+    _reader: LogReader,
     run: LoadedRun,
     snapshot: WorkflowSnapshot,
   ): Promise<{ kind: "response"; result: unknown }> => {

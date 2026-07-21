@@ -27,19 +27,19 @@
 
 ## Acceptance criteria
 
-- [ ] `intent-workflow-steps.test.ts` `"defaults to one light review pass when review options are omitted"` (new or renamed from `"omits review by default and for zero passes"`) fails against baseline `reviewPasses ?? 0` / `reviewBehavior ?? "debate"` and passes after implementation, asserting two steps with `review` at index 1, `maxCycles: 1`, and `reviewBehavior: "light"`.
-- [ ] `intent-workflow-steps.test.ts` `"omits review for explicit zero passes"` (split from the default case above) still yields a one-step split-only workflow for `reviewPasses: 0`.
-- [ ] `intent-workflow-steps.test.ts` proves `buildReviewedIntentWorkflowSteps` with no review options produces the same step shape as `buildIntentWorkflowSteps` with no review options.
-- [ ] `intent-workflow-steps.test.ts` `"delegates to split-only builder when reviewPasses is 0"` stays green for `buildReviewedIntentWorkflowSteps` after wrapper collapse.
-- [ ] `intent-workflow-steps.test.ts` `"selects light or debate review for positive passes"` updated so omitted `reviewBehavior` with positive passes selects light; explicit `reviewBehavior: "debate"` still selects `review-debate`.
-- [ ] `intent-workflow-steps.test.ts` proves omitted `reviewPasses` with explicit `reviewBehavior: "debate"` yields one `review-debate` step with `maxCycles: 1`.
-- [ ] `intent-workflow-steps.test.ts` `"builds file and inline seeds with stable PR titles"` updated to expect two steps (split + default review) with unchanged PR title and landing assertions.
-- [ ] `intent-workflow-steps.test.ts` `"routes committed intent output from canonical seeds before configured targets"`, `"preserves explicit, inline, and non-canonical target routing"`, `"keeps canonical seed output external when git is disabled"`, and `"only resumes a collision owned by the supplied invocation"` stay green.
-- [ ] `workflow-runner.test.ts` `"retains exact cardinality for intent preset"` updated for default two-step intent; `"persists reviewed-intent review as a durable snapshot step"`, `"runs reviewed-intent review and landing only in the split workspace"`, `"retries reviewed-intent landing without rerunning review and persists its cause"`, and `"publishes reviewed-intent body summary after review-last landing"` stay green.
-- [ ] `v2/docs/workflow-runner.md` has no remaining split-only `intent` vs distinct `intent-reviewed` contradictions; all relevant sections state one light pass by default, `--review-passes 0` opt-out, and explicit overrides.
-- [ ] `v2/docs/operator-runbook.md` preset table, canonical examples, and telemetry paragraph are consistent with review-on-by-default intent and document `--review-passes 0` opt-out plus the breaking change for split-only automation.
-- [ ] `v2/docs/v1-behaviors.md` intent review bullet and overview text record the new default, opt-out, and prior zero-pass behavior as a v2 consolidation without v1 intent parity claims.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `intent-workflow-steps.test.ts` `"defaults to one light review pass when review options are omitted"` (new or renamed from `"omits review by default and for zero passes"`) fails against baseline `reviewPasses ?? 0` / `reviewBehavior ?? "debate"` and passes after implementation, asserting two steps with `review` at index 1, `maxCycles: 1`, and `reviewBehavior: "light"`.
+- [x] `intent-workflow-steps.test.ts` `"omits review for explicit zero passes"` (split from the default case above) still yields a one-step split-only workflow for `reviewPasses: 0`.
+- [x] `intent-workflow-steps.test.ts` proves `buildReviewedIntentWorkflowSteps` with no review options produces the same step shape as `buildIntentWorkflowSteps` with no review options.
+- [x] `intent-workflow-steps.test.ts` `"delegates to split-only builder when reviewPasses is 0"` stays green for `buildReviewedIntentWorkflowSteps` after wrapper collapse.
+- [x] `intent-workflow-steps.test.ts` `"selects light or debate review for positive passes"` updated so omitted `reviewBehavior` with positive passes selects light; explicit `reviewBehavior: "debate"` still selects `review-debate`.
+- [x] `intent-workflow-steps.test.ts` proves omitted `reviewPasses` with explicit `reviewBehavior: "debate"` yields one `review-debate` step with `maxCycles: 1`.
+- [x] `intent-workflow-steps.test.ts` `"builds file and inline seeds with stable PR titles"` updated to expect two steps (split + default review) with unchanged PR title and landing assertions.
+- [x] `intent-workflow-steps.test.ts` `"routes committed intent output from canonical seeds before configured targets"`, `"preserves explicit, inline, and non-canonical target routing"`, `"keeps canonical seed output external when git is disabled"`, and `"only resumes a collision owned by the supplied invocation"` stay green.
+- [x] `workflow-runner.test.ts` `"retains exact cardinality for intent preset"` updated for default two-step intent; `"persists reviewed-intent review as a durable snapshot step"`, `"runs reviewed-intent review and landing only in the split workspace"`, `"retries reviewed-intent landing without rerunning review and persists its cause"`, and `"publishes reviewed-intent body summary after review-last landing"` stay green.
+- [x] `v2/docs/workflow-runner.md` has no remaining split-only `intent` vs distinct `intent-reviewed` contradictions; all relevant sections state one light pass by default, `--review-passes 0` opt-out, and explicit overrides.
+- [x] `v2/docs/operator-runbook.md` preset table, canonical examples, and telemetry paragraph are consistent with review-on-by-default intent and document `--review-passes 0` opt-out plus the breaking change for split-only automation.
+- [x] `v2/docs/v1-behaviors.md` intent review bullet and overview text record the new default, opt-out, and prior zero-pass behavior as a v2 consolidation without v1 intent parity claims.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

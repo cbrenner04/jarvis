@@ -547,6 +547,8 @@ describe("resolveWorkflowPreset", () => {
   });
 
   test("retains exact cardinality for intent preset", () => {
+    // Preset resolution counts authored write steps only (one for intent), not
+    // builder-appended review; see workflow-runner.md § Authoring helper and presets.
     expect(() => resolveWorkflowPreset("intent", [])).toThrow('Workflow preset "intent" requires 1 steps, received 0');
 
     expect(() =>

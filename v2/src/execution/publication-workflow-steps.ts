@@ -342,7 +342,7 @@ export async function buildIntentWorkflowSteps(
 ): Promise<IntentWorkflowResult> {
   const r = await intentSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
-  const passes = input.reviewPasses ?? 0;
+  const passes = input.reviewPasses ?? 1;
   if (!Number.isInteger(passes) || passes < 0)
     return { ok: false, error: "intent: reviewPasses must be a non-negative integer" };
   if (passes === 0) {
@@ -352,7 +352,7 @@ export async function buildIntentWorkflowSteps(
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   }
-  const behavior = input.reviewBehavior ?? "debate";
+  const behavior = input.reviewBehavior ?? "light";
   if (behavior !== "debate" && behavior !== "light")
     return { ok: false, error: 'intent: reviewBehavior must be "debate" or "light"' };
   const landing = r.source.landing;
@@ -466,15 +466,7 @@ export async function buildPlanWorkflowSteps(
   }
 }
 const intentReview = ".jarvis-intent-review-verdict.md";
-export async function buildReviewedIntentWorkflowSteps(
-  input: IntentWorkflowInput,
-  deps: IntentWorkflowDeps = {},
-): Promise<IntentWorkflowResult> {
-  return buildIntentWorkflowSteps(
-    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "light" },
-    deps,
-  );
-}
+export const buildReviewedIntentWorkflowSteps = buildIntentWorkflowSteps;
 
 function parseFrontmatter(content: string): Record<string, string> {
   const result: Record<string, string> = {};

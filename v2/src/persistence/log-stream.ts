@@ -35,6 +35,18 @@ export type LoopFinishedEvent = {
   survivingMutationSourceLine?: number;
 };
 
+export type RuntimeSmokeOutcomeEvent =
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "observed-clean";
+    }
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "not-runnable";
+      inspectedPaths: string[];
+      discoveryReason: string;
+    };
+
 export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
   message?: string;
@@ -92,6 +104,7 @@ export type LogEvent =
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
   | LoopFinishedEvent
+  | RuntimeSmokeOutcomeEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
   | RunRecoveryEvent
@@ -183,6 +196,13 @@ class FileLogStream implements LogSink, LogReader {
   append(runId: string, event: LogEvent): void {
     if (this.closed) {
       throw new Error("Cannot append to closed log sink");
+    }
+    if (
+      event.kind === "runtime_smoke_outcome" &&
+      event.outcome === "not-runnable" &&
+      event.discoveryReason.trim() === ""
+    ) {
+      throw new Error("runtime_smoke_outcome not-runnable requires a discoveryReason");
     }
 
     const seq = this.nextSeqForRun(runId);

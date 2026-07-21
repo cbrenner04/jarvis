@@ -1,4 +1,5 @@
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
+import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -15,6 +16,7 @@ export type ReadyFinalizeInput = {
   branch: string;
   baseRef: string;
   requiredIntegrationScope?: string;
+  onRuntimeSmokeOutcome?: (outcome: SmokePass) => void;
 };
 
 export type ReadyGate = (worktreePath: string, baseRef: string) => Promise<void>;
@@ -23,7 +25,7 @@ type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
 type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
-type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<SmokePass>;
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
@@ -36,7 +38,7 @@ export type ReadyFinalizerSeams = {
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
-export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
+export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<SmokePass | void>;
 
 export class ReadyGateError extends Error {
   constructor(
@@ -223,9 +225,11 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);
     }
-    if (runRuntimeSmokeVerification) {
-      await runRuntimeSmokeVerification(input.worktreePath, input.baseRef);
-    }
+    const runtimeSmokeOutcome = runRuntimeSmokeVerification
+      ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef)
+      : undefined;
+    if (runtimeSmokeOutcome !== undefined) input.onRuntimeSmokeOutcome?.(runtimeSmokeOutcome);
     await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+    return runtimeSmokeOutcome;
   };
 }

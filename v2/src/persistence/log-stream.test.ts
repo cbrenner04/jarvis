@@ -88,6 +88,22 @@ describe("log-stream", () => {
     }
   });
 
+  it("rejects reasonless not-runnable runtime-smoke outcomes", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+
+    expect(() =>
+      sink.append("run-1", {
+        kind: "runtime_smoke_outcome",
+        outcome: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts"],
+        discoveryReason: " ",
+      }),
+    ).toThrow("runtime_smoke_outcome not-runnable requires a discoveryReason");
+
+    expect(reader.tail("run-1")).toHaveLength(0);
+  });
+
   it("tail returns only the specified run's events in ascending seq order starting at 1", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

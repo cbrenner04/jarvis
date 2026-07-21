@@ -1868,6 +1868,87 @@ describe("executeWorkflow fresh dispatch", () => {
 });
 
 describe("executeWorkflow completion publication", () => {
+  test("persists successful runtime-smoke outcomes and omits absent evidence", async () => {
+    const cases = [
+      {
+        name: "not-runnable",
+        finalize: async () => ({
+          kind: "not-runnable" as const,
+          inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+          discoveryReason: "no changed runnable entrypoint found",
+        }),
+      },
+      { name: "observed-clean", finalize: async () => ({ kind: "observed-clean" as const }) },
+      {
+        name: "invalid-not-runnable",
+        finalize: async () => ({ kind: "not-runnable" as const, inspectedPaths: [], discoveryReason: "" }),
+      },
+      { name: "absent", finalize: async () => {} },
+    ];
+
+    for (const testCase of cases) {
+      const step = createStep({
+        stepId: `runtime-smoke-${testCase.name}`,
+        role: "implement",
+        branchName: `runtime-smoke-${testCase.name}`,
+      });
+      const logSink = new TestLogSink();
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          logSink,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: testCase.finalize,
+        });
+        expect(result.kind).toBe("complete");
+        const outcomes = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "runtime_smoke_outcome");
+        if (testCase.name === "not-runnable") {
+          expect(outcomes).toEqual([
+            {
+              kind: "runtime_smoke_outcome",
+              outcome: "not-runnable",
+              inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+              discoveryReason: "no changed runnable entrypoint found",
+            },
+          ]);
+        } else if (testCase.name === "observed-clean") {
+          expect(outcomes).toEqual([{ kind: "runtime_smoke_outcome", outcome: "observed-clean" }]);
+        } else {
+          expect(outcomes).toHaveLength(0);
+        }
+      });
+    }
+  });
+
+  test("persists successful smoke before a ready-flip failure", async () => {
+    const step = createStep({
+      stepId: "runtime-smoke-before-flip",
+      role: "implement",
+      branchName: "runtime-smoke-before-flip",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async ({ onRuntimeSmokeOutcome }) => {
+          onRuntimeSmokeOutcome?.({ kind: "observed-clean" });
+          throw new Error("gh pr ready failed");
+        },
+      });
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "runtime_smoke_outcome",
+        outcome: "observed-clean",
+      });
+    });
+  });
+
   test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
     const cases: Array<{
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";

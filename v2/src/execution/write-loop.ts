@@ -25,7 +25,7 @@ import {
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
-import { verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -892,6 +892,7 @@ export type CompletionPublishFailure = {
 export type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
+  runtimeSmokeOutcome?: SmokePass;
 };
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
@@ -959,7 +960,10 @@ export async function publishWithReadyRepair(
   iterationsConsumed: number,
   input: CompletionPublishInput,
 ): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
-  let outcome = await publishCompletionArtifacts(args, input);
+  const persistRuntimeSmokeOutcome = (outcome: SmokePass): void => {
+    appendRuntimeSmokeOutcome(args.logSink, result.runId, outcome);
+  };
+  let outcome = await publishCompletionArtifacts(args, { ...input, onRuntimeSmokeOutcome: persistRuntimeSmokeOutcome });
   let repairAttempt = 0;
   while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError) {
     repairAttempt += 1;
@@ -983,7 +987,7 @@ export async function publishWithReadyRepair(
         agent: result.completionAgent ?? "",
         title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
       });
-      outcome = await publishCompletionArtifacts(args, input);
+      outcome = await publishCompletionArtifacts(args, { ...input, onRuntimeSmokeOutcome: persistRuntimeSmokeOutcome });
     } catch (error) {
       return {
         failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },
@@ -991,31 +995,22 @@ export async function publishWithReadyRepair(
       };
     }
   }
-  return outcome.kind === "success"
-    ? { success: outcome, iterationsConsumed }
-    : { failure: outcome, iterationsConsumed };
-}
-
-async function runPublisher(
-  seams: CompletionPublicationSeams,
-  input: {
-    worktreePath: string;
-    baseRef: string;
-    specPath: string;
-    branch: string;
-    creationTitle?: unknown;
-    bodySummary?: string;
-    specTemplate?: boolean;
-    requiredIntegrationScope?: string;
-  },
-): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
-  return await (seams.completionPublisher ?? createCompletionPublisher())(input);
+  if (outcome.kind === "success") {
+    return { success: outcome, iterationsConsumed };
+  }
+  return { failure: outcome, iterationsConsumed };
 }
 
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
-  input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
-): Promise<void> {
+  input: {
+    worktreePath: string;
+    baseRef: string;
+    branch: string;
+    requiredIntegrationScope?: string;
+    onRuntimeSmokeOutcome?: (outcome: SmokePass) => void;
+  },
+): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
     createReadyFinalizer({
@@ -1040,6 +1035,7 @@ async function runReadyFinalizer(
         if (verificationResult.kind === "smoke-failure") {
           throw new RuntimeSmokeFailedError(verificationResult.command, verificationResult.observation);
         }
+        return verificationResult;
       },
     });
   const finalInput = {
@@ -1047,8 +1043,24 @@ async function runReadyFinalizer(
     branch: input.branch,
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+    ...(input.onRuntimeSmokeOutcome ? { onRuntimeSmokeOutcome: input.onRuntimeSmokeOutcome } : {}),
   };
-  await readyFinalizer(finalInput);
+  const runtimeSmokeOutcome = await readyFinalizer(finalInput);
+  return runtimeSmokeOutcome === undefined ? undefined : runtimeSmokeOutcome;
+}
+
+export function appendRuntimeSmokeOutcome(logSink: LogSink | undefined, runId: string, outcome: SmokePass): void {
+  if (outcome.kind === "observed-clean") {
+    logSink?.append(runId, { kind: "runtime_smoke_outcome", outcome: "observed-clean" });
+    return;
+  }
+  if (outcome.discoveryReason.trim() === "") return;
+  logSink?.append(runId, {
+    kind: "runtime_smoke_outcome",
+    outcome: "not-runnable",
+    inspectedPaths: outcome.inspectedPaths,
+    discoveryReason: outcome.discoveryReason,
+  });
 }
 
 function buildFinalizationErrorResponse(
@@ -1091,11 +1103,19 @@ export async function publishCompletionArtifacts(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
+    onRuntimeSmokeOutcome?: (outcome: SmokePass) => void;
   },
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
+  let runtimeSmokeOutcome: SmokePass | undefined;
+  let emittedRuntimeSmokeOutcome = false;
+  const emitRuntimeSmokeOutcome = (outcome: SmokePass): void => {
+    if (emittedRuntimeSmokeOutcome) return;
+    emittedRuntimeSmokeOutcome = true;
+    input.onRuntimeSmokeOutcome?.(outcome);
+  };
   try {
-    publisherResult = await runPublisher(seams, input);
+    publisherResult = await (seams.completionPublisher ?? createCompletionPublisher())(input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
     return { kind: "completion_commit_failed", error: err };
@@ -1108,12 +1128,14 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    await runReadyFinalizer(seams, {
+    runtimeSmokeOutcome = await runReadyFinalizer(seams, {
       worktreePath: input.worktreePath,
       baseRef: input.baseRef,
       branch: input.branch,
       ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+      onRuntimeSmokeOutcome: emitRuntimeSmokeOutcome,
     });
+    if (runtimeSmokeOutcome !== undefined) emitRuntimeSmokeOutcome(runtimeSmokeOutcome);
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
     return buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);
@@ -1122,6 +1144,7 @@ export async function publishCompletionArtifacts(
     kind: "success",
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
+    ...(runtimeSmokeOutcome !== undefined ? { runtimeSmokeOutcome } : {}),
   };
 }
 

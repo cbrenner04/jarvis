@@ -117,6 +117,25 @@ describe("publication landing hooks", () => {
     expect(readFileSync(join(root, "v2/spec/tree/intent.md"), "utf8")).toBe("intent\n");
   });
 
+  test("lands an optional plan verdict verbatim, including an empty verdict", async () => {
+    const root = repo();
+    const cases: Array<[string, string]> = [
+      ["findings", "final finding\n"],
+      ["empty", ""],
+    ];
+    for (const [name, verdict] of cases) {
+      const stage = join(root, `.jarvis-plan-stage-${name}`);
+      const durable = `v2/spec/${name}`;
+      mkdirSync(stage);
+      writeFileSync(join(stage, "index.md"), "# Plan\n");
+      writeFileSync(join(stage, "intent.md"), "intent\n");
+      writeFileSync(join(stage, "00-first.md"), "# First\n");
+      writeFileSync(join(stage, "verdict-plan.md"), verdict);
+      await landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: durable }, root);
+      expect(readFileSync(join(root, durable, "verdict-plan.md"), "utf8")).toBe(verdict);
+    }
+  });
+
   test("retains staged plans on shape failure and rejects differing collisions", async () => {
     const root = repo();
     mkdirSync(join(root, ".jarvis-plan-stage"));

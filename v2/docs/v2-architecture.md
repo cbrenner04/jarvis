@@ -560,6 +560,9 @@ repos" principle change is smaller:
   `gh pr list`/`create`, `gh pr view`/`edit`), are awaited (including `maxBuffer` and ignored
   stdio where applicable). Ready finalization remains synchronous on its own conversion slice.
   See [`write-behavior.md`](./write-behavior.md) for publication ordering, retries, and failures.
+  Reviewed plan landing owns `verdict-plan.md` at the durable spec boundary;
+  reviewed implementation's shared completion snapshot owns adjacent
+  `verdict-patch.md`. Both preserve final-cycle bytes, including empty verdicts.
 - **Unrelated IPC during pending run Git.** While a daemon-hosted run awaits any of the
   Git/`gh` subprocesses above, unrelated RPCs (`list`, `health`, steering, `wait`, `tail`, …)
   still dispatch on the same event loop. `daemon-ipc-responsiveness-during-git.sandbox-unrunnable.test.ts`

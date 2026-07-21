@@ -197,6 +197,8 @@ uses
 `plan.prompt.review.adversary`, `.advocate`, and `.adjudicator`; its
 verdict-driven actuator applies the verdict at
 `.jarvis-plan-stage/verdict-plan.md`.
+After the final review cycle, landing copies that exact artifact (including an
+empty file) into the durable plan root, so the plan PR carries its final verdict.
 
 `plan-reviewed` remains a compatibility alias for `plan`, defaulting to one
 debate pass and emitting a migration hint. Explicit review flags override it.
@@ -428,6 +430,8 @@ completed review use the same workflow completion committer as implement write
 edits. The reverse order does not typecheck: `resolveWorkflowPreset`
 requires `agents`/`agentModelConfig` already present, and only
 `loadWorkflowSteps` supplies them.
+The shared completion commit includes the final `verdict-patch.md` verbatim,
+including an empty verdict, so implementation PRs retain that review record.
 
 The CLI only parses launch flags and dispatches unresolved values to the builder.
 The builder resolves project, path, branch, artifact, and review defaults before
@@ -510,10 +514,11 @@ implement worktree; the operator checkout is never substituted.
 
 Deferred review landing is generic over `intent-stage` and `plan-tree`.
 Reviewed intent reserves its verdict for the owning invocation; plan writes its
-verdict into `.jarvis-plan-stage/`. Both verdicts are excluded from the landed
-tree, retained with staging on landing failure, and removed after successful
-landing. A completed-review or landing-failed intent checkpoint resumes at
-landing without reinvoking review roles. Plan permits actuator spec edits.
+verdict into `.jarvis-plan-stage/` and lands it verbatim in the durable plan
+tree. Intent verdicts remain excluded and transient. A completed-review or
+landing-failed plan or intent checkpoint resumes at landing without reinvoking
+review roles; `freshDispatch` bypasses that checkpoint and runs review again.
+Plan permits actuator spec edits.
 Implement keeps the completed spec tree immutable while permitting implementation
 edits.
 
@@ -661,14 +666,16 @@ forward across re-publications without clobbering operator edits.
 Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
 `none`. The hook runs after the final write or review boundary and before
 completion commit, push, PR, or durable no-Git completion. Deferred review
-landing applies to both intent and plan trees; generic plan review remains
-non-durable. Successful write work and pending landing are durable checkpoints;
-retries resume at landing or later publication without rerunning agents.
+landing applies to both intent and plan trees. Successful write work and pending
+review landing are durable checkpoints; retries resume at landing or later
+publication without rerunning agents, while fresh workflow dispatches re-run
+review.
 
 `intent-stage` validates ownership and boundaries, then transactionally lands
 validated Markdown into ready-intents. `plan-tree` validates `index.md`,
 `intent.md`, and numbered subspecs and transactionally lands them at the
-precomputed spec path. Both hooks consume recorded queue inputs only after
+precomputed spec path; when present, `verdict-plan.md` is part of the same
+transaction. Both hooks consume recorded queue inputs only after
 landing: Git runs delete the mapped worktree inputs in the completion commit;
 no-Git runs delete source inputs after durable output lands. Missing, external,
 or symlink-escaped inputs are skipped. Control files remain staged and

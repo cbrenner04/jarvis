@@ -53,11 +53,13 @@ export function parseStatusResult(value: unknown):
   | {
       state: "running";
       loadedRevision?: string;
+      loadedExecutableDigest?: string;
       recovery?: { pending: boolean; reconciled: number; resumed: number };
     }
   | undefined {
   if (typeof value === "object" && value !== null && (value as { state?: unknown }).state === "running") {
     const loadedRevision = (value as { loadedRevision?: unknown }).loadedRevision;
+    const loadedExecutableDigest = (value as { loadedExecutableDigest?: unknown }).loadedExecutableDigest;
     const recovery = (value as { recovery?: unknown }).recovery;
     const parsedRecovery =
       typeof recovery === "object" &&
@@ -70,6 +72,7 @@ export function parseStatusResult(value: unknown):
     return {
       state: "running",
       ...(typeof loadedRevision === "string" ? { loadedRevision } : {}),
+      ...(typeof loadedExecutableDigest === "string" ? { loadedExecutableDigest } : {}),
       ...(parsedRecovery === undefined ? {} : { recovery: parsedRecovery }),
     };
   }

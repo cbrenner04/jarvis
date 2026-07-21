@@ -13,7 +13,12 @@ import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "../tui/tui-monitor-types.ts";
-import { type GetCurrentRevision, getInvokingRevision } from "./dispatch-revision.ts";
+import {
+  type GetCurrentRevision,
+  type GetExecutableDigest,
+  getInvokingExecutableDigest,
+  getInvokingRevision,
+} from "./dispatch-revision.ts";
 
 export type CliDeps = {
   executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
@@ -31,6 +36,7 @@ export type CliDeps = {
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;
   getCurrentRevision: GetCurrentRevision;
+  getExecutableDigest: GetExecutableDigest;
   promptConfirm?: (message: string) => Promise<boolean>;
   /** Worktrees home for `cleanup` discovery; defaults to `jarvisHome()`. Injectable for tests. */
   jarvisRoot?: string;
@@ -61,6 +67,7 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     readProjectRegistry,
     cwd: () => process.cwd(),
     getCurrentRevision: getInvokingRevision,
+    getExecutableDigest: getInvokingExecutableDigest,
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,

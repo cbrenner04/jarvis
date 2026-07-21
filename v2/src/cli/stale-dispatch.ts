@@ -30,7 +30,7 @@ export async function withAutoBounceDispatch(
   let client: IpcClient | undefined;
   try {
     client = await deps.connectIpcClient(deps.socketPath);
-    const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
+    const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision, deps.getExecutableDigest);
     if (mismatch === undefined) return await dispatch(client);
     if (!autoBounce) {
       io.stderr(mismatch);
@@ -56,7 +56,7 @@ export async function withAutoBounceDispatch(
     io.stderr(
       `daemon revision mismatch: loaded=${loaded} current=${current}; restarted; recovery reconciled=${recovery.reconciled} resumed=${recovery.resumed}; retrying original dispatch\n`,
     );
-    const secondMismatch = await guardWorkDispatch(client, deps.getCurrentRevision);
+    const secondMismatch = await guardWorkDispatch(client, deps.getCurrentRevision, deps.getExecutableDigest);
     if (secondMismatch !== undefined) {
       io.stderr(secondMismatch);
       return 1;

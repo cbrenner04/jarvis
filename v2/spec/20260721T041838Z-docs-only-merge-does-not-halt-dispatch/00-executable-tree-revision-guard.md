@@ -26,18 +26,18 @@ The revision guard compares Git HEAD SHAs. A merge that touches only non-executa
 
 ## Acceptance criteria
 
-- [ ] After a merge touching only `v2/spec/**`, `v2/docs/**`, or other non-executable paths, CLI `run start`, `run resume`, and `run workflow` dispatch proceed with no bounce and no mismatch error while one or more `isLive` rows exist.
-- [ ] In that case the daemon's `loadedRevision` advances to the invoking HEAD before the mutating request is sent.
-- [ ] After a merge touching `v2/src/**` or `shared/**`, an idle daemon auto-bounces and retries once, as `run.test.ts` already covers for HEAD-only mismatch.
-- [ ] After a merge touching `v2/src/**` or `shared/**` with a live run, dispatch refuses, names every live run ID, and performs no lifecycle mutation, as `run.test.ts` already covers for HEAD-only mismatch.
-- [ ] `--no-auto-bounce` on a genuine executable-digest mismatch still refuses with restart guidance and sends no mutating request, as `run.test.ts` and `workflow.test.ts` already cover for HEAD-only mismatch.
-- [ ] A fixture table maps representative changed paths to bounce-required vs not, with unit coverage that fails against the pre-fix classification.
-- [ ] `run.test.ts` adds a docs-only-merge dispatch regression that fails against the pre-fix HEAD guard and passes after the change.
-- [ ] `tui-daemon-client.test.ts` revision-mismatch cases for a genuine executable-digest drift stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/operator-runbook.md` states when a merge requires a daemon bounce vs not and removes the docs-only dispatch-halt seed.
-- [ ] `v2/docs/daemon-host.md` documents the executable-digest comparison basis and HEAD-advance semantics on non-executable merges.
-- [ ] `v2/docs/v1-behaviors.md` records the changed v2 revision-guard behavior.
+- [x] After a merge touching only `v2/spec/**`, `v2/docs/**`, or other non-executable paths, CLI `run start`, `run resume`, and `run workflow` dispatch proceed with no bounce and no mismatch error while one or more `isLive` rows exist.
+- [x] In that case the daemon's `loadedRevision` advances to the invoking HEAD before the mutating request is sent.
+- [x] After a merge touching `v2/src/**` or `shared/**`, an idle daemon auto-bounces and retries once, as `run.test.ts` already covers for HEAD-only mismatch.
+- [x] After a merge touching `v2/src/**` or `shared/**` with a live run, dispatch refuses, names every live run ID, and performs no lifecycle mutation, as `run.test.ts` already covers for HEAD-only mismatch.
+- [x] `--no-auto-bounce` on a genuine executable-digest mismatch still refuses with restart guidance and sends no mutating request, as `run.test.ts` and `workflow.test.ts` already cover for HEAD-only mismatch.
+- [x] A fixture table maps representative changed paths to bounce-required vs not, with unit coverage that fails against the pre-fix classification.
+- [x] `run.test.ts` adds a docs-only-merge dispatch regression that fails against the pre-fix HEAD guard and passes after the change.
+- [x] `tui-daemon-client.test.ts` revision-mismatch cases for a genuine executable-digest drift stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/operator-runbook.md` states when a merge requires a daemon bounce vs not and removes the docs-only dispatch-halt seed.
+- [x] `v2/docs/daemon-host.md` documents the executable-digest comparison basis and HEAD-advance semantics on non-executable merges.
+- [x] `v2/docs/v1-behaviors.md` records the changed v2 revision-guard behavior.
 
 ## Documentation updates
 

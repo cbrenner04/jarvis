@@ -7,6 +7,10 @@ lines. The registry in `v2/src/cli.ts` is the source of truth for command
 dispatch, this overview, and unknown-command diagnostics; each entry owns its
 handler and command usage. `jarvis help` accepts no operands or options;
 invalid help arguments print `usage: jarvis help` to stderr and exit 1.
+Unknown top-level commands print `unknown command: <input>` to stderr, followed
+by `did you mean <name>?` only when exactly one registry name is within
+Levenshtein distance 2. They finish with `run \`jarvis help\` for available
+commands`, write nothing to stdout, and exit 1.
 
 ## Completed-spec archival
 

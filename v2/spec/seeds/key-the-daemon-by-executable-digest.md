@@ -44,9 +44,14 @@ Gradle's current daemon-compatibility rules when implementing; they are the clos
   new work, and exits when idle. Rules out draining, migrating, or handing off live runs — the
   prior art does not do this, and the ownership transfer (worktree locks, agent process handles,
   log sinks) is where the complexity would be.
-- `run list`, `run wait`, and the TUI enumerate all live daemon sockets and merge results, so the
-  operator keeps one view of every run regardless of which daemon owns it. This is the part with no
-  off-the-shelf precedent — build daemons are not asked "what is running everywhere?"
+- **The TUI is the operator's live surface and must show every run across every live daemon**,
+  merging results from all sockets. It must also follow supersession without being restarted: when
+  a new daemon takes over new work, the running TUI picks it up and keeps rendering both until the
+  old one exits. This is the part with no off-the-shelf precedent — build daemons are not asked
+  "what is running everywhere?" — and it is the requirement that matters most here.
+- `run list` and `run wait` may stay scoped to the daemon they connect to; they are not the
+  operator's observation path and do not need cross-daemon aggregation. Rules out paying for
+  merge semantics on three surfaces when only one is used live.
 - Cleanup reaps sockets whose daemon has exited.
 - Migration: an existing unkeyed `daemon.sock` from a pre-change daemon must be handled explicitly —
   adopted, stopped, or ignored — and the choice pinned in the plan. This ships *into* a running
@@ -63,7 +68,10 @@ Gradle's current daemon-compatibility rules when implementing; they are the clos
 - [ ] Dispatch after a merge starts or reuses a matching daemon and proceeds, with live runs present
       on another daemon and no bounce.
 - [ ] A superseded daemon finishes its in-flight runs, refuses new work, and exits once idle.
-- [ ] `run list`, `run wait`, and the TUI report runs across all live daemons.
+- [ ] The TUI reports runs across all live daemons in one view.
+- [ ] A running TUI survives supersession without restart: it picks up the new daemon and continues
+      rendering runs owned by both until the superseded one exits.
+- [ ] `run list` and `run wait` behave correctly when scoped to their connected daemon.
 - [ ] Cleanup removes sockets whose daemon is gone, and never removes a live one.
 - [ ] Upgrading from an unkeyed `daemon.sock` follows the pinned migration path without an operator
       command.

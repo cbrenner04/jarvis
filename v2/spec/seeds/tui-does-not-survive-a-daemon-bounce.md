@@ -14,6 +14,16 @@ when a merge or a mismatch means runs are moving.
 The same holds for `jarvis tui log <run-id>`: `tui-log-tail-client.ts` throws
 `RpcConnectionError` on transport loss with no resumption.
 
+**Priority note (2026-07-21):** the TUI is the operator's live-observation surface — `run list` is
+not used for watching work. A TUI that dies on a routine daemon bounce takes away the only live
+view. Rank accordingly.
+
+**Interaction with `key-the-daemon-by-executable-digest`:** if daemons become digest-keyed, this is
+no longer "reconnect to the same socket" but "track the live set" — the TUI must pick up a
+superseding daemon while continuing to render the runs still owned by the superseded one. Land
+whichever ships first, but write the reconnect logic so it generalizes to a set of sockets rather
+than a single fixed path.
+
 ## Decisions
 
 - The monitor reconnects to the daemon socket on transport loss, with bounded backoff, and resumes

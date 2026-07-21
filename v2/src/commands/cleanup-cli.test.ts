@@ -336,7 +336,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        connectIpcClient: async () => makeIpcClient([noRunsFrame, noRunsFrame]),
         promptConfirm: async () => {
           throw new Error("--yes must not prompt");
         },

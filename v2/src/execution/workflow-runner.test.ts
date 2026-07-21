@@ -3163,6 +3163,7 @@ describe("executeWorkflow implement patch review", () => {
 
   test("commits review actuator edits with the same completion committer as implement", async () => {
     const published: Array<{ specPath: string; agent: string }> = [];
+    const committedVerdicts: string[] = [];
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -3205,6 +3206,7 @@ describe("executeWorkflow implement patch review", () => {
         stateStore: store,
         completionCommitter: async (input) => {
           published.push({ specPath: input.specPath, agent: input.agent });
+          committedVerdicts.push(readFileSync(join(worktreePath, "verdict-patch.md"), "utf8"));
           return { commitSha: "review-commit", filesChanged: 1 };
         },
         completionPublisher: async () => ({}),
@@ -3213,6 +3215,7 @@ describe("executeWorkflow implement patch review", () => {
 
       expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
       expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
+      expect(committedVerdicts.at(-1)).toBe("apply review edit");
     });
   });
 });
@@ -4244,7 +4247,7 @@ describe("executeWorkflow plan review dispatch", () => {
     });
   });
 
-  test("lands a reviewed plan tree without its verdict", async () => {
+  test("lands a reviewed light plan tree with its final verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
@@ -4265,7 +4268,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Apply edit");
   });
 
   test("retains the staged plan and verdict when deferred landing fails", async () => {
@@ -4279,24 +4282,100 @@ describe("executeWorkflow plan review dispatch", () => {
     writeFileSync(join(stage, "01-test.md"), "# Staged", "utf8");
     writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
     const verdictPath = join(stage, "verdict-plan.md");
-    const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing-failure", async (agentId) => ({
-      kind: "ok",
-      stdout: agentId === "claude" ? "Keep verdict" : "done",
-      stderr: "",
-    }));
+    let criticCalls = 0;
+    const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing-failure", async (agentId) => {
+      if (agentId === "claude") criticCalls += 1;
+      return { kind: "ok", stdout: agentId === "claude" ? "Keep verdict" : "done", stderr: "" };
+    });
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(existsSync(stage)).toBe(true);
+      expect(readFileSync(verdictPath, "utf8")).toBe("Keep verdict");
+      rmSync(join(durable, "01-test.md"));
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({
+        kind: "complete",
+        iterationsConsumed: 0,
+      });
     });
 
-    expect(existsSync(stage)).toBe(true);
-    expect(readFileSync(verdictPath, "utf8")).toBe("Keep verdict");
+    expect(existsSync(stage)).toBe(false);
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Keep verdict");
+    expect(criticCalls).toBe(1);
   });
 
-  // review-debate is the debate plan's last step; its deferred landing must land the staged
-  // tree (verdict excluded) exactly like the light-review path, and fail resumably otherwise.
-  test("lands a reviewed plan tree from a review-debate last step, without its verdict", async () => {
+  test("fresh plan review dispatches do not reuse a completed landing checkpoint", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-fresh-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed");
+    let criticCalls = 0;
+    const stagePlan = () => {
+      mkdirSync(stage, { recursive: true });
+      writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+      writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+      writeFileSync(join(stage, "01-test.md"), "# Test", "utf8");
+    };
+    const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-fresh", async (agentId) => {
+      if (agentId === "claude") criticCalls += 1;
+      return { kind: "ok", stdout: agentId === "claude" ? "" : "done", stderr: "" };
+    });
+
+    await withStateStore(async (store) => {
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store, freshDispatch: true })).toMatchObject({
+        kind: "complete",
+      });
+    });
+
+    expect(criticCalls).toBe(2);
+  });
+
+  test("reuses a completed debate landing checkpoint on retry but not on a fresh dispatch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-debate-fresh-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-debate-fresh");
+    let adjudicatorCalls = 0;
+    const stagePlan = () => {
+      mkdirSync(stage, { recursive: true });
+      writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+      writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+      writeFileSync(join(stage, "01-test.md"), "# Test", "utf8");
+      writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
+    };
+    const step = createDebateStep({
+      stepId: "review-debate",
+      cwd: root,
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ADJ") adjudicatorCalls += 1;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      // A retry re-enters the completed checkpoint and must not re-invoke the debate roles.
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      // A fresh dispatch is a new invocation and must run the debate again.
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store, freshDispatch: true })).toMatchObject({
+        kind: "complete",
+      });
+      expect(adjudicatorCalls).toBe(2);
+    });
+  });
+
+  test("lands a reviewed debate plan tree with its final empty verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
@@ -4306,15 +4385,14 @@ describe("executeWorkflow plan review dispatch", () => {
     writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
     writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
     const verdictPath = join(stage, "verdict-plan.md");
-    writeFileSync(verdictPath, "Apply edit", "utf8");
+    writeFileSync(verdictPath, "", "utf8");
     const step = createDebateStep({
       stepId: "review-debate",
       cwd: root,
       verdictPath,
       landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
-        if (adapterModel === "ACT") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
-        return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
       }),
     });
 
@@ -4325,8 +4403,8 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(stage)).toBe(false);
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
-    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# Before");
+    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("");
   });
 
   test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {
@@ -4419,7 +4497,7 @@ describe("executeWorkflow plan review dispatch", () => {
     // Only the review step's deferred landing ran; the write step's landing was never eager-applied.
     expect(existsSync(stage)).toBe(false);
     expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review");
-    expect(existsSync(join(reviewDurable, "verdict-plan.md"))).toBe(false);
+    expect(readFileSync(join(reviewDurable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
     expect(existsSync(writeDurable)).toBe(false);
   });
 });

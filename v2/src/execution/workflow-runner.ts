@@ -32,11 +32,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import {
-  cleanupVerdictFile,
-  excludeVerdictFromStaging,
-  executeReviewCycleEnforced,
-} from "./review-intent-enforcement.ts";
+import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -304,6 +300,7 @@ async function runWorkflowStep(
       onStepRunCreated,
       store,
       logSink,
+      freshDispatch,
     );
   }
 
@@ -957,7 +954,7 @@ function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
   return (
     step.behavior === "write" ||
     step.behavior === "review-debate" ||
-    (step.behavior === "review" && step.landing?.kind === "intent-stage")
+    (step.behavior === "review" && step.landing !== undefined && step.landing.kind !== "none")
   );
 }
 
@@ -1366,6 +1363,24 @@ type ReviewDebateStepOutcome =
 
 type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
 
+function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
+  kind: "complete" | "invocation_failure";
+  terminalRole: ReviewDebateRole;
+  completionAgent: string | undefined;
+} {
+  const lastCycle = result.cycles.at(-1);
+  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
+  const terminalRole: ReviewDebateRole =
+    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
+  const actuatorExecution =
+    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    kind === "complete" && actuatorExecution?.result.kind === "ok"
+      ? actuatorExecution.binding.metadata?.agent?.trim()
+      : undefined;
+  return { kind, terminalRole, completionAgent };
+}
+
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. The fixed cycle is one durable attempt; mid-cycle resume remains deferred.
@@ -1379,7 +1394,8 @@ async function runReviewDebateStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   workflowSnapshot: WorkflowSnapshot,
-): Promise<ReviewDebateStepOutcome> {
+  freshDispatch: boolean | undefined,
+): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const {
     stepId,
     project,
@@ -1391,6 +1407,14 @@ async function runReviewDebateStep(
     landing,
     ...debateInput
   } = step;
+  if (landing !== undefined && landing.kind !== "none" && !freshDispatch) {
+    const checkpoint = findReviewLandingCheckpoint(store, step);
+    if (checkpoint !== undefined) {
+      onStepRunCreated?.(stepIndex, checkpoint.id);
+      return finishReviewedLanding(step, landing, checkpoint.id, store, reviewCompletionAgent(checkpoint));
+    }
+  }
+
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
   const runId = store.createRun({
     project,
@@ -1443,23 +1467,13 @@ async function runReviewDebateStep(
     ...onRoleStart,
   });
 
-  const lastCycle = result.cycles[result.cycles.length - 1];
-  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
-  const terminalRole: ReviewDebateRole =
-    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
+  const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,
   });
-
-  const actuatorExecution =
-    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
-  const completionAgent =
-    kind === "complete" && actuatorExecution?.result.kind === "ok"
-      ? actuatorExecution.binding.metadata?.agent?.trim()
-      : undefined;
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
     const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
@@ -1496,7 +1510,7 @@ async function runReviewDebateStep(
  */
 function findReviewLandingCheckpoint(
   store: StateStore,
-  step: ReviewWorkflowStep,
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "project" | "branch" | "stepId">,
 ): NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>> | undefined {
   const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
   const lastAttempt = existing?.attempts.at(-1);
@@ -1509,8 +1523,8 @@ function findReviewLandingCheckpoint(
 }
 
 /**
- * Exclude the verdict file from staging, run final validation + transactional landing, then
- * remove the verdict. Returns an error message on failure, or undefined on success.
+ * Intent landing excludes its reserved verdict. Plan landing carries its verdict verbatim.
+ * Returns an error message on failure, or undefined on success.
  */
 async function landReviewedPublicationOutput(
   worktreePath: string,
@@ -1521,12 +1535,13 @@ async function landReviewedPublicationOutput(
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
-    excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
+    if (deferred.kind === "intent-stage") {
+      excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
+    }
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
     await landPublication(deferred, worktreePath);
-    cleanupVerdictFile(verdictPath);
     return undefined;
   } catch (error) {
     if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");
@@ -1543,9 +1558,9 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
-async function finishReviewedIntentLanding(
-  step: ReviewWorkflowStep,
-  deferred: Extract<PublicationLanding, { kind: "intent-stage" }>,
+async function finishReviewedLanding(
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath">,
+  deferred: Exclude<PublicationLanding, { kind: "none" }>,
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
@@ -1895,7 +1910,7 @@ async function runStandardReviewStep(
     result.cycles.at(-1)?.kind === "completed"
       ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
       : undefined;
-  if (landing?.kind !== "intent-stage") {
+  if (landing === undefined || landing.kind === "none") {
     return {
       kind: "complete",
       runId: ids.runId,
@@ -1910,7 +1925,7 @@ async function runStandardReviewStep(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  const landed = await finishReviewedIntentLanding(step, landing, ids.runId, store, completionAgent);
+  const landed = await finishReviewedLanding(step, landing, ids.runId, store, completionAgent);
   return { ...landed, iterationsConsumed: result.cycles.length };
 }
 
@@ -1923,6 +1938,7 @@ async function runReviewDispatch(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   logSink: LogSink | undefined,
+  freshDispatch: boolean | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
@@ -1935,6 +1951,7 @@ async function runReviewDispatch(
       onStepRunCreated,
       store,
       workflowSnapshot,
+      freshDispatch,
     );
   }
 
@@ -1942,11 +1959,11 @@ async function runReviewDispatch(
 
   // Only reviewed-intent workflows carry a durable post-review checkpoint; generic review
   // steps stay non-durable (no run row, fresh synthesized run ID each dispatch).
-  if (isDurableWorkflowStep(step)) {
+  if (isDurableWorkflowStep(step) && !freshDispatch) {
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return await finishReviewedIntentLanding(
+      return await finishReviewedLanding(
         step,
         step.landing,
         checkpoint.id,
@@ -1961,7 +1978,7 @@ async function runReviewDispatch(
   const runId = isDurableWorkflowStep(step)
     ? store.createRun({
         project: step.project,
-        specRef: step.landing.baseRef,
+        specRef: step.landing.kind === "intent-stage" ? step.landing.baseRef : "",
         worktreePath: step.cwd,
         branch: step.branch,
         specPath: step.landing.stagingDir,

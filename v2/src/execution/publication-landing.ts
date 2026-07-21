@@ -34,7 +34,10 @@ function planFiles(stage: string): string[] {
     .filter(
       (entry) =>
         entry.isFile() &&
-        (entry.name === "index.md" || entry.name === "intent.md" || /^\d{2}-.*\.md$/u.test(entry.name)),
+        (entry.name === "index.md" ||
+          entry.name === "intent.md" ||
+          entry.name === "verdict-plan.md" ||
+          /^\d{2}-.*\.md$/u.test(entry.name)),
     )
     .map((entry) => entry.name)
     .sort();

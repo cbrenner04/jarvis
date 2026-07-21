@@ -178,7 +178,7 @@ Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 | --- | --- |
 | `intent` | Split seed → `ready-intents/` (`--review-passes`/`--review-behavior` add review) |
 | `plan` | Draft spec tree from ready-intent |
-| `implement` | Index-routed implementation + shrink (+ optional review) |
+| `implement` | Index-routed implementation + shrink (+ review by default; `--review-passes 0` to skip) |
 
 `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy
 aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`): they
@@ -191,6 +191,7 @@ Examples:
 jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-passes 1 --review-behavior light
 jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
+# omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0
 ```
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved

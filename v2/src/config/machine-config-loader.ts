@@ -128,7 +128,7 @@ export function readProjectImplementReviewPasses(
   if (!field.ok) return field;
 
   const value = field.value;
-  if (value === undefined) return { ok: true, reviewPasses: 0 };
+  if (value === undefined) return { ok: true, reviewPasses: 1 };
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     return {
       ok: false,

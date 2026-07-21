@@ -366,7 +366,8 @@ loader. When no profile is injected, profile selection uses
 and turns "operator standing in a project checkout, wants to run `implement`"
 into the `AnyWorkflowStep[]` payload
 the daemon `start` RPC accepts. `reviewPasses` is validated as a non-negative
-integer; `0` emits only the implement write step, while a positive value loads
+integer; omitted flag or absent project config defaults to one debate pass (`1`);
+`--review-passes 0` emits only the implement write step, while a positive value loads
 one appended `review-debate` step with `maxCycles` equal to that count.
 
 The builder first resolves `specPath` from the caller's cwd, finds its registered

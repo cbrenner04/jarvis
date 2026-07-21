@@ -123,16 +123,14 @@ async function resolveImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
 ): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
-  if (input.projectRoot !== undefined) {
+  if (input.projectRoot !== undefined || deps.resolveProjectMatch !== undefined) {
     return {
       ...input,
-      branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))),
-      reviewPasses: input.reviewPasses ?? 0,
+      ...(input.projectRoot !== undefined
+        ? { branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))) }
+        : {}),
+      reviewPasses: input.reviewPasses ?? 1,
     };
-  }
-
-  if (deps.resolveProjectMatch !== undefined) {
-    return { ...input, reviewPasses: input.reviewPasses ?? 0 };
   }
 
   const resolvedSpec = resolveImplementSpecAndProject(input, deps);
@@ -156,7 +154,7 @@ async function resolveImplementLaunch(
     input.reviewPasses !== undefined
       ? { ok: true as const, reviewPasses: input.reviewPasses }
       : configPath === undefined
-        ? { ok: true as const, reviewPasses: 0 }
+        ? { ok: true as const, reviewPasses: 1 }
         : readProjectImplementReviewPasses(match.key, configPath);
   if (!reviewPasses.ok) return { error: reviewPasses.error };
   const reviewBehavior =
@@ -339,7 +337,7 @@ export async function buildImplementWorkflowSteps(
   }
   const resolvedInput = await resolveImplementLaunch(input, deps);
   if ("error" in resolvedInput) return { ok: false, error: resolvedInput.error };
-  const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 0);
+  const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 1);
   if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
   const reviewBehavior = resolvedInput.reviewBehavior ?? "debate";
 

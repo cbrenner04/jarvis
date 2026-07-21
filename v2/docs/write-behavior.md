@@ -640,7 +640,7 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | Command | Input mapping | Output | Exit |
 | --- | --- | --- | --- |
 | `jarvis run start ...` | Same required flags as `jarvis write`; `--project-root`, `--project`, `--branch`, `--base`, `--spec`, `--artifact`, optional `--max-iterations`; mapped to the same `WriteLoopInput` fields and sent over IPC as one `start` request | Run ID | `0` on success |
-| `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Required flags: `--base` and `--spec`. Optional flags: `--branch` (defaults to parent directory basename of resolved `--spec`), `--artifact` (required for non-index specs, ignored for index specs), `--review-passes <n>` (non-negative integer; overrides the registered project's `implement.reviewPasses`, default `0`). A relative `--spec` is resolved from invocation cwd before project lookup; project is resolved from the registered project containing the resolved spec path (not from invocation cwd). Spec and artifact paths passed to the workflow are worktree-relative. The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }`, then blocks on an IPC `wait` request for the resulting run ID | Run ID line, then one minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, worktreePath?}` — only present optional fields included | `0` on success; `1` on missing/unknown name, invalid flags, spec outside registered projects, invalid `implement.reviewPasses` project config, machine-config validation failure, or daemon `wait` error — selection, parsing, project resolution, effective review-count resolution, and builder errors occur before daemon connection; otherwise see [wait exit codes](#wait-exit-codes) for the workflow run's terminal exit code |
+| `jarvis run workflow <name> ...` | Selects a registered workflow builder by name. Only `implement` is registered. Required flags: `--base` and `--spec`. Optional flags: `--branch` (defaults to parent directory basename of resolved `--spec`), `--artifact` (required for non-index specs, ignored for index specs), `--review-passes <n>` (non-negative integer; overrides the registered project's `implement.reviewPasses`, default `1`; pass `0` to skip review). A relative `--spec` is resolved from invocation cwd before project lookup; project is resolved from the registered project containing the resolved spec path (not from invocation cwd). Spec and artifact paths passed to the workflow are worktree-relative. The `implement` builder supplies `role`/`promptId`/`agents`/`agentModelConfig` and sends one IPC `start` request carrying `{ steps }`, then blocks on an IPC `wait` request for the resulting run ID | Run ID line, then one minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, worktreePath?}` — only present optional fields included | `0` on success; `1` on missing/unknown name, invalid flags, spec outside registered projects, invalid `implement.reviewPasses` project config, machine-config validation failure, or daemon `wait` error — selection, parsing, project resolution, effective review-count resolution, and builder errors occur before daemon connection; otherwise see [wait exit codes](#wait-exit-codes) for the workflow run's terminal exit code |
 | `jarvis run list` | None | One tab-separated row per run: `runId project branch status liveness reason retryable nextAction worktreePath publicationFailure prNumber prUrl` — `publicationFailure` is JSON or `-`; `prNumber` and `prUrl` are the confirmed PR evidence from publication or `-` when not available | `0` on success |
 | `jarvis run log <run-id>` | Run ID | One compact JSON line per persisted record; replay first, then follow new records until stream end or client close | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
@@ -695,9 +695,7 @@ without local reclassification.
 
 For `jarvis run workflow implement`, `complete` means the authored implement
 write loop completed and one hidden shrink write loop also completed when routing
-completed work. A positive `reviewPasses` count appends one bounded
-`review-debate` step after terminal shrink; `reviewPasses: 0` omits that step.
-When review runs, `complete` additionally requires the debate step to finish
+completed work. When review runs, `complete` additionally requires the debate step to finish
 without `invocation_failure`. The hidden shrink pass uses the same worktree/spec/artifact context and agent order,
 but resolves model rungs with `role: "shrink"` and records telemetry with
 `role: "shrink"`. It is skipped for `budget-exhausted`, `paused`, `blocked`,
@@ -735,9 +733,10 @@ invocation with named diagnostics: `implement.malformed_link`,
 `implement.link_missing`, `implement.link_unreadable`, or
 `implement.link_out_of_tree`.
 
-**Optional implement debate review:** `--review-passes <n>` (or project
-`implement.reviewPasses`) appends one `review-debate` step after terminal
-shrink. The step runs in the implement worktree, renders `patch.prompt.review.*`
+**Implement debate review (on by default):** Omitted `--review-passes` (or project
+`implement.reviewPasses` absent) appends one `review-debate` step after terminal
+shrink; pass `--review-passes 0` (or set project `implement.reviewPasses: 0`) to
+skip review. The step runs in the implement worktree, renders `patch.prompt.review.*`
 per cycle, writes `verdict-patch.md` beside the executed index (overwritten each
 cycle), and commits actuator edits through the same completion committer as
 implement write edits. Empty or already-complete indexes, and any non-`complete`

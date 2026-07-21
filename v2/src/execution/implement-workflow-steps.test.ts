@@ -85,26 +85,77 @@ const INPUT_WITH_ARTIFACT = {
   reviewPasses: 0,
 };
 
+const PROJ_MATCH: ProjectMatch = { key: "proj", root: "/tmp/proj" };
+
+const INPUT_PROJECT_ROOT = {
+  cwd: "/tmp/proj",
+  branchName: "implement-run",
+  baseRef: "main",
+  specPath: "index.md",
+  projectRoot: "/tmp/proj",
+  projectName: "proj",
+};
+
+function terminalLinkedSubspec() {
+  return {
+    ok: true as const,
+    active: {
+      index: 0,
+      subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
+      path: "/tmp/proj/sub.md",
+      body: "# Subspec\n",
+    },
+    isTerminal: true,
+  };
+}
+
+function mockProjectDeps(
+  machineConfigPath: string,
+  machineProfile: string,
+  overrides: Partial<Parameters<typeof buildImplementWorkflowSteps>[1]> = {},
+) {
+  return {
+    resolveProjectMatch: () => PROJ_MATCH,
+    loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
+      loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+    resolveActiveLinkedSubspec: terminalLinkedSubspec,
+    ...overrides,
+  };
+}
+
+function writeRegisteredImplementRepo(
+  prefix: string,
+  implement?: { reviewPasses?: number; reviewBehavior?: string },
+): { root: string; machineConfigPath: string; machineProfile: string } {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  mkdirSync(join(root, "specs"));
+  writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
+  writeFileSync(join(root, "specs", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+  initGitRepo(root);
+  execFileSync("git", ["add", "specs"], { cwd: root });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+  const project = implement === undefined ? { root } : { root, implement };
+  const machineConfigPath = writeJson("config.json", { projects: { registered: project } });
+  return { root, machineConfigPath, machineProfile: writeValidProfile() };
+}
+
+async function buildRegisteredImplement(implement?: { reviewPasses?: number; reviewBehavior?: string }) {
+  const { root, machineConfigPath, machineProfile } = writeRegisteredImplementRepo(
+    "implement-workflow-steps-registered-",
+    implement,
+  );
+  return buildImplementWorkflowSteps(
+    { cwd: root, baseRef: "HEAD", specPath: "specs/index.md", configPath: machineConfigPath },
+    { loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }) },
+  );
+}
+
 describe("buildImplementWorkflowSteps", () => {
   test("returns a one-step implement preset workflow with resolved project and machine config", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
-    const result = await buildImplementWorkflowSteps(INPUT, {
-      resolveProjectMatch: () => match,
-      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-      resolveActiveLinkedSubspec: () => ({
-        ok: true,
-        active: {
-          index: 0,
-          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-          path: "/tmp/proj/sub.md",
-          body: "# Subspec\n",
-        },
-        isTerminal: true,
-      }),
-    });
+    const result = await buildImplementWorkflowSteps(INPUT, mockProjectDeps(machineConfigPath, machineProfile));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -128,23 +179,7 @@ describe("buildImplementWorkflowSteps", () => {
 
   test("reviewPasses 0 returns a one-step implement workflow with no review step", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
-    const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
-
-    const result = await buildImplementWorkflowSteps(INPUT, {
-      resolveProjectMatch: () => match,
-      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-      resolveActiveLinkedSubspec: () => ({
-        ok: true,
-        active: {
-          index: 0,
-          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-          path: "/tmp/proj/sub.md",
-          body: "# Subspec\n",
-        },
-        isTerminal: true,
-      }),
-    });
+    const result = await buildImplementWorkflowSteps(INPUT, mockProjectDeps(machineConfigPath, writeValidProfile()));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -152,25 +187,37 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.steps[0]?.behavior).toBe("write");
   });
 
+  test("omitted reviewPasses defaults to one debate review step", async () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+
+    const result = await buildImplementWorkflowSteps(
+      INPUT_PROJECT_ROOT,
+      mockProjectDeps(machineConfigPath, machineProfile),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[0]?.behavior).toBe("write");
+    const review = result.steps[1];
+    expect(review?.behavior).toBe("review-debate");
+    if (review?.behavior !== "review-debate") return;
+    expect(review.maxCycles).toBe(1);
+    expect(review.verdictPath).toContain("verdict-patch.md");
+    expect(review.profile?.domain).toBe("implement");
+    expect(JSON.parse(JSON.stringify(review.profileContext))).toMatchObject({
+      specPath: "index.md",
+      passNumber: 1,
+      totalPasses: 1,
+    });
+    expect(review.prompts?.adversary).toBe("patch.prompt.review.adversary");
+  });
+
   test("stamps resolved reviewBehavior on the implement write step", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
-    const deps = {
-      resolveProjectMatch: () => match,
-      loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
-        loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-      resolveActiveLinkedSubspec: () => ({
-        ok: true as const,
-        active: {
-          index: 0,
-          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-          path: "/tmp/proj/sub.md",
-          body: "# Subspec\n",
-        },
-        isTerminal: true,
-      }),
-    };
+    const deps = mockProjectDeps(machineConfigPath, machineProfile);
 
     const defaulted = await buildImplementWorkflowSteps(INPUT, deps);
     expect(defaulted.ok).toBe(true);
@@ -190,25 +237,10 @@ describe("buildImplementWorkflowSteps", () => {
   test("positive reviewPasses appends one review-debate step with maxCycles and verdict path", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
     const result = await buildImplementWorkflowSteps(
       { ...INPUT, reviewPasses: 2 },
-      {
-        resolveProjectMatch: () => match,
-        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
-          loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-        resolveActiveLinkedSubspec: () => ({
-          ok: true,
-          active: {
-            index: 0,
-            subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-            path: "/tmp/proj/sub.md",
-            body: "# Subspec\n",
-          },
-          isTerminal: true,
-        }),
-      },
+      mockProjectDeps(machineConfigPath, machineProfile),
     );
 
     expect(result.ok).toBe(true);
@@ -233,25 +265,10 @@ describe("buildImplementWorkflowSteps", () => {
   test("positive reviewPasses with light reviewBehavior appends one review step", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
     const result = await buildImplementWorkflowSteps(
       { ...INPUT, reviewPasses: 2, reviewBehavior: "light" },
-      {
-        resolveProjectMatch: () => match,
-        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
-          loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-        resolveActiveLinkedSubspec: () => ({
-          ok: true,
-          active: {
-            index: 0,
-            subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-            path: "/tmp/proj/sub.md",
-            body: "# Subspec\n",
-          },
-          isTerminal: true,
-        }),
-      },
+      mockProjectDeps(machineConfigPath, machineProfile),
     );
 
     expect(result.ok).toBe(true);
@@ -283,14 +300,10 @@ describe("buildImplementWorkflowSteps", () => {
   test("rejects an already-complete linked tree at build time", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
 
     const result = await buildImplementWorkflowSteps(
       { ...INPUT, reviewPasses: 1 },
-      {
-        resolveProjectMatch: () => match,
-        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
-          loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      mockProjectDeps(machineConfigPath, machineProfile, {
         resolveActiveLinkedSubspec: () => ({
           ok: false,
           error: "All linked subspecs are complete",
@@ -300,7 +313,7 @@ describe("buildImplementWorkflowSteps", () => {
           path.endsWith("index.md")
             ? "- [ ] [One](./one.md)\n- [x] [Two](./two.md)\n"
             : "## Acceptance criteria\n\n- [x] Done\n- [ ] Confirmed visually (Manual)\n",
-      },
+      }),
     );
 
     expect(result).toEqual({
@@ -312,22 +325,22 @@ describe("buildImplementWorkflowSteps", () => {
   test("uses linked subspec criteria instead of contradictory index checkboxes", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
-    const result = await buildImplementWorkflowSteps(INPUT, {
-      resolveProjectMatch: () => match,
-      loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-      resolveActiveLinkedSubspec: () => ({
-        ok: false,
-        error: "All linked subspecs are complete",
-        errorKind: "already_complete",
+    const result = await buildImplementWorkflowSteps(
+      INPUT,
+      mockProjectDeps(machineConfigPath, machineProfile, {
+        resolveActiveLinkedSubspec: () => ({
+          ok: false,
+          error: "All linked subspecs are complete",
+          errorKind: "already_complete",
+        }),
+        readSpecFile: (path) =>
+          path.endsWith("index.md")
+            ? "- [x] [One](./one.md)\n- [ ] [Two](./two.md)\n"
+            : path.endsWith("one.md")
+              ? "## Acceptance criteria\n\n- [ ] Implement\n"
+              : "## Acceptance criteria\n\n- [x] Done\n",
       }),
-      readSpecFile: (path) =>
-        path.endsWith("index.md")
-          ? "- [x] [One](./one.md)\n- [ ] [Two](./two.md)\n"
-          : path.endsWith("one.md")
-            ? "## Acceptance criteria\n\n- [ ] Implement\n"
-            : "## Acceptance criteria\n\n- [x] Done\n",
-    });
+    );
     expect(result.ok).toBe(true);
   });
 
@@ -355,16 +368,7 @@ describe("buildImplementWorkflowSteps", () => {
       { ...INPUT, projectRoot: "/tmp/proj", projectName: "proj" },
       {
         loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-        resolveActiveLinkedSubspec: () => ({
-          ok: true,
-          active: {
-            index: 0,
-            subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-            path: "/tmp/proj/sub.md",
-            body: "# Subspec\n",
-          },
-          isTerminal: true,
-        }),
+        resolveActiveLinkedSubspec: terminalLinkedSubspec,
       },
     );
 
@@ -415,17 +419,10 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("resolves an unresolved registered launch and derives branch, artifact, and review defaults", async () => {
-    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-registered-"));
-    mkdirSync(join(root, "specs"));
-    writeFileSync(join(root, "specs", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
-    writeFileSync(join(root, "specs", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
-    initGitRepo(root);
-    execFileSync("git", ["add", "specs"], { cwd: root });
-    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
-    const machineConfigPath = writeJson("config.json", {
-      projects: { registered: { root, implement: { reviewPasses: 2, reviewBehavior: "light" } } },
-    });
-    const machineProfile = writeValidProfile();
+    const { root, machineConfigPath, machineProfile } = writeRegisteredImplementRepo(
+      "implement-workflow-steps-registered-",
+      { reviewPasses: 2, reviewBehavior: "light" },
+    );
 
     const result = await buildImplementWorkflowSteps(
       { cwd: root, baseRef: "HEAD", specPath: "specs/index.md", configPath: machineConfigPath },
@@ -444,6 +441,20 @@ describe("buildImplementWorkflowSteps", () => {
     expect(write.expectedArtifactPath).toBe("specs/index.md");
     expect(write.implementReviewBehavior).toBe("light");
     expect(result.steps).toHaveLength(2);
+  });
+
+  test("registered project reviewPasses absent defaults to debate; explicit 0 omits review", async () => {
+    const absent = await buildRegisteredImplement();
+    expect(absent.ok).toBe(true);
+    if (!absent.ok) return;
+    expect(absent.steps).toHaveLength(2);
+    expect(absent.steps[1]?.behavior).toBe("review-debate");
+
+    const optOut = await buildRegisteredImplement({ reviewPasses: 0 });
+    expect(optOut.ok).toBe(true);
+    if (!optOut.ok) return;
+    expect(optOut.steps).toHaveLength(1);
+    expect(optOut.steps[0]?.behavior).toBe("write");
   });
 
   test("rejects a gitignored cwd-visible spec unavailable from the base ref before routing", async () => {
@@ -608,24 +619,14 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("returns an error result carrying a machine-config validation failure instead of throwing", async () => {
-    const match: ProjectMatch = { key: "proj", root: "/tmp/proj" };
-
-    const result = await buildImplementWorkflowSteps(INPUT_WITH_ARTIFACT, {
-      resolveProjectMatch: () => match,
-      loadWorkflowSteps: () => {
-        throw new Error("Failed to load agent model config: profile not found");
-      },
-      resolveActiveLinkedSubspec: () => ({
-        ok: true,
-        active: {
-          index: 0,
-          subspec: { checked: false, body: "- [ ] [Sub](./sub.md)", text: "Sub", path: "./sub.md" },
-          path: "/tmp/proj/sub.md",
-          body: "# Subspec\n",
+    const result = await buildImplementWorkflowSteps(
+      INPUT_WITH_ARTIFACT,
+      mockProjectDeps(writeJson("config.json", { agents: ["claude"] }), writeValidProfile(), {
+        loadWorkflowSteps: () => {
+          throw new Error("Failed to load agent model config: profile not found");
         },
-        isTerminal: true,
       }),
-    });
+    );
 
     expect(result.ok).toBe(false);
     if (result.ok) return;

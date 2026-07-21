@@ -1,5 +1,4 @@
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
-import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -10,6 +9,7 @@ import {
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
+import type { SmokePass } from "./runtime-smoke-verifier.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -38,7 +38,7 @@ export type ReadyFinalizerSeams = {
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
-export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<SmokePass | void>;
+export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<SmokePass | undefined> | Promise<void>;
 
 export class ReadyGateError extends Error {
   constructor(

@@ -1903,7 +1903,9 @@ describe("executeWorkflow completion publication", () => {
           readyFinalizer: testCase.finalize,
         });
         expect(result.kind).toBe("complete");
-        const outcomes = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "runtime_smoke_outcome");
+        const outcomes = logSink
+          .getEventsForRun(result.runId)
+          .filter((event) => event.kind === "runtime_smoke_outcome");
         if (testCase.name === "not-runnable") {
           expect(outcomes).toEqual([
             {

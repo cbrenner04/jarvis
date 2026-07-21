@@ -27,6 +27,9 @@ function reviewContext(): ReviewDebateRenderContext {
   const cwd = mkdtempSync(join(tmpdir(), "review-implement-branch-diff-"));
   tempDirs.push(cwd);
   execSync("git init -b main", { cwd, stdio: "pipe" });
+  // CI runners have no global git identity; committing without one fails there but not locally.
+  execSync("git config user.email test@example.com", { cwd, stdio: "pipe" });
+  execSync("git config user.name Test", { cwd, stdio: "pipe" });
   writeFileSync(join(cwd, "README.md"), "base\n");
   execSync("git add README.md && git commit -m init", { cwd, stdio: "pipe" });
   execSync("git branch develop", { cwd, stdio: "pipe" });
@@ -64,6 +67,10 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
     expect(mainBaseDiff).not.toEqual(payloads[0]);
     expect(critic).toContain("merge-base branch diff");
     expect(critic).not.toContain("not a unified diff");
+    // Pin the provenance sentence: the critic must be told where the diff comes from, so a
+    // reviewer knows the payload is base-relative rather than a working-tree diff.
+    expect(critic).toContain("git merge-base <base> HEAD");
+    expect(critic).toContain("git diff <mergeBase> HEAD");
     expect(new Set(payloads).size).toBe(1);
   });
 });

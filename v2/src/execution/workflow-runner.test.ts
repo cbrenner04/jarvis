@@ -126,25 +126,77 @@ const errorBindingFactory = createBindingFactory(
   async () => ({ kind: "error", exitCode: 1, stderr: "error" }) as const,
 );
 
-function createIntentWorktreeHarness(branchName: string) {
-  const workspace = mkdtempSync(join(tmpdir(), `intent-workflow-${branchName}-`));
+function initGitWorkspace(prefix: string) {
+  const workspace = mkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "-q"], { cwd: workspace });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: workspace });
+  return workspace;
+}
+
+function externalWorktreeBinding(workspace: string): <T>(
+  _args: { branchName: string; projectName: string },
+  run: (worktree: ExternalWorktree) => Promise<T> | T,
+) => Promise<WithExternalWorktreeResult<T>> {
+  return async <T>(
+    _args: { branchName: string; projectName: string },
+    run: (worktree: ExternalWorktree) => Promise<T> | T,
+  ): Promise<WithExternalWorktreeResult<T>> => ({
+    worktree: { path: workspace, reused: false },
+    lock: { kind: "acquired" },
+    value: await run({ path: workspace, reused: false }),
+  });
+}
+
+function createIntentWorktreeHarness(branchName: string) {
+  const workspace = initGitWorkspace(`intent-workflow-${branchName}-`);
   writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
   execFileSync("git", ["add", "."], { cwd: workspace });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
   return {
     workspace,
-    withExternalWorktree: async <T>(
-      _args: { branchName: string; projectName: string },
-      run: (worktree: ExternalWorktree) => Promise<T> | T,
-    ): Promise<WithExternalWorktreeResult<T>> => ({
-      worktree: { path: workspace, reused: false },
-      lock: { kind: "acquired" },
-      value: await run({ path: workspace, reused: false }),
-    }),
+    withExternalWorktree: externalWorktreeBinding(workspace),
   };
+}
+
+const IMPLEMENT_BODY_SPEC_PATH = "spec/2026-01-01-implement-body";
+
+function createImplementBodySummaryStep(branchName: string) {
+  const workspace = initGitWorkspace(`implement-body-summary-${branchName}-`);
+  const specDir = join(workspace, IMPLEMENT_BODY_SPEC_PATH);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(
+    join(specDir, "index.md"),
+    "# Implement body\n\n- [ ] [00 - First](./00-first.md)\n",
+    "utf8",
+  );
+  writeFileSync(join(specDir, "00-first.md"), "# First\n\nImplement the feature.\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "base spec"], { cwd: workspace });
+  const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+
+  mkdirSync(join(workspace, "v2", "src"), { recursive: true });
+  writeFileSync(join(workspace, "v2", "src", "feature.ts"), "export const feature = 1;\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: workspace });
+  execFileSync("git", ["commit", "-qm", "add feature"], { cwd: workspace });
+
+  const step = createStep({
+    stepId: "implement",
+    role: "implement",
+    promptId: "patch.prompt.body",
+    branchName,
+    specPath: IMPLEMENT_BODY_SPEC_PATH,
+  });
+  step.worktree = {
+    projectRoot: workspace,
+    projectName: "demo",
+    branchName,
+    baseRef,
+    git: false,
+    localPath: workspace,
+  };
+  step.withExternalWorktree = externalWorktreeBinding(workspace);
+  return { step, workspace };
 }
 
 function createShrinkTestStep(
@@ -2761,36 +2813,71 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
-  test("implement runs publish no body summary", async () => {
+  test("implement workflow completion publishes spec-run body summary", async () => {
     const summaries: Array<string | undefined> = [];
-    const step = createStep({
-      stepId: "implement",
-      role: "implement",
-      promptId: "patch.prompt.body",
-      branchName: "implement-no-summary",
-      specPath: "spec/index.md",
-    });
-    const jarvisRoot = step.worktree.jarvisRoot;
-    if (jarvisRoot === undefined) throw new Error("missing test jarvis root");
-    const worktreePath = join(jarvisRoot, "worktrees", "demo", "implement-no-summary");
-    const specDir = join(worktreePath, "spec");
-    mkdirSync(specDir, { recursive: true });
-    writeFileSync(join(specDir, "index.md"), "# Implement index\n\n- [ ] [01 - Sub](./01-sub.md)\n", "utf8");
+    const specTemplates: boolean[] = [];
+    const { step, workspace } = createImplementBodySummaryStep("implement-body-summary");
 
     await withStateStore(async (store) => {
-      seedCompletedWriteRun(store, step, worktreePath, "implement-no-summary-inv");
+      seedCompletedWriteRun(store, step, workspace, "implement-body-summary-inv");
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async (input) => {
           summaries.push(input.bodySummary);
+          specTemplates.push(input.specTemplate === true);
           return {};
         },
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
-      expect(summaries).toEqual([undefined]);
+      expect(specTemplates).toEqual([true]);
+      const summary = summaries[0];
+      expect(summary).toContain("## Subspecs");
+      expect(summary).toContain("- 00 - First — Implement the feature.");
+      expect(summary).toContain("## Commits");
+      expect(summary).toContain("- add feature");
+      expect(summary).toContain("## Risk cues\n- no test changes");
+      expect(summary).toContain("## Change summary");
+      expect(summary).toContain("v2/src");
+    });
+  });
+
+  test("re-derives the same implement spec-run body summary on completion-publication retry", async () => {
+    const summaries: Array<string | undefined> = [];
+    const specTemplates: boolean[] = [];
+    const { step, workspace } = createImplementBodySummaryStep("implement-body-summary-retry");
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, "implement-body-summary-retry-inv");
+
+      const failed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          specTemplates.push(input.specTemplate === true);
+          throw new Error("publish failed");
+        },
+      });
+      expect(failed.kind).toBe("completion_commit_failed");
+
+      const retried = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          specTemplates.push(input.specTemplate === true);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retried.kind).toBe("complete");
+      expect(specTemplates).toEqual([true, true]);
+      expect(summaries[0]).toBe(summaries[1]);
     });
   });
 });

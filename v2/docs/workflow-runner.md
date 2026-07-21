@@ -611,6 +611,16 @@ Cycle semantics are defined in [`write-behavior.md`](./write-behavior.md#review-
 
 No new workflow-level budget, pause, or abort concept — each step inherits its own `maxIterations`, `signal` (abort), and `pauseSignal` (pause). Values are per-step-configurable; there is no single shared workflow-level cap.
 
+## Implement PR body template
+
+Implement completion uses `deriveSpecRunBodySummary` (same renderer as plan)
+with `specTemplate: true` so publication retries re-derive from the spec tree
+and `baseRef...HEAD` diff. Sections: Subspecs, Commits, optional Risk cues,
+Change summary — after the `Spec:` line, before narrative markers and
+attribution. Sources: `v2/src/execution/workflow-runner.ts`,
+`v2/src/execution/spec-run-body-summary.ts`,
+`v2/src/execution/completion-publisher.ts`, `v2/src/execution/pr-body-refresh.ts`.
+
 ## PR body narrative markers
 
 v2 `refreshPrBody` manages a reserved narrative marker block in PR body text:

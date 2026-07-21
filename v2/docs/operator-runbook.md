@@ -59,12 +59,9 @@ and Git inspection errors now stop with named failures instead of silently compl
 
 **Two diagnoses of this have already been wrong — do not cut a spec against a third
 without observing a run.** "The review step never invokes an agent" is refuted:
-telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`). But
-the store holds 19 `intent` step runs against only 4 `review` step runs, so most
-intent workflows produce no review row at all, which is consistent with the
-operator-observed instant `completed`. Candidate: the
-`findReviewLandingCheckpoint` short-circuit (`workflow-runner.ts:1409`). Unproven.
-
+telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`).
+Bare `intent` now runs one light review by default; pass `--review-passes 0` to
+recover split-only completion for scripts that relied on the prior zero-pass default.
 Note an empty review log proves nothing either way: `runReviewStep` gets no `logSink`,
 so it logs nothing whether or not an agent ran. Both wrong diagnoses read that silence
 as evidence. Ready-intent: `review-step-emits-log-events`.
@@ -176,19 +173,21 @@ Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 
 | Preset | Purpose |
 | --- | --- |
-| `intent` | Split seed → `ready-intents/` (`--review-passes`/`--review-behavior` add review) |
+| `intent` | Split seed → `ready-intents/` (one light review by default; `--review-passes 0` opts out) |
 | `plan` | Draft spec tree from ready-intent |
 | `implement` | Index-routed implementation + shrink (+ review by default; `--review-passes 0` to skip) |
 
 `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy
-aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`): they
-resolve to `intent`/`plan` with one light/debate/light pass respectively and
-emit a migration hint. Prefer the primary presets with explicit review flags.
+aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`) that
+resolve to `intent`/`plan` and emit a migration hint. `intent-reviewed` is
+redundant with bare `intent`.
 
 Examples:
 
 ```sh
-jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-passes 1 --review-behavior light
+jarvis run workflow intent --seed v2/spec/seeds/my-seed.md
+jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-passes 0  # split-only
+jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-behavior debate
 jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 # omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0

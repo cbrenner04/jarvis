@@ -70,7 +70,8 @@ is resumable. Resuming skips the completed implement write, re-runs shrink, and
 continues to publication when shrink completes. Other shrink failure kinds keep
 their normal classifications.
 
-The `intent` preset is one `plan` write step with prompt `intent.prompt.split`.
+The `intent` preset is one `plan` write step with prompt `intent.prompt.split`,
+optionally followed by one light review step by default.
 When its step supplies `intentOutput`, completion validates the shared
 `.jarvis-intent-stage/` contract after the step completes, checks that only that
 directory changed, and lands every valid Markdown file transactionally under
@@ -128,8 +129,7 @@ parent, project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`.
 Thus a file from `v1/spec/seeds/` or `v2/spec/seeds/` publishes to that same
 surface's `ready-intents/`, even if configuration names the other surface.
 Inline seeds and file seeds outside a direct `seeds/` parent use configured/default
-routing. `intent-reviewed` delegates to this same builder and therefore uses identical
-routing. Effective publication follows project
+routing. `intent-reviewed` delegates to this same builder. Effective publication follows project
 `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false`
 disabling it. Git-enabled output uses branch `intent/<slug>` in
 `~/.jarvis/worktrees`, and the GitHub default branch is used for both its base
@@ -155,32 +155,30 @@ force-push, suffixing, or publication.
 
 **CLI usage:** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
-The intent builder omits review when `reviewPasses` is omitted or zero. Positive passes select light review with `reviewBehavior: "light"`, or debate review with `reviewBehavior: "debate"` (the default).
-
-`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) delegates to the intent builder, defaulting omitted options to one light
-review step. It accepts a non-negative `reviewPasses` parameter (defaulting
-to `1`); zero passes delegates to the split-only builder, while positive values
-add one critic-actuator review step with `maxCycles` equal to the pass count.
+The intent builder omits review only when `reviewPasses` is explicitly zero
+(`--review-passes 0`). Omitted `reviewPasses` defaults to one light pass.
+Positive passes select light review with `reviewBehavior: "light"` (the default),
+or debate review with `reviewBehavior: "debate"`. Explicit flags override defaults.
 For positive passes, the builder creates the split and review source steps, then
 makes one `loadWorkflowSteps` call for both. It forwards its machine config path,
 profile, and machines directory; the loader supplies both roles' machine-derived
 bindings. Preset resolution receives only the loaded write step. Loader failures
 return `{ ok: false, error }` with unchanged loader text before daemon contact.
 The review step targets `.jarvis-intent-review-verdict.md`
-(a sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
+(sibling of `.jarvis-intent-stage/`) for the critic's verdict, and uses the
 registered, layered `intent.prompt.review` prompt for the critic role. At dispatch,
 runtime reads every staged Markdown file in filename order, adds explicit file
 boundaries and `v1/docs/spec-guidance.md`, and names the verdict destination.
 The actuator receives the likewise-rendered `intent.prompt.review-actuator` with
 the unchanged verdict in its delimited data slot. Empty verdicts skip actuation.
-Reviewed intent completion requires a critic invocation and its managed verdict
+Intent review completion requires a critic invocation and its managed verdict
 artifact; an empty artifact is valid evidence. A missing or empty staged workspace,
 exhausted critic bindings, missing evidence, boundary violation, or Git inspection
 error stops as `invocation_failure` with its persisted, operator-readable cause.
 Boundary violations restore unauthorized changes and prevent landing.
 
-`intent-reviewed` remains a compatibility alias for `intent`, defaulting to one
-light pass and emitting a migration hint. Explicit review flags override it.
+`buildReviewedIntentWorkflowSteps` (preset: `intent-reviewed`) delegates to
+`buildIntentWorkflowSteps` and emits a migration hint.
 
 `buildPlanWorkflowSteps` (preset: `plan`) accepts a `--ready-intent <path>` and optional relative, non-traversing `targetDir`. It validates the ready-intent file pre-daemon: the file must be located in a `ready-intents/` directory, carry frontmatter `name:` matching the filename (minus `.md`), and include a `## Prerequisites` section. The name is normalized from the validated frontmatter; empty names are rejected.
 
@@ -252,9 +250,9 @@ Current primary preset surface:
 
 - `write-write`: two steps
 - `implement`: one or two steps, with `role`/`promptId` fixed by the preset on both positions
-- `intent`: one step, optionally followed by review
+- `intent`: split write step plus one light review by default (`--review-passes 0` opts out)
 - `plan`: one validated draft write step, optionally followed by review
-- aliases: `intent-reviewed` → `intent` (light), `plan-reviewed` → `plan` (debate), `plan-reviewed-light` → `plan` (light)
+- aliases: `intent-reviewed` → `intent` (redundant), `plan-reviewed` → `plan` (debate), `plan-reviewed-light` → `plan` (light)
 
 Validation stays synchronous:
 

@@ -27,28 +27,56 @@ const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
   );
 
 describe("buildIntentWorkflowSteps", () => {
-  test("omits review by default and for zero passes", async () => {
-    const noReview = await buildIntentWorkflowSteps(
+  test("defaults to one light review pass when review options are omitted", async () => {
+    const result = await buildIntentWorkflowSteps(
       { cwd: "/repo", seedText: "x" },
       { resolveProjectMatch: () => match, loadWorkflowSteps: load },
     );
-    const zero = await buildIntentWorkflowSteps(
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
+  });
+
+  test("omits review for explicit zero passes", async () => {
+    const result = await buildIntentWorkflowSteps(
       { cwd: "/repo", seedText: "x", reviewPasses: 0 },
       { resolveProjectMatch: () => match, loadWorkflowSteps: load },
     );
-    expect(noReview.ok && noReview.steps).toHaveLength(1);
-    expect(zero.ok && zero.steps).toHaveLength(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]).toMatchObject({ behavior: "write", promptId: "intent.prompt.split" });
+  });
+
+  test("defaults omitted reviewBehavior to light for multi-pass runs", async () => {
+    const result = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 2 },
+      { resolveProjectMatch: () => match, loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", maxCycles: 2 });
   });
 
   test("selects light or debate review for positive passes", async () => {
     const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
-    const light = await buildIntentWorkflowSteps(
-      { cwd: "/repo", seedText: "x", reviewPasses: 1, reviewBehavior: "light" },
+    const light = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 1 }, deps);
+    const debate = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewPasses: 2, reviewBehavior: "debate" },
       deps,
     );
-    const debate = await buildIntentWorkflowSteps({ cwd: "/repo", seedText: "x", reviewPasses: 2 }, deps);
+    const debateDefaultPasses = await buildIntentWorkflowSteps(
+      { cwd: "/repo", seedText: "x", reviewBehavior: "debate" },
+      deps,
+    );
     expect(light.ok && light.steps[1]?.behavior).toBe("review");
     expect(debate.ok && debate.steps[1]?.behavior).toBe("review-debate");
+    expect(debateDefaultPasses.ok && debateDefaultPasses.steps[1]).toMatchObject({
+      behavior: "review-debate",
+      maxCycles: 1,
+    });
   });
 
   test("rejects invalid review options", async () => {
@@ -77,8 +105,8 @@ describe("buildIntentWorkflowSteps", () => {
     const file = await buildIntentWorkflowSteps({ ...common, seed }, deps);
     const inline = await buildIntentWorkflowSteps({ ...common, seedText: "Improve API" }, deps);
     if (!file.ok || !inline.ok) return;
-    expect(file.steps).toHaveLength(1);
-    expect(inline.steps).toHaveLength(1);
+    expect(file.steps).toHaveLength(2);
+    expect(inline.steps).toHaveLength(2);
     expect(file.steps[0]).toMatchObject({
       behavior: "write",
       role: "plan",
@@ -241,6 +269,12 @@ describe("buildIntentWorkflowSteps", () => {
 });
 
 describe("buildReviewedIntentWorkflowSteps", () => {
+  test("matches buildIntentWorkflowSteps when review options are omitted", async () => {
+    const deps = { resolveProjectMatch: () => match, loadWorkflowSteps: load };
+    const input = { cwd: "/repo", seedText: "x", invocationId: "inv-match" };
+    expect(await buildReviewedIntentWorkflowSteps(input, deps)).toEqual(await buildIntentWorkflowSteps(input, deps));
+  });
+
   test("rejects non-integer and negative review passes before daemon contact", async () => {
     let loaded = false;
     const deps = {

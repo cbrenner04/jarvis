@@ -122,14 +122,19 @@ test("reconciles an orphaned review-debate row to interrupted and retains its wo
   const events: Array<{ runId: string; event: LogEvent }> = [];
   const sweepStore = openSweepStore(async () => false);
 
-  await reconcileOrphanedRuns(sweepStore, { append: (id, event) => events.push({ runId: id, event }), close: () => undefined });
+  await reconcileOrphanedRuns(sweepStore, {
+    append: (id, event) => events.push({ runId: id, event }),
+    close: () => undefined,
+  });
 
   expect(sweepStore.loadRun(runId)).toMatchObject({
     status: "interrupted",
     attempts: [{ id: attemptId, status: "in-progress" }],
     workflowSnapshot: { steps: [{ stepId: "review-debate", behavior: "review-debate", durable: true }] },
   });
-  expect(events).toEqual([{ runId, event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" } }]);
+  expect(events).toEqual([
+    { runId, event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" } },
+  ]);
   sweepStore.close();
 });
 

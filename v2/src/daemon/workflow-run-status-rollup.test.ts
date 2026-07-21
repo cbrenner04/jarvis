@@ -177,7 +177,9 @@ describe("rollupWorkflowRunStatus", () => {
         rollupWorkflowRunStatus({
           entryRun,
           workflowSnapshot: snapshot,
-          siblingRuns: siblingRuns.map((run) => (run.stepId === "step-debate" ? { ...run, status: debateStatus } : run)),
+          siblingRuns: siblingRuns.map((run) =>
+            run.stepId === "step-debate" ? { ...run, status: debateStatus } : run,
+          ),
           isLive: false,
         }),
       ).toBe(debateStatus);

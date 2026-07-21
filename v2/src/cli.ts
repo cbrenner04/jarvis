@@ -109,16 +109,16 @@ function levenshteinDistance(left: string, right: string): number {
     for (let rightIndex = 1; rightIndex <= rightCharacters.length; rightIndex += 1) {
       current.push(
         Math.min(
-          current[rightIndex - 1]! + 1,
-          previous[rightIndex]! + 1,
-          previous[rightIndex - 1]! + Number(leftCharacters[leftIndex - 1] !== rightCharacters[rightIndex - 1]),
+          (current[rightIndex - 1] ?? 0) + 1,
+          (previous[rightIndex] ?? 0) + 1,
+          (previous[rightIndex - 1] ?? 0) + Number(leftCharacters[leftIndex - 1] !== rightCharacters[rightIndex - 1]),
         ),
       );
     }
     previous = current;
   }
 
-  return previous[rightCharacters.length]!;
+  return previous[rightCharacters.length] ?? 0;
 }
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {

@@ -995,9 +995,8 @@ function buildWorkflowSnapshot(
   if (!freshDispatch) {
     const identifiableSteps = steps.filter(isDurableWorkflowStep);
     for (const step of identifiableSteps) {
-      const { project, branch } = step.behavior === "write"
-        ? { project: step.worktree.projectName, branch: step.worktree.branchName }
-        : step;
+      const { project, branch } =
+        step.behavior === "write" ? { project: step.worktree.projectName, branch: step.worktree.branchName } : step;
       const existingRun = store.findRunByProjectBranch({ project, branch, stepId: step.stepId });
       const candidate = existingRun?.workflowSnapshot;
       if (candidate !== null && candidate !== undefined && snapshotMatchesAuthoredSteps(candidate, authoredSteps)) {
@@ -1927,7 +1926,16 @@ async function runReviewDispatch(
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
-    return runReviewDebateStep(step, stepIndex, invocationId, onProgress, telemetry, onStepRunCreated, store, workflowSnapshot);
+    return runReviewDebateStep(
+      step,
+      stepIndex,
+      invocationId,
+      onProgress,
+      telemetry,
+      onStepRunCreated,
+      store,
+      workflowSnapshot,
+    );
   }
 
   const { landing, ...reviewInput } = step;

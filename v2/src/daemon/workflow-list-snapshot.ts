@@ -54,11 +54,7 @@ function workflowStepSnapshot(
   reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
 ): WorkflowStepListSnapshot {
   const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
-  if (
-    step.behavior === "review-debate" &&
-    run?.status === "in-progress" &&
-    progress?.status === "in_progress"
-  ) {
+  if (step.behavior === "review-debate" && run?.status === "in-progress" && progress?.status === "in_progress") {
     return {
       stepId: step.stepId,
       role: progress.role,

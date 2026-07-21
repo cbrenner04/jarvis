@@ -576,7 +576,10 @@ test("a workflow that dies in durable review-debate marks its debate row failed 
   });
 
   expect(stateStore.loadRun(runId)?.status).toBe("completed");
-  expect(stateStore.findRunByProjectBranch({ project: "demo", branch: "swallow-branch", stepId: "implement-review" })?.status).toBe("failed");
+  expect(
+    stateStore.findRunByProjectBranch({ project: "demo", branch: "swallow-branch", stepId: "implement-review" })
+      ?.status,
+  ).toBe("failed");
   const kinds = openLogReader(logsPath)
     .tail(runId)
     .map((record) => record.event.kind);

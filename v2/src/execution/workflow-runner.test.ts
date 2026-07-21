@@ -2816,9 +2816,19 @@ describe("executeWorkflow review-debate dispatch", () => {
       expect(result.kind).toBe("complete");
       expect(result.resumable).toBe(false);
       const run = store.loadRun(result.runId);
-      expect(run).toMatchObject({ project: "demo", branch: "review-debate-workflow", stepId: "debate-1", status: "completed" });
+      expect(run).toMatchObject({
+        project: "demo",
+        branch: "review-debate-workflow",
+        stepId: "debate-1",
+        status: "completed",
+      });
       expect(run?.attempts).toHaveLength(1);
-      expect(run?.workflowSnapshot?.steps).toContainEqual({ stepId: "debate-1", role: "", behavior: "review-debate", durable: true });
+      expect(run?.workflowSnapshot?.steps).toContainEqual({
+        stepId: "debate-1",
+        role: "",
+        behavior: "review-debate",
+        durable: true,
+      });
       expect(events).toEqual([
         "resolve:claude/ADV",
         "resolve:claude/ADVOC",

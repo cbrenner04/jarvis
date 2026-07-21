@@ -28,7 +28,13 @@ export function isRunStatus(value: unknown): value is RunStatus {
 }
 
 /** Statuses that end a run row; `paused` is excluded (resumable). */
-export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked", "interrupted", "killed"]);
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "failed",
+  "blocked",
+  "interrupted",
+  "killed",
+]);
 
 export function isTerminalRunStatus(status: RunStatus): boolean {
   return TERMINAL_RUN_STATUSES.has(status);
@@ -538,8 +544,15 @@ class StateStoreImpl implements StateStore {
 
   async beginRunReconciliation(): Promise<string[]> {
     const candidates = this.db
-      .prepare(`SELECT id, owner_identity AS ownerIdentity, step_id AS stepId, workflow_snapshot AS workflowSnapshotJson FROM runs WHERE status IN (${ORPHAN_STATUSES})`)
-      .all() as Array<{ id: string; ownerIdentity: string | null; stepId: string | null; workflowSnapshotJson: string | null }>;
+      .prepare(
+        `SELECT id, owner_identity AS ownerIdentity, step_id AS stepId, workflow_snapshot AS workflowSnapshotJson FROM runs WHERE status IN (${ORPHAN_STATUSES})`,
+      )
+      .all() as Array<{
+      id: string;
+      ownerIdentity: string | null;
+      stepId: string | null;
+      workflowSnapshotJson: string | null;
+    }>;
 
     const orphaned: typeof candidates = [];
     const aliveByIdentity = new Map<string, boolean>();
@@ -559,12 +572,17 @@ class StateStoreImpl implements StateStore {
 
     return this.db.transaction(() => {
       for (const candidate of orphaned) {
-        const snapshot = candidate.workflowSnapshotJson === null ? undefined : (JSON.parse(candidate.workflowSnapshotJson) as WorkflowSnapshot);
+        const snapshot =
+          candidate.workflowSnapshotJson === null
+            ? undefined
+            : (JSON.parse(candidate.workflowSnapshotJson) as WorkflowSnapshot);
         const isReviewDebate = snapshot?.steps.some(
           (step) => step.stepId === candidate.stepId && step.behavior === "review-debate",
         );
         this.db
-          .prepare(`UPDATE runs SET status = ?, reconciliation_pending = 1 WHERE id = ? AND status IN (${ORPHAN_STATUSES})`)
+          .prepare(
+            `UPDATE runs SET status = ?, reconciliation_pending = 1 WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
+          )
           .run(isReviewDebate ? "interrupted" : "killed", candidate.id);
       }
       return (

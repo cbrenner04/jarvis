@@ -277,13 +277,17 @@ describe("monitorTextLines", () => {
       const rows = monitorSegmentRows(
         monitorState({ runs: [draft, debate(status)], selectedRunId: `run-authored-review-${status}` }),
       );
-      expect(rows.map(joinMonitorRow)).toEqual(expect.arrayContaining([
-        "  run-plan-draft demo plan completed not-live",
-        `> run-authored-review-${status} demo plan ${status} not-live`,
-        "  authored-plan-review  " +
-          (status === "completed" ? "completed complete" : `stopped ${status === "failed" ? "invocation_failure" : status}`) +
-          " attempts=1",
-      ]));
+      expect(rows.map(joinMonitorRow)).toEqual(
+        expect.arrayContaining([
+          "  run-plan-draft demo plan completed not-live",
+          `> run-authored-review-${status} demo plan ${status} not-live`,
+          "  authored-plan-review  " +
+            (status === "completed"
+              ? "completed complete"
+              : `stopped ${status === "failed" ? "invocation_failure" : status}`) +
+            " attempts=1",
+        ]),
+      );
       const statusSegment = rows.flatMap((line) => line.segments).find((segment) => segment.text === status);
       expect(statusSegment?.tone).toBe(status === "completed" ? "success" : "failure");
     }

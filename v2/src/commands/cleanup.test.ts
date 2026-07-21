@@ -412,7 +412,11 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     mkdirSync(dirname(otherWorktree), { recursive: true });
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", otherWorktree, "custom-owner"], otherRoot);
     const otherOnlyWorktree = join(jarvisRoot, "worktrees", "other", "other-only-owner");
-    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", otherOnlyWorktree, "other-only-owner"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", otherOnlyWorktree, "other-only-owner"],
+      otherRoot,
+    );
 
     const runs = [
       { name: eligible, branch: "custom-eligible" },
@@ -427,7 +431,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       worktreePath: projectRoot,
       specPath: name === relative ? join("v2", "spec", name, "index.md") : join(home, name, "index.md"),
     }));
-    const store: StateStore = { findRunByProjectBranch: () => null, listRuns: () => runs as never[] } as unknown as StateStore;
+    const store: StateStore = {
+      findRunByProjectBranch: () => null,
+      listRuns: () => runs as never[],
+    } as unknown as StateStore;
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) =>
         cmd === "gh" && args[1] === "list" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
@@ -440,8 +447,12 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain(`archive: ${join(home, eligible)}`);
     expect(stdout).toContain(`archive: ${join(home, relative)}`);
     expect(stdout).toContain(`archive: ${join(home, otherOnly)}`);
-    expect(stdout).toContain(`Skipped stranded artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
-    expect(stdout).not.toContain(`Skipped stranded artifact: ${join(home, eligible)} — another materialized worktree owns this spec`);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, owned)} — another materialized worktree owns this spec`,
+    );
+    expect(stdout).not.toContain(
+      `Skipped stranded artifact: ${join(home, eligible)} — another materialized worktree owns this spec`,
+    );
 
     stdout = "";
     await runCleanupCommand(
@@ -460,14 +471,18 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
     expect(existsSync(join(home, "completed", eligible))).toBe(true);
     expect(existsSync(join(home, late))).toBe(true);
-    expect(stdout).toContain(`Skipped stranded artifact: ${join(home, late)} — another materialized worktree owns this spec`);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, late)} — another materialized worktree owns this spec`,
+    );
 
     createSpec(guarded, "[x] Done");
     const detached = await addWorktree("detached-owner");
     await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
     stdout = "";
     await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
-    expect(stdout).toContain(`Skipped stranded artifact: ${join(home, guarded)} — another materialized worktree owns this spec`);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, guarded)} — another materialized worktree owns this spec`,
+    );
   });
 
   test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {

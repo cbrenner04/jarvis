@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, type Dirent } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getCurrentBranchAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -425,7 +425,8 @@ async function findEligibleWorktreeCandidates(
     if (project === undefined || worktree.branch === undefined) continue;
 
     const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store);
-    if (eligibility.status === "eligible") candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
+    if (eligibility.status === "eligible")
+      candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
   }
   return candidates;
 }

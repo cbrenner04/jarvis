@@ -1,0 +1,1 @@
+- Add regression coverage proving `makeIpcClient` returns caller-authored status revision and digest verbatim when request parameters would cause production revision advancement. The test must fail if `advanceLoadedRevision` or equivalent logic is restored in the fake. This protects the spec’s fixed/test-authored reply contract and independent-oracle requirement.

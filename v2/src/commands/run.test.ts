@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
   type CliRepoFixture,
   captureIo,
+  DOCS_MERGE_REVISION,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
@@ -168,6 +170,34 @@ describe("run start", () => {
 });
 
 describe("revision mismatch and auto-bounce", () => {
+  test("status fake preserves caller-authored replies despite matching-digest HEAD drift", async () => {
+    const client = makeIpcClient([], {
+      loadedRevision: "pre-docs-merge-head",
+      loadedExecutableDigest: "daemon-digest",
+    });
+
+    const response = client.nextFrame();
+    client.send({
+      kind: "request",
+      id: "status",
+      method: "status",
+      params: {
+        currentRevision: DOCS_MERGE_REVISION,
+        currentExecutableDigest: "daemon-digest",
+      },
+    });
+
+    await expect(response).resolves.toEqual({
+      kind: "response",
+      id: "status",
+      result: {
+        state: "running",
+        loadedRevision: "pre-docs-merge-head",
+        loadedExecutableDigest: "daemon-digest",
+      },
+    });
+  });
+
   test("revision mismatch refuses fresh starts before IPC start", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -346,17 +376,23 @@ describe("revision mismatch and auto-bounce", () => {
     const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
     let stopped = 0;
     let started = 0;
+    expect(
+      advanceLoadedRevision("pre-docs-merge-head", TEST_EXECUTABLE_DIGEST, {
+        currentRevision: DOCS_MERGE_REVISION,
+        currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
+      }),
+    ).toBe(DOCS_MERGE_REVISION);
     const code = await withFixedUuid(["operator", "status", "start"], () =>
       main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
-        getCurrentRevision: async () => "docs-merge-head",
+        getCurrentRevision: async () => DOCS_MERGE_REVISION,
         getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
         connectIpcClient: async () =>
           makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-docs-merge" } }], {
             sent,
             statusCalls,
             statusResponses,
-            loadedRevision: "pre-docs-merge-head",
+            loadedRevision: DOCS_MERGE_REVISION,
             loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
           }),
         stopDaemon: async () => {
@@ -373,13 +409,13 @@ describe("revision mismatch and auto-bounce", () => {
     expect(statusCalls).toEqual([
       {
         params: {
-          currentRevision: "docs-merge-head",
+          currentRevision: DOCS_MERGE_REVISION,
           currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
         },
       },
     ]);
     expect(statusResponses).toEqual([
-      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
     ]);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
     expect(cap.read()).toEqual({ stdout: "run-docs-merge\n", stderr: "" });
@@ -392,14 +428,14 @@ describe("revision mismatch and auto-bounce", () => {
     const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
     const code = await withFixedUuid(["operator", "status", "resume"], () =>
       main(["run", "resume", "run-123"], cap.io, {
-        getCurrentRevision: async () => "docs-merge-head",
+        getCurrentRevision: async () => DOCS_MERGE_REVISION,
         getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
         connectIpcClient: async () =>
           makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
             sent,
             statusCalls,
             statusResponses,
-            loadedRevision: "pre-docs-merge-head",
+            loadedRevision: DOCS_MERGE_REVISION,
             loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
           }),
         stopDaemon: async () => {
@@ -414,13 +450,13 @@ describe("revision mismatch and auto-bounce", () => {
     expect(statusCalls).toEqual([
       {
         params: {
-          currentRevision: "docs-merge-head",
+          currentRevision: DOCS_MERGE_REVISION,
           currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
         },
       },
     ]);
     expect(statusResponses).toEqual([
-      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
     ]);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
   });

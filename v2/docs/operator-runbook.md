@@ -577,10 +577,20 @@ Operators add bullets here; delete when fixed.
   deliberately broken source (the verifier flips a guard, e.g. `===` → `!==`, then runs scoped
   tests). Reading the tree in that window shows uncommitted garbage that looks exactly like a
   harness defect. This cost three misdiagnoses in one session, one of which became a seed before
-  being retracted. **Before concluding anything about a v2 run, require all three: no `bun`
-  process under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
+  being retracted. **Before concluding anything about a v2 run, require all three: no process at all
+  under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
   `workflow-commands-block-the-operator-terminal`, ready-intent
   `workflow-command-reports-terminal-workflow-failure`.
+  **Match on any process, not on `bun` (corrected 2026-07-21).** This bullet previously said "no
+  `bun` process". `bun` only appears during the test/gate/mutation phase; the *agent* write phase
+  runs the agent binary — `codex-aar`, `claude`, or `cursor-agent`. Grepping `lsof` output for `bun`
+  reports an actively-writing worktree as idle, which is the same wrong conclusion this entry exists
+  to prevent. Observed 2026-07-21: seven worktrees all read "0 bun" while every one of them had a
+  live `codex-aar` writing in it. Use the process list itself:
+
+  ```sh
+  lsof +D ~/.jarvis/worktrees/<project>/<branch> | tail -n +2 | awk '{print $1}' | sort -u
+  ```
 - **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
   `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
   `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the

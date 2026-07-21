@@ -40,16 +40,16 @@ surviving mutation's text and source site appear nowhere on an operator surface.
 
 ## Acceptance criteria
 
-- [ ] A run ending `surviving_mutation_failed` settles `failed`; neither `run list` nor `run wait` reports it `completed`, including while the post-completion verification tail is still running.
-- [ ] `run wait` no longer returns a self-contradictory observation: `resumable: true` never coexists with `retryable: false` / `nextAction: "stop"`, and never contradicts what `run resume` does with that row.
-- [ ] `run list` and `run wait` report `reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the surviving mutation text plus source file and line.
-- [ ] The final `loop_finished` record reports the same mutation details and resumability, and `run resume` accepts that failed workflow row.
-- [ ] No persisted terminal observation combines `runStatus: "completed"` with `resumable: true`.
-- [ ] A regression in `v2/src/execution/workflow-runner.test.ts` drives mutation finalization after the earlier completion boundary, fails against the baseline, and asserts durable `failed` status plus resumable terminal details.
-- [ ] Updated daemon cases in `v2/src/daemon/daemon-start-list.test.ts`, `v2/src/daemon/daemon-wait-run-completion.test.ts`, `v2/src/daemon/run-operator-error.test.ts`, and `v2/src/daemon/daemon-resume.test.ts` pin consistent list, wait, error, and resume behavior.
-- [ ] A genuine completion remains `completed`, non-resumable, and free of surviving-mutation remediation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/state-store.md`, `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` describe the failed/resumable settlement, terminal invariant, diagnostics, and recovery.
+- [x] A run ending `surviving_mutation_failed` settles `failed`; neither `run list` nor `run wait` reports it `completed`, including while the post-completion verification tail is still running.
+- [x] `run wait` no longer returns a self-contradictory observation: `resumable: true` never coexists with `retryable: false` / `nextAction: "stop"`, and never contradicts what `run resume` does with that row.
+- [x] `run list` and `run wait` report `reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the surviving mutation text plus source file and line.
+- [x] The final `loop_finished` record reports the same mutation details and resumability, and `run resume` accepts that failed workflow row.
+- [x] No persisted terminal observation combines `runStatus: "completed"` with `resumable: true`.
+- [x] A regression in `v2/src/execution/workflow-runner.test.ts` drives mutation finalization after the earlier completion boundary, fails against the baseline, and asserts durable `failed` status plus resumable terminal details.
+- [x] Updated daemon cases in `v2/src/daemon/daemon-start-list.test.ts`, `v2/src/daemon/daemon-wait-run-completion.test.ts`, `v2/src/daemon/run-operator-error.test.ts`, and `v2/src/daemon/daemon-resume.test.ts` pin consistent list, wait, error, and resume behavior.
+- [x] A genuine completion remains `completed`, non-resumable, and free of surviving-mutation remediation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/state-store.md`, `v2/docs/workflow-runner.md`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` describe the failed/resumable settlement, terminal invariant, diagnostics, and recovery.
 
 ## Documentation updates
 

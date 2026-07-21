@@ -30,6 +30,9 @@ export type LoopFinishedEvent = {
   publicationFailure?: PublicationFailure;
   prNumber?: number;
   prUrl?: string;
+  survivingMutation?: string;
+  survivingMutationSourceFile?: string;
+  survivingMutationSourceLine?: number;
 };
 
 export type RunExecutionFailedEvent = {

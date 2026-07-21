@@ -60,6 +60,35 @@ export class SurvivingMutationError extends Error {
   }
 }
 
+export type SurvivingMutationLogFields = {
+  survivingMutation?: string;
+  survivingMutationSourceFile?: string;
+  survivingMutationSourceLine?: number;
+};
+
+export function survivingMutationLogFields(
+  source: Error | SurvivingMutationLogFields | undefined,
+): SurvivingMutationLogFields {
+  if (source === undefined) return {};
+  if (source instanceof SurvivingMutationError) {
+    return {
+      survivingMutation: source.mutation,
+      survivingMutationSourceFile: source.sourceSiteFile,
+      survivingMutationSourceLine: source.sourceSiteLine,
+    };
+  }
+  if (source instanceof Error) return {};
+  const fields: SurvivingMutationLogFields = {};
+  if (source.survivingMutation !== undefined) fields.survivingMutation = source.survivingMutation;
+  if (source.survivingMutationSourceFile !== undefined) {
+    fields.survivingMutationSourceFile = source.survivingMutationSourceFile;
+  }
+  if (source.survivingMutationSourceLine !== undefined) {
+    fields.survivingMutationSourceLine = source.survivingMutationSourceLine;
+  }
+  return fields;
+}
+
 export class RuntimeSmokeFailedError extends Error {
   constructor(
     readonly command: string,

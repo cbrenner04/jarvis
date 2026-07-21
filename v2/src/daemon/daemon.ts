@@ -333,7 +333,11 @@ const UNSUPPORTED_RESUME_ERROR = {
 } as const;
 
 function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolean {
-  return loopOutcomeKind === "completion_commit_failed" || loopOutcomeKind === "ready_gate_failed";
+  return (
+    loopOutcomeKind === "completion_commit_failed" ||
+    loopOutcomeKind === "ready_gate_failed" ||
+    loopOutcomeKind === "surviving_mutation_failed"
+  );
 }
 
 function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {

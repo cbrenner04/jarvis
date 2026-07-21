@@ -160,6 +160,34 @@ test("resume retries a completed run after a resumable publication failure", asy
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
+test("resume retries a failed run after surviving mutation verification", async () => {
+  const runId = createWorkflowRun({ invocationId: "surviving-mutation-retry" });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 3,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        },
+      },
+    ],
+    async *follow() {},
+  };
+  const localHandlers = createHandlers(logReader);
+
+  expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+});
+
 test("resume on an ad-hoc paused run returns resume_unsupported without invoking the executor", async () => {
   const pausedRunId = stateStore.createRun({
     project: "test-project",

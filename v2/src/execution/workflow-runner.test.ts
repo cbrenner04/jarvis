@@ -32,7 +32,7 @@ import {
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { landPublication } from "./publication-landing.ts";
-import { ReadyGateError } from "./ready-finalize.ts";
+import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -1885,6 +1885,41 @@ describe("executeWorkflow completion publication", () => {
         }
       });
     }
+  });
+
+  test("settles surviving_mutation_failed as durable failed with resumable terminal details after completion boundary", async () => {
+    const step = createStep({
+      stepId: "publish-surviving-mutation",
+      role: "implement",
+      branchName: "publish-surviving-mutation",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.survivingMutation).toBe("operator-flip: === → !==");
+      expect(result.survivingMutationSourceFile).toBe("src/guard.ts");
+      expect(result.survivingMutationSourceLine).toBe(17);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "surviving_mutation_failed",
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/guard.ts",
+        survivingMutationSourceLine: 17,
+      });
+    });
   });
 
   test("surfaces PR number when flip failure occurs after successful publication", async () => {

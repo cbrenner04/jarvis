@@ -1193,14 +1193,18 @@ describe("write loop", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
-      expect(result.resumable).toBe(false);
+      expect(result.resumable).toBe(true);
       expect(result.survivingMutation).toBe("operator-flip: === → !==");
       expect(result.survivingMutationSourceFile).toBe("src/test.ts");
       expect(result.survivingMutationSourceLine).toBe(42);
+      expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "surviving_mutation_failed",
-        resumable: false,
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/test.ts",
+        survivingMutationSourceLine: 42,
       });
     });
 

@@ -26,12 +26,15 @@ function attempt(outcomeKind: Attempt["outcomeKind"], detail: Attempt["invocatio
   };
 }
 
-function loopFinished(loopOutcomeKind: WriteLoopOutcomeKind): TerminalLogRecord {
+function loopFinished(
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  extra: Partial<Extract<TerminalLogRecord["event"], { kind: "loop_finished" }>> = {},
+): TerminalLogRecord {
   return {
     runId: "run-1",
     seq: 1,
     ts: "2026-01-01T00:00:00.000Z",
-    event: { kind: "loop_finished", loopOutcomeKind, iterationsConsumed: 1, resumable: false },
+    event: { kind: "loop_finished", loopOutcomeKind, iterationsConsumed: 1, resumable: false, ...extra },
   };
 }
 
@@ -164,10 +167,26 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
   ).toEqual(err("model_config", "fix_config"));
 });
 
-test("composeRunOperatorError maps ready gate and flip failures from loop_finished", () => {
+test("composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished", () => {
+  const survivingMutation = {
+    survivingMutation: "flip === to !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 12,
+  } as const;
   expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_gate_failed"))).toEqual(
     err("ready_gate_failed", "resume", true),
   );
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("surviving_mutation_failed", { resumable: true, ...survivingMutation }),
+    ),
+  ).toEqual({
+    reason: "surviving_mutation_failed",
+    retryable: true,
+    nextAction: "resume",
+    ...survivingMutation,
+  });
   expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_flip_failed"))).toEqual(
     err("ready_flip_failed", "stop", false),
   );

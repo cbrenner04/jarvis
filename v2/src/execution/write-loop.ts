@@ -23,6 +23,7 @@ import {
   ReadyGateError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
+  survivingMutationLogFields,
 } from "./ready-finalize.ts";
 import { verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
@@ -183,6 +184,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             title: creationTitle,
           });
           if (published.commitSha !== undefined) {
+            store.setRunStatus(prepared.result.runId, "in-progress");
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
@@ -199,9 +201,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
               };
               return publication.failure.kind === "completion_commit_failed"
-                ? completionCommitFailed(args, publishedResult, publication.failure.error)
-                : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+                ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
+                : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
             }
+            store.setRunStatus(prepared.result.runId, "completed");
             if (
               publication.success !== undefined &&
               publication.success.prNumber !== undefined &&
@@ -217,6 +220,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             if (uncommitted.length > 0) {
               return completionCommitFailed(
                 args,
+                store,
                 prepared.result,
                 new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
               );
@@ -237,6 +241,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         } catch (error) {
           return completionCommitFailed(
             args,
+            store,
             prepared.result,
             error instanceof Error ? error : new Error(String(error)),
           );
@@ -430,7 +435,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
         return loopResult;
       }
-      if (!agent) return completionCommitFailed(args, attributed);
+      if (!agent) return completionCommitFailed(args, store, attributed);
       try {
         const creationTitle = resolveAndPersistCreationTitle(
           store,
@@ -447,6 +452,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           title: creationTitle,
         });
         if (published.commitSha !== undefined) {
+          store.setRunStatus(runId, "in-progress");
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
             worktreePath,
             baseRef: args.worktree.baseRef,
@@ -466,9 +472,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
             };
             return publication.failure.kind === "completion_commit_failed"
-              ? completionCommitFailed(args, publishedResult, publication.failure.error)
-              : readyFailed(args, publishedResult, publication.failure.kind, publication.failure.error);
+              ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
+              : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
           }
+          store.setRunStatus(runId, "completed");
           if (
             publication.success !== undefined &&
             publication.success.prNumber !== undefined &&
@@ -484,6 +491,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           if (uncommitted.length > 0) {
             return completionCommitFailed(
               args,
+              store,
               attributed,
               new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
             );
@@ -502,7 +510,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
         return withBoundaryTelemetry(args, attributed, published.commitSha, published.filesChanged);
       } catch (error) {
-        return completionCommitFailed(args, attributed, error instanceof Error ? error : new Error(String(error)));
+        return completionCommitFailed(args, store, attributed, error instanceof Error ? error : new Error(String(error)));
       }
     }
 
@@ -1112,7 +1120,13 @@ export async function publishCompletionArtifacts(
   };
 }
 
-function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, error?: Error): WriteLoopResult {
+function completionCommitFailed(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  error?: Error,
+): WriteLoopResult {
+  store.setRunStatus(result.runId, "completed");
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
@@ -1134,30 +1148,27 @@ function completionCommitFailed(args: WriteLoopInput, result: WriteLoopResult, e
 
 function readyFailed(
   args: WriteLoopInput,
+  store: StateStore,
   result: WriteLoopResult,
   kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed" | "runtime_smoke_failed",
   error?: Error,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
-  const resumable = kind === "ready_gate_failed";
+  const resumable = kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+  const mutationFields = survivingMutationLogFields(error);
+  if (kind === "surviving_mutation_failed" || kind === "ready_gate_failed") {
+    store.setRunStatus(result.runId, "failed");
+  }
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
     iterationsConsumed: result.iterationsConsumed,
     resumable,
+    ...mutationFields,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
-
-  const mutationDetails =
-    error instanceof SurvivingMutationError
-      ? {
-          survivingMutation: error.mutation,
-          survivingMutationSourceFile: error.sourceSiteFile,
-          survivingMutationSourceLine: error.sourceSiteLine,
-        }
-      : {};
 
   const smokeDetails =
     error instanceof RuntimeSmokeFailedError
@@ -1179,7 +1190,7 @@ function readyFailed(
             ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
           }
         : {}),
-    ...mutationDetails,
+    ...mutationFields,
     ...smokeDetails,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   };

@@ -32,11 +32,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import {
-  cleanupVerdictFile,
-  excludeVerdictFromStaging,
-  executeReviewCycleEnforced,
-} from "./review-intent-enforcement.ts";
+import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -1546,7 +1542,6 @@ async function landReviewedPublicationOutput(
       rmSync(ownerPath, { force: true });
     }
     await landPublication(deferred, worktreePath);
-    if (deferred.kind === "intent-stage") cleanupVerdictFile(verdictPath);
     return undefined;
   } catch (error) {
     if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");

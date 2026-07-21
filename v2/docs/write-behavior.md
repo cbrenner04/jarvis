@@ -736,8 +736,10 @@ cycle), and commits actuator edits through the same completion committer as
 implement write edits. Empty or already-complete indexes, and any non-`complete`
 implement or shrink outcome, skip the review without hard-fail.
 The same completion snapshot includes the final `verdict-patch.md` verbatim,
-including a zero-byte verdict; publication retries reuse the completed review
-checkpoint rather than invoking review roles again.
+including a zero-byte verdict. Implement review has no landing, so it records no
+landing checkpoint: a publication retry re-enters the review step rather than
+resuming past it. Checkpoint reuse applies to landed reviews (`plan-tree` and
+`intent-stage`), and only on a retry — a fresh dispatch re-runs review.
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 

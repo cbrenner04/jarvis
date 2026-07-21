@@ -4333,6 +4333,48 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(criticCalls).toBe(2);
   });
 
+  test("reuses a completed debate landing checkpoint on retry but not on a fresh dispatch", async () => {
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-debate-fresh-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-debate-fresh");
+    let adjudicatorCalls = 0;
+    const stagePlan = () => {
+      mkdirSync(stage, { recursive: true });
+      writeFileSync(join(stage, "index.md"), "# Index", "utf8");
+      writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
+      writeFileSync(join(stage, "01-test.md"), "# Test", "utf8");
+      writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
+    };
+    const step = createDebateStep({
+      stepId: "review-debate",
+      cwd: root,
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ADJ") adjudicatorCalls += 1;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      // A retry re-enters the completed checkpoint and must not re-invoke the debate roles.
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      // A fresh dispatch is a new invocation and must run the debate again.
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store, freshDispatch: true })).toMatchObject({
+        kind: "complete",
+      });
+      expect(adjudicatorCalls).toBe(2);
+    });
+  });
+
   test("lands a reviewed debate plan tree with its final empty verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
     roots.push(root);

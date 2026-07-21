@@ -384,6 +384,42 @@ describe("buildImplementWorkflowSteps", () => {
     });
   });
 
+  test("derives branchName from the spec directory only when projectRoot is supplied", async () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const machineProfile = writeValidProfile();
+    const deps = {
+      loadWorkflowSteps: (steps: Parameters<typeof loadWorkflowSteps>[0]) =>
+        loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      resolveActiveLinkedSubspec: terminalLinkedSubspec,
+    };
+
+    // projectRoot present and branchName omitted: derived from the spec's directory.
+    const derived = await buildImplementWorkflowSteps(
+      {
+        ...INPUT_PROJECT_ROOT,
+        branchName: undefined,
+        specPath: "spec/20260101T000000Z-example/index.md",
+      } as unknown as typeof INPUT_PROJECT_ROOT,
+      deps,
+    );
+    expect(derived.ok).toBe(true);
+    if (!derived.ok) return;
+    const derivedStep = derived.steps[0];
+    if (derivedStep?.behavior !== "write") return;
+    expect(derivedStep.worktree.branchName).toBe("20260101T000000Z-example");
+
+    // resolveProjectMatch path (no projectRoot): branchName is passed through, never derived.
+    const passedThrough = await buildImplementWorkflowSteps(
+      { ...INPUT, branchName: "explicit-branch" },
+      { ...deps, resolveProjectMatch: () => PROJ_MATCH },
+    );
+    expect(passedThrough.ok).toBe(true);
+    if (!passedThrough.ok) return;
+    const passedStep = passedThrough.steps[0];
+    if (passedStep?.behavior !== "write") return;
+    expect(passedStep.worktree.branchName).toBe("explicit-branch");
+  });
+
   test("builds a project-relative write step from the source checkout before its worktree exists", async () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-project-"));
     mkdirSync(join(root, "spec"));

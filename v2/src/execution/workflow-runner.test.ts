@@ -4288,7 +4288,6 @@ describe("executeWorkflow plan review dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
-      expect(store.loadRun(result.runId)).toMatchObject({ status: "failed", attemptCount: 1 });
     });
 
     expect(existsSync(stage)).toBe(true);

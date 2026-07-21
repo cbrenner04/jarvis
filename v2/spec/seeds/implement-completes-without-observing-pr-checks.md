@@ -7,9 +7,19 @@ criteria, a completion commit, PR evidence, a green **local** ready gate, mutati
 verification. Nothing in `v2/src` or `shared/` ever reads the PR's remote check status —
 `grep -rn "statusCheckRollup\|gh pr checks" v2/src shared` returns nothing.
 
-So a run completes, flips the PR draft → ready, and the operator opens a PR with red CI. Observed
-2026-07-20: "implement is creating drafts with failing checks. runs are labeled complete but if I
-see a PR in that state, that's not what I would expect."
+So a run can complete, flip the PR draft → ready, and leave the operator a PR with red CI.
+
+**Scope correction (2026-07-21).** The operator-reported symptom — "implement is creating drafts
+with failing checks; runs are labeled complete" — was chased to ground on two runs that night and
+turned out to have a *different* cause: both runs genuinely failed their mutation gate and correctly
+stayed draft, while `run list` misreported them as `completed`. That is ready-intent
+`surviving-mutation-failure-is-resumable-failed`, not this seed.
+
+What remains here is the narrower, still-real structural gap: nothing reads remote check status, so
+a local-green / CI-red divergence would go unobserved. Treat this as unproven-in-practice — the
+local gate is base-scoped while CI scopes by changed path, which makes divergence *possible*, but no
+run has yet been observed completing over red CI once the reporting bug is accounted for. Confirm a
+real divergence before spending much on it.
 
 Local-green / CI-red is structurally reachable: the local gate is base-scoped
 (`JARVIS_READY_TEST_SCOPE` from a three-dot diff) while CI scopes by changed path

@@ -46,8 +46,15 @@ async function branchDiff(cwd: string, baseBranch: string, runner: AsyncSubproce
   try {
     const mergeBase = (await runner.runAsync("git", ["merge-base", baseBranch, "HEAD"], cwd)).trim();
     const stat = (await runner.runAsync("git", ["diff", "--stat", mergeBase, "HEAD"], cwd)).trim();
-    const paths = (await runner.runAsync("git", ["diff", "--name-only", mergeBase, "HEAD"], cwd)).trim();
-    return `${stat || "(no changes)"}${paths ? `\n\nChanged paths:\n${paths.split("\n").filter(Boolean).sort().join("\n")}` : ""}`;
+    const paths = (await runner.runAsync("git", ["diff", "--name-only", mergeBase, "HEAD"], cwd))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const summary = stat || "(no changes)";
+    const orientation = paths.length === 0 ? summary : `${summary}\n\nChanged paths:\n${paths.join("\n")}`;
+    const unified = (await runner.runAsync("git", ["diff", mergeBase, "HEAD"], cwd)).trim();
+    return unified ? `${orientation}\n\n${unified}` : orientation;
   } catch (error) {
     return `(failed to generate diff: ${error instanceof Error ? error.message : String(error)})`;
   }

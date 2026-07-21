@@ -463,11 +463,10 @@ separate orders, not one order applied to all four roles. Before dispatch,
 via the same two-axis resolution `write` steps use, then passes the four
 per-role binding sets to `executeReviewDebate`.
 
-**Patch review prompt rendering:** `v2/src/execution/review-debate-render.ts`
-binds the three read-only roles to `patch.prompt.review.adversary`,
-`.advocate`, and `.adjudicator`. Each cycle renders those templates with the
-executed spec tree, a branch change summary (`git diff --stat` plus changed
-paths), the pass number, and `REVIEW_PASS_CONTEXT`. Within a cycle, the
+**Patch review prompt rendering:** `shared/prompts/review-implement.ts` renders critic and
+debate roles (`patch.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator`) with the
+executed spec tree, merge-base `BRANCH_DIFF` (stat, changed paths, unified diff), pass number,
+and `REVIEW_PASS_CONTEXT`. Within a cycle, the
 adversary's stdout is injected as `ADVERSARY_FINDINGS` for the advocate, and
 the advocate's stdout as `ADVOCATE_RESPONSE` for the adjudicator. Across
 cycles, the prior cycle's adjudicator verdict is carried in

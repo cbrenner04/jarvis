@@ -2,7 +2,7 @@
 id: patch.prompt.review.critic
 behavior: patch
 kind: step
-revision: 1
+revision: 2
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---
 # Patch Mode — Review: Critic
@@ -19,9 +19,9 @@ The text between `<<<SPEC_BEGIN>>>` and `<<<SPEC_END>>>` is the completed spec. 
 <SPEC_TREE>
 <<<SPEC_END>>>
 
-## Branch change summary
+## Branch diff
 
-The text between `<<<DIFF_BEGIN>>>` and `<<<DIFF_END>>>` is a branch change summary (`git diff --stat` plus changed paths) for this branch against the base branch — not a unified diff.
+The text between `<<<DIFF_BEGIN>>>` and `<<<DIFF_END>>>` is the merge-base branch diff: stat, changed paths, then the unified diff from `git merge-base <base> HEAD` and `git diff <mergeBase> HEAD`.
 
 <<<DIFF_BEGIN>>>
 <BRANCH_DIFF>

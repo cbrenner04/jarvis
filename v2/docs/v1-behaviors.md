@@ -607,6 +607,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 ## v2 Parity: Async workflow and review Git
 
 - **v2-ported with async contract change:** Shrink changed-file discovery, patch-review branch-diff rendering (`merge-base`, `diff --stat`, `diff --name-only`), and review-enforcement tree checks (`git status`, `checkout --`, `clean -fd`) preserve output encoding, `maxBuffer`, trimming, ignored stdio, failure fallbacks, and sequential restore order. **v2 implementation detail:** daemon-reachable workflow/review paths await Git through `AsyncSubprocessRunner` so IPC stays responsive during review rendering and boundary enforcement. User-observable review boundaries, verdict handling, and restoration semantics are unchanged. Sources: `v2/src/execution/workflow-runner.ts`, `v2/src/execution/review-debate-render.ts`, `v2/src/execution/review-intent-enforcement.ts`, `shared/subprocess.ts`
+- **[v2 additive]** v2 implement review `BRANCH_DIFF` adds merge-base unified diff to stat/path orientation (`shared/prompts/review-implement.ts` `branchDiff`); diverges from patch-review branch-diff rendering above (stat/name-only via `v1/src/modes/patch/prompt.ts` `getBranchDiffSummary`). Sources: `shared/prompts/review-implement.ts`, `v1/src/modes/patch/prompt.ts`, `v2/src/execution/implement-workflow-steps.ts`
 
 ## v2 Parity: Async intent-output Git
 

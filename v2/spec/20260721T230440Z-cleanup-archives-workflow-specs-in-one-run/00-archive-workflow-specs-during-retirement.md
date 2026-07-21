@@ -18,16 +18,16 @@
 
 ## Acceptance criteria
 
-- [ ] One confirmed `jarvis cleanup` retires a workflow-produced worktree and archives its eligible completed spec without reporting `no durable spec identity`; an immediate second cleanup archives nothing new.
-- [ ] A `v2/src/commands/cleanup.test.ts` regression uses a durable run row with non-null `stepId`, fails against the pre-fix code, and passes after the change.
-- [ ] An incomplete workflow-produced spec remains in its open home and cleanup names its unchecked acceptance criterion.
-- [ ] `findRunByProjectBranch` callers select ad-hoc no-step runs explicitly, and `v2/src/persistence/state-store.test.ts` pins that lookup separately from step-scoped workflow rows.
-- [ ] Run-eligibility does not read runs through an optional-call fallback. `StateStore.listRuns()` is non-optional (`v2/src/persistence/state-store.ts:198`), so a `store.listRuns?.() ?? [store.findRunByProjectBranch({ …, stepId: null })]` fallback is unreachable, and were it reachable it would restore the ad-hoc-only lookup this spec exists to fix. Call `listRuns()` directly. **A prior attempt (PR #1921) stalled here**: the unreachable fallback left an uncovered branch and the run ended `surviving_mutation_failed` on `operator-flip: === → !==` at `v2/src/commands/cleanup.ts:161`.
-- [ ] `v2/src/commands/cleanup.test.ts` retirement-failure, open-PR/other-owner, and consumed-intent coverage stays green.
-- [ ] `v2/src/commands/cleanup-artifacts.test.ts` durable-row and transactional archival coverage stays green.
-- [ ] `v2/docs/operator-runbook.md` states that eligible retired workflow specs archive in the same cleanup invocation, with no rerun implication for that path.
-- [ ] `v2/docs/v1-behaviors.md` records the corrected v2 retirement-archival behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] One confirmed `jarvis cleanup` retires a workflow-produced worktree and archives its eligible completed spec without reporting `no durable spec identity`; an immediate second cleanup archives nothing new.
+- [x] A `v2/src/commands/cleanup.test.ts` regression uses a durable run row with non-null `stepId`, fails against the pre-fix code, and passes after the change.
+- [x] An incomplete workflow-produced spec remains in its open home and cleanup names its unchecked acceptance criterion.
+- [x] `findRunByProjectBranch` callers select ad-hoc no-step runs explicitly, and `v2/src/persistence/state-store.test.ts` pins that lookup separately from step-scoped workflow rows.
+- [x] Run-eligibility does not read runs through an optional-call fallback. `StateStore.listRuns()` is non-optional (`v2/src/persistence/state-store.ts:198`), so a `store.listRuns?.() ?? [store.findRunByProjectBranch({ …, stepId: null })]` fallback is unreachable, and were it reachable it would restore the ad-hoc-only lookup this spec exists to fix. Call `listRuns()` directly. **A prior attempt (PR #1921) stalled here**: the unreachable fallback left an uncovered branch and the run ended `surviving_mutation_failed` on `operator-flip: === → !==` at `v2/src/commands/cleanup.ts:161`.
+- [x] `v2/src/commands/cleanup.test.ts` retirement-failure, open-PR/other-owner, and consumed-intent coverage stays green.
+- [x] `v2/src/commands/cleanup-artifacts.test.ts` durable-row and transactional archival coverage stays green.
+- [x] `v2/docs/operator-runbook.md` states that eligible retired workflow specs archive in the same cleanup invocation, with no rerun implication for that path.
+- [x] `v2/docs/v1-behaviors.md` records the corrected v2 retirement-archival behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

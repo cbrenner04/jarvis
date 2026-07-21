@@ -470,8 +470,9 @@ finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 `jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
 The eligibility gate decides whether a worktree is safe to remove.
 
-After Git retires a workspace, cleanup resolves its recorded spec path back to the
-configured v2 spec home and then archives a complete artifact to `completed/`.
+After Git retires a workspace, cleanup resolves its durable workflow or ad-hoc spec
+identity and archives an eligible completed artifact to `completed/` in the same cleanup
+invocation; this path needs no rerun.
 It prunes `ready-intents/<spec-name>.md` only when it byte-matches `intent.md`.
 `--dry-run` lists the worktree, archive destination, and that proven prune without
 changing worktrees, branches, specs, intents, or run rows. A failed retirement does

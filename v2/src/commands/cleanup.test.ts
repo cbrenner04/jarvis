@@ -74,7 +74,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
     let stdout = "";
     const io = {
@@ -116,7 +116,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
     let stdout = "";
     const io = {
@@ -162,8 +162,12 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const run = {
       status: "completed",
       specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+      project: "project",
+      branch,
+      stepId: "implement",
+      worktreePath,
     };
-    const store: StateStore = { findRunByProjectBranch: () => run } as unknown as StateStore;
+    const store: StateStore = { findRunByProjectBranch: () => null, listRuns: () => [run] } as unknown as StateStore;
     const order: string[] = [];
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
@@ -196,6 +200,96 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
     expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(false);
     expect(stdout).toContain("pruned consumed ready-intent");
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+  });
+
+  test.each([
+    {
+      name: "reviewed implement",
+      branch: "implement/reviewed-archive",
+      stepId: "implement",
+      reviewStepId: "implement-review",
+      authoredSpecPath: (worktreePath: string, specName: string) =>
+        join(worktreePath, "v2", "spec", specName, "index.md"),
+      reviewSpecPath: (worktreePath: string, specName: string) =>
+        join(worktreePath, "v2", "spec", specName, "verdict-patch.md"),
+    },
+    {
+      name: "reviewed plan",
+      branch: "plan/reviewed-archive",
+      stepId: "plan",
+      reviewStepId: "review-debate",
+      authoredSpecPath: (_worktreePath: string, specName: string) => join("v2", "spec", specName),
+      reviewSpecPath: (worktreePath: string) => join(worktreePath, ".jarvis-plan-stage", "verdict-plan.md"),
+    },
+  ])("retires and archives the authored spec for a default $name workflow", async ({
+    branch,
+    stepId,
+    reviewStepId,
+    authoredSpecPath,
+    reviewSpecPath,
+  }) => {
+    const specName = "20260721T000000Z-reviewed-archive";
+    const { source } = createSpec(specName, "[x] Done");
+    const worktreePath = await materializeWorktree(branch, "reviewed spec");
+    const store: StateStore = {
+      listRuns: () =>
+        [
+          {
+            status: "completed",
+            project: "project",
+            branch,
+            stepId: reviewStepId,
+            worktreePath,
+            specPath: reviewSpecPath(worktreePath, specName),
+          },
+          {
+            status: "completed",
+            project: "project",
+            branch,
+            stepId,
+            worktreePath,
+            specPath: authoredSpecPath(worktreePath, specName),
+          },
+        ] as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list") return "[]";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (stdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
+    expect(stdout).not.toContain("no durable spec identity");
   });
 
   test("preserves artifacts when retirement fails and reports post-retirement archive refusals", async () => {
@@ -208,6 +302,16 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         status: "completed",
         specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
       }),
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
     } as unknown as StateStore;
     let failRemoval = true;
     let stdout = "";
@@ -265,6 +369,16 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         status: "completed",
         specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
       }),
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
     } as unknown as StateStore;
     let stdout = "";
     const mockRunner: AsyncSubprocessRunner = {
@@ -325,7 +439,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       },
     };
     const store: StateStore = {
-      findRunByProjectBranch: () => null,
       listRuns: () =>
         [complete, incomplete, open, owned].map((name) => ({
           project: "project",
@@ -432,7 +545,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       specPath: name === relative ? join("v2", "spec", name, "index.md") : join(home, name, "index.md"),
     }));
     const store: StateStore = {
-      findRunByProjectBranch: () => null,
       listRuns: () => runs as never[],
     } as unknown as StateStore;
     const mockRunner: AsyncSubprocessRunner = {
@@ -502,7 +614,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       daemonCalls += 1;
       return daemonCalls === 1 ? [] : [{ isLive: true }];
     };
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
     let stdout = "";
     const io = {
@@ -555,7 +667,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const daemonClient: DaemonClient = async () => {
       throw new Error("Daemon unreachable");
     };
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
     let stdout = "";
     const io = {
@@ -595,7 +707,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
     let stdout = "";
     const io = {

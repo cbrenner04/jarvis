@@ -668,7 +668,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   const existingRun = store.findRunByProjectBranch({
     project: args.worktree.projectName,
     branch: args.worktree.branchName,
-    ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
+    stepId: args.stepId ?? null,
   });
 
   if (existingRun === null || args.freshDispatch === true) {

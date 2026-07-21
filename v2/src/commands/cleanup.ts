@@ -157,8 +157,13 @@ export async function checkEligibility(
   }
 
   // Check durable run store for non-terminal runs
-  const run = store.findRunByProjectBranch({ project, branch });
-  if (run && !isBoundaryTerminalRunStatus(run.status)) {
+  const run = store
+    .listRuns()
+    .find(
+      (candidate) =>
+        candidate.project === project && candidate.branch === branch && !isBoundaryTerminalRunStatus(candidate.status),
+    );
+  if (run !== undefined) {
     return {
       status: "ineligible",
       reason: `Non-terminal run exists: status=${run.status}`,
@@ -214,9 +219,12 @@ function artifactForRetiredWorktree(
   projectRoot: string,
   store: StateStore,
 ): ArtifactSpec | undefined {
-  const run = store.findRunByProjectBranch({ project: candidate.project, branch: candidate.worktree.branch });
-  if (run === null || run === undefined) return undefined;
-  const source = sourceForRun(run, candidate.worktree.path, projectRoot);
+  const sources = store
+    .listRuns()
+    .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
+    .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot))
+    .filter((path): path is string => path !== undefined);
+  const source = sources.find((path) => existsSync(join(path, "index.md"))) ?? sources[0];
   if (source === undefined) return undefined;
   return {
     home: dirname(source),
@@ -329,7 +337,7 @@ function recordedStrandedBranch(
   projectRoot: string,
   store: StateStore,
 ): string | undefined {
-  for (const run of store.listRuns?.() ?? []) {
+  for (const run of store.listRuns()) {
     if (run.project !== artifact.project) continue;
     const source = sourceForRun(run, run.worktreePath, projectRoot);
     if (source === undefined) continue;

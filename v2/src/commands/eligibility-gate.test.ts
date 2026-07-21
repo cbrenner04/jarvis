@@ -23,7 +23,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
         // Other methods not needed for this test
       } as unknown as StateStore;
 
@@ -61,7 +61,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test-branch" };
@@ -94,7 +94,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const candidate: DiscoveredWorktree = { path: "/path", branch };
@@ -131,7 +131,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const candidate: DiscoveredWorktree = { path: "/path", branch: "my-branch" };
@@ -167,18 +167,20 @@ describe("checkEligibility: eligibility gate", () => {
 
       // Test 1: non-terminal run (in-progress)
       const storeWithNonTerminal: StateStore = {
-        findRunByProjectBranch: () => ({
-          id: "run-1",
-          project: "project",
-          specRef: "spec",
-          createdAt: Date.now(),
-          status: "in-progress",
-          attemptCount: 1,
-          worktreePath: "/path",
-          branch,
-          specPath: "/spec/path.md",
-          attempts: [],
-        }),
+        listRuns: () => [
+          {
+            id: "run-1",
+            project: "project",
+            specRef: "spec",
+            createdAt: Date.now(),
+            status: "in-progress",
+            attemptCount: 1,
+            worktreePath: "/path",
+            branch,
+            specPath: "/spec/path.md",
+            attempts: [],
+          },
+        ],
       } as unknown as StateStore;
 
       const result1 = await checkEligibility(candidate, "project", runner, daemonClient, storeWithNonTerminal);
@@ -186,18 +188,20 @@ describe("checkEligibility: eligibility gate", () => {
 
       // Test 2: terminal run (completed)
       const storeWithTerminal: StateStore = {
-        findRunByProjectBranch: () => ({
-          id: "run-2",
-          project: "project",
-          specRef: "spec",
-          createdAt: Date.now(),
-          status: "completed",
-          attemptCount: 1,
-          worktreePath: "/path",
-          branch,
-          specPath: "/spec/path.md",
-          attempts: [],
-        }),
+        listRuns: () => [
+          {
+            id: "run-2",
+            project: "project",
+            specRef: "spec",
+            createdAt: Date.now(),
+            status: "completed",
+            attemptCount: 1,
+            worktreePath: "/path",
+            branch,
+            specPath: "/spec/path.md",
+            attempts: [],
+          },
+        ],
       } as unknown as StateStore;
 
       const result2 = await checkEligibility(candidate, "project", runner, daemonClient, storeWithTerminal);
@@ -217,7 +221,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const daemonClient: DaemonClient = async () => [];
@@ -251,18 +255,20 @@ describe("checkEligibility: eligibility gate", () => {
         "killed",
       ] as const) {
         const store: StateStore = {
-          findRunByProjectBranch: () => ({
-            id: "run",
-            project: "project",
-            specRef: "spec",
-            createdAt: Date.now(),
-            status,
-            attemptCount: 1,
-            worktreePath: "/path",
-            branch: "test",
-            specPath: "/spec.md",
-            attempts: [],
-          }),
+          listRuns: () => [
+            {
+              id: "run",
+              project: "project",
+              specRef: "spec",
+              createdAt: Date.now(),
+              status,
+              attemptCount: 1,
+              worktreePath: "/path",
+              branch: "test",
+              specPath: "/spec.md",
+              attempts: [],
+            },
+          ],
         } as unknown as StateStore;
 
         const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
@@ -272,18 +278,20 @@ describe("checkEligibility: eligibility gate", () => {
       // Terminal statuses that should make eligible (when no other issues)
       for (const status of ["completed", "blocked", "failed"] as const) {
         const store: StateStore = {
-          findRunByProjectBranch: () => ({
-            id: "run",
-            project: "project",
-            specRef: "spec",
-            createdAt: Date.now(),
-            status,
-            attemptCount: 1,
-            worktreePath: "/path",
-            branch: "test",
-            specPath: "/spec.md",
-            attempts: [],
-          }),
+          listRuns: () => [
+            {
+              id: "run",
+              project: "project",
+              specRef: "spec",
+              createdAt: Date.now(),
+              status,
+              attemptCount: 1,
+              worktreePath: "/path",
+              branch: "test",
+              specPath: "/spec.md",
+              attempts: [],
+            },
+          ],
         } as unknown as StateStore;
 
         const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
@@ -304,7 +312,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test" };
@@ -327,7 +335,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => {
+        listRuns: () => {
           throw new Error("Database error");
         },
       } as unknown as StateStore;
@@ -359,7 +367,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const daemonClient: DaemonClient = async () => [];
@@ -380,7 +388,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const daemonClient: DaemonClient = async () => [];
@@ -406,7 +414,7 @@ describe("checkEligibility: eligibility gate", () => {
       };
 
       const store: StateStore = {
-        findRunByProjectBranch: () => null,
+        listRuns: () => [],
       } as unknown as StateStore;
 
       const capturingClient: DaemonClient = async (project, branch) => {

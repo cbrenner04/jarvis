@@ -273,7 +273,7 @@ test("list returns workflow step snapshots for live, stopped, and completed work
     const run = stateStore.findRunByProjectBranch({
       project: input.worktree.projectName,
       branch: input.worktree.branchName,
-      ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
+      stepId: input.stepId ?? null,
     });
     if (run && run.attempts.length === 0) {
       stateStore.recordAttemptStart(run.id);

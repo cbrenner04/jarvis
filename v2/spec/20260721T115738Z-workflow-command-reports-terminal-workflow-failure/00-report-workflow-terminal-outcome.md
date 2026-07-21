@@ -30,10 +30,10 @@ Completes deferred entry-row outcome projection left by [`01-daemon-wait-list-ro
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` regression `workflow entry wait and list report surviving_mutation_failed from hidden shrink after implement completes` drives implement `completed` plus shrink `surviving_mutation_failed`, asserts entry `wait` and entry `list` report `runStatus: "failed"`, `loopOutcomeKind: "surviving_mutation_failed"`, mutation detail, `resumable: false`, and owner-sourced `error.reason`; and fails against the pre-fix code.
-- [ ] The same regression asserts entry `list` exposes mutation detail and does not report `nextAction: "resume"` on the entry row (recovery is on the owning shrink row per operator-runbook).
-- [ ] Entry `wait`/`list` for a genuinely completed multi-run implement workflow (implement plus hidden shrink both `completed`, rollup `completed`) still report `loopOutcomeKind: "complete"` and exit `0`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` regression `workflow entry wait and list report surviving_mutation_failed from hidden shrink after implement completes` drives implement `completed` plus shrink `surviving_mutation_failed`, asserts entry `wait` and entry `list` report `runStatus: "failed"`, `loopOutcomeKind: "surviving_mutation_failed"`, mutation detail, `resumable: false`, and owner-sourced `error.reason`; and fails against the pre-fix code.
+- [x] The same regression asserts entry `list` exposes mutation detail and does not report `nextAction: "resume"` on the entry row (recovery is on the owning shrink row per operator-runbook).
+- [x] Entry `wait`/`list` for a genuinely completed multi-run implement workflow (implement plus hidden shrink both `completed`, rollup `completed`) still report `loopOutcomeKind: "complete"` and exit `0`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

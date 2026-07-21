@@ -45,7 +45,8 @@ import {
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
+import { rollupWorkflowRunStatus, workflowStoppingRun } from "./workflow-run-status-rollup.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 type WorktreeOwnership = {
   runId: string;
@@ -320,7 +321,7 @@ function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
 
 function runListReviewFields(snapshot: WorkflowSnapshot | undefined): {
   reviewPasses?: number;
-  reviewBehavior?: string;
+  reviewBehavior?: "debate" | "light";
 } {
   return {
     ...(snapshot?.reviewPasses !== undefined ? { reviewPasses: snapshot.reviewPasses } : {}),
@@ -523,17 +524,27 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
-  const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
+  const resultFrom = (
+    runId: string,
+    runStatus: RunStatus,
+    record?: TerminalLogRecord,
+    outcomeRun?: LoadedRun,
+  ): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
     const resumeContext = run
       ? resumeContextForRun(run, record?.event.kind === "loop_finished" ? record.event.loopOutcomeKind : undefined)
       : undefined;
-    const error =
+    const composedError =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
         : run
-          ? composeRunOperatorError(run, record)
+          ? composeRunOperatorError(outcomeRun ?? run, record)
           : undefined;
+    const projectedOutcome = outcomeRun !== undefined && outcomeRun.id !== runId;
+    const error =
+      composedError !== undefined && projectedOutcome
+        ? { ...composedError, retryable: false, nextAction: "stop" as const }
+        : composedError;
     const unsupportedResume = resumeContext?.ok === false;
     const base: WaitRunCompletionResult =
       record?.event.kind === "loop_finished"
@@ -541,11 +552,34 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             runStatus,
             loopOutcomeKind: record.event.loopOutcomeKind,
             iterationsConsumed: record.event.iterationsConsumed,
-            resumable: unsupportedResume ? false : record.event.resumable,
+            resumable: unsupportedResume || projectedOutcome ? false : record.event.resumable,
           }
         : { runStatus };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
+  };
+
+  const workflowOutcomeProjection = (
+    entryRun: LoadedRun,
+    snapshot: WorkflowSnapshot,
+    rollupStatus: RunStatus,
+  ): { record: TerminalLogRecord | undefined; outcomeRun: LoadedRun | undefined } => {
+    const entryRecord = findTerminalLogRecord(logReader?.tail(entryRun.id) ?? []);
+    if (!isTerminalRunStatus(rollupStatus) || entryRecord?.event.kind !== "loop_finished") {
+      return { record: entryRecord, outcomeRun: undefined };
+    }
+    const siblingRuns = store.findRunsByInvocationId(snapshot.invocationId);
+    const stoppingRun = workflowStoppingRun({ workflowSnapshot: snapshot, siblingRuns });
+    if (!stoppingRun || stoppingRun.id === entryRun.id) return { record: entryRecord, outcomeRun: undefined };
+    const stoppingRecord = findTerminalLogRecord(logReader?.tail(stoppingRun.id) ?? []);
+    if (
+      stoppingRecord?.event.kind !== "loop_finished" ||
+      stoppingRecord.event.loopOutcomeKind !== "surviving_mutation_failed" ||
+      stoppingRecord.event.loopOutcomeKind === entryRecord.event.loopOutcomeKind
+    ) {
+      return { record: entryRecord, outcomeRun: undefined };
+    }
+    return { record: stoppingRecord, outcomeRun: store.loadRun(stoppingRun.id) ?? undefined };
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
@@ -874,10 +908,25 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     reportedStatus: RunStatus,
     workflowRuns: Map<string, Map<string, LoadedRun>>,
     liveRunIds: Set<string>,
-  ) => {
+  ): DaemonListRunRow => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
-    const terminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
-    const error = runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+    const entrySnapshot = workflowEntrySnapshot(fullRun);
+    const projection =
+      fullRun !== undefined && entrySnapshot !== undefined
+        ? workflowOutcomeProjection(fullRun, entrySnapshot, reportedStatus)
+        : { record: findTerminalLogRecord(logReader?.tail(run.id) ?? []), outcomeRun: undefined };
+    const terminalRecord = projection.record;
+    const composedError = projection.outcomeRun
+      ? composeRunOperatorError(projection.outcomeRun, terminalRecord)
+      : runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+    const error =
+      composedError !== undefined && projection.outcomeRun !== undefined
+        ? { ...composedError, retryable: false, nextAction: "stop" as const }
+        : composedError;
+    const workflow =
+      fullRun !== undefined && snapshot !== undefined
+        ? workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation)
+        : undefined;
 
     return {
       runId: run.id,
@@ -886,10 +935,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       status: reportedStatus,
       isLive,
       ...(error !== undefined ? { error } : {}),
-      ...runListReviewFields(snapshot),
-      ...(fullRun !== undefined && snapshot !== undefined
-        ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
+      ...(terminalRecord?.event.kind === "loop_finished"
+        ? {
+            loopOutcomeKind: terminalRecord.event.loopOutcomeKind,
+            iterationsConsumed: terminalRecord.event.iterationsConsumed,
+            resumable: projection.outcomeRun !== undefined ? false : terminalRecord.event.resumable,
+          }
         : {}),
+      ...runListReviewFields(snapshot),
+      ...(workflow !== undefined ? { workflow } : {}),
       ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       ...runListPrEvidence(run),
     };
@@ -1059,8 +1113,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
     });
-    const terminalRecord = findTerminalLogRecord(reader.tail(run.id));
-    return { kind: "response", result: resultFrom(run.id, rollupStatus, terminalRecord) };
+    const projection = workflowOutcomeProjection(run, snapshot, rollupStatus);
+    return { kind: "response", result: resultFrom(run.id, rollupStatus, projection.record, projection.outcomeRun) };
   };
 
   /** Wait on a non-entry run: settle from the durable status, else follow the log to its terminal record. */

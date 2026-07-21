@@ -1,3 +1,4 @@
+import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { WaitRunCompletionResult, WorkflowStepListStatus } from "./daemon.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
@@ -23,6 +24,9 @@ export type DaemonListRunRow = {
   branch: string;
   status: RunStatus;
   isLive: boolean;
+  loopOutcomeKind?: WriteLoopOutcomeKind;
+  iterationsConsumed?: number;
+  resumable?: boolean;
   error?: RunOperatorError;
   /** Retained implement review count; absent on non-implement workflow rows. */
   reviewPasses?: number;

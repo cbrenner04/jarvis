@@ -444,7 +444,7 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed`, `ready_gate_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access or test coverage, then
+Retryable `completion_commit_failed`, `ready_gate_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures. For a workflow entry payload sourced from hidden shrink, find the owning shrink row in `jarvis run list` and resume that row, not the printed entry id; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access or test coverage, then
 `jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
 publication; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
@@ -580,12 +580,12 @@ Operators add bullets here; delete when fixed.
   process under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
   `workflow-commands-block-the-operator-terminal`, ready-intent
   `workflow-command-reports-terminal-workflow-failure`.
-- **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
-  `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
-  `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the
-  surviving mutation text plus source file and line. `run resume` accepts that row. During the
-  post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
-  `surviving-mutation-failure-is-resumable-failed`.
+- **Surviving mutation failures are failed and resumable (2026-07-21):** a row ending
+  `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` with mutation text and source
+  file/line on `run list` / `run wait`. For a workflow entry projected from hidden `~shrink`, use
+  `run list` to find and inspect that shrink row, then resume that row—not the printed entry id.
+  During the post-completion verification tail the durable row is `in-progress`, not `completed`.
+  Ready-intent: `surviving-mutation-failure-is-resumable-failed`.
 - **Docs-only merges do not halt dispatch (2026-07-21):** work-dispatch guards compare an executable-tree digest (`v2/src/**`, `shared/**`, and repo manifests), not HEAD alone. Merges touching only `v2/spec/**`, `v2/docs/**`, or other non-executable paths advance the daemon's recorded `loadedRevision` in-process and dispatch proceeds with no bounce, including while runs are live. Merges touching `v2/src/**`, `shared/**`, or manifests still require an idle daemon bounce or refuse with live run IDs when a bounce is unsafe.
 
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).

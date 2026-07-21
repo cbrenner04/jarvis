@@ -27,23 +27,34 @@ export function rollupWorkflowRunStatus(args: {
 
   if (isLive) return "in-progress";
 
-  // Implement's hidden shrink is the completion-publication boundary. Its failure
-  // must prevent the authored entry row from rolling up to completed.
-  if (siblingRuns.some((run) => run.stepId?.endsWith("~shrink") && run.status === "failed")) return "failed";
+  const stoppingRun = workflowStoppingRun({ workflowSnapshot, siblingRuns });
+  if (stoppingRun !== undefined) return stoppingRun.status;
 
+  const runById = new Map(siblingRuns.map((run) => [run.stepId, run]));
+  for (const step of workflowSnapshot.steps) {
+    if (step.durable === false) continue;
+    if (!runById.has(step.stepId)) return "killed";
+  }
+
+  return "completed";
+}
+
+/** Returns the durable row that stops a non-live workflow rollup, if present. */
+export function workflowStoppingRun(args: {
+  workflowSnapshot: WorkflowSnapshot;
+  siblingRuns: Run[];
+}): Run | undefined {
+  const { workflowSnapshot, siblingRuns } = args;
   const runById = new Map(siblingRuns.map((run) => [run.stepId, run]));
   for (const step of workflowSnapshot.steps) {
     if (step.durable === false) continue;
 
     const stepRun = runById.get(step.stepId);
-    if (stepRun !== undefined) {
-      if (stepRun.status !== "completed") {
-        return stepRun.status;
-      }
-    } else {
-      return "killed";
-    }
+    if (stepRun === undefined) return undefined;
+    if (stepRun !== undefined && stepRun.status !== "completed") return stepRun;
   }
 
-  return "completed";
+  // Implement's hidden shrink is the completion-publication boundary, after
+  // every authored durable step has completed.
+  return siblingRuns.find((run) => run.stepId?.endsWith("~shrink") && run.status === "failed");
 }

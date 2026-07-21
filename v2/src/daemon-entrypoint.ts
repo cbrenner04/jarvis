@@ -1,5 +1,10 @@
 import { startDaemonRuntime } from "./daemon/daemon";
 
+if (process.argv.slice(2).includes("--help")) {
+  console.log("usage: daemon-entrypoint [--help]");
+  process.exit(0);
+}
+
 const socketPath = process.env.DAEMON_SOCKET_PATH;
 if (!socketPath) {
   console.error("DAEMON_SOCKET_PATH environment variable required");

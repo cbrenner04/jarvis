@@ -461,29 +461,33 @@ loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispa
 ## Runtime smoke verifier
 
 The runtime smoke verifier proves a run's changed production behavior is wired
-into its runnable surface by discovering the changed runnable entrypoint from
-the production diff, executing that real entrypoint bounded and non-destructively,
+into its runnable surface by deriving a runnable entrypoint from the run-base
+production diff, executing that real entrypoint bounded and non-destructively,
 and observing its runtime behavior.
 
 **Runnable-surface discovery:** The verifier inspects the `<runBase>...HEAD`
-production diff to identify changed production files and selects a changed
-runnable entrypoint for smoke testing. An entrypoint is runnable when it is:
-(1) explicitly named with the `-entrypoint.ts` suffix (e.g., `daemon-entrypoint.ts`),
-or (2) a declared root entrypoint (`v1/src/index.ts`, `v2/src/cli.ts`).
+production diff to identify changed production files and selects a runnable
+surface that imports the changed module. It follows relative static imports from
+`v2/src/daemon-entrypoint.ts` and `v2/src/cli.ts`; directory placement alone
+does not establish ownership. A direct change to either surface selects that
+surface.
 Non-production files (test files, spec, docs) are excluded from discovery.
-When multiple changed files exist, the first runnable entrypoint is selected.
+When multiple changed files exist, the first discovered runnable surface is selected.
+Changed paths come only from the run-base production diff; import ownership is
+read from the checked-out source tree.
 
 **Observation and execution:** The verifier executes the discovered entrypoint
-via `bun run <entrypoint> --help` and observes its success or failure. Execution
-is bounded by a wall-clock timeout (default 5 seconds) and runs non-destructively:
-the `--help` flag ensures the entrypoint is discovered and invoked without
-mutating state. The verifier returns failure when execution fails, times out,
-or both success and failure channels are exhausted.
+with its bounded safe probe and observes its success or failure. The CLI runs
+`bun run v2/src/cli.ts help`; the daemon runs
+`bun run v2/src/daemon-entrypoint.ts --help`, which exits before socket or
+daemon setup. Execution is bounded by a wall-clock timeout (default 5 seconds).
+The verifier returns failure when execution fails, times out, or both success
+and failure channels are exhausted.
 
 **Bound and non-destructiveness:** Smoke execution is bounded by a wall-clock
 limit (5000 milliseconds) and ends the smoke as a failure when exceeded.
-The `--help` invocation is non-destructive: it tests that the entrypoint is
-reachable and executable without modifying the filesystem or external state.
+Both probes test a valid invocation without modifying filesystem or operator
+state.
 
 **Results:** The verifier returns one of three structured results:
 
@@ -491,13 +495,13 @@ reachable and executable without modifying the filesystem or external state.
    within the wall-clock bound, proving the changed behavior is wired and
    reachable at runtime.
 
-2. **`not-runnable`** (pass): No changed runnable entrypoint was found. The
+2. **`not-runnable`** (pass): No runnable surface was discovered. The
    result records the inspected changed paths and the discovery reason
    (e.g., "no production files changed" or "no changed runnable entrypoint found").
    This is a pass, not a failure: unchanged runnables do not require smoke testing.
 
 3. **`smoke-failure`** (failure): The discovered entrypoint execution failed or
-   timed out. The result names the executed command (`bun run <entrypoint> --help`)
+   timed out. The result names the executed command
    and the failed observation (stderr output, timeout message, or thrown error).
 
 ## Command

@@ -1,0 +1,5 @@
+- Provide a safe, successful runtime probe for each discovered surface. The CLI probe must use valid arguments, and the daemon probe must not start a real daemon, remove/replace the active socket, or mutate operator state. Add coverage of the real invocation contract, not only mocked entrypoint selection. This is required by the documented bounded, non-destructive `observed-clean` contract.
+
+- Make load-owner discovery reflect actual runtime imports. Do not map every `v2/src/daemon/**` file to the daemon entrypoint when some modules load only through the CLI. Preserve discovery from the run-base production diff and the distinction between `not-runnable`, successful `observed-clean`, and execution failure.
+
+- Align the completed subspec and durable runtime-smoke documentation with the corrected ownership and probe contracts. The current blanket daemon mapping asserts a false architectural relationship and therefore does not satisfy the intent to select the runnable surface that actually loads the changed module.

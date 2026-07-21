@@ -18,16 +18,16 @@
 
 ## Acceptance criteria
 
-- [ ] A completed, merged open-home spec remains eligible for archival when a primary checkout or a discovered managed worktree on `main` or another resolved unrelated branch contains the merged spec path.
-- [ ] A same-project discovered managed worktree on the spec's recorded implementation branch, including a custom `--branch` value, prevents archival with the existing `another materialized worktree owns this spec` refusal.
-- [ ] A discovered managed worktree in another registered project with the same branch name does not prevent archival.
-- [ ] Ownership is rechecked at archival time, and a matching managed worktree materialized after earlier discovery or confirmation prevents archival with the ownership refusal.
-- [ ] A same-project discovered managed worktree with unresolved branch identity or detached `HEAD` prevents archival; primary checkouts remain outside this check.
-- [ ] `v2/src/commands/cleanup.test.ts` proves ownership uses the recorded implementation branch rather than spec path or directory name; covers unrelated file presence, cross-project duplicate branches, late owners, and unresolved or detached worktrees; it fails against the pre-fix code and passes after implementation.
-- [ ] Existing stranded-eligibility tests for closed-unmerged, missing-PR, and other ineligible specs stay green.
-- [ ] `v2/docs/operator-runbook.md` defines same-project, branch-keyed managed-worktree ownership, final revalidation, and unresolved/detached fail-closed behavior; it no longer describes file presence as ownership.
-- [ ] `v2/docs/v1-behaviors.md` records the same branch-keyed stranded-archival v2 parity delta.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A completed, merged open-home spec remains eligible for archival when a primary checkout or a discovered managed worktree on `main` or another resolved unrelated branch contains the merged spec path.
+- [x] A same-project discovered managed worktree on the spec's recorded implementation branch, including a custom `--branch` value, prevents archival with the existing `another materialized worktree owns this spec` refusal.
+- [x] A discovered managed worktree in another registered project with the same branch name does not prevent archival.
+- [x] Ownership is rechecked at archival time, and a matching managed worktree materialized after earlier discovery or confirmation prevents archival with the ownership refusal.
+- [x] A same-project discovered managed worktree with unresolved branch identity or detached `HEAD` prevents archival; primary checkouts remain outside this check.
+- [x] `v2/src/commands/cleanup.test.ts` proves ownership uses the recorded implementation branch rather than spec path or directory name; covers unrelated file presence, cross-project duplicate branches, late owners, and unresolved or detached worktrees; it fails against the pre-fix code and passes after implementation.
+- [x] Existing stranded-eligibility tests for closed-unmerged, missing-PR, and other ineligible specs stay green.
+- [x] `v2/docs/operator-runbook.md` defines same-project, branch-keyed managed-worktree ownership, final revalidation, and unresolved/detached fail-closed behavior; it no longer describes file presence as ownership.
+- [x] `v2/docs/v1-behaviors.md` records the same branch-keyed stranded-archival v2 parity delta.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

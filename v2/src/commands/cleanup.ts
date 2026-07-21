@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getCurrentBranchAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -9,13 +9,13 @@ import {
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome } from "../paths.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+import type { Run, StateStore } from "../persistence/state-store.ts";
 import { isBoundaryTerminalRunStatus } from "../persistence/state-store.ts";
 import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
 
 export type DiscoveredWorktree = {
   path: string;
-  branch: string;
+  branch: string | undefined;
 };
 
 /**
@@ -65,7 +65,7 @@ async function discoverWorktreesInProject(
     if (entry.isDirectory()) {
       // Check if this directory is a valid worktree
       if (await isValidGitWorktree(fullPath, runner)) {
-        const branch = await getCurrentBranchAsync(fullPath, runner);
+        const branch = await resolveWorktreeBranch(fullPath, runner);
         candidates.push({ path: fullPath, branch });
       } else {
         // Recurse into subdirectories (for slash-nested paths like plan/<name>)
@@ -84,25 +84,33 @@ async function discoverWorktreesInProject(
 async function discoverWorktreesRecursive(dir: string, runner: AsyncSubprocessRunner): Promise<DiscoveredWorktree[]> {
   const candidates: DiscoveredWorktree[] = [];
 
+  let entries: Dirent[];
   try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (await isValidGitWorktree(fullPath, runner)) {
-          const branch = await getCurrentBranchAsync(fullPath, runner);
-          candidates.push({ path: fullPath, branch });
-        } else {
-          const nested = await discoverWorktreesRecursive(fullPath, runner);
-          candidates.push(...nested);
-        }
-      }
-    }
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // Ignore errors reading directories (e.g., permission denied)
+    return candidates;
+  }
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (await isValidGitWorktree(fullPath, runner)) {
+        const branch = await resolveWorktreeBranch(fullPath, runner);
+        candidates.push({ path: fullPath, branch });
+      } else {
+        const nested = await discoverWorktreesRecursive(fullPath, runner);
+        candidates.push(...nested);
+      }
+    }
   }
 
   return candidates;
+}
+
+async function resolveWorktreeBranch(worktreePath: string, runner: AsyncSubprocessRunner): Promise<string | undefined> {
+  const branch = await getCurrentBranchAsync(worktreePath, runner);
+  return branch === "HEAD" ? undefined : branch;
 }
 
 /**
@@ -140,14 +148,16 @@ export async function checkEligibility(
   daemonClient: DaemonClient,
   store: StateStore,
 ): Promise<EligibilityResult> {
+  if (candidate.branch === undefined) return { status: "ineligible", reason: "Could not determine branch" };
+  const branch = candidate.branch;
   // Check if PR is merged
-  const mergedResult = await isMerged(candidate.branch, runner);
+  const mergedResult = await isMerged(branch, runner);
   if (!mergedResult.merged) {
     return { status: "ineligible", reason: `PR not merged: ${mergedResult.reason}` };
   }
 
   // Check durable run store for non-terminal runs
-  const run = store.findRunByProjectBranch({ project, branch: candidate.branch });
+  const run = store.findRunByProjectBranch({ project, branch });
   if (run && !isBoundaryTerminalRunStatus(run.status)) {
     return {
       status: "ineligible",
@@ -157,7 +167,7 @@ export async function checkEligibility(
 
   // Check daemon for live runs
   try {
-    const daemonRuns = await daemonClient(project, candidate.branch);
+    const daemonRuns = await daemonClient(project, branch);
     const hasLiveRun = daemonRuns.some((r) => r.isLive);
     if (hasLiveRun) {
       return { status: "ineligible", reason: "Daemon reports live run" };
@@ -195,7 +205,7 @@ async function isMerged(branch: string, runner: AsyncSubprocessRunner): Promise<
 }
 
 export type CleanupCandidate = {
-  worktree: DiscoveredWorktree;
+  worktree: DiscoveredWorktree & { branch: string };
   project: string;
 };
 
@@ -205,19 +215,23 @@ function artifactForRetiredWorktree(
   store: StateStore,
 ): ArtifactSpec | undefined {
   const run = store.findRunByProjectBranch({ project: candidate.project, branch: candidate.worktree.branch });
-  if (run === null || run === undefined || !isAbsolute(run.specPath)) return undefined;
-
-  const identity = relative(candidate.worktree.path, run.specPath);
-  if (identity === "" || identity === ".." || identity.startsWith("../") || isAbsolute(identity)) return undefined;
-
-  const durablePath = resolve(projectRoot, identity);
-  const source = basename(durablePath) === "index.md" ? dirname(durablePath) : durablePath;
+  if (run === null || run === undefined) return undefined;
+  const source = sourceForRun(run, candidate.worktree.path, projectRoot);
+  if (source === undefined) return undefined;
   return {
     home: dirname(source),
     source,
     name: basename(source, ".md"),
     branch: candidate.worktree.branch,
   };
+}
+
+function sourceForRun(run: Run, worktreePath: string, projectRoot: string): string | undefined {
+  const identity = isAbsolute(run.specPath) ? relative(worktreePath, run.specPath) : run.specPath;
+  if (identity === "" || identity === ".." || identity.startsWith("../") || isAbsolute(identity)) return undefined;
+
+  const durablePath = resolve(projectRoot, identity);
+  return basename(durablePath) === "index.md" ? dirname(durablePath) : durablePath;
 }
 
 function provenIntentPrune(spec: ArtifactSpec): boolean {
@@ -290,17 +304,18 @@ function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }
   );
 }
 
-type StrandedArtifact = ArtifactSpec & { project: string };
+type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
+type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
 
-function discoverStrandedArtifacts(registry: Record<string, ProjectRegistryEntry>): StrandedArtifact[] {
-  const artifacts: StrandedArtifact[] = [];
+function discoverStrandedArtifacts(registry: Record<string, ProjectRegistryEntry>): DiscoveredStrandedArtifact[] {
+  const artifacts: DiscoveredStrandedArtifact[] = [];
   for (const [project, entry] of Object.entries(registry)) {
     const home = join(entry.root, "v2", "spec");
     if (!existsSync(home)) continue;
     try {
       for (const child of readdirSync(home, { withFileTypes: true })) {
         if (!child.isDirectory() || ["completed", "seeds", "ready-intents"].includes(child.name)) continue;
-        artifacts.push({ home, source: join(home, child.name), name: child.name, branch: child.name, project });
+        artifacts.push({ home, source: join(home, child.name), name: child.name, project });
       }
     } catch {
       // A home that cannot be read has no safely inspectable candidates.
@@ -309,10 +324,38 @@ function discoverStrandedArtifacts(registry: Record<string, ProjectRegistryEntry
   return artifacts;
 }
 
-async function inspectStrandedArtifacts(
-  artifacts: readonly StrandedArtifact[],
+function recordedStrandedBranch(
+  artifact: DiscoveredStrandedArtifact,
+  projectRoot: string,
+  store: StateStore,
+): string | undefined {
+  for (const run of store.listRuns?.() ?? []) {
+    if (run.project !== artifact.project) continue;
+    const source = sourceForRun(run, run.worktreePath, projectRoot);
+    if (source === undefined) continue;
+    if (resolve(source) === resolve(artifact.source)) return run.branch;
+  }
+  return undefined;
+}
+
+function hasStrandedOwner(
+  artifact: StrandedArtifact,
   registry: Record<string, ProjectRegistryEntry>,
   allWorktrees: readonly DiscoveredWorktree[],
+  jarvisRoot: string,
+): boolean {
+  return allWorktrees.some((worktree) => {
+    if (projectForWorktree(worktree, registry, jarvisRoot) !== artifact.project) return false;
+    return worktree.branch === undefined || worktree.branch === artifact.branch;
+  });
+}
+
+async function inspectStrandedArtifacts(
+  artifacts: readonly DiscoveredStrandedArtifact[],
+  registry: Record<string, ProjectRegistryEntry>,
+  allWorktrees: readonly DiscoveredWorktree[],
+  jarvisRoot: string,
+  store: StateStore,
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
 ): Promise<StrandedArtifact[]> {
@@ -320,19 +363,22 @@ async function inspectStrandedArtifacts(
   for (const artifact of artifacts) {
     const projectRoot = registry[artifact.project]?.root;
     if (projectRoot === undefined) continue;
-    const hasOwner = allWorktrees.some((worktree) =>
-      existsSync(join(worktree.path, relative(projectRoot, artifact.source))),
-    );
-    if (hasOwner) {
+    const branch = recordedStrandedBranch(artifact, projectRoot, store);
+    if (branch === undefined) {
+      io.stdout(`Skipped stranded artifact: ${artifact.source} — no durable implementation branch\n`);
+      continue;
+    }
+    const identified = { ...artifact, branch };
+    if (hasStrandedOwner(identified, registry, allWorktrees, jarvisRoot)) {
       io.stdout(`Skipped stranded artifact: ${artifact.source} — another materialized worktree owns this spec\n`);
       continue;
     }
-    const inspection = await checkArtifactEligibility(artifact, {
+    const inspection = await checkArtifactEligibility(identified, {
       findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
       hasMaterializedOwner: async () => false,
     });
     if (inspection.status === "eligible") {
-      eligible.push(artifact);
+      eligible.push(identified);
     } else {
       io.stdout(`Skipped stranded artifact: ${artifact.source} — ${inspection.reason}\n`);
     }
@@ -376,10 +422,11 @@ async function findEligibleWorktreeCandidates(
   const candidates: CleanupCandidate[] = [];
   for (const worktree of discovered) {
     const project = projectForWorktree(worktree, registry, jarvisRoot);
-    if (project === undefined) continue;
+    if (project === undefined || worktree.branch === undefined) continue;
 
     const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store);
-    if (eligibility.status === "eligible") candidates.push({ worktree, project });
+    if (eligibility.status === "eligible")
+      candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
   }
   return candidates;
 }
@@ -473,6 +520,8 @@ export async function runCleanupCommand(
     discoverStrandedArtifacts(registry),
     registry,
     discovered,
+    jarvisRoot,
+    store,
     runner,
     io,
   );
@@ -504,6 +553,11 @@ export async function runCleanupCommand(
   const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
 
   for (const spec of stranded) {
+    const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
+    if (hasStrandedOwner(spec, registry, current, jarvisRoot)) {
+      io.stdout(`Skipped stranded artifact: ${spec.source} — another materialized worktree owns this spec\n`);
+      continue;
+    }
     reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
   }
   if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
@@ -679,7 +733,7 @@ async function resolveName(
   const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
   for (const worktree of discovered) {
     const project = projectForWorktree(worktree, registry, jarvisRoot);
-    if (project && (worktree.branch === name || worktree.path.endsWith(name))) {
+    if (project && worktree.branch !== undefined && (worktree.branch === name || worktree.path.endsWith(name))) {
       return { project, branch: worktree.branch, worktreePath: worktree.path };
     }
   }

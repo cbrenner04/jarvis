@@ -324,7 +324,16 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
-    const store: StateStore = { findRunByProjectBranch: () => null } as unknown as StateStore;
+    const store: StateStore = {
+      findRunByProjectBranch: () => null,
+      listRuns: () =>
+        [complete, incomplete, open, owned].map((name) => ({
+          project: "project",
+          branch: name === owned ? "owned-worktree" : name,
+          worktreePath: projectRoot,
+          specPath: join(home, name, "index.md"),
+        })) as never[],
+    } as unknown as StateStore;
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
@@ -365,6 +374,115 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(home, "completed", "ignored"))).toBe(true);
     expect(existsSync(join(home, "seeds", "ignored"))).toBe(true);
     expect(existsSync(join(home, "ready-intents", "ignored"))).toBe(true);
+  });
+
+  test("keys stranded ownership to the recorded project branch and rechecks it before archival", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const eligible = "20260717T000007Z-eligible";
+    const owned = "20260717T000008Z-owned";
+    const late = "20260717T000009Z-late";
+    const guarded = "20260717T000010Z-guarded";
+    const relative = "20260717T000011Z-relative";
+    const otherOnly = "20260717T000012Z-other-only";
+    for (const name of [eligible, owned, late, relative, otherOnly]) createSpec(name, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "stranded ownership fixtures"], projectRoot);
+
+    const addWorktree = async (branch: string): Promise<string> => {
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+      const path = join(jarvisRoot, "worktrees", "project", branch);
+      mkdirSync(dirname(path), { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", path, branch], projectRoot);
+      return path;
+    };
+    await addWorktree("unrelated");
+    await addWorktree("custom-owner");
+
+    const otherRoot = join(tempRoot, "other-project");
+    mkdirSync(otherRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], otherRoot);
+    writeFileSync(join(otherRoot, "README.md"), "# Other\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "custom-owner"], otherRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "other-only-owner"], otherRoot);
+    const otherWorktree = join(jarvisRoot, "worktrees", "other", "custom-owner");
+    mkdirSync(dirname(otherWorktree), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", otherWorktree, "custom-owner"], otherRoot);
+    const otherOnlyWorktree = join(jarvisRoot, "worktrees", "other", "other-only-owner");
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", otherOnlyWorktree, "other-only-owner"],
+      otherRoot,
+    );
+
+    const runs = [
+      { name: eligible, branch: "custom-eligible" },
+      { name: owned, branch: "custom-owner" },
+      { name: late, branch: "custom-late" },
+      { name: guarded, branch: "custom-guarded" },
+      { name: relative, branch: "custom-relative" },
+      { name: otherOnly, branch: "other-only-owner" },
+    ].map(({ name, branch }) => ({
+      project: "project",
+      branch,
+      worktreePath: projectRoot,
+      specPath: name === relative ? join("v2", "spec", name, "index.md") : join(home, name, "index.md"),
+    }));
+    const store: StateStore = {
+      findRunByProjectBranch: () => null,
+      listRuns: () => runs as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "list" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+    const registry = { project: { root: projectRoot }, other: { root: otherRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(`archive: ${join(home, eligible)}`);
+    expect(stdout).toContain(`archive: ${join(home, relative)}`);
+    expect(stdout).toContain(`archive: ${join(home, otherOnly)}`);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, owned)} — another materialized worktree owns this spec`,
+    );
+    expect(stdout).not.toContain(
+      `Skipped stranded artifact: ${join(home, eligible)} — another materialized worktree owns this spec`,
+    );
+
+    stdout = "";
+    await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          await addWorktree("custom-late");
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      async () => [],
+      store,
+      io,
+    );
+    expect(existsSync(join(home, "completed", eligible))).toBe(true);
+    expect(existsSync(join(home, late))).toBe(true);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, late)} — another materialized worktree owns this spec`,
+    );
+
+    createSpec(guarded, "[x] Done");
+    const detached = await addWorktree("detached-owner");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
+    stdout = "";
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(
+      `Skipped stranded artifact: ${join(home, guarded)} — another materialized worktree owns this spec`,
+    );
   });
 
   test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {
@@ -536,7 +654,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       },
     };
 
-    const candidate: DiscoveredWorktree = { path: worktreePath, branch };
+    const candidate: DiscoveredWorktree & { branch: string } = { path: worktreePath, branch };
     let stderr = "";
     const io = {
       stdout: () => {},
@@ -615,6 +733,27 @@ describe("cleanup: discover materialized worktrees", () => {
     expect(discovered).toHaveLength(1);
     expect(discovered[0]?.path).toBe(worktreePath);
     expect(discovered[0]?.branch).toBe(branchName);
+  });
+
+  test("propagates branch-resolution failures instead of skipping a retirement candidate", async () => {
+    const branch = "unresolved-branch";
+    const worktreesRoot = join(jarvisRoot, "worktrees", "project");
+    const worktreePath = join(worktreesRoot, branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    mkdirSync(worktreesRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref") {
+          throw new Error("branch unavailable");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+
+    await expect(discoverMaterializedWorktrees(registry, jarvisRoot, runner)).rejects.toThrow("branch unavailable");
   });
 
   test("excludes empty directories and non-worktree directories", async () => {

@@ -176,6 +176,7 @@ describe("revision mismatch and auto-bounce", () => {
       loadedExecutableDigest: "daemon-digest",
     });
 
+    const response = client.nextFrame();
     client.send({
       kind: "request",
       id: "status",
@@ -186,7 +187,7 @@ describe("revision mismatch and auto-bounce", () => {
       },
     });
 
-    await expect(client.nextFrame()).resolves.toEqual({
+    await expect(response).resolves.toEqual({
       kind: "response",
       id: "status",
       result: {

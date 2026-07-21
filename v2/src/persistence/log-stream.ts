@@ -39,7 +39,7 @@ export type RunExecutionFailedEvent = {
 
 export type RunReconciledEvent = {
   kind: "run_reconciled";
-  runStatus: "killed";
+  runStatus: "killed" | "interrupted";
   reason: "daemon_restart";
 };
 

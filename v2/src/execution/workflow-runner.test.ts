@@ -2815,6 +2815,10 @@ describe("executeWorkflow review-debate dispatch", () => {
 
       expect(result.kind).toBe("complete");
       expect(result.resumable).toBe(false);
+      const run = store.loadRun(result.runId);
+      expect(run).toMatchObject({ project: "demo", branch: "review-debate-workflow", stepId: "debate-1", status: "completed" });
+      expect(run?.attempts).toHaveLength(1);
+      expect(run?.workflowSnapshot?.steps).toContainEqual({ stepId: "debate-1", role: "", behavior: "review-debate", durable: true });
       expect(events).toEqual([
         "resolve:claude/ADV",
         "resolve:claude/ADVOC",
@@ -2871,6 +2875,26 @@ describe("executeWorkflow review-debate dispatch", () => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
+      expect(store.loadRun(result.runId)).toMatchObject({ status: "failed", attemptCount: 1 });
+    });
+  });
+
+  test("persists one in-progress debate attempt across roles and creates a fresh row for fresh dispatch", async () => {
+    await withStateStore(async (store) => {
+      let observed: unknown;
+      const createBinding = createDebateBindingFactory(async ({ adapterModel }) => {
+        observed = store.listRuns().find((run) => run.stepId === "debate-durable")
+          ? store.loadRun(store.listRuns().find((run) => run.stepId === "debate-durable")?.id ?? "")
+          : null;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      });
+      const step = createDebateStep({ stepId: "debate-durable", verdictPath: debateVerdictPath(), createBinding });
+
+      const first = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(observed).toMatchObject({ status: "in-progress", attempts: [{ status: "in-progress" }] });
+      const second = await executeWorkflow({ steps: [step], stateStore: store, freshDispatch: true });
+      expect(second.runId).not.toBe(first.runId);
+      expect(store.listRuns().filter((run) => run.stepId === "debate-durable")).toHaveLength(2);
     });
   });
 });
@@ -4254,6 +4278,7 @@ describe("executeWorkflow plan review dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(store.loadRun(result.runId)).toMatchObject({ status: "failed", attemptCount: 1 });
     });
 
     expect(existsSync(stage)).toBe(true);
@@ -4321,6 +4346,7 @@ describe("executeWorkflow plan review dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
       expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(store.loadRun(result.runId)).toMatchObject({ status: "failed", attemptCount: 1 });
     });
 
     // Stage is retained (never consumed) and the verdict is restored, not cleaned up.

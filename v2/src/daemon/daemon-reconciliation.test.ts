@@ -105,6 +105,34 @@ test("leaves terminal statuses unchanged without reconciliation events", async (
   sweepStore.close();
 });
 
+test("reconciles an orphaned review-debate row to interrupted and retains its workflow snapshot", async () => {
+  const runId = seedStore.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree-debate",
+    branch: "branch-debate",
+    specPath: "/tmp/verdict.md",
+    stepId: "review-debate",
+    workflowSnapshot: {
+      invocationId: "workflow-debate",
+      steps: [{ stepId: "review-debate", role: "", behavior: "review-debate", durable: true }],
+    },
+  });
+  const attemptId = seedStore.recordAttemptStart(runId);
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+  const sweepStore = openSweepStore(async () => false);
+
+  await reconcileOrphanedRuns(sweepStore, { append: (id, event) => events.push({ runId: id, event }), close: () => undefined });
+
+  expect(sweepStore.loadRun(runId)).toMatchObject({
+    status: "interrupted",
+    attempts: [{ id: attemptId, status: "in-progress" }],
+    workflowSnapshot: { steps: [{ stepId: "review-debate", behavior: "review-debate", durable: true }] },
+  });
+  expect(events).toEqual([{ runId, event: { kind: "run_reconciled", runStatus: "interrupted", reason: "daemon_restart" } }]);
+  sweepStore.close();
+});
+
 test("leaves a non-terminal run owned by a live different process untouched, with no reconciliation event", async () => {
   const runId = createRun(seedStore, "in-progress");
   const events: Array<{ runId: string; event: LogEvent }> = [];

@@ -6,7 +6,7 @@ Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.s
 
 ## Schema
 
-- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `paused` | `failed` | `killed` | `queued`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`, `step_id` (nullable, opaque workflow step identifier for multi-step resume tracking), and nullable `workflow_snapshot` JSON (`{ invocationId, steps: [{ stepId, role }] }`) for workflow-backed runs.
+- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `paused` | `failed` | `interrupted` | `killed` | `queued`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`, `step_id` (nullable, opaque workflow step identifier for multi-step resume tracking), and nullable `workflow_snapshot` JSON (`{ invocationId, steps: [{ stepId, role }] }`) for workflow-backed runs.
 - `attempts` — one row per step attempt: `id`, `run_id`, `attempt_number`, `started_at`, `status` (`in-progress` | `completed`), plus the durable outcome once committed: `outcome_kind` (`done` | `no-work` | `progress` | `blocked` | `contract_miss` | `invocation_failure` | `invalid_token`), `completed_at`, and nullable `invocation_failure_detail` JSON (`{ failureKind, bindingAttempts }`) on terminal binding-chain `invocation_failure` only.
 
 Forward-only migrations:
@@ -29,14 +29,14 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `commitCompletionBoundary` — the one transactional write: attempt completion, outcome classification, and run checkpoint (`attempt_count` + status) commit or roll back together. Idempotent: re-committing a finished boundary is a no-op, so recovery can never double-advance the checkpoint or duplicate an outcome.
 - `setRunStatus` — status update outside a boundary. Current use: marking `budget-soft-stopped` when an invocation exits on budget after its last committed `progress` boundary.
 - `commitGuardedKill` — set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`); `paused` is not boundary-terminal. Used by daemon `kill`.
-- `beginRunReconciliation` / `finishRunReconciliation` — restart sweep: mark orphan runs whose owner is gone as `killed` + `reconciliation_pending`, return pending run ids, then clear pending after the owed `run_reconciled` event is persisted (or skipped when the row is no longer `killed`). See [`daemon-host.md`](daemon-host.md#restart-reconciliation).
+- `beginRunReconciliation` / `finishRunReconciliation` — restart sweep: mark orphan runs whose owner is gone as `killed` + `reconciliation_pending`, except a durable `review-debate` row becomes terminal `interrupted`; return pending run ids, then clear pending after the owed `run_reconciled` event is persisted.
 
 ## Semantics
 
 - A run's durable `status` must agree with its terminal log signal; harness guesses (`killed`, reconcile) never overwrite a boundary-terminal status committed by `commitCompletionBoundary`.
 
 - Outcomes are deterministic classifications, not free-form payloads; the runner branches on them. No transcripts or cost streams — the store carries only what resume reads. Token/cost and per-invocation usage belong in the telemetry JSONL substrate, not here — see [`telemetry-capture.md`](telemetry-capture.md).
-- Recovery derives from durable state only: the `(project, branch, stepId)` lookup, run status, and attempt/outcome history. An attempt still `in-progress` is the interrupted-state read ("re-run that dirty iteration"); `interrupted` is never stored. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.
+- Recovery derives from durable state only: the `(project, branch, stepId)` lookup, run status, and attempt/outcome history. A durable review-debate row has one attempt spanning its fixed cycles and roles; a restart stores `interrupted` without mid-cycle replay. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.
 - Multi-step workflows use `stepId` to isolate per-step attempt history: each
   workflow step maintains its own durable `(project, branch, stepId)` run,
   allowing independent resume tracking, run ids, and attempt counts. In one

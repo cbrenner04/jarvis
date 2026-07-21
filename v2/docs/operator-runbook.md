@@ -325,8 +325,11 @@ Diagnose with:
 - `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
 - `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran
 
-Review-debate steps have no durable run row, so their absence from `run list` is
-not evidence they didn't run; telemetry is.
+Plan debate review has its own durable `run list` and TUI row, identified by the
+authored workflow `stepId` alongside the plan draft row. During execution its
+workflow detail shows the active adversary, advocate, adjudicator, or actuator;
+after completion, failure, interruption, or daemon restart the retained row
+shows its terminal status. Telemetry remains the per-role audit trail.
 
 ### Workflow reports a stale worktree claim
 

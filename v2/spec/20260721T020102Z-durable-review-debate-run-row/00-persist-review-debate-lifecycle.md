@@ -23,14 +23,14 @@ The shared workflow runner synthesizes a review-debate run ID and excludes the s
 
 ## Acceptance criteria
 
-- [ ] A reached `review-debate` step owns one durable run row keyed by `(project, branch, stepId)` and one attempt spanning all debate cycles and roles.
-- [ ] A successful debate commits `completed`; a role or deferred-landing failure commits `failed`; neither failure path commits `completed`.
-- [ ] Daemon restart reconciles an orphaned review-debate row to terminal `interrupted`, retains its authored workflow metadata, and does not change existing non-debate reconciliation to `killed`.
-- [ ] A fresh dispatch creates a new debate row, while the existing no-mid-cycle-resume boundary remains explicit.
-- [ ] `v2/src/execution/workflow-runner.test.ts` adds a shared `review-debate` dispatch regression that observes the durable in-progress row and terminal success/failure rows and fails against the baseline.
-- [ ] `v2/src/daemon/daemon-reconciliation.test.ts` adds a restart regression for an interrupted review-debate row that fails against the baseline.
-- [ ] `v2/src/daemon/workflow-run-status-rollup.test.ts` covers durable review-debate success, failure, and interruption in workflow status.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A reached `review-debate` step owns one durable run row keyed by `(project, branch, stepId)` and one attempt spanning all debate cycles and roles.
+- [x] A successful debate commits `completed`; a role or deferred-landing failure commits `failed`; neither failure path commits `completed`.
+- [x] Daemon restart reconciles an orphaned review-debate row to terminal `interrupted`, retains its authored workflow metadata, and does not change existing non-debate reconciliation to `killed`.
+- [x] A fresh dispatch creates a new debate row, while the existing no-mid-cycle-resume boundary remains explicit.
+- [x] `v2/src/execution/workflow-runner.test.ts` adds a shared `review-debate` dispatch regression that observes the durable in-progress row and terminal success/failure rows and fails against the baseline.
+- [x] `v2/src/daemon/daemon-reconciliation.test.ts` adds a restart regression for an interrupted review-debate row that fails against the baseline.
+- [x] `v2/src/daemon/workflow-run-status-rollup.test.ts` covers durable review-debate success, failure, and interruption in workflow status.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

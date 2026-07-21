@@ -19,15 +19,15 @@ Ready finalization currently applies code-oriented text mutations to every chang
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` regressions for the PR #1894 `<base>` prompt diff and an uncovered changed prompt fail against the baseline and pass after the change; `<base>` produces no code-operator mutation, and the uncovered result names the template path with a missing-render-coverage reason.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed registered prompt passes only when scoped tests observe its rendered output; raw-template inspection alone does not count.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves non-code paths receive no guard, comparison, or destructive mutation candidates while `prompts/**` remains in the inspected production surface.
-- [ ] `v2/src/execution/ready-finalize.test.ts` proves missing prompt render coverage stops ready finalization and reports the template path and missing-render-coverage reason; the test fails against the baseline.
-- [ ] Existing code-path cases in `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green, preserving mutation candidates, scoped-test execution, restoration, bounds, and result semantics.
-- [ ] `v2/docs/workflow-runner.md` documents ready-finalization verification by file kind and the uncovered-prompt failure.
-- [ ] `v2/docs/test-writing.md` requires scoped tests to observe changed prompt rendered output rather than raw template text.
-- [ ] `v2/docs/v1-behaviors.md` records the corrected v2 completion-verifier behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` regressions for the PR #1894 `<base>` prompt diff and an uncovered changed prompt fail against the baseline and pass after the change; `<base>` produces no code-operator mutation, and the uncovered result names the template path with a missing-render-coverage reason.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed registered prompt passes only when scoped tests observe its rendered output; raw-template inspection alone does not count.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves non-code paths receive no guard, comparison, or destructive mutation candidates while `prompts/**` remains in the inspected production surface.
+- [x] `v2/src/execution/ready-finalize.test.ts` proves missing prompt render coverage stops ready finalization and reports the template path and missing-render-coverage reason; the test fails against the baseline.
+- [x] Existing code-path cases in `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green, preserving mutation candidates, scoped-test execution, restoration, bounds, and result semantics.
+- [x] `v2/docs/workflow-runner.md` documents ready-finalization verification by file kind and the uncovered-prompt failure.
+- [x] `v2/docs/test-writing.md` requires scoped tests to observe changed prompt rendered output rather than raw template text.
+- [x] `v2/docs/v1-behaviors.md` records the corrected v2 completion-verifier behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -284,6 +284,209 @@ index 1234567..abcdefg 100644
     }
   });
 
+  const promptDiff = `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/patch/review-critic.md
++++ b/prompts/patch/review-critic.md
+@@ -19,2 +19,2 @@
+-## Branch change summary
++## Branch diff
++The diff comes from git merge-base <base> HEAD.
+`;
+
+  const registeredCritic = async () => ["prompts/patch/review-critic.md"];
+  const missingCriticRenderCoverage = {
+    kind: "surviving-mutation" as const,
+    mutation: "missing-render-coverage",
+    sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
+  };
+  const criticSource = `---
+id: patch.review.critic
+behavior: review
+kind: step
+revision: 1
+placeholders: []
+---
+## Branch diff
+The diff comes from git merge-base <base> HEAD.
+`;
+
+  it("does not mutate PR #1894 prompt prose and requires rendered-output coverage", async () => {
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result).toEqual(missingCriticRenderCoverage);
+  });
+
+  it("accepts a changed registered prompt only when a scoped test observes its rendered output", async () => {
+    let scopedRuns = 0;
+    let prompt = criticSource;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: async () => prompt,
+        writeFile: async (_path, content) => {
+          prompt = content;
+        },
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return !prompt.includes("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+        },
+      },
+    );
+
+    expect(scopedRuns).toBe(1);
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("does not treat raw template inspection as rendered prompt coverage", async () => {
+    let prompt = criticSource;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: async () => prompt,
+        writeFile: async (_path, content) => {
+          prompt = content;
+        },
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result).toEqual(missingCriticRenderCoverage);
+  });
+
+  it("uses each registered prompt's rendering contract instead of a renderer name", async () => {
+    let prompt = criticSource;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+        readFile: async () => prompt,
+        writeFile: async (_path, content) => {
+          prompt = content;
+        },
+        // Production reaches this artifact by id through the registry, not a
+        // template-derived renderer function.
+        runScopedTests: async () => !prompt.includes("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__"),
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+  });
+
+  it("fails deleted and untracked registered prompts without render coverage", async () => {
+    const deletedDiff = `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+deleted file mode 100644
+index be281d02..00000000
+--- a/prompts/patch/review-critic.md
++++ /dev/null
+@@ -1 +0,0 @@
+-old prompt
+`;
+    const deleted = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => deletedDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        runScopedTests: async () => true,
+      },
+    );
+    const untracked = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => "",
+        untrackedFiles: async () => ["prompts/patch/review-critic.md"],
+        registeredPromptPaths: registeredCritic,
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(deleted).toEqual(missingCriticRenderCoverage);
+    expect(untracked).toEqual(missingCriticRenderCoverage);
+  });
+
+  it("bounds scoped render checks across changed prompts", async () => {
+    const promptPaths = Array.from({ length: 6 }, (_, index) => `prompts/patch/review-${index}.md`);
+    const uncoveredPath = promptPaths[5];
+    if (uncoveredPath === undefined) throw new Error("expected six prompt paths");
+    const diff = promptPaths
+      .map(
+        (path) => `diff --git a/${path} b/${path}
+index 1234567..abcdefg 100644
+--- a/${path}
++++ b/${path}
+@@ -1 +1 @@
+-old output
++new output
+`,
+      )
+      .join("");
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: async () => promptPaths,
+        readFile: async () => criticSource,
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return false;
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      kind: "surviving-mutation",
+      mutation: "missing-render-coverage",
+      sourceSite: { file: uncoveredPath, line: 1 },
+    });
+    expect(scopedRuns).toBe(5);
+  });
+
+  it("keeps prompts production-visible while skipping mutations for non-code paths", async () => {
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => `diff --git a/README.md b/README.md
+index 1234567..abcdefg 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-Delete docs
++if (!docs) remove(<docs>);
+`,
+        untrackedFiles: async () => ["prompts/unregistered.md", "notes.md"],
+        registeredPromptPaths: async () => [],
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBe(0);
+      expect(result.inspectedPaths).toEqual(["README.md", "prompts/unregistered.md", "notes.md"]);
+    }
+  });
+
   it("records run base in pass result", async () => {
     const result = await verifyDiffDerivedMutations(
       {

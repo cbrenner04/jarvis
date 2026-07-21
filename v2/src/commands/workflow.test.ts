@@ -13,6 +13,7 @@ import {
   COMPLETED_WAIT_RESULT,
   captureIo,
   cliMain as main,
+  DOCS_MERGE_REVISION,
   makeCliRepoFixture,
   makeIpcClient,
   SESSION_UUID,
@@ -148,14 +149,14 @@ describe("run workflow dispatch", () => {
         cwd: () => fx.repoSub,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
-        getCurrentRevision: async () => "docs-merge-head",
+        getCurrentRevision: async () => DOCS_MERGE_REVISION,
         getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "workflow-docs-merge", COMPLETED_WAIT_RESULT), {
             sent,
             statusCalls,
             statusResponses,
-            loadedRevision: "pre-docs-merge-head",
+            loadedRevision: DOCS_MERGE_REVISION,
             loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
           }),
         stopDaemon: async () => {
@@ -170,13 +171,13 @@ describe("run workflow dispatch", () => {
     expect(statusCalls).toEqual([
       {
         params: {
-          currentRevision: "docs-merge-head",
+          currentRevision: DOCS_MERGE_REVISION,
           currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
         },
       },
     ]);
     expect(statusResponses).toEqual([
-      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
     ]);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
   });

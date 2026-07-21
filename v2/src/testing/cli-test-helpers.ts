@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
 import { main as runtimeMain } from "../cli.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
@@ -30,6 +29,7 @@ export function captureIo() {
 }
 
 export const TEST_REVISION = "test-revision";
+export const DOCS_MERGE_REVISION = "docs-merge-head";
 export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
 export const STALE_EXECUTABLE_DIGEST = "stale-executable-digest";
 
@@ -80,11 +80,7 @@ export function makeIpcClient(
       if (request.kind === "request" && request.method === "status" && typeof request.id === "string") {
         options?.statusCalls?.push({ params: (frame as { params?: unknown }).params });
         const loadedExecutableDigest = options?.loadedExecutableDigest ?? TEST_EXECUTABLE_DIGEST;
-        const loadedRevision = advanceLoadedRevision(
-          options?.loadedRevision ?? TEST_REVISION,
-          loadedExecutableDigest,
-          (frame as { params?: unknown }).params,
-        );
+        const loadedRevision = options?.loadedRevision ?? TEST_REVISION;
         options?.statusResponses?.push({ loadedRevision, loadedExecutableDigest });
         deliver({
           kind: "response",

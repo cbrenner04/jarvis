@@ -19,12 +19,12 @@
 
 ## Acceptance criteria
 
-- [ ] `makeIpcClient` forms status replies without calling `advanceLoadedRevision` or equivalent production-derived logic.
-- [ ] The docs-only-merge regression in `v2/src/commands/run.test.ts` fails when `advanceLoadedRevision` no longer advances matching-digest HEAD drift and passes with the production behavior intact.
-- [ ] CLI dispatch tests author the status revision and executable digest they assert, while unrelated users of `makeIpcClient` retain a fixed default reply.
-- [ ] Existing CLI dispatch coverage in `v2/src/commands/run.test.ts` and `v2/src/commands/workflow.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
-- [ ] `v2/docs/operator-runbook.md` Gate trust states that mutation verification depends on test expectations independent of the mutated production behavior and that self-referential doubles invalidate that evidence.
+- [x] `makeIpcClient` forms status replies without calling `advanceLoadedRevision` or equivalent production-derived logic.
+- [x] The docs-only-merge regression in `v2/src/commands/run.test.ts` fails when `advanceLoadedRevision` no longer advances matching-digest HEAD drift and passes with the production behavior intact.
+- [x] CLI dispatch tests author the status revision and executable digest they assert, while unrelated users of `makeIpcClient` retain a fixed default reply.
+- [x] Existing CLI dispatch coverage in `v2/src/commands/run.test.ts` and `v2/src/commands/workflow.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/operator-runbook.md` Gate trust states that mutation verification depends on test expectations independent of the mutated production behavior and that self-referential doubles invalidate that evidence.
 
 ## Documentation updates
 

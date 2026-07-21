@@ -561,6 +561,31 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **Nothing you normally check tells you a workflow is finished (2026-07-21):** three separate
+  signals all read "done" while agents were still writing the worktree — the `jarvis run workflow`
+  exit (it returns on its *first* constituent run), `jarvis run list` showing every row
+  `completed` / `not-live`, and an idle run table. Post-completion mutation verification keeps
+  running in the worktree after all of them, and while it runs the tree legitimately contains
+  deliberately broken source (the verifier flips a guard, e.g. `===` → `!==`, then runs scoped
+  tests). Reading the tree in that window shows uncommitted garbage that looks exactly like a
+  harness defect. This cost three misdiagnoses in one session, one of which became a seed before
+  being retracted. **Before concluding anything about a v2 run, require all three: no `bun`
+  process under `lsof +D <worktree>`, a clean `git status`, and `local == remote`.** Seeds:
+  `workflow-commands-block-the-operator-terminal`, ready-intent
+  `workflow-command-reports-terminal-workflow-failure`.
+- **A `completed` row may be a failed run (2026-07-21):** a run ending
+  `loopOutcomeKind: "surviving_mutation_failed"` is reported `completed` by `run list` with empty
+  `error` / `retryable` / `nextAction`, advertises `resumable: true` in its log, and is refused by
+  `run resume` with `terminal_run: Cannot resume a failed run`. Its PR correctly stays draft — the
+  draft state is the trustworthy signal, not the run status. Check the run log's final
+  `loop_finished` record before believing `completed`. Ready-intent:
+  `surviving-mutation-failure-is-resumable-failed`. Cleanup: delete when it ships.
+- **Merging anything mid-session halts all dispatch (2026-07-21):** the revision guard compares
+  HEAD SHAs, so even a markdown-only merge makes the running daemon stale. With any run live it
+  can neither auto-bounce nor dispatch (`cannot restart while live runs`), and `--no-auto-bounce`
+  refuses outright. Batch merges into windows when nothing is live. Seed:
+  `revision-mismatch-halts-dispatch-on-a-docs-only-merge`. Cleanup: delete when it ships.
+
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Drive plans with plain `plan` — the reviewed plan path strands the spec (2026-07-16):**
   `plan --review-passes 1 --review-behavior light` produced, 3 for 3, a PR containing

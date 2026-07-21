@@ -304,6 +304,7 @@ async function runWorkflowStep(
       onStepRunCreated,
       store,
       logSink,
+      freshDispatch,
     );
   }
 
@@ -1993,9 +1994,10 @@ async function runReviewDispatch(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   logSink: LogSink | undefined,
+  freshDispatch: boolean | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
-  const resumed = await resumeReviewLanding(step, stepIndex, onStepRunCreated, store, logSink);
+  const resumed = await resumeReviewLanding(step, stepIndex, onStepRunCreated, store, logSink, freshDispatch);
   if (resumed !== undefined) return resumed;
 
   if (step.behavior === "review-debate") {
@@ -2079,8 +2081,13 @@ async function resumeReviewLanding(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   logSink: LogSink | undefined,
+  freshDispatch: boolean | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome | undefined> {
   if (!shouldReuseReviewCheckpoint(step)) return undefined;
+  // A checkpoint is a *retry* aid, not a cross-dispatch cache. The daemon marks every new
+  // `jarvis run workflow` dispatch fresh; reusing a prior dispatch's completed checkpoint there
+  // would silently skip review entirely. Retries and resumes leave this unset and still reuse.
+  if (freshDispatch === true) return undefined;
   const checkpoint = findReviewLandingCheckpoint(store, step);
   if (checkpoint === undefined) return undefined;
   onStepRunCreated?.(stepIndex, checkpoint.id);

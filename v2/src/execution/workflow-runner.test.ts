@@ -22,7 +22,7 @@ import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
-import { openStateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import {
   createFakeWithExternalWorktree,
   createJarvisHome,
@@ -3327,6 +3327,59 @@ describe("executeWorkflow implement patch light review", () => {
         stepId: "implement",
       });
       expect(run?.workflowSnapshot?.reviewPasses).toBe(2);
+    });
+  });
+
+  test("re-runs patch light review on a fresh dispatch instead of reusing a prior dispatch's checkpoint", async () => {
+    let criticCalls = 0;
+    const branchName = "implement-light-review-fresh-dispatch";
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd }) => {
+          writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      branchName,
+    );
+    const reviewStep = createPatchLightReviewStep({
+      branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createLightReviewBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "CRIT") criticCalls += 1;
+        return { kind: "ok", stdout: "", stderr: "" } as const;
+      }),
+    });
+
+    const runWorkflow = (store: StateStore, freshDispatch: boolean) =>
+      executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        freshDispatch,
+        completionCommitter: async () => ({ commitSha: "review-commit", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+    await withStateStore(async (store) => {
+      expect(await runWorkflow(store, true)).toMatchObject({ kind: "complete" });
+      expect(criticCalls).toBe(1);
+
+      // A second dispatch is a new invocation, not a retry. Reusing the completed
+      // implement-review checkpoint here would skip patch review entirely.
+      expect(await runWorkflow(store, true)).toMatchObject({ kind: "complete" });
+      expect(criticCalls).toBe(2);
     });
   });
 

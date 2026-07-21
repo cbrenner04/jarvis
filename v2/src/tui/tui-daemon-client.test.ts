@@ -9,7 +9,7 @@ import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { STALE_EXECUTABLE_DIGEST, TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
+import { TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
@@ -38,9 +38,6 @@ const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 const CURRENT_REVISION = "abc123";
-
-const matchingRevision = async (): Promise<string> => CURRENT_REVISION;
-const matchingDigest = async (): Promise<string> => TEST_EXECUTABLE_DIGEST;
 
 function statusFrame(
   id = STATUS_REQUEST_ID,
@@ -366,9 +363,7 @@ test.each([
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      { kind: "request", id: requestId, method, params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
     client.close();
   });
 });

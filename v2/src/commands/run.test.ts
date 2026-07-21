@@ -7,9 +7,7 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
-  STALE_EXECUTABLE_DIGEST,
   stubAgentModelConfig,
-  TEST_EXECUTABLE_DIGEST,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
@@ -173,16 +171,23 @@ describe("selected daemon dispatch", () => {
     const sent: unknown[] = [];
     let connects = 0;
     let started = 0;
-    const code = await withFixedUuid("start", () => main(fx.runStartArgs, cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () => {
-        connects += 1;
-        if (connects === 1) throw new Error("connect ENOENT selected daemon unavailable");
-        return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
-      },
-      startDaemon: async () => { started += 1; return { pid: 1, socketPath: "test.sock" }; },
-      stopDaemon: async () => { throw new Error("must not stop another daemon"); },
-    }));
+    const code = await withFixedUuid("start", () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () => {
+          connects += 1;
+          if (connects === 1) throw new Error("connect ENOENT selected daemon unavailable");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "test.sock" };
+        },
+        stopDaemon: async () => {
+          throw new Error("must not stop another daemon");
+        },
+      }),
+    );
     expect(code).toBe(0);
     expect({ connects, started }).toEqual({ connects: 2, started: 1 });
     expect(cap.read()).toEqual({ stdout: "run-keyed\n", stderr: "" });

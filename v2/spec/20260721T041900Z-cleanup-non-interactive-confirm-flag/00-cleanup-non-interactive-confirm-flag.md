@@ -19,14 +19,14 @@ Agent and scripted close-out need to apply the cleanup `--dry-run` already previ
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup --yes` with non-interactive stdin applies the cleanup that `--dry-run` previews, without prompting.
-- [ ] `jarvis cleanup` with no flag and a non-TTY stdin still assumes "no" and changes nothing.
-- [ ] `jarvis cleanup --yes --abandon <name>` with non-interactive stdin applies the abandon plan that `--dry-run` previews, without prompting.
-- [ ] `cleanup-cli.test.ts` regressions for non-interactive `--yes` apply and the fail-closed default fail against the baseline and pass after implementation.
-- [ ] `createPromptFunction` TTY and non-TTY tests in `cleanup-cli.test.ts` stay green.
-- [ ] `v2/docs/operator-runbook.md` documents `--yes` for agent-driven and scripted close-out cleanup.
-- [ ] `v2/docs/v1-behaviors.md` records v2 cleanup non-interactive confirm semantics.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis cleanup --yes` with non-interactive stdin applies the cleanup that `--dry-run` previews, without prompting.
+- [x] `jarvis cleanup` with no flag and a non-TTY stdin still assumes "no" and changes nothing.
+- [x] `jarvis cleanup --yes --abandon <name>` with non-interactive stdin applies the abandon plan that `--dry-run` previews, without prompting.
+- [x] `cleanup-cli.test.ts` regressions for non-interactive `--yes` apply and the fail-closed default fail against the baseline and pass after implementation.
+- [x] `createPromptFunction` TTY and non-TTY tests in `cleanup-cli.test.ts` stay green.
+- [x] `v2/docs/operator-runbook.md` documents `--yes` for agent-driven and scripted close-out cleanup.
+- [x] `v2/docs/v1-behaviors.md` records v2 cleanup non-interactive confirm semantics.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

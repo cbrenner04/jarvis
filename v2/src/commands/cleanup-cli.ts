@@ -16,6 +16,45 @@ type PromptStdin = {
   pause(): unknown;
 };
 
+type CleanupCliArgs = {
+  abandonName: string | undefined;
+  dryRun: boolean;
+  yes: boolean;
+};
+
+function parseCleanupCliArgs(argv: readonly string[], io: Io): CleanupCliArgs | undefined {
+  let dryRun = false;
+  let yes = false;
+  let abandonName: string | undefined;
+
+  const args = [...argv];
+  while (args.length > 0) {
+    const arg = args.shift();
+    if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--yes" || arg === "-y") {
+      yes = true;
+    } else if (arg === "--abandon") {
+      const name = args.shift();
+      if (name === undefined || name.startsWith("-")) {
+        io.stderr(CLEANUP_USAGE);
+        return undefined;
+      }
+      abandonName = name;
+    } else {
+      io.stderr(CLEANUP_USAGE);
+      return undefined;
+    }
+  }
+
+  if (dryRun && yes) {
+    io.stderr(CLEANUP_USAGE);
+    return undefined;
+  }
+
+  return { dryRun, yes, abandonName };
+}
+
 /**
  * Interactive [y/N] confirmation. Non-TTY stdin never prompts: a closed stdin
  * emits `end` (never `data`), so a lone data listener hangs forever while
@@ -51,26 +90,9 @@ export function createPromptFunction(
 }
 
 export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
-  let dryRun = false;
-  let abandonName: string | undefined;
-
-  const args = [...argv];
-  while (args.length > 0) {
-    const arg = args.shift();
-    if (arg === "--dry-run") {
-      dryRun = true;
-    } else if (arg === "--abandon") {
-      const name = args.shift();
-      if (name === undefined || name.startsWith("--")) {
-        io.stderr(CLEANUP_USAGE);
-        return 1;
-      }
-      abandonName = name;
-    } else {
-      io.stderr(CLEANUP_USAGE);
-      return 1;
-    }
-  }
+  const parsedArgs = parseCleanupCliArgs(argv, io);
+  if (parsedArgs === undefined) return 1;
+  const { dryRun, yes, abandonName } = parsedArgs;
 
   const registry = deps.readProjectRegistry();
 
@@ -95,7 +117,9 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     return 1;
   }
 
-  const options = dryRun ? { dryRun: true } : { promptConfirm: deps.promptConfirm ?? createPromptFunction() };
+  const options = dryRun
+    ? { dryRun: true }
+    : { promptConfirm: yes ? async () => true : (deps.promptConfirm ?? createPromptFunction()) };
 
   if (abandonName !== undefined) {
     return runAbandonCommand(

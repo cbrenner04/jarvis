@@ -13,7 +13,12 @@ import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
 import type { RunTuiEntryDeps } from "../tui/tui-monitor-types.ts";
-import { type GetCurrentRevision, type GetExecutableDigest, getInvokingExecutableDigest, getInvokingRevision } from "./dispatch-revision.ts";
+import {
+  type GetCurrentRevision,
+  type GetExecutableDigest,
+  getInvokingExecutableDigest,
+  getInvokingRevision,
+} from "./dispatch-revision.ts";
 
 export type CliDeps = {
   executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;

@@ -8,8 +8,8 @@ import {
   makeCliRepoFixture,
   makeIpcClient,
   STALE_EXECUTABLE_DIGEST,
-  TEST_EXECUTABLE_DIGEST,
   stubAgentModelConfig,
+  TEST_EXECUTABLE_DIGEST,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
@@ -173,7 +173,8 @@ describe("revision mismatch and auto-bounce", () => {
     const sent: unknown[] = [];
     const code = await main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
       loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
+      connectIpcClient: async () =>
+        makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
     });
 
     expect(code).toBe(1);
@@ -189,7 +190,8 @@ describe("revision mismatch and auto-bounce", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const code = await main(["run", "resume", "run-123", "--no-auto-bounce"], cap.io, {
-      connectIpcClient: async () => makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
+      connectIpcClient: async () =>
+        makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
     });
 
     expect(code).toBe(1);

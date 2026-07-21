@@ -33,9 +33,7 @@ describe("advanceLoadedRevision", () => {
     expect(advanceLoadedRevision("loaded-head", "digest", {})).toBe("loaded-head");
     expect(advanceLoadedRevision("loaded-head", "digest", null)).toBe("loaded-head");
     expect(advanceLoadedRevision("loaded-head", "digest", { currentRevision: "new-head" })).toBe("loaded-head");
-    expect(advanceLoadedRevision("loaded-head", "digest", { currentExecutableDigest: "digest" })).toBe(
-      "loaded-head",
-    );
+    expect(advanceLoadedRevision("loaded-head", "digest", { currentExecutableDigest: "digest" })).toBe("loaded-head");
     expect(
       advanceLoadedRevision("loaded-head", "digest", {
         currentRevision: 42,

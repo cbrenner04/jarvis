@@ -7,12 +7,11 @@ import {
 import { realAsyncSubprocessRunner } from "./subprocess.ts";
 
 describe("requiresDaemonBounceForChangedPath", () => {
-  test.each(PATH_BOUNCE_CLASSIFICATION_FIXTURE.map(({ path, bounceRequired }) => [path, bounceRequired] as const))(
-    "%s -> bounceRequired=%s",
-    (path, bounceRequired) => {
-      expect(requiresDaemonBounceForChangedPath(path)).toBe(bounceRequired);
-    },
-  );
+  test.each(
+    PATH_BOUNCE_CLASSIFICATION_FIXTURE.map(({ path, bounceRequired }) => [path, bounceRequired] as const),
+  )("%s -> bounceRequired=%s", (path, bounceRequired) => {
+    expect(requiresDaemonBounceForChangedPath(path)).toBe(bounceRequired);
+  });
 });
 
 describe("getExecutableTreeDigest", () => {

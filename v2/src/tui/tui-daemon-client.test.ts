@@ -9,9 +9,9 @@ import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
+import { STALE_EXECUTABLE_DIGEST, TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { STALE_EXECUTABLE_DIGEST, TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
 
 const START_INPUT: WriteLoopInput = {
@@ -129,7 +129,11 @@ test("health then status reuse one connection without reconnecting", async () =>
         connectCalls += 1;
         return makeGatedIpcClient([
           { kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } },
-          { kind: "response", id: STATUS_REQUEST_ID, result: { state: "running", loadedRevision: "xyz789", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST } },
+          {
+            kind: "response",
+            id: STATUS_REQUEST_ID,
+            result: { state: "running", loadedRevision: "xyz789", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
+          },
           { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } },
           { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
         ]);

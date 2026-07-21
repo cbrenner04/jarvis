@@ -43,15 +43,8 @@ export function requiresDaemonBounceForChangedPath(changedPath: string): boolean
 }
 
 /** SHA-256 digest of tracked blob identities under {@link EXECUTABLE_TREE_PATHSPECS} at `HEAD`. */
-export async function getExecutableTreeDigest(
-  cwd: string,
-  runner: AsyncSubprocessRunner,
-): Promise<string> {
-  const output = await runner.runAsync(
-    "git",
-    ["ls-tree", "-r", "HEAD", "--", ...EXECUTABLE_TREE_PATHSPECS],
-    cwd,
-  );
+export async function getExecutableTreeDigest(cwd: string, runner: AsyncSubprocessRunner): Promise<string> {
+  const output = await runner.runAsync("git", ["ls-tree", "-r", "HEAD", "--", ...EXECUTABLE_TREE_PATHSPECS], cwd);
   const lines = output
     .trim()
     .split("\n")

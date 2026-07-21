@@ -24,11 +24,7 @@ export async function getInvokingExecutableDigest(): Promise<string> {
 }
 
 /** Advance recorded HEAD when dispatch reports a matching executable digest with HEAD drift. */
-export function advanceLoadedRevision(
-  loadedRevision: string,
-  loadedExecutableDigest: string,
-  params: unknown,
-): string {
+export function advanceLoadedRevision(loadedRevision: string, loadedExecutableDigest: string, params: unknown): string {
   const guard =
     typeof params === "object" && params !== null
       ? (params as { currentRevision?: unknown; currentExecutableDigest?: unknown })

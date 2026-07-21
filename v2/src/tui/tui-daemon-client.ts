@@ -1,7 +1,7 @@
 import {
+  dispatchRevisionMismatch,
   type GetCurrentRevision,
   type GetExecutableDigest,
-  dispatchRevisionMismatch,
   getInvokingExecutableDigest,
   getInvokingRevision,
 } from "../cli/dispatch-revision.ts";

@@ -42,9 +42,17 @@ export function requiresDaemonBounceForChangedPath(changedPath: string): boolean
   return false;
 }
 
-/** SHA-256 digest of tracked blob identities under {@link EXECUTABLE_TREE_PATHSPECS} at `HEAD`. */
+/**
+ * SHA-256 digest of tracked blob identities under {@link EXECUTABLE_TREE_PATHSPECS} at `HEAD`.
+ *
+ * The pathspecs are repo-root-relative and `git` resolves pathspecs against the process cwd, so
+ * this resolves the repository top level from `cwd` first. Running `ls-tree` directly in a
+ * subdirectory (e.g. a caller passing `import.meta.dir`) matches nothing and silently yields the
+ * digest of the empty string, which compares unequal to every real digest.
+ */
 export async function getExecutableTreeDigest(cwd: string, runner: AsyncSubprocessRunner): Promise<string> {
-  const output = await runner.runAsync("git", ["ls-tree", "-r", "HEAD", "--", ...EXECUTABLE_TREE_PATHSPECS], cwd);
+  const repoRoot = (await runner.runAsync("git", ["rev-parse", "--show-toplevel"], cwd)).trim();
+  const output = await runner.runAsync("git", ["ls-tree", "-r", "HEAD", "--", ...EXECUTABLE_TREE_PATHSPECS], repoRoot);
   const lines = output
     .trim()
     .split("\n")

@@ -9,21 +9,21 @@ since #1802 (was 5 red in the prior 11).**
 
 ## PRs (all admin-merged on green)
 
-| PR | What |
-|---|---|
-| [#1802](https://github.com/cbrenner04/jarvis/pull/1802) | CI flake root cause: daemon fire-and-forget promotion raced a closed SQLite store |
-| [#1803](https://github.com/cbrenner04/jarvis/pull/1803) | Dead human/revise feature cluster removed end-to-end (−1,776; nothing ever authored `behavior:"human"`) |
-| [#1804](https://github.com/cbrenner04/jarvis/pull/1804) | Spec cleanup: archive shipped, drop plan-only v1 dirs + stale seeds |
-| [#1805](https://github.com/cbrenner04/jarvis/pull/1805) | Dead seams: prompt barrels, ghReady, NonFastForwardError, tautological status tests |
-| [#1806](https://github.com/cbrenner04/jarvis/pull/1806) | One terminal-status source (was 4 defs); startDaemon name collision fixed |
-| [#1807](https://github.com/cbrenner04/jarvis/pull/1807) | Review executors collapsed onto shared role invocation + wall clock (seed: review timeout) |
-| [#1808](https://github.com/cbrenner04/jarvis/pull/1808) | Shared diff-scan; mutation-verify bounds (seed); plan stale-reset (seed) |
-| [#1809](https://github.com/cbrenner04/jarvis/pull/1809) | Config loader single-read DRY; 38→17 test bodies; IPC fakes merged |
+| PR                                                      | What                                                                                                                                          |
+|---------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| [#1802](https://github.com/cbrenner04/jarvis/pull/1802) | CI flake root cause: daemon fire-and-forget promotion raced a closed SQLite store                                                             |
+| [#1803](https://github.com/cbrenner04/jarvis/pull/1803) | Dead human/revise feature cluster removed end-to-end (−1,776; nothing ever authored `behavior:"human"`)                                       |
+| [#1804](https://github.com/cbrenner04/jarvis/pull/1804) | Spec cleanup: archive shipped, drop plan-only v1 dirs + stale seeds                                                                           |
+| [#1805](https://github.com/cbrenner04/jarvis/pull/1805) | Dead seams: prompt barrels, ghReady, NonFastForwardError, tautological status tests                                                           |
+| [#1806](https://github.com/cbrenner04/jarvis/pull/1806) | One terminal-status source (was 4 defs); startDaemon name collision fixed                                                                     |
+| [#1807](https://github.com/cbrenner04/jarvis/pull/1807) | Review executors collapsed onto shared role invocation + wall clock (seed: review timeout)                                                    |
+| [#1808](https://github.com/cbrenner04/jarvis/pull/1808) | Shared diff-scan; mutation-verify bounds (seed); plan stale-reset (seed)                                                                      |
+| [#1809](https://github.com/cbrenner04/jarvis/pull/1809) | Config loader single-read DRY; 38→17 test bodies; IPC fakes merged                                                                            |
 | [#1810](https://github.com/cbrenner04/jarvis/pull/1810) | v1 cleanup stops archiving v2 specs; cleanup dedup; abandon-flag + stdin-hang seeds fixed (99%-CPU root cause: flowing-mode poll of EOF'd fd) |
-| [#1811](https://github.com/cbrenner04/jarvis/pull/1811) | Docs: v2 primary / v1 maintenance-only; 3 executed-plan docs deleted; drift fixed (−975) |
-| [#1812](https://github.com/cbrenner04/jarvis/pull/1812) | TUI tests trimmed to behavioral coverage (−573) |
-| [#1813](https://github.com/cbrenner04/jarvis/pull/1813) | Daemon tests 24→19 files; IPC-responsiveness quartet → one parametrized file |
-| [#1814](https://github.com/cbrenner04/jarvis/pull/1814) | cli.test.ts 3,187→33; per-command test files; review-arg matrix table-driven |
+| [#1811](https://github.com/cbrenner04/jarvis/pull/1811) | Docs: v2 primary / v1 maintenance-only; 3 executed-plan docs deleted; drift fixed (−975)                                                      |
+| [#1812](https://github.com/cbrenner04/jarvis/pull/1812) | TUI tests trimmed to behavioral coverage (−573)                                                                                               |
+| [#1813](https://github.com/cbrenner04/jarvis/pull/1813) | Daemon tests 24→19 files; IPC-responsiveness quartet → one parametrized file                                                                  |
+| [#1814](https://github.com/cbrenner04/jarvis/pull/1814) | cli.test.ts 3,187→33; per-command test files; review-arg matrix table-driven                                                                  |
 
 ## Seeds consumed by direct fixes
 

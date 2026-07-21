@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realAsyncSubprocessRunner } from "../subprocess.ts";
 import {
+  type ReviewDebateRenderContext,
   renderPatchReviewCriticPrompt,
   renderReviewDebateCyclePrompts,
-  type ReviewDebateRenderContext,
 } from "./review-implement.ts";
 
 const tempDirs: string[] = [];
@@ -19,7 +19,8 @@ afterEach(() => {
 function extractBranchDiff(rendered: string): string {
   const match = rendered.match(/<<<DIFF_BEGIN>>>\n([\s\S]*?)\n<<<DIFF_END>>>/);
   expect(match).not.toBeNull();
-  return match![1]!.trim();
+  if (!match?.[1]) throw new Error("branch diff not found in rendered prompt");
+  return match[1].trim();
 }
 
 function reviewContext(): ReviewDebateRenderContext {

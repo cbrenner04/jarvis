@@ -621,6 +621,42 @@ test("list retains durable plan debate rows across live, terminal, and restart p
   });
 });
 
+test("list projects an in-flight durable review step from its live progress, not as a stopped failure", async () => {
+  const snapshot = {
+    ...workflowSnapshot("workflow-intent-review", []),
+    steps: [
+      { stepId: "intent-split", role: "intent", durable: true },
+      { stepId: "intent-review", role: "", behavior: "review" as const, durable: true },
+    ],
+  };
+  const reviewRunId = stateStore.createRun({
+    project: "intent-project",
+    specRef: "main",
+    worktreePath: "/tmp/intent-project",
+    branch: "intent-review",
+    specPath: "/tmp/intent.md",
+    stepId: "intent-review",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.recordAttemptStart(reviewRunId);
+
+  handlers.reportReviewDebateProgress("workflow-intent-review", "intent-review", {
+    status: "in_progress",
+    role: "critic",
+  });
+
+  // The run is in-progress but absent from liveRunIds; without the progress branch it falls
+  // through to stoppedOutcomeForRun and renders "invocation_failure" while still running.
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === reviewRunId);
+  expect(row?.status).toBe("in-progress");
+  expect(row?.workflow?.steps.find((step) => step.stepId === "intent-review")).toEqual({
+    stepId: "intent-review",
+    role: "critic",
+    status: "in_progress",
+    attemptCount: 0,
+  });
+});
+
 test("pause signals graceful stop for an active run", async () => {
   const runId = await startRunDirect(handlers);
   if (!runId) return;

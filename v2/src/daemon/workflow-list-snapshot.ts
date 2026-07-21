@@ -63,7 +63,7 @@ function workflowStepSnapshot(
     };
   }
 
-  if ((step.behavior === "review-debate" || step.behavior === "review") && !step.durable) {
+  if (step.behavior === "review" || (step.behavior === "review-debate" && !step.durable)) {
     if (!progress) {
       return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
     }

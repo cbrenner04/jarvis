@@ -796,7 +796,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               });
             } else if (
               completionStep.landing?.kind === "plan-tree" ||
-              completionStep.promptId === "plan.prompt.draft"
+              completionStep.promptId === "plan.prompt.draft" ||
+              completionStep.role === "implement"
             ) {
               specTemplate = true;
               bodySummary = await deriveSpecRunBodySummary({

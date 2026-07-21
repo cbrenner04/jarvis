@@ -14,18 +14,18 @@
 
 ## Work
 
-- [ ] Select the deterministic spec template for implement workflow completion.
-- [ ] Replace the implement no-summary expectation with publication regression coverage for spec, commit, risk, and diff context.
-- [ ] Align `v2/docs/workflow-runner.md` and `v2/docs/v1-behaviors.md` with implement body composition and its source seam.
+- [x] Select the deterministic spec template for implement workflow completion.
+- [x] Replace the implement no-summary expectation with publication regression coverage for spec, commit, risk, and diff context.
+- [x] Align `v2/docs/workflow-runner.md` and `v2/docs/v1-behaviors.md` with implement body composition and its source seam.
 
 ## Acceptance criteria
 
-- [ ] Implement workflow completion supplies a deterministic template containing `## Subspecs`, `## Commits`, `## Risk cues` with `no test changes` for a source-only diff, and `## Change summary` derived from its spec tree and `baseRef...HEAD` branch diff.
-- [ ] The implement template is re-derived on publication retry and renders before any preserved narrative marker block and regenerated attribution footer.
-- [ ] The implement publication regression in `v2/src/execution/workflow-runner.test.ts` fails against the baseline and passes after the change.
-- [ ] Existing plan and intent body-summary cases in `v2/src/execution/workflow-runner.test.ts` stay green.
-- [ ] `v2/docs/workflow-runner.md` documents implement template composition; `v2/docs/v1-behaviors.md` records the workflow runner as the v2 implement template source.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Implement workflow completion supplies a deterministic template containing `## Subspecs`, `## Commits`, `## Risk cues` with `no test changes` for a source-only diff, and `## Change summary` derived from its spec tree and `baseRef...HEAD` branch diff.
+- [x] The implement template is re-derived on publication retry and renders before any preserved narrative marker block and regenerated attribution footer.
+- [x] The implement publication regression in `v2/src/execution/workflow-runner.test.ts` fails against the baseline and passes after the change.
+- [x] Existing plan and intent body-summary cases in `v2/src/execution/workflow-runner.test.ts` stay green.
+- [x] `v2/docs/workflow-runner.md` documents implement template composition; `v2/docs/v1-behaviors.md` records the workflow runner as the v2 implement template source.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

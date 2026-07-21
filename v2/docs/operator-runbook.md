@@ -105,7 +105,10 @@ Adapted from v1; v2 session close-out is the same obligation:
    entries when the structural fix ships.
 6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees and scans each registered
    `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). It retains
-   unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)).
+   unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)). A stranded spec is owned only by
+   a discovered managed worktree in the same registered project on its recorded implementation branch; primary
+   checkouts and other resolved branches do not own it. Cleanup rechecks ownership immediately before archival,
+   and refuses archival when a same-project managed worktree has an unresolved or detached branch.
 
 ## Runbook maintenance
 

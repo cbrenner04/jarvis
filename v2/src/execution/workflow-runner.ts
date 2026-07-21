@@ -1367,6 +1367,24 @@ type ReviewDebateStepOutcome =
 
 type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
 
+function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
+  kind: "complete" | "invocation_failure";
+  terminalRole: ReviewDebateRole;
+  completionAgent: string | undefined;
+} {
+  const lastCycle = result.cycles.at(-1);
+  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
+  const terminalRole: ReviewDebateRole =
+    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
+  const actuatorExecution =
+    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    kind === "complete" && actuatorExecution?.result.kind === "ok"
+      ? actuatorExecution.binding.metadata?.agent?.trim()
+      : undefined;
+  return { kind, terminalRole, completionAgent };
+}
+
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. The fixed cycle is one durable attempt; mid-cycle resume remains deferred.
@@ -1453,23 +1471,13 @@ async function runReviewDebateStep(
     ...onRoleStart,
   });
 
-  const lastCycle = result.cycles[result.cycles.length - 1];
-  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
-  const terminalRole: ReviewDebateRole =
-    lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
+  const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,
   });
-
-  const actuatorExecution =
-    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
-  const completionAgent =
-    kind === "complete" && actuatorExecution?.result.kind === "ok"
-      ? actuatorExecution.binding.metadata?.agent?.trim()
-      : undefined;
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
     const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);

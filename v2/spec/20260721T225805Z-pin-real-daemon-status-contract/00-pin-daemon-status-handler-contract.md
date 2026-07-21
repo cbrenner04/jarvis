@@ -16,10 +16,10 @@ The real daemon status handler has no regression test proving that matching exec
 
 ## Acceptance criteria
 
-- [ ] The `daemon status contract` regression test invokes the production status handler with matching digest and HEAD drift.
-- [ ] The test fails if the production handler does not advance `loadedRevision` to the invoking HEAD.
-- [ ] The test fails if the production reply omits or changes `loadedExecutableDigest`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] The `daemon status contract` regression test invokes the production status handler with matching digest and HEAD drift.
+- [x] The test fails if the production handler does not advance `loadedRevision` to the invoking HEAD.
+- [x] The test fails if the production reply omits or changes `loadedExecutableDigest`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -51,8 +51,37 @@ describe("runCleanupCliCommand argument parsing", () => {
     expect(cap.read().stderr).toContain('No worktree found matching name "some-workspace"');
   });
 
+  test("--yes and -y parse without changing abandon resolution", async () => {
+    for (const argv of [
+      ["--yes", "--abandon", "some-workspace"],
+      ["-y", "--abandon", "some-workspace"],
+    ]) {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).not.toContain("usage: jarvis cleanup");
+      expect(cap.read().stderr).toContain('No worktree found matching name "some-workspace"');
+    }
+  });
+
   test("--abandon without a name prints usage and exits 1", async () => {
-    for (const argv of [["--abandon"], ["--abandon", "--dry-run"]]) {
+    for (const argv of [["--abandon"], ["--abandon", "--dry-run"], ["--abandon", "--yes"], ["--abandon", "-y"]]) {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup");
+    }
+  });
+
+  test("--yes cannot be combined with --dry-run", async () => {
+    for (const argv of [
+      ["--yes", "--dry-run"],
+      ["--dry-run", "--yes"],
+      ["-y", "--dry-run"],
+      ["--dry-run", "-y"],
+    ]) {
       const cap = captureIo();
       const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
 
@@ -266,6 +295,57 @@ describe("cleanup command through main", () => {
     expect(cap.read().stdout).toContain("Cancelled");
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
     expect(list).toContain(worktreePath);
+  });
+
+  test("cleanup without --yes uses non-interactive stdin's fail-closed default", async () => {
+    const worktreePath = await materializeMergedWorktree("non-interactive-decline");
+    const cap = captureIo();
+    const nonInteractiveStdin = {
+      isTTY: false,
+      once: () => {
+        throw new Error("non-TTY stdin must not attach listeners");
+      },
+      off: () => {},
+      pause: () => {},
+    };
+
+    const code = await withFixedUuid(LIST_REQUEST_ID, () =>
+      cliMain(["cleanup"], cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        promptConfirm: createPromptFunction(nonInteractiveStdin, () => {}),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test.each([
+    ["default cleanup", "yes-merged", ["cleanup", "--yes"]],
+    ["--abandon", "yes-abandon", ["cleanup", "--yes", "--abandon", "yes-abandon"]],
+  ])("cleanup --yes applies %s without prompting", async (_kind, branch, args) => {
+    const worktreePath = await materializeMergedWorktree(branch);
+    const cap = captureIo();
+
+    const code = await withFixedUuid(LIST_REQUEST_ID, () =>
+      cliMain(args, cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        connectIpcClient: async () => makeIpcClient([noRunsFrame, noRunsFrame]),
+        promptConfirm: async () => {
+          throw new Error("--yes must not prompt");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
+    expect(list).not.toContain(worktreePath);
   });
 
   test("cleanup with invalid arguments prints usage and exits 1", async () => {

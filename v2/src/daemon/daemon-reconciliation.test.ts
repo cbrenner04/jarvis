@@ -405,7 +405,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     finishRunReconciliation: () => order.push("finished"),
   } as unknown as StateStore;
 
-  await startDaemonRuntime("/fake/socket", reconciledStore, reader, {
+  const runtime = await startDaemonRuntime("/fake/socket", reconciledStore, reader, {
     openLogSink: () => sink,
     startIpcServer,
     recoverReconciledRuns: async (runIds) => {
@@ -424,60 +424,107 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
       return { resumed: 1 };
     },
   });
-  expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
-  const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
-  expect(complete).toMatchObject({
-    kind: "response",
-    result: { state: "running", recovery: { pending: false, reconciled: 1, resumed: 1 } },
+  try {
+    expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
+    const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
+    expect(complete).toMatchObject({
+      kind: "response",
+      result: { state: "running", recovery: { pending: false, reconciled: 1, resumed: 1 } },
+    });
+
+    for (const failure of [
+      {
+        store: {
+          beginRunReconciliation: () => {
+            throw new Error("state unavailable");
+          },
+        } as unknown as StateStore,
+        sink,
+        message: "state unavailable",
+      },
+      {
+        store: {
+          beginRunReconciliation: async () => ["run-1"],
+          loadRun: () => ({
+            id: "run-1",
+            project: "p",
+            specRef: "main",
+            createdAt: 0,
+            status: "killed" as const,
+            attemptCount: 0,
+            worktreePath: "/tmp",
+            branch: "b",
+            specPath: "spec.md",
+            attempts: [],
+          }),
+          finishRunReconciliation: () => undefined,
+        } as unknown as StateStore,
+        sink: {
+          append: () => {
+            throw new Error("log unavailable");
+          },
+          close: () => undefined,
+        } as LogSink,
+        message: "log unavailable",
+      },
+    ]) {
+      let opened = false;
+      await expect(
+        startDaemonRuntime("/fake/socket", failure.store, reader, {
+          openLogSink: () => failure.sink,
+          startIpcServer: async () => {
+            opened = true;
+            return server;
+          },
+        }),
+      ).rejects.toThrow(failure.message);
+      expect(opened).toBe(false);
+    }
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("daemon status contract advances the loaded revision for matching executable HEAD drift", async () => {
+  let status: RpcHandler | undefined;
+  const reader: LogReader = { tail: () => [], async *follow() {} };
+
+  const runtime = await startDaemonRuntime("/fake/socket", seedStore, reader, {
+    openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+    startIpcServer: async (_socketPath, handlers) => {
+      status = handlers?.status;
+      return { close: async () => undefined } as IpcServer;
+    },
   });
 
-  for (const failure of [
-    {
-      store: {
-        beginRunReconciliation: () => {
-          throw new Error("state unavailable");
-        },
-      } as unknown as StateStore,
-      sink,
-      message: "state unavailable",
-    },
-    {
-      store: {
-        beginRunReconciliation: async () => ["run-1"],
-        loadRun: () => ({
-          id: "run-1",
-          project: "p",
-          specRef: "main",
-          createdAt: 0,
-          status: "killed" as const,
-          attemptCount: 0,
-          worktreePath: "/tmp",
-          branch: "b",
-          specPath: "spec.md",
-          attempts: [],
-        }),
-        finishRunReconciliation: () => undefined,
-      } as unknown as StateStore,
-      sink: {
-        append: () => {
-          throw new Error("log unavailable");
-        },
-        close: () => undefined,
-      } as LogSink,
-      message: "log unavailable",
-    },
-  ]) {
-    let opened = false;
-    await expect(
-      startDaemonRuntime("/fake/socket", failure.store, reader, {
-        openLogSink: () => failure.sink,
-        startIpcServer: async () => {
-          opened = true;
-          return server;
-        },
-      }),
-    ).rejects.toThrow(failure.message);
-    expect(opened).toBe(false);
+  try {
+    if (status === undefined) throw new Error("status handler was not registered");
+    const signal = new AbortController().signal;
+    const initial = await status({ kind: "request", id: "initial", method: "status" }, signal);
+    expect(initial.kind).toBe("response");
+    const initialResult = (
+      initial as { kind: "response"; result: { loadedRevision: string; loadedExecutableDigest: string } }
+    ).result;
+    expect(initialResult.loadedRevision).not.toBe("invoking-head");
+
+    const drifted = await status(
+      {
+        kind: "request",
+        id: "drifted",
+        method: "status",
+        params: { currentRevision: "invoking-head", currentExecutableDigest: initialResult.loadedExecutableDigest },
+      },
+      signal,
+    );
+    expect(drifted).toMatchObject({
+      kind: "response",
+      result: {
+        loadedRevision: "invoking-head",
+        loadedExecutableDigest: initialResult.loadedExecutableDigest,
+      },
+    });
+  } finally {
+    await runtime.close();
   }
 });
 

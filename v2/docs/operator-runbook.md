@@ -361,6 +361,7 @@ not clear this debris. Use `jarvis cleanup --abandon <name>` to retire one named
 ```sh
 jarvis cleanup --abandon <name>  # preview planned removal
 jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
+jarvis cleanup --yes --abandon <name>  # agent/scripted removal
 ```
 
 `--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions (close PR, remove worktree, delete local and remote branches), prompts for confirmation, then best-effort closes the PR, force-removes the worktree, and deletes both branches. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
@@ -372,7 +373,7 @@ jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
 
 A single open draft PR passes these gates and retirement proceeds. Zero matching PRs also pass.
 
-Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`.
+Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name> --dry-run`. For agent-driven or scripted close-out, pass `--yes` (or `-y`) to apply the same plan without a TTY prompt; without it, non-interactive stdin assumes no and changes nothing.
 
 ### Blocked run: inspect and resume
 
@@ -627,7 +628,7 @@ Operators add bullets here; delete when fixed.
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
 - **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
-  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`) to retire merged worktrees,
+  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`; use `--yes` for scripted apply) to retire merged worktrees,
   delete their local branches, and archive eligible open-home specs under `v2/spec/completed/`.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.

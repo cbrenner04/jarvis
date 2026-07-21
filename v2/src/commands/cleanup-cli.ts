@@ -52,6 +52,7 @@ export function createPromptFunction(
 
 export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   let dryRun = false;
+  let yes = false;
   let abandonName: string | undefined;
 
   const args = [...argv];
@@ -59,9 +60,11 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     const arg = args.shift();
     if (arg === "--dry-run") {
       dryRun = true;
+    } else if (arg === "--yes" || arg === "-y") {
+      yes = true;
     } else if (arg === "--abandon") {
       const name = args.shift();
-      if (name === undefined || name.startsWith("--")) {
+      if (name === undefined || name.startsWith("-")) {
         io.stderr(CLEANUP_USAGE);
         return 1;
       }
@@ -70,6 +73,11 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
       io.stderr(CLEANUP_USAGE);
       return 1;
     }
+  }
+
+  if (dryRun && yes) {
+    io.stderr(CLEANUP_USAGE);
+    return 1;
   }
 
   const registry = deps.readProjectRegistry();
@@ -95,7 +103,9 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     return 1;
   }
 
-  const options = dryRun ? { dryRun: true } : { promptConfirm: deps.promptConfirm ?? createPromptFunction() };
+  const options = dryRun
+    ? { dryRun: true }
+    : { promptConfirm: yes ? async () => true : (deps.promptConfirm ?? createPromptFunction()) };
 
   if (abandonName !== undefined) {
     return runAbandonCommand(

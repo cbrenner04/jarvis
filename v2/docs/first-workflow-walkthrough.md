@@ -406,7 +406,8 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and
 
 The implement workflow preset launches a write loop against an `index.md` spec
 without the live `pause`, `resume`, or `kill` control available in direct
-`jarvis run start` mode:
+`jarvis run start` mode. Review runs by default (one debate pass); pass
+`--review-passes 0` to skip it.
 
 ```bash
 jarvis daemon start
@@ -420,9 +421,8 @@ jarvis run workflow implement \
 | `--base` | Base git ref for the worktree |
 | `--spec` | Spec path (typically `index.md`); must exist inside the registered project after symlink resolution |
 | `--branch` | Optional; defaults to the parent directory basename of `--spec` |
-| `--branch` | Optional; defaults to the parent directory basename of `--spec` |
 | `--artifact` | Optional for `index.md` (ignored if supplied); required for non-index specs |
-| `--review-passes` | Optional non-negative integer; overrides `projects.<key>.implement.reviewPasses` (default `0`) |
+| `--review-passes` | Optional non-negative integer; overrides `projects.<key>.implement.reviewPasses` (default `1`; pass `0` to skip review) |
 | `--review-behavior` | Optional `debate` or `light`; overrides `projects.<key>.implement.reviewBehavior` (default `debate`). Applies only when resolved review passes are positive. |
 
 Before daemon contact or worktree creation, implement resolves the registered root,

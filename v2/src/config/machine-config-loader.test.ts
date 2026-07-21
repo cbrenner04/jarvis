@@ -119,7 +119,7 @@ const implementFieldCases: ImplementFieldCase[] = [
   {
     field: "reviewPasses",
     read: readProjectImplementReviewPasses,
-    fallback: { ok: true, reviewPasses: 0 },
+    fallback: { ok: true, reviewPasses: 1 },
     valid: [[2, { ok: true, reviewPasses: 2 }]],
     malformed: [1.5, -1, "2"],
     error: "projects.demo.implement.reviewPasses must be a non-negative integer",

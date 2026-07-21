@@ -119,27 +119,11 @@ function resolveImplementSpecAndProject(
   return { match, resolvedSpecPath };
 }
 
-async function resolveImplementLaunch(
+function resolveImplementArtifact(
   input: BuildImplementWorkflowStepsInput,
-  deps: BuildImplementWorkflowStepsDeps,
-): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
-  if (input.projectRoot !== undefined) {
-    return {
-      ...input,
-      branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))),
-      reviewPasses: input.reviewPasses ?? 0,
-    };
-  }
-
-  if (deps.resolveProjectMatch !== undefined) {
-    return { ...input, reviewPasses: input.reviewPasses ?? 0 };
-  }
-
-  const resolvedSpec = resolveImplementSpecAndProject(input, deps);
-  if ("error" in resolvedSpec) return resolvedSpec;
-  const { match, resolvedSpecPath } = resolvedSpec;
-  const projectRelativeSpecPath = relative(match.root, resolvedSpecPath);
-
+  resolvedSpecPath: string,
+  match: ProjectMatch,
+): { isIndexSpec: boolean; artifactPath?: string } | { error: string } {
   const isIndexSpec = basename(resolvedSpecPath) === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
   if (artifactPath === undefined) return { error: "Non-index spec requires --artifact" };
@@ -150,13 +134,22 @@ async function resolveImplementLaunch(
   if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
     return { error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
   }
+  return {
+    isIndexSpec,
+    ...(isIndexSpec ? {} : { artifactPath: relative(match.root, resolvedArtifactPath) }),
+  };
+}
 
-  const configPath = input.configPath ?? deps.configPath;
+function resolveImplementReviewConfig(
+  input: BuildImplementWorkflowStepsInput,
+  match: ProjectMatch,
+  configPath: string | undefined,
+): { reviewPasses: number; reviewBehavior: ImplementReviewBehavior } | { error: string } {
   const reviewPasses =
     input.reviewPasses !== undefined
       ? { ok: true as const, reviewPasses: input.reviewPasses }
       : configPath === undefined
-        ? { ok: true as const, reviewPasses: 0 }
+        ? { ok: true as const, reviewPasses: 1 }
         : readProjectImplementReviewPasses(match.key, configPath);
   if (!reviewPasses.ok) return { error: reviewPasses.error };
   const reviewBehavior =
@@ -166,6 +159,33 @@ async function resolveImplementLaunch(
         ? { ok: true as const, reviewBehavior: "debate" as const }
         : readProjectImplementReviewBehavior(match.key, configPath);
   if (!reviewBehavior.ok) return { error: reviewBehavior.error };
+  return { reviewPasses: reviewPasses.reviewPasses, reviewBehavior: reviewBehavior.reviewBehavior };
+}
+
+async function resolveImplementLaunch(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
+  if (input.projectRoot !== undefined || deps.resolveProjectMatch !== undefined) {
+    return {
+      ...input,
+      ...(input.projectRoot !== undefined
+        ? { branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))) }
+        : {}),
+      reviewPasses: input.reviewPasses ?? 1,
+    };
+  }
+
+  const resolvedSpec = resolveImplementSpecAndProject(input, deps);
+  if ("error" in resolvedSpec) return resolvedSpec;
+  const { match, resolvedSpecPath } = resolvedSpec;
+  const projectRelativeSpecPath = relative(match.root, resolvedSpecPath);
+
+  const artifact = resolveImplementArtifact(input, resolvedSpecPath, match);
+  if ("error" in artifact) return artifact;
+
+  const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
+  if ("error" in reviewConfig) return reviewConfig;
 
   if (
     !(await isSpecAvailableInBaseRef(
@@ -184,9 +204,9 @@ async function resolveImplementLaunch(
     specPath: projectRelativeSpecPath,
     projectRoot: match.root,
     projectName: match.key,
-    ...(isIndexSpec ? {} : { artifactPath: relative(match.root, resolvedArtifactPath) }),
-    reviewPasses: reviewPasses.reviewPasses,
-    reviewBehavior: reviewBehavior.reviewBehavior,
+    ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
+    reviewPasses: reviewConfig.reviewPasses,
+    reviewBehavior: reviewConfig.reviewBehavior,
   };
 }
 
@@ -339,7 +359,7 @@ export async function buildImplementWorkflowSteps(
   }
   const resolvedInput = await resolveImplementLaunch(input, deps);
   if ("error" in resolvedInput) return { ok: false, error: resolvedInput.error };
-  const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 0);
+  const reviewPasses = resolveImplementReviewPasses(resolvedInput.reviewPasses ?? 1);
   if (typeof reviewPasses === "object") return { ok: false, error: reviewPasses.error };
   const reviewBehavior = resolvedInput.reviewBehavior ?? "debate";
 

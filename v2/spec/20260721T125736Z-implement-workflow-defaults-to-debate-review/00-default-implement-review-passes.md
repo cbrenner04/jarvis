@@ -27,12 +27,12 @@ pass count with v1 (`modes.review.passes: 1`).
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` `"omitted reviewPasses defaults to one debate review step"` fails against pre-fix code and passes after the change; exercises the `projectRoot` early-return path (no CLI `reviewPasses`, no project override) and asserts a two-step workflow whose review step has `behavior: "review-debate"` (same pattern as `"positive reviewPasses appends one review-debate step with maxCycles and verdict path"`).
-- [ ] `implement-workflow-steps.test.ts` `"reviewPasses 0 returns a one-step implement workflow with no review step"` stays green.
-- [ ] Registered project with no `implement.reviewPasses` and omitted CLI flag builds a two-step workflow with one `review-debate` step (fails pre-fix, passes after).
-- [ ] Registered project with explicit `implement.reviewPasses: 0` and omitted CLI flag builds a one-step workflow with no review step (fails pre-fix if absent-field default leaks, passes after).
-- [ ] `machine-config-loader.test.ts` `readProjectImplementReviewPasses` absent-field case expects `{ ok: true, reviewPasses: 1 }`.
-- [ ] Every committed doc that states implement review default `0` — `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, `v2/docs/install-and-config.md`, `v2/docs/write-behavior.md`, and `v2/docs/first-workflow-walkthrough.md` — reflects review-on-by-default (one debate pass when the flag is omitted), states the omitted-flag default, and documents `--review-passes 0` opt-out.
+- [x] `implement-workflow-steps.test.ts` `"omitted reviewPasses defaults to one debate review step"` fails against pre-fix code and passes after the change; exercises the `projectRoot` early-return path (no CLI `reviewPasses`, no project override) and asserts a two-step workflow whose review step has `behavior: "review-debate"` (same pattern as `"positive reviewPasses appends one review-debate step with maxCycles and verdict path"`).
+- [x] `implement-workflow-steps.test.ts` `"reviewPasses 0 returns a one-step implement workflow with no review step"` stays green.
+- [x] Registered project with no `implement.reviewPasses` and omitted CLI flag builds a two-step workflow with one `review-debate` step (fails pre-fix, passes after).
+- [x] Registered project with explicit `implement.reviewPasses: 0` and omitted CLI flag builds a one-step workflow with no review step (fails pre-fix if absent-field default leaks, passes after).
+- [x] `machine-config-loader.test.ts` `readProjectImplementReviewPasses` absent-field case expects `{ ok: true, reviewPasses: 1 }`.
+- [x] Every committed doc that states implement review default `0` — `v2/docs/workflow-runner.md`, `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, `v2/docs/install-and-config.md`, `v2/docs/write-behavior.md`, and `v2/docs/first-workflow-walkthrough.md` — reflects review-on-by-default (one debate pass when the flag is omitted), states the omitted-flag default, and documents `--review-passes 0` opt-out.
 
 ## Documentation updates
 

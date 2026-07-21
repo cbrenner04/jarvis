@@ -834,10 +834,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
               const isGateFailure = publication.failure.kind === "ready_gate_failed";
               if (publication.failure.runtimeSmokeOutcome !== undefined) {
-                args.logSink?.append(
-                  lastResult.runId,
-                  runtimeSmokeOutcomeEvent(publication.failure.runtimeSmokeOutcome),
-                );
+                const event = runtimeSmokeOutcomeEvent(publication.failure.runtimeSmokeOutcome);
+                args.logSink?.append(lastResult.runId, event);
               }
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
@@ -874,7 +872,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
             if (publication.success?.runtimeSmokeOutcome !== undefined) {
-              args.logSink?.append(lastResult.runId, runtimeSmokeOutcomeEvent(publication.success.runtimeSmokeOutcome));
+              const event = runtimeSmokeOutcomeEvent(publication.success.runtimeSmokeOutcome);
+              args.logSink?.append(lastResult.runId, event);
             }
             store.setRunStatus(lastResult.runId, "completed");
           }
@@ -898,6 +897,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           };
         }
       }
+    }
+    if (completionStep !== undefined) {
+      args.logSink?.append(lastResult.runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+        iterationsConsumed: totalIterationsConsumed,
+        resumable: false,
+      });
     }
     return {
       kind: "complete",

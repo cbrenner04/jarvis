@@ -1934,6 +1934,7 @@ describe("executeWorkflow completion publication", () => {
           completionCommitter: async () => ({ commitSha: "commit-1" }),
           completionPublisher: async () => ({}),
           readyFinalizer: createReadyFinalizer({
+            runReadyGate: async () => {},
             runRuntimeSmokeVerification: async () => runtimeSmokeOutcome,
             ghReadyFlip: async () => {
               throw new Error("gh pr ready failed");

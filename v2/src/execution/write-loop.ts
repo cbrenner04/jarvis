@@ -432,12 +432,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         ...(agent ? { completionAgent: agent } : {}),
       };
       if (args.publishCompletion === false) {
-        args.logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "complete",
-          iterationsConsumed,
-          resumable: false,
-        });
         return attributed;
       }
       if (!existsSync(join(worktreePath, ".git")) && !agent) {

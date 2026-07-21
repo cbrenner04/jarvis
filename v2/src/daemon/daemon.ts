@@ -37,6 +37,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,
@@ -46,7 +47,6 @@ import {
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 import { rollupWorkflowRunStatus, workflowStoppingRun } from "./workflow-run-status-rollup.ts";
-import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 type WorktreeOwnership = {
   runId: string;
@@ -524,6 +524,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
+  const waitResultBase = (
+    runStatus: RunStatus,
+    record: TerminalLogRecord | undefined,
+    resumable: boolean,
+  ): WaitRunCompletionResult => {
+    if (record?.event.kind !== "loop_finished") return { runStatus };
+    return {
+      runStatus,
+      loopOutcomeKind: record.event.loopOutcomeKind,
+      iterationsConsumed: record.event.iterationsConsumed,
+      resumable,
+    };
+  };
+
   const resultFrom = (
     runId: string,
     runStatus: RunStatus,
@@ -534,29 +548,25 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const resumeContext = run
       ? resumeContextForRun(run, record?.event.kind === "loop_finished" ? record.event.loopOutcomeKind : undefined)
       : undefined;
-    const composedError =
-      run && resumeContext?.ok === false
-        ? UNSUPPORTED_RESUME_ERROR
-        : run
-          ? composeRunOperatorError(outcomeRun ?? run, record)
-          : undefined;
+    let composedError: RunOperatorError | undefined;
+    if (run) {
+      composedError =
+        resumeContext?.ok === false ? UNSUPPORTED_RESUME_ERROR : composeRunOperatorError(outcomeRun ?? run, record);
+    }
     const projectedOutcome = outcomeRun !== undefined && outcomeRun.id !== runId;
-    const error =
-      composedError !== undefined && projectedOutcome
-        ? { ...composedError, retryable: false, nextAction: "stop" as const }
-        : composedError;
+    let error = composedError;
+    if (error !== undefined && projectedOutcome) {
+      error = { ...error, retryable: false, nextAction: "stop" };
+    }
     const unsupportedResume = resumeContext?.ok === false;
-    const base: WaitRunCompletionResult =
-      record?.event.kind === "loop_finished"
-        ? {
-            runStatus,
-            loopOutcomeKind: record.event.loopOutcomeKind,
-            iterationsConsumed: record.event.iterationsConsumed,
-            resumable: unsupportedResume || projectedOutcome ? false : record.event.resumable,
-          }
-        : { runStatus };
+    const resumable =
+      record?.event.kind === "loop_finished" && !(unsupportedResume || projectedOutcome)
+        ? record.event.resumable
+        : false;
+    const base = waitResultBase(runStatus, record, resumable);
     const withError = error === undefined ? base : { ...base, error };
-    return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
+    if (runStatus === "blocked" && run) return { ...withError, worktreePath: run.worktreePath };
+    return withError;
   };
 
   const workflowOutcomeProjection = (
@@ -1099,7 +1109,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * live, then report the rollup status over its sibling step rows.
    */
   const waitForWorkflowEntryRun = async (
-    reader: LogReader,
+    _reader: LogReader,
     run: LoadedRun,
     snapshot: WorkflowSnapshot,
   ): Promise<{ kind: "response"; result: unknown }> => {

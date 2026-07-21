@@ -40,10 +40,7 @@ export function rollupWorkflowRunStatus(args: {
 }
 
 /** Returns the durable row that stops a non-live workflow rollup, if present. */
-export function workflowStoppingRun(args: {
-  workflowSnapshot: WorkflowSnapshot;
-  siblingRuns: Run[];
-}): Run | undefined {
+export function workflowStoppingRun(args: { workflowSnapshot: WorkflowSnapshot; siblingRuns: Run[] }): Run | undefined {
   const { workflowSnapshot, siblingRuns } = args;
   const runById = new Map(siblingRuns.map((run) => [run.stepId, run]));
   for (const step of workflowSnapshot.steps) {

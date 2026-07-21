@@ -7,7 +7,7 @@ import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import { parseListRuns, type DaemonListResult } from "./daemon-wire.ts";
+import { type DaemonListResult, parseListRuns } from "./daemon-wire.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -29,24 +29,27 @@ function createRun(): string {
 function createImplementWorkflow(branch: string): { entryRunId: string; shrinkRunId: string } {
   const workflowSnapshot: WorkflowSnapshot = {
     invocationId: `inv-${branch}`,
-    steps: [{
-      stepId: "implement",
-      role: "implement",
-      stepRules: "retry rules",
-      expectedArtifactPath: "/tmp/test-project/artifact",
-      agents: ["codex"],
-      agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
-    }],
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"],
+        agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      },
+    ],
   };
-  const run = (stepId: string) => stateStore.createRun({
-    project: "test-project",
-    specRef: "main",
-    worktreePath: "/tmp/test-project",
-    branch,
-    specPath: "/tmp/test-project/spec.md",
-    stepId,
-    workflowSnapshot,
-  });
+  const run = (stepId: string) =>
+    stateStore.createRun({
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/test-project",
+      branch,
+      specPath: "/tmp/test-project/spec.md",
+      stepId,
+      workflowSnapshot,
+    });
   return { entryRunId: run("implement"), shrinkRunId: run("implement~shrink") };
 }
 
@@ -472,7 +475,8 @@ test("workflow entry wait and list retain complete outcome after hidden shrink c
 
   const wait = await expectResponse(await waitDirect("workflow-complete-shrink", entryRunId));
   expect(wait).toMatchObject({
-    runStatus: "completed", loopOutcomeKind: "complete",
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
   });
   expect(exitCodeForWaitResult(wait as Parameters<typeof exitCodeForWaitResult>[0])).toBe(0);
   const list = await expectList();

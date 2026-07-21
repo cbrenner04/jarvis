@@ -20,6 +20,8 @@ Completion discards successful runtime-smoke results, so the durable run log can
 - [ ] A successful `not-runnable` runtime smoke for production changes under `v2/src/**` or `shared/**` appends a durable `runtime_smoke_outcome` record with outcome `not-runnable`, every inspected production path, and a non-empty discovery reason.
 - [ ] A successful executed smoke appends a durable `runtime_smoke_outcome` record with outcome `observed-clean`, distinguishable from `not-runnable` by run-log consumers.
 - [ ] `v2/src/execution/workflow-runner.test.ts` drives completion through a successful injected `not-runnable` verifier result and asserts the durable event; the test fails against the pre-fix result-discarding path and passes after the change.
+- [ ] The **negative** case is covered: a successful publication carrying no runtime-smoke outcome appends **no** `runtime_smoke_outcome` record. Assert the absence, not only the presence. **A prior attempt (PR #1919) stalled here**: the run ended `surviving_mutation_failed` on `operator-flip: !== → ===` at `v2/src/execution/write-loop.ts:215`, the `publication.success?.runtimeSmokeOutcome !== undefined` guard — inverting it appended an event for an absent outcome and no test noticed.
+- [ ] Every guard this change adds is pinned in both directions, so inverting any one of them fails a test.
 - [ ] `v2/docs/operator-runbook.md` Gate trust explains how to inspect runtime-smoke evidence and what `not-runnable` certifies; `v2/docs/workflow-runner.md` defines the durable outcome fields; `v2/docs/v1-behaviors.md` records the changed v2 completion evidence.
 
 ## Documentation updates

@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
   type CliRepoFixture,
   captureIo,
-  cliMain as main,
   DOCS_MERGE_REVISION,
+  cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
   STALE_EXECUTABLE_DIGEST,

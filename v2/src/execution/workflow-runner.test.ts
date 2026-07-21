@@ -134,7 +134,9 @@ function initGitWorkspace(prefix: string) {
   return workspace;
 }
 
-function externalWorktreeBinding(workspace: string): <T>(
+function externalWorktreeBinding(
+  workspace: string,
+): <T>(
   _args: { branchName: string; projectName: string },
   run: (worktree: ExternalWorktree) => Promise<T> | T,
 ) => Promise<WithExternalWorktreeResult<T>> {
@@ -165,11 +167,7 @@ function createImplementBodySummaryStep(branchName: string) {
   const workspace = initGitWorkspace(`implement-body-summary-${branchName}-`);
   const specDir = join(workspace, IMPLEMENT_BODY_SPEC_PATH);
   mkdirSync(specDir, { recursive: true });
-  writeFileSync(
-    join(specDir, "index.md"),
-    "# Implement body\n\n- [ ] [00 - First](./00-first.md)\n",
-    "utf8",
-  );
+  writeFileSync(join(specDir, "index.md"), "# Implement body\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
   writeFileSync(join(specDir, "00-first.md"), "# First\n\nImplement the feature.\n", "utf8");
   execFileSync("git", ["add", "."], { cwd: workspace });
   execFileSync("git", ["commit", "-qm", "base spec"], { cwd: workspace });

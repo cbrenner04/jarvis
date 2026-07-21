@@ -45,7 +45,7 @@ import {
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
+import { rollupWorkflowRunStatus, workflowStoppingRun } from "./workflow-run-status-rollup.ts";
 
 type WorktreeOwnership = {
   runId: string;
@@ -548,6 +548,63 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
   };
 
+  type WorkflowOutcomeProjection = { run: LoadedRun; record: TerminalLogRecord & { event: LoopFinishedEvent } };
+
+  /**
+   * Workflow entry rows keep their rollup status, but a hidden shrink mutation
+   * failure owns the terminal outcome and its operator detail.
+   */
+  const workflowOutcomeProjection = (
+    entryRun: LoadedRun,
+    snapshot: WorkflowSnapshot,
+    siblingRuns: Run[],
+    rollupStatus: RunStatus,
+  ): WorkflowOutcomeProjection | undefined => {
+    if (rollupStatus !== "failed") return undefined;
+    const stoppingRun = workflowStoppingRun({
+      entryRun,
+      workflowSnapshot: snapshot,
+      siblingRuns,
+      isLive: false,
+    });
+    if (stoppingRun === undefined || stoppingRun.id === entryRun.id) return undefined;
+    const owner = store.loadRun(stoppingRun.id);
+    const record = owner ? findTerminalLogRecord(logReader?.tail(owner.id) ?? []) : undefined;
+    if (owner === null || owner === undefined || record?.event.kind !== "loop_finished") return undefined;
+    const entryRecord = findTerminalLogRecord(logReader?.tail(entryRun.id) ?? []);
+    if (
+      entryRecord?.event.kind !== "loop_finished" ||
+      entryRecord.event.loopOutcomeKind === record.event.loopOutcomeKind
+    ) {
+      return undefined;
+    }
+    return record.event.loopOutcomeKind === "surviving_mutation_failed"
+      ? { run: owner, record: record as TerminalLogRecord & { event: LoopFinishedEvent } }
+      : undefined;
+  };
+
+  const resultForWorkflowEntry = (
+    entryRun: LoadedRun,
+    snapshot: WorkflowSnapshot,
+    siblingRuns: Run[],
+    rollupStatus: RunStatus,
+  ): WaitRunCompletionResult => {
+    const entryRecord = findTerminalLogRecord(logReader?.tail(entryRun.id) ?? []);
+    const projection = workflowOutcomeProjection(entryRun, snapshot, siblingRuns, rollupStatus);
+    if (projection === undefined) return resultFrom(entryRun.id, rollupStatus, entryRecord);
+
+    const ownerError = composeRunOperatorError(projection.run, projection.record);
+    return {
+      runStatus: rollupStatus,
+      loopOutcomeKind: projection.record.event.loopOutcomeKind,
+      iterationsConsumed: projection.record.event.iterationsConsumed,
+      resumable: false,
+      ...(ownerError === undefined
+        ? {}
+        : { error: { ...ownerError, retryable: false, nextAction: "stop" as const } }),
+    };
+  };
+
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
     const ks = ownershipKeyString(key);
     const abortController = new AbortController();
@@ -876,8 +933,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     liveRunIds: Set<string>,
   ) => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
-    const terminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
-    const error = runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+    const entrySnapshot = workflowEntrySnapshot(fullRun);
+    const siblingRuns = entrySnapshot ? store.findRunsByInvocationId(entrySnapshot.invocationId) : [];
+    const entryResult =
+      entrySnapshot && fullRun && isTerminalRunStatus(reportedStatus)
+        ? resultForWorkflowEntry(fullRun, entrySnapshot, siblingRuns, reportedStatus)
+        : undefined;
+    const entryTerminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
+    const resumeContext = resumeContextForTerminalRecord(fullRun, entryTerminalRecord);
+    const error = entryResult?.error ?? runListRowError(fullRun, resumeContext, entryTerminalRecord);
 
     return {
       runId: run.id,
@@ -885,6 +949,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       branch: run.branch,
       status: reportedStatus,
       isLive,
+      ...(entryResult?.loopOutcomeKind !== undefined
+        ? {
+            loopOutcomeKind: entryResult.loopOutcomeKind,
+            ...(entryResult.iterationsConsumed === undefined ? {} : { iterationsConsumed: entryResult.iterationsConsumed }),
+            ...(entryResult.resumable === undefined ? {} : { resumable: entryResult.resumable }),
+          }
+        : {}),
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun !== undefined && snapshot !== undefined
@@ -1053,14 +1124,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (workflowPromise !== undefined) {
       await workflowPromise;
     }
+    const siblingRuns = store.findRunsByInvocationId(snapshot.invocationId);
     const rollupStatus = rollupWorkflowRunStatus({
       entryRun: run,
       workflowSnapshot: snapshot,
-      siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
+      siblingRuns,
       isLive: false,
     });
-    const terminalRecord = findTerminalLogRecord(reader.tail(run.id));
-    return { kind: "response", result: resultFrom(run.id, rollupStatus, terminalRecord) };
+    return { kind: "response", result: resultForWorkflowEntry(run, snapshot, siblingRuns, rollupStatus) };
   };
 
   /** Wait on a non-entry run: settle from the durable status, else follow the log to its terminal record. */

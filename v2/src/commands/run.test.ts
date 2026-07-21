@@ -582,6 +582,34 @@ describe("run control", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
   });
 
+  test("run list renders surviving-mutation columns independently", async () => {
+    const cap = captureIo();
+    const code = await withFixedUuid("list", () => main(["run", "list"], cap.io, {
+      connectIpcClient: async () =>
+        makeIpcClient([
+          {
+            kind: "response", id: "list", result: {
+              runs: [
+                {
+                  runId: "with-mutation", project: "project", branch: "branch", status: "failed", isLive: false,
+                  error: {
+                    reason: "surviving_mutation_failed", retryable: false, nextAction: "stop",
+                    survivingMutation: "=== to !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+                  },
+                },
+                { runId: "without-mutation", project: "project", branch: "branch", status: "completed", isLive: false },
+              ],
+            },
+          },
+        ]),
+    }));
+
+    expect(code).toBe(0);
+    const [withMutation, withoutMutation] = cap.read().stdout.trimEnd().split("\n");
+    expect(withMutation?.split("\t").slice(10, 13)).toEqual(["=== to !==", "src/guard.ts", "17"]);
+    expect(withoutMutation?.split("\t").slice(10, 13)).toEqual(["-", "-", "-"]);
+  });
+
   test("run wait missing run ID prints run-control usage and exits 1", async () => {
     const cap = captureIo();
 

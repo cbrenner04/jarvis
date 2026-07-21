@@ -285,7 +285,7 @@ insufficient without a green gate on the branch head.
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
 consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
-resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
+resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state. For an attached workflow whose entry result reports a hidden-shrink `surviving_mutation_failed`, find and resume the owning `~shrink` row in `jarvis run list`; the printed entry id is intentionally not resumable.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 

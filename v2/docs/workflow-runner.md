@@ -306,7 +306,7 @@ To answer "is the workflow terminal?", the daemon computes a rollup: given the e
 
 This rollup is computed at read time, never overwriting a step row's status in place — resume logic skips a completed step on-row, so a stale entry-row status would cause resume to re-run step 0.
 
-The returned run id's status reported by daemon `wait` and `list` operations reflects this rollup for workflow entry runs: `wait` awaits the full workflow completion and returns the rollup status; `list` reports the rollup status for the entry row, while other step rows report their own durable statuses. This ensures callers reading the workflow's entry run ID get accurate workflow-level terminal status including later steps.
+The returned run id's status reported by daemon `wait` and `list` operations reflects this rollup for workflow entry runs: `wait` awaits the full workflow completion and returns the rollup status; `list` reports the rollup status for the entry row, while other step rows report their own durable statuses. When a hidden shrink row stops the rollup with `surviving_mutation_failed`, the entry payload's outcome, iterations, mutation detail, and error reason come from that row; the entry id itself remains non-resumable. This ensures callers reading the workflow's entry run ID get accurate workflow-level terminal status including later steps.
 
 ## Validation
 

@@ -205,7 +205,7 @@ describe("run workflow dispatch", () => {
     expect(cap.read().stderr).toContain("restart the daemon before starting or resuming work");
   });
 
-  test("run workflow implement blocks on completion and exits with proper exit code when workflow fails", async () => {
+  test("run workflow implement prints surviving_mutation_failed and exits nonzero", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
@@ -215,13 +215,25 @@ describe("run workflow dispatch", () => {
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
         connectIpcClient: async () =>
-          makeIpcClient(workflowFrames("start", "wait", "run-failed", { runStatus: "failed" }), { sent }),
+          makeIpcClient(workflowFrames("start", "wait", "run-failed", {
+            runStatus: "failed",
+            loopOutcomeKind: "surviving_mutation_failed",
+            iterationsConsumed: 2,
+            resumable: false,
+            error: {
+              reason: "surviving_mutation_failed", retryable: false, nextAction: "stop",
+              survivingMutation: "operator-flip: === → !==",
+              survivingMutationSourceFile: "src/guard.ts",
+              survivingMutationSourceLine: 17,
+            },
+          }), { sent }),
       }),
     );
 
-    expect(code).toBe(3);
-    expect(cap.read().stdout).toContain("run-failed");
-    expect(cap.read().stdout).toContain('{"runStatus":"failed"}');
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe(
+      'run-failed\n{"runStatus":"failed","loopOutcomeKind":"surviving_mutation_failed","iterationsConsumed":2,"resumable":false,"error":{"reason":"surviving_mutation_failed","retryable":false,"nextAction":"stop","survivingMutation":"operator-flip: === → !==","survivingMutationSourceFile":"src/guard.ts","survivingMutationSourceLine":17}}\n',
+    );
     expect(sent).toHaveLength(2);
   });
 

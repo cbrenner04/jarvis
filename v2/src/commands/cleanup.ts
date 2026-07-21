@@ -236,9 +236,7 @@ function artifactForRetiredWorktree(
 function isReviewArtifactRun(run: Run): boolean {
   const step = run.workflowSnapshot?.steps.find((step) => step.stepId === run.stepId);
   return (
-    step?.behavior === "review" ||
-    step?.behavior === "review-debate" ||
-    basename(run.specPath) === "verdict-patch.md"
+    step?.behavior === "review" || step?.behavior === "review-debate" || basename(run.specPath) === "verdict-patch.md"
   );
 }
 

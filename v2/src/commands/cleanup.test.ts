@@ -305,7 +305,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const worktreePath = await materializeWorktree(branch, "preview spec");
     const store: StateStore = {
       listRuns: () => [
-        { project: "project", branch, status: "completed", worktreePath, specPath: join(worktreePath, "v2", "spec", specName, "index.md") },
+        {
+          project: "project",
+          branch,
+          status: "completed",
+          worktreePath,
+          specPath: join(worktreePath, "v2", "spec", specName, "index.md"),
+        },
       ],
     } as unknown as StateStore;
     let stdout = "";

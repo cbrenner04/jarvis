@@ -99,10 +99,10 @@ async function defaultWriteFile(path: string, content: string): Promise<void> {
 
 function registeredPromptPaths(manifest: string): string[] {
   return manifest
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((path) => `prompts/${path}`);
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((path) => `prompts/${path}`);
 }
 
 async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
@@ -431,6 +431,80 @@ async function testCandidate(
   return null;
 }
 
+function missingRenderCoverage(promptPath: string): SurvivingMutationResult {
+  return {
+    kind: "surviving-mutation",
+    mutation: "missing-render-coverage",
+    sourceSite: { file: promptPath, line: 1 },
+  };
+}
+
+async function verifyChangedPrompts(
+  changedPaths: string[],
+  changedLinesByFile: Map<string, ChangedLine[]>,
+  input: DiffDerivedMutationVerifierInput,
+  registeredPromptPaths: RegisteredPromptPaths,
+  readFile: ReadFile,
+  writeFile: WriteFile,
+  runScopedTests: RunScopedTests,
+  scopeTests: string[],
+  now: () => number,
+  deadline: number,
+): Promise<SurvivingMutationResult | null> {
+  const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
+  const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
+  for (const [index, promptPath] of changedPrompts.entries()) {
+    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
+    const renderedOutputObserved = await verifyPromptRenderCoverage(
+      promptPath,
+      changedLinesByFile.get(promptPath) ?? [],
+      input,
+      readFile,
+      writeFile,
+      runScopedTests,
+      scopeTests,
+    );
+    if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
+  }
+  return null;
+}
+
+function deriveCandidates(changedLinesByFile: Map<string, ChangedLine[]>): Candidate[] {
+  const candidates: Candidate[] = [];
+  for (const lines of changedLinesByFile.values()) {
+    for (const line of lines) {
+      if (isCodePath(line.file)) candidates.push(...deriveFromLine(line.file, line.lineNumber, line.content));
+    }
+  }
+  return candidates;
+}
+
+async function verifyCandidates(
+  candidates: Candidate[],
+  input: DiffDerivedMutationVerifierInput,
+  readFile: ReadFile,
+  writeFile: WriteFile,
+  runScopedTests: RunScopedTests,
+  scopeTests: string[],
+  now: () => number,
+  deadline: number,
+): Promise<{ result: SurvivingMutationResult | null; inspected: number }> {
+  let inspected = 0;
+  for (const candidate of candidates) {
+    if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
+    inspected += 1;
+    let originalContent: string;
+    try {
+      originalContent = await readFile(`${input.worktreePath}/${candidate.file}`);
+    } catch {
+      continue;
+    }
+    const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, scopeTests);
+    if (result) return { result, inspected };
+  }
+  return { result: null, inspected };
+}
+
 export async function verifyDiffDerivedMutations(
   input: DiffDerivedMutationVerifierInput,
   seams?: VerifierSeams,
@@ -468,44 +542,23 @@ export async function verifyDiffDerivedMutations(
   // pass, silently disabling mutation verification for full-scope diffs.
   const scopeTests = scope === "full" ? ["test"] : scope;
 
-  const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
-  const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
   const now = seams?.now ?? Date.now;
   const deadline = now() + MAX_VERIFICATION_MS;
-  for (const [index, promptPath] of changedPrompts.entries()) {
-    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) {
-      return {
-        kind: "surviving-mutation",
-        mutation: "missing-render-coverage",
-        sourceSite: { file: promptPath, line: 1 },
-      };
-    }
-    const renderedOutputObserved = await verifyPromptRenderCoverage(
-      promptPath,
-      changedLinesByFile.get(promptPath) ?? [],
-      input,
-      readFile,
-      writeFile,
-      runScopedTests,
-      scopeTests,
-    );
-    if (!renderedOutputObserved) {
-      return {
-        kind: "surviving-mutation",
-        mutation: "missing-render-coverage",
-        sourceSite: { file: promptPath, line: 1 },
-      };
-    }
-  }
+  const promptResult = await verifyChangedPrompts(
+    changedPaths,
+    changedLinesByFile,
+    input,
+    registeredPromptPaths,
+    readFile,
+    writeFile,
+    runScopedTests,
+    scopeTests,
+    now,
+    deadline,
+  );
+  if (promptResult) return promptResult;
 
-  const candidates: Candidate[] = [];
-  for (const [_file, lines] of changedLinesByFile) {
-    for (const line of lines) {
-      if (!isCodePath(line.file)) continue;
-      const mutations = deriveFromLine(line.file, line.lineNumber, line.content);
-      candidates.push(...mutations);
-    }
-  }
+  const candidates = deriveCandidates(changedLinesByFile);
 
   if (candidates.length === 0) {
     return {
@@ -516,31 +569,17 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
-  let inspected = 0;
-  for (const candidate of candidates) {
-    if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
-    inspected += 1;
-    const filePath = `${input.worktreePath}/${candidate.file}`;
-    let originalContent: string;
-
-    try {
-      originalContent = await readFile(filePath);
-    } catch (_e) {
-      continue;
-    }
-
-    const result = await testCandidate(
-      candidate,
-      originalContent,
-      input,
-      writeFile,
-      runScopedTests,
-      scopeTests,
-    );
-    if (result) {
-      return result;
-    }
-  }
+  const { result, inspected } = await verifyCandidates(
+    candidates,
+    input,
+    readFile,
+    writeFile,
+    runScopedTests,
+    scopeTests,
+    now,
+    deadline,
+  );
+  if (result) return result;
 
   return {
     kind: "pass",

@@ -1,11 +1,54 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 
 describe("runtime-smoke-verifier", () => {
+  async function verifyMappedEntrypoint(
+    changedFile: string,
+    expectedEntrypoint: string,
+    expectedArgs: readonly string[],
+    success: boolean,
+  ) {
+    const diff = `diff --git a/${changedFile} b/${changedFile}
+index 1234567..abcdefg 100644
+--- a/${changedFile}
++++ b/${changedFile}
+@@ -1,3 +1,3 @@
+ export function changed() {
+-  return 0;
++  return 1;
+ }
+`;
+    let executedEntrypoint = "";
+    let executedArgs: readonly string[] = [];
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+      ["v2/src/cli.ts", 'import "./cli/deps.ts";'],
+      ["v2/src/cli/deps.ts", 'import "../daemon/daemon-lifecycle.ts";'],
+      ["v2/src/daemon/daemon-lifecycle.ts", "export {};"],
+    ]);
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, entrypoint, args) => {
+          executedEntrypoint = entrypoint;
+          executedArgs = args;
+          return { success, output: "cli failed" };
+        },
+      },
+    );
+
+    expect(executedEntrypoint).toBe(expectedEntrypoint);
+    expect(executedArgs).toEqual(expectedArgs);
+    return result;
+  }
+
   it("discovers a changed runnable entrypoint from production diff", async () => {
     const diff = `diff --git a/v2/src/cli.ts b/v2/src/cli.ts
 index 1234567..abcdefg 100644
@@ -108,6 +151,39 @@ index 1234567..abcdefg 100644
     }
   });
 
+  it("executes the daemon entrypoint for a daemon-only production diff", async () => {
+    const result = await verifyMappedEntrypoint(
+      "v2/src/daemon/daemon.ts",
+      "v2/src/daemon-entrypoint.ts",
+      ["--help"],
+      true,
+    );
+
+    expect(result.kind).toBe("observed-clean");
+  });
+
+  it("executes the CLI entrypoint for a CLI-only production diff", async () => {
+    const result = await verifyMappedEntrypoint(
+      "v2/src/cli/deps.ts",
+      "v2/src/cli.ts",
+      ["help"],
+      false,
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+  });
+
+  it("selects the CLI for daemon modules not loaded by the daemon entrypoint", async () => {
+    const result = await verifyMappedEntrypoint(
+      "v2/src/daemon/daemon-lifecycle.ts",
+      "v2/src/cli.ts",
+      ["help"],
+      true,
+    );
+
+    expect(result.kind).toBe("observed-clean");
+  });
+
   it("executes discovered entrypoint and observes its behavior", async () => {
     const diff = `diff --git a/v2/src/cli.ts b/v2/src/cli.ts
 index 1234567..abcdefg 100644
@@ -129,7 +205,7 @@ index 1234567..abcdefg 100644
       },
       {
         gitDiff: async () => diff,
-        executeEntrypoint: async (_cwd, entrypoint, timeoutMs) => {
+        executeEntrypoint: async (_cwd, entrypoint, _args, timeoutMs) => {
           executedCommand = entrypoint;
           executedTimeout = timeoutMs;
           return { success: true, output: "help output" };
@@ -162,7 +238,7 @@ index 1234567..abcdefg 100644
       },
       {
         gitDiff: async () => diff,
-        executeEntrypoint: async (_cwd, _entrypoint, timeoutMs) => {
+        executeEntrypoint: async (_cwd, _entrypoint, _args, timeoutMs) => {
           timeoutUsed = timeoutMs;
           // Simulate timeout by returning failure
           return { success: false, output: "timeout" };
@@ -361,25 +437,6 @@ index 1234567..abcdefg 100644
     expect(result.kind).toBe("observed-clean");
   });
 
-  it("test pre-fix tree (no verifier exists) should fail", async () => {
-    // This test documents that the verifier itself must be testable via the test
-    // framework — calling the function should work in the test environment.
-    const result = await verifyRuntimeSmoke(
-      {
-        worktreePath: "/test/path",
-        runBase: "main",
-      },
-      {
-        gitDiff: async () => "",
-        executeEntrypoint: async () => ({ success: true, output: "" }),
-      },
-    );
-
-    // We can call and get a result — this proves the module exists and is functional
-    expect(result).toBeDefined();
-    expect(result.kind).toBeDefined();
-  });
-
   describe("real defaultGitDiff/defaultExecuteEntrypoint (no seams)", () => {
     // Every test above injects both seams, so the real default implementations
     // (which actually spawn git/bun subprocesses) are never exercised — the exact
@@ -398,14 +455,15 @@ index 1234567..abcdefg 100644
       return dir;
     }
 
-    it("observes clean for a real changed entrypoint that runs without error", async () => {
+    it("observes clean through the real CLI probe contract", async () => {
       const dir = makeFixtureRepo();
       try {
         const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
         writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+        mkdirSync(join(dir, "v2", "src"), { recursive: true });
         writeFileSync(
-          join(dir, "my-entrypoint.ts"),
-          "console.log(process.argv.includes('--help') ? 'ok' : 'no-flag');\n",
+          join(dir, "v2", "src", "cli.ts"),
+          "if (process.argv[2] !== 'help') throw new Error('expected help');\n",
         );
         execFileSync("git", ["add", "-A"], { cwd: dir });
         execFileSync("git", ["commit", "-q", "-m", "add entrypoint"], { cwd: dir });
@@ -418,21 +476,22 @@ index 1234567..abcdefg 100644
       }
     });
 
-    it("reports a smoke-failure for a real changed entrypoint that throws", async () => {
+    it("observes clean through the real daemon probe without starting a daemon", async () => {
       const dir = makeFixtureRepo();
       try {
         const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
         writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
-        writeFileSync(join(dir, "my-entrypoint.ts"), "throw new Error('boom');\n");
+        mkdirSync(join(dir, "v2", "src"), { recursive: true });
+        writeFileSync(
+          join(dir, "v2", "src", "daemon-entrypoint.ts"),
+          "if (process.argv[2] !== '--help') throw new Error('daemon started');\n",
+        );
         execFileSync("git", ["add", "-A"], { cwd: dir });
         execFileSync("git", ["commit", "-q", "-m", "add broken entrypoint"], { cwd: dir });
 
         const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("smoke-failure");
-        if (result.kind === "smoke-failure") {
-          expect(result.observation).toContain("boom");
-        }
+        expect(result.kind).toBe("observed-clean");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

@@ -19,11 +19,11 @@ changed CLI or daemon module so these diffs cannot pass vacuously.
 
 ## Acceptance criteria
 
-- [ ] A daemon-only run-base production diff executes `v2/src/daemon-entrypoint.ts` instead of returning `not-runnable`.
-- [ ] A CLI-only run-base production diff executes `v2/src/cli.ts` instead of returning `not-runnable`.
-- [ ] `v2/src/execution/runtime-smoke-verifier.test.ts` covers both mappings and fails against the pre-fix literal-path discovery.
-- [ ] Discovery remains derived from the run-base production diff; no mapped surface returns `observed-clean` unless its execution succeeds.
-- [ ] Existing `not-runnable` coverage in `v2/src/execution/runtime-smoke-verifier.test.ts` stays green for production paths with no discovered runnable surface.
+- [x] A daemon-only run-base production diff executes `v2/src/daemon-entrypoint.ts` instead of returning `not-runnable`.
+- [x] A CLI-only run-base production diff executes `v2/src/cli.ts` instead of returning `not-runnable`.
+- [x] `v2/src/execution/runtime-smoke-verifier.test.ts` covers both mappings and fails against the pre-fix literal-path discovery.
+- [x] Discovery remains derived from the run-base production diff; no mapped surface returns `observed-clean` unless its execution succeeds.
+- [x] Existing `not-runnable` coverage in `v2/src/execution/runtime-smoke-verifier.test.ts` stays green for production paths with no discovered runnable surface.
 
 ## Documentation updates
 

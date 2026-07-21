@@ -1252,8 +1252,8 @@ export async function startDaemonRuntime(
   logReader?: LogReader,
   startupDeps: DaemonStartupDeps = {},
 ): Promise<void> {
-  const store = stateStore ?? openStateStore();
-  const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
+  const store = stateStore ?? openStateStore(process.env.DAEMON_STATE_DB_PATH);
+  const logsPath = startupDeps.logsPath ?? process.env.DAEMON_LOGS_PATH ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
   const reconciliationLogSink = createLogSink(logsPath);

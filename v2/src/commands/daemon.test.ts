@@ -30,6 +30,28 @@ describe("daemon command", () => {
     });
   });
 
+  test("digest-keyed daemon dispatch bypasses a live legacy socket", async () => {
+    const cap = captureIo();
+    const digest = "different-executable";
+    let startedPath: string | undefined;
+
+    const code = await main(["daemon", "start"], cap.io, {
+      getExecutableDigest: async () => digest,
+      connectIpcClient: async (socketPath) => {
+        expect(socketPath).not.toContain("daemon.sock");
+        throw new Error("unused");
+      },
+      startDaemon: async (socketPath) => {
+        startedPath = socketPath;
+        return { pid: 42, socketPath };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(startedPath).toMatch(/daemon-different-executable\.sock$/);
+    expect(cap.read().stderr).toBe("");
+  });
+
   test("daemon start passes through lifecycle errors tersely", async () => {
     const cap = captureIo();
 

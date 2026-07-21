@@ -102,8 +102,9 @@ behavior.
 
 ## Daemon
 
-Socket and PID paths (production defaults): `~/.jarvis/daemon.sock`,
-`~/.jarvis/daemon.pid`. Transport detail: [`daemon-host.md`](./daemon-host.md).
+Socket, PID, process-log, and durable-run paths are keyed by the invoking
+executable digest; the socket is `/tmp/daemon-<digest>.sock`. Transport detail:
+[`daemon-host.md`](./daemon-host.md).
 
 | Command | Output | Exit |
 | --- | --- | --- |

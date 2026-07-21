@@ -25,13 +25,13 @@ A fixed daemon socket makes a newly built CLI negotiate with incompatible daemon
 
 ## Acceptance criteria
 
-- [ ] Every CLI IPC connection and daemon lifecycle operation selects `daemon-<executable-tree-digest>.sock`; a differently keyed or legacy `daemon.sock` receives no health, status, list, stop, or dispatch request.
-- [ ] Start, resume, and workflow dispatch start or reuse the selected daemon and proceed while a differently keyed daemon owns live runs.
-- [ ] `jarvis run list` and `jarvis run wait` return only rows and outcomes from the daemon selected for the invoking executable.
-- [ ] Revision-mismatch refusal, automatic bounce, and `--no-auto-bounce` are absent from dispatch and CLI usage.
-- [ ] A regression test in `v2/src/commands/daemon.test.ts` proves digest-keyed dispatch bypasses a live differently keyed daemon and fails against the pre-fix code.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` document keyed selection, automatic matching-daemon dispatch, single-daemon list/wait scope, legacy-socket non-interaction, and retired bounce behavior in their durable homes.
+- [x] Every CLI IPC connection and daemon lifecycle operation selects `daemon-<executable-tree-digest>.sock`; a differently keyed or legacy `daemon.sock` receives no health, status, list, stop, or dispatch request.
+- [x] Start, resume, and workflow dispatch start or reuse the selected daemon and proceed while a differently keyed daemon owns live runs.
+- [x] `jarvis run list` and `jarvis run wait` return only rows and outcomes from the daemon selected for the invoking executable.
+- [x] Revision-mismatch refusal, automatic bounce, and `--no-auto-bounce` are absent from dispatch and CLI usage.
+- [x] A regression test in `v2/src/commands/daemon.test.ts` proves digest-keyed dispatch bypasses a live differently keyed daemon and fails against the pre-fix code.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` document keyed selection, automatic matching-daemon dispatch, single-daemon list/wait scope, legacy-socket non-interaction, and retired bounce behavior in their durable homes.
 
 ## Documentation updates
 

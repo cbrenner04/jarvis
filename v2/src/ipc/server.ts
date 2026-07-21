@@ -251,8 +251,6 @@ export function startIpcServer(
   handlers?: Record<string, RpcHandler>,
   streamHandler?: StreamHandler,
 ): Promise<IpcServer> {
-  rmSync(socketPath, { force: true });
-
   const activeSockets = new Set<Socket>();
   let acceptingConnections = true;
 

@@ -104,6 +104,8 @@ export async function startDaemon(
     readinessTimeoutMs?: number;
     pidPath?: string;
     logPath?: string;
+    stateDbPath?: string;
+    logsPath?: string;
     logCapBytes?: number;
     processProber?: ProcessProber;
     socketProber?: SocketProber;
@@ -121,6 +123,28 @@ export async function startDaemon(
     throw new DaemonAlreadyRunningError(socketPath);
   }
 
+  const startLockPath = options?.pidPath ? `${options.pidPath}.start-lock` : undefined;
+  let startLockFd: number | undefined;
+  if (startLockPath !== undefined) {
+    if (!existsSync(dirname(options?.pidPath ?? startLockPath))) {
+      throw new Error(`PID file directory does not exist: ${dirname(options?.pidPath ?? startLockPath)}`);
+    }
+    const deadline = Date.now() + readinessTimeoutMs;
+    while (startLockFd === undefined && Date.now() < deadline) {
+      try {
+        startLockFd = openSync(startLockPath, "wx");
+      } catch {
+        if (await socketProber.probe(socketPath, 100)) throw new DaemonAlreadyRunningError(socketPath);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    if (startLockFd === undefined) throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+  }
+
+  try {
+    // A stale socket is removable only while the keyed start lock is held.
+    rmSync(socketPath, { force: true });
+
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
   const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
@@ -131,6 +155,8 @@ export async function startDaemon(
     env: {
       ...process.env,
       DAEMON_SOCKET_PATH: socketPath,
+      ...(options?.stateDbPath === undefined ? {} : { DAEMON_STATE_DB_PATH: options.stateDbPath }),
+      ...(options?.logsPath === undefined ? {} : { DAEMON_LOGS_PATH: options.logsPath }),
       ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
     },
   });
@@ -172,6 +198,10 @@ export async function startDaemon(
   }
 
   throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+  } finally {
+    if (startLockFd !== undefined) closeSync(startLockFd);
+    if (startLockPath !== undefined) rmSync(startLockPath, { force: true });
+  }
 }
 
 async function terminateProcess(pid: number, killTimeoutMs: number, processProber: ProcessProber): Promise<void> {
@@ -199,12 +229,12 @@ async function terminateProcess(pid: number, killTimeoutMs: number, processProbe
 }
 
 /** Refuse a non-forced stop when the durable store holds any non-terminal run. */
-function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | undefined): void {
+function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | undefined, stateDbPath?: string): void {
   let store = stateStore;
   let ownsStore = false;
   try {
     if (store === undefined) {
-      store = openStateStore();
+      store = openStateStore(stateDbPath);
       ownsStore = true;
     }
     const blockers = store
@@ -228,6 +258,7 @@ export async function stopDaemon(
     pidPath?: string;
     force?: boolean;
     stateStore?: Pick<StateStore, "listRuns" | "close">;
+    stateDbPath?: string;
     processProber?: ProcessProber;
   },
 ): Promise<void> {
@@ -236,7 +267,7 @@ export async function stopDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
 
   if (!options?.force) {
-    assertStopAllowed(options?.stateStore);
+    assertStopAllowed(options?.stateStore, options?.stateDbPath);
   }
 
   let pid: number | null = null;

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Route dispatch by executable digest](./00-route-dispatch-by-executable-digest.md)
+- [x] [00 - Route dispatch by executable digest](./00-route-dispatch-by-executable-digest.md)

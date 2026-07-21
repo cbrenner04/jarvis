@@ -8,7 +8,7 @@ import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
-import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "../paths.ts";
+import { daemonPaths, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
@@ -45,6 +45,8 @@ export type CliDeps = {
   socketPath: string;
   pidPath: string;
   logPath: string;
+  stateDbPath: string;
+  logsPath: string;
   machineConfigPath: string;
 };
 
@@ -68,9 +70,7 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     cwd: () => process.cwd(),
     getCurrentRevision: getInvokingRevision,
     getExecutableDigest: getInvokingExecutableDigest,
-    socketPath: DAEMON_SOCKET_PATH,
-    pidPath: DAEMON_PID_PATH,
-    logPath: DAEMON_LOG_PATH,
+    ...daemonPaths("unresolved"),
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
     workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,

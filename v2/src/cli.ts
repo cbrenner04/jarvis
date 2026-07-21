@@ -19,6 +19,7 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+import { daemonPaths } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
@@ -141,14 +142,27 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   }
 
   const entry = findCommand(command);
-  if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
-
-  const closeMatches = enumerateCommands().filter((entry) => levenshteinDistance(command, entry.name) <= 2);
-  const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;
-  out.stderr(`unknown command: ${command}\n`);
-  if (closeCommand !== undefined) out.stderr(`did you mean ${closeCommand.name}?\n`);
-  out.stderr("run `jarvis help` for available commands\n");
-  return 1;
+  if (entry === undefined) {
+    const closeMatches = enumerateCommands().filter((candidate) => levenshteinDistance(command, candidate.name) <= 2);
+    const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;
+    out.stderr(`unknown command: ${command}\n`);
+    if (closeCommand !== undefined) out.stderr(`did you mean ${closeCommand.name}?\n`);
+    out.stderr("run `jarvis help` for available commands\n");
+    return 1;
+  }
+  if (!(["daemon", "run", "tui"] as readonly string[]).includes(command)) {
+    return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+  }
+  const resolvedPaths = daemonPaths(await runtimeDeps.getExecutableDigest());
+  const daemonDeps: CliDeps = {
+    ...runtimeDeps,
+    socketPath: deps?.socketPath ?? resolvedPaths.socketPath,
+    pidPath: deps?.pidPath ?? resolvedPaths.pidPath,
+    logPath: deps?.logPath ?? resolvedPaths.logPath,
+    stateDbPath: deps?.stateDbPath ?? resolvedPaths.stateDbPath,
+    logsPath: deps?.logsPath ?? resolvedPaths.logsPath,
+  };
+  return entry.handler(argv.slice(1), out, daemonDeps, operatorSessionId);
 }
 
 if (import.meta.main) {

@@ -2,7 +2,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
-import { stripAutoBounceFlag, withAutoBounceDispatch } from "../cli/stale-dispatch.ts";
+import { withDispatchDaemon } from "../cli/stale-dispatch.ts";
 import { RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
@@ -39,15 +39,14 @@ async function runActionCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  const bounce = subcommand === "resume" ? stripAutoBounceFlag(argv) : undefined;
-  const args = bounce?.argv ?? argv;
+  const args = argv;
   const runId = args[0];
   if (args.length !== 1 || runId === undefined) {
     io.stderr(RUN_USAGE);
     return 1;
   }
   if (subcommand === "resume") {
-    return withAutoBounceDispatch(io, deps, bounce?.autoBounce ?? true, async (client) => {
+    return withDispatchDaemon(io, deps, async (client) => {
       await request(client, "resume", { runId });
       io.stdout(`resumed ${runId}\n`);
       return 0;
@@ -73,15 +72,14 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
   const subcommand = argv[0];
 
   if (subcommand === "start") {
-    const bounce = stripAutoBounceFlag(argv.slice(1));
-    const parsed = parseWriteCliInput(bounce.argv, deps);
+    const parsed = parseWriteCliInput(argv.slice(1), deps);
     if (!parsed.ok) {
       if (parsed.message !== undefined) io.stderr(parsed.message);
       io.stderr(WRITE_USAGE);
       return 1;
     }
 
-    return withAutoBounceDispatch(io, deps, bounce.autoBounce, async (client) => {
+    return withDispatchDaemon(io, deps, async (client) => {
       let result: unknown;
       try {
         result = await request(client, "start", { input: parsed.input });

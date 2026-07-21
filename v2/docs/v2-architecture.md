@@ -14,7 +14,7 @@ duplicated in per-domain docs. Role-based directories with co-located tests.
 
 | Domain | Directory |
 | --- | --- |
-| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage) |
+| CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, keyed dispatch, run completion, usage) |
 | Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
 | Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
 | Daemon host | `v2/src/daemon/` (daemon, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
@@ -264,7 +264,7 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
 - **Shipped TUI (`jarvis tui`).** Connects over the production IPC socket
-  (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC `status`
+  (the invoking executable's digest-keyed socket), proves liveness via IPC `health` and IPC `status`
   (`{ state: "running" }`), then enters a run monitor backed by daemon `list`,
   `wait`, and steering RPCs (`pause` / `resume` / `kill` on the selected run);
   optional workflow-step snapshots on `list` rows (see
@@ -582,7 +582,7 @@ surface is a sibling concern, wired via this interface).
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
   in `daemon/daemon-lifecycle.ts`. Detached child process with bounded readiness
   timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
-  protection. Production socket and PID defaults (`~/.jarvis/daemon.sock`,
+  protection. Production socket and PID defaults (the digest-keyed socket,
   `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli);
   the lifecycle library still requires explicit paths from callers.
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,

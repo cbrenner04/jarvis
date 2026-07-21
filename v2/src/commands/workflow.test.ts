@@ -107,37 +107,6 @@ describe("run workflow dispatch", () => {
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "run-888" } });
   });
 
-  test("run workflow implements its original dispatch once after a safe bounce", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let connections = 0;
-    await withFixedUuid([SESSION_UUID, "status-one", "list", "recovery", "status-two", "start", "wait"], async () => {
-      const code = await main([...IMPLEMENT_ARGS], cap.io, {
-        cwd: () => fx.repoSub,
-        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
-        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
-        connectIpcClient: async () => {
-          connections += 1;
-          return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-                loadedRevision: "old",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-                sent,
-              })
-            : makeIpcClient(workflowFrames("start", "wait", "workflow-bounced", COMPLETED_WAIT_RESULT), {
-                recovery: { pending: false, reconciled: 1, resumed: 0 },
-                sent,
-              });
-        },
-        stopDaemon: async () => undefined,
-        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
-      });
-      expect(code).toBe(0);
-    });
-    expect(connections).toBe(2);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
   test("a docs-only merge dispatches workflow without bounce while live runs exist", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -167,21 +136,12 @@ describe("run workflow dispatch", () => {
       });
       expect(code).toBe(0);
     });
-    expect(statusCalls).toEqual([
-      {
-        params: {
-          currentRevision: "docs-merge-head",
-          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
-        },
-      },
-    ]);
-    expect(statusResponses).toEqual([
-      { loadedRevision: "docs-merge-head", loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
-    ]);
+    expect(statusCalls).toEqual([]);
+    expect(statusResponses).toEqual([]);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
   });
 
-  test("run workflow --no-auto-bounce preserves mismatch refusal without lifecycle work", async () => {
+  test("run workflow rejects retired --no-auto-bounce", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     await withFixedUuid([SESSION_UUID, "status"], async () => {
@@ -201,7 +161,7 @@ describe("run workflow dispatch", () => {
       expect(code).toBe(1);
     });
     expect(sent).toEqual([]);
-    expect(cap.read().stderr).toContain("restart the daemon before starting or resuming work");
+    expect(cap.read().stderr).toContain("usage: jarvis run workflow implement");
   });
 
   test("run workflow implement blocks on completion and exits with proper exit code when workflow fails", async () => {

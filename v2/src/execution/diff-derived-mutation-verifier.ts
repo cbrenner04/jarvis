@@ -40,6 +40,7 @@ type UntrackedFiles = (cwd: string) => Promise<string[]>;
 type RunScopedTests = (cwd: string, scope: string[]) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
+type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>;
 
 type VerifierSeams = {
   gitDiff?: GitDiff;
@@ -47,11 +48,13 @@ type VerifierSeams = {
   runScopedTests?: RunScopedTests;
   readFile?: ReadFile;
   writeFile?: WriteFile;
+  registeredPromptPaths?: RegisteredPromptPaths;
   now?: () => number;
 };
 
 /** Verification bounds: hitting either ends the run as a pass over the candidates inspected so far. */
 const MAX_INSPECTED_MUTATIONS = 25;
+const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 const MAX_VERIFICATION_MS = 5 * 60_000;
 
 async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
@@ -92,6 +95,31 @@ async function defaultReadFile(path: string): Promise<string> {
 
 async function defaultWriteFile(path: string, content: string): Promise<void> {
   writeFileSync(path, content);
+}
+
+function registeredPromptPaths(manifest: string): string[] {
+  return manifest
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((path) => `prompts/${path}`);
+}
+
+async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
+  const paths = new Set<string>();
+  try {
+    for (const path of registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))) paths.add(path);
+  } catch {
+    // A deleted manifest can still have registered artifacts at the base.
+  }
+  try {
+    const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+    const manifest = await realAsyncSubprocessRunner.runAsync("git", ["show", `${baseRef}:prompts/registry.txt`], cwd);
+    for (const path of registeredPromptPaths(manifest)) paths.add(path);
+  } catch {
+    // The current registry remains enough when the base cannot be resolved.
+  }
+  return [...paths];
 }
 
 interface ChangedLine {
@@ -155,6 +183,16 @@ function parseDiff(diffOutput: string): ChangedLine[] {
   }
 
   return lines;
+}
+
+function changedPathsFromDiff(diffOutput: string): string[] {
+  const paths = new Set<string>();
+  for (const line of diffOutput.split("\n")) {
+    if (!line.startsWith("diff --git ")) continue;
+    const path = extractFileFromDiffLine(line);
+    if (path !== null && isProductionFile(path)) paths.add(path);
+  }
+  return [...paths];
 }
 
 function deriveGuardMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
@@ -256,6 +294,22 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
   return candidates;
 }
 
+function isCodePath(path: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(path);
+}
+
+function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
+  const bodyStart = content.indexOf("\n---\n");
+  if (bodyStart < 0) return null;
+  const body = content.slice(bodyStart + 5);
+  const changedBody = changedLines
+    .filter((line) => line.type === "add" && line.content.trim().length > 0 && body.includes(line.content))
+    .map((line) => line.content);
+  const original = changedBody[0] ?? body.split("\n").find((line) => line.trim().length > 0);
+  if (original === undefined) return null;
+  return `${content.slice(0, bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
+}
+
 function applyMutation(fileContent: string, candidate: Candidate): string {
   const lines = fileContent.split("\n");
   const lineIndex = candidate.line - 1;
@@ -279,6 +333,7 @@ function applyMutation(fileContent: string, candidate: Candidate): string {
 }
 
 async function buildChangedFiles(
+  diffOutput: string,
   changedLines: ChangedLine[],
   untrackedFilesFunc: UntrackedFiles,
   worktreePath: string,
@@ -299,6 +354,8 @@ async function buildChangedFiles(
     }
   }
 
+  for (const file of changedPathsFromDiff(diffOutput)) changedFiles.add(file);
+
   const untracked = await untrackedFilesFunc(worktreePath);
   for (const file of untracked) {
     changedFiles.add(file);
@@ -307,11 +364,36 @@ async function buildChangedFiles(
   return { changedFiles, changedLinesByFile };
 }
 
+async function verifyPromptRenderCoverage(
+  promptPath: string,
+  changedLines: ChangedLine[],
+  input: DiffDerivedMutationVerifierInput,
+  readFile: ReadFile,
+  writeFile: WriteFile,
+  runScopedTests: RunScopedTests,
+  scopeTests: string[],
+): Promise<boolean> {
+  const filePath = `${input.worktreePath}/${promptPath}`;
+  let original: string;
+  try {
+    original = await readFile(filePath);
+  } catch {
+    return false;
+  }
+  const mutated = mutateRenderedPrompt(original, changedLines);
+  if (mutated === null) return false;
+  try {
+    await writeFile(filePath, mutated);
+    return !(await runScopedTests(input.worktreePath, scopeTests));
+  } finally {
+    await writeFile(filePath, original);
+  }
+}
+
 async function testCandidate(
   candidate: Candidate,
   originalContent: string,
   input: DiffDerivedMutationVerifierInput,
-  _readFile: ReadFile,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   scopeTests: string[],
@@ -358,11 +440,13 @@ export async function verifyDiffDerivedMutations(
   const runScopedTests = seams?.runScopedTests ?? defaultRunScopedTests;
   const readFile = seams?.readFile ?? defaultReadFile;
   const writeFile = seams?.writeFile ?? defaultWriteFile;
+  const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
 
   const { changedFiles, changedLinesByFile } = await buildChangedFiles(
+    diffOutput,
     changedLines,
     untrackedFilesFunc,
     input.worktreePath,
@@ -384,9 +468,40 @@ export async function verifyDiffDerivedMutations(
   // pass, silently disabling mutation verification for full-scope diffs.
   const scopeTests = scope === "full" ? ["test"] : scope;
 
+  const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
+  const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
+  const now = seams?.now ?? Date.now;
+  const deadline = now() + MAX_VERIFICATION_MS;
+  for (const [index, promptPath] of changedPrompts.entries()) {
+    if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) {
+      return {
+        kind: "surviving-mutation",
+        mutation: "missing-render-coverage",
+        sourceSite: { file: promptPath, line: 1 },
+      };
+    }
+    const renderedOutputObserved = await verifyPromptRenderCoverage(
+      promptPath,
+      changedLinesByFile.get(promptPath) ?? [],
+      input,
+      readFile,
+      writeFile,
+      runScopedTests,
+      scopeTests,
+    );
+    if (!renderedOutputObserved) {
+      return {
+        kind: "surviving-mutation",
+        mutation: "missing-render-coverage",
+        sourceSite: { file: promptPath, line: 1 },
+      };
+    }
+  }
+
   const candidates: Candidate[] = [];
   for (const [_file, lines] of changedLinesByFile) {
     for (const line of lines) {
+      if (!isCodePath(line.file)) continue;
       const mutations = deriveFromLine(line.file, line.lineNumber, line.content);
       candidates.push(...mutations);
     }
@@ -401,8 +516,6 @@ export async function verifyDiffDerivedMutations(
     };
   }
 
-  const now = seams?.now ?? Date.now;
-  const deadline = now() + MAX_VERIFICATION_MS;
   let inspected = 0;
   for (const candidate of candidates) {
     if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
@@ -420,7 +533,6 @@ export async function verifyDiffDerivedMutations(
       candidate,
       originalContent,
       input,
-      readFile,
       writeFile,
       runScopedTests,
       scopeTests,

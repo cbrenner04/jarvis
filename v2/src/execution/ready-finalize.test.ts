@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { createReadyFinalizer, ReadyGateError } from "./ready-finalize.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 
 describe("createReadyFinalizer", () => {
   const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main" };
@@ -34,6 +35,61 @@ describe("createReadyFinalizer", () => {
     });
 
     await expect(finalizer(input)).rejects.toThrow("ready gate failed");
+    expect(flipCalls).toBe(0);
+  });
+
+  it("stops ready finalization for missing prompt render coverage", async () => {
+    let flipCalls = 0;
+    let prompt = `---
+id: patch.review.critic
+behavior: review
+kind: step
+revision: 1
+placeholders: []
+---
+new output
+`;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runMutationVerification: async () => {
+        const result = await verifyDiffDerivedMutations(
+          { worktreePath: "/tmp/worktree", runBase: "main" },
+          {
+            gitDiff: async () => `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/patch/review-critic.md
++++ b/prompts/patch/review-critic.md
+@@ -1 +1 @@
+-old output
++new output
+diff --git a/shared/prompts/review-implement.test.ts b/shared/prompts/review-implement.test.ts
+index 1234567..abcdefg 100644
+--- a/shared/prompts/review-implement.test.ts
++++ b/shared/prompts/review-implement.test.ts
+@@ -1 +1 @@
++const output = renderPatchReviewCriticPrompt();
+`,
+            untrackedFiles: async () => [],
+            registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+            readFile: async () => prompt,
+            writeFile: async (_path, content) => {
+              prompt = content;
+            },
+            runScopedTests: async () => true,
+          },
+        );
+        if (result.kind === "surviving-mutation") {
+          throw new SurvivingMutationError(result.mutation, result.sourceSite.file, result.sourceSite.line);
+        }
+      },
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(finalizer(input)).rejects.toThrow(
+      "Surviving mutation in prompts/patch/review-critic.md:1: missing-render-coverage",
+    );
     expect(flipCalls).toBe(0);
   });
 

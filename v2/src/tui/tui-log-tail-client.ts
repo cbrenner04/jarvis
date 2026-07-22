@@ -25,7 +25,7 @@ export type TuiLogTailClient = {
 
 /** Options for {@link connectTuiLogTail}; production defaults apply when omitted. */
 export type ConnectTuiLogTailOptions = {
-  /** Unix socket path; defaults to `~/.jarvis/daemon.sock`. */
+  /** Unix socket path; the CLI supplies its executable-digest-keyed path. */
   socketPath?: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;

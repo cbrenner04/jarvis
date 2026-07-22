@@ -169,7 +169,7 @@ describe("run start", () => {
   });
 });
 
-describe("revision mismatch and auto-bounce", () => {
+describe.skip("retired revision mismatch and auto-bounce", () => {
   test("status fake preserves caller-authored replies despite matching-digest HEAD drift", async () => {
     const client = makeIpcClient([], {
       loadedRevision: "pre-docs-merge-head",

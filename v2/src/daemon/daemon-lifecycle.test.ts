@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 3_000): Promise<string> {
@@ -41,6 +42,40 @@ describe("daemon-lifecycle", () => {
           readinessTimeoutMs: 1000,
         }),
       ).rejects.toThrow(DaemonAlreadyRunningError);
+    });
+
+    test("converts only an existing keyed PID lease into DaemonAlreadyRunningError", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "jarvis-daemon-lease-"));
+      const pidPath = join(dir, "daemon-digest.pid");
+      writeFileSync(pidPath, "other-daemon");
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            pidPath,
+            socketProber: { probe: async () => false },
+            daemonScript: "/fake/script",
+          }),
+        ).rejects.toThrow(DaemonAlreadyRunningError);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("propagates a PID lease error other than EEXIST", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "jarvis-daemon-lease-"));
+      const pidDir = join(dir, "not-a-directory");
+      writeFileSync(pidDir, "file");
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            pidPath: join(pidDir, "daemon-digest.pid"),
+            socketProber: { probe: async () => false },
+            daemonScript: "/fake/script",
+          }),
+        ).rejects.toMatchObject({ code: "ENOTDIR" });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     test("throws DaemonReadinessTimeoutError if socket never becomes ready", async () => {

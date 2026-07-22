@@ -19,6 +19,7 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+import { daemonPathsForDigest } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
@@ -140,8 +141,16 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return 0;
   }
 
+  const daemonPaths = daemonPathsForDigest(await runtimeDeps.getExecutableDigest());
+  const keyedDeps: CliDeps = {
+    ...runtimeDeps,
+    socketPath: deps?.socketPath ?? daemonPaths.socketPath,
+    pidPath: deps?.pidPath ?? daemonPaths.pidPath,
+    logPath: deps?.logPath ?? daemonPaths.logPath,
+  };
+
   const entry = findCommand(command);
-  if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+  if (entry !== undefined) return entry.handler(argv.slice(1), out, keyedDeps, operatorSessionId);
 
   const closeMatches = enumerateCommands().filter((entry) => levenshteinDistance(command, entry.name) <= 2);
   const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;

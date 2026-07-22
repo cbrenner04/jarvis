@@ -38,17 +38,12 @@ Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 
 ## Start the daemon
 
-`jarvis run start` connects to the daemon over `~/.jarvis/daemon.sock`. Nothing
-auto-starts the daemon — start it first:
-
-```bash
-jarvis daemon start
-```
+`jarvis run start` selects `~/.jarvis/daemon-<executable-tree-digest>.sock` and starts that matching daemon when needed. A manual daemon start is optional. It prints the new run ID, not daemon metadata.
 
 On success stdout is compact JSON with the child PID and socket path, for example:
 
 ```json
-{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon.sock"}
+<run-id>
 ```
 
 Confirm with `jarvis daemon status` (`running` when healthy).
@@ -177,7 +172,7 @@ records:
 jarvis daemon log --follow
 ```
 
-This reads `~/.jarvis/daemon.log` directly and works even when the daemon is
+This reads the selected `~/.jarvis/daemon-<executable-tree-digest>.log` directly and works even when the daemon is
 not running. Use `jarvis run log <run-id>` or `jarvis tui log <run-id>` for
 structured records belonging to one run.
 

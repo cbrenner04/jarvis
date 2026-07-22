@@ -1,3 +1,5 @@
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -150,10 +152,54 @@ function retainListedRuns(runs: Run[]): Run[] {
 export class WorktreeOwnershipRegistry {
   private registry = new Map<string, WorktreeOwnership>();
 
+  constructor(private readonly claimsPath?: string) {}
+
+  private claimPath(key: OwnershipKey): string | undefined {
+    return this.claimsPath === undefined
+      ? undefined
+      : join(this.claimsPath, createHash("sha256").update(ownershipKeyString(key)).digest("hex"));
+  }
+
+  private hasDurableClaim(key: OwnershipKey): boolean {
+    const claimPath = this.claimPath(key);
+    if (claimPath === undefined || !existsSync(claimPath)) return false;
+    try {
+      const content = readFileSync(claimPath, "utf-8");
+      const owner = JSON.parse(content) as { pid?: number };
+      if (typeof owner.pid === "number") {
+        try {
+          process.kill(owner.pid, 0);
+          return true;
+        } catch {
+          if (readFileSync(claimPath, "utf-8") === content) rmSync(claimPath, { force: true });
+          return false;
+        }
+      }
+    } catch {
+      return true;
+    }
+    return true;
+  }
+
   claim(key: OwnershipKey, ownership: WorktreeOwnership): void {
     const ks = ownershipKeyString(key);
-    if (this.registry.has(ks)) {
+    const claimPath = this.claimPath(key);
+    if (this.registry.has(ks) || this.hasDurableClaim(key)) {
       throw new DaemonDoubleClaimError(key);
+    }
+    if (claimPath !== undefined) {
+      mkdirSync(this.claimsPath!, { recursive: true });
+      try {
+        const fd = openSync(claimPath, "wx");
+        try {
+          writeFileSync(fd, JSON.stringify({ runId: ownership.runId, pid: process.pid }));
+        } finally {
+          closeSync(fd);
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new DaemonDoubleClaimError(key);
+        throw error;
+      }
     }
     this.registry.set(ks, ownership);
   }
@@ -163,6 +209,15 @@ export class WorktreeOwnershipRegistry {
     if (runId !== undefined && this.registry.get(ks)?.runId !== runId) {
       return;
     }
+    const claimPath = this.claimPath(key);
+    if (claimPath !== undefined && existsSync(claimPath)) {
+      try {
+        const owner = JSON.parse(readFileSync(claimPath, "utf-8")) as { runId?: string };
+        if (runId === undefined || owner.runId === runId) rmSync(claimPath, { force: true });
+      } catch {
+        // A malformed durable claim is not this registry's lease to remove.
+      }
+    }
     this.registry.delete(ks);
   }
 
@@ -171,7 +226,7 @@ export class WorktreeOwnershipRegistry {
   }
 
   isClaimed(key: OwnershipKey): boolean {
-    return this.registry.has(ownershipKeyString(key));
+    return this.registry.has(ownershipKeyString(key)) || this.hasDurableClaim(key);
   }
 }
 
@@ -530,7 +585,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
-  const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
+  const _registry = deps.registry ?? new WorktreeOwnershipRegistry(join(jarvisHome(), "worktree-claims"));
   const activeRuns = new Map<string, ActiveRun>();
   const waitAbortControllers = new Set<AbortController>();
   /**

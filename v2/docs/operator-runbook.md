@@ -166,7 +166,7 @@ jarvis daemon status    # running → exit 0
 jarvis daemon stop      # when intentionally shutting down
 ```
 
-Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
+Socket: `~/.jarvis/daemon-<executable-tree-digest>.sock`. Process log: `~/.jarvis/daemon-<executable-tree-digest>.log` (no
 `jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
 
 ### Workflow presets (registered names)
@@ -327,7 +327,7 @@ A workflow can die after its step runs settle (review step, publication) — ste
 rows then all read `completed` while nothing was committed, pushed, or published.
 Diagnose with:
 
-- `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
+- Selected daemon process log — `Workflow execution failed (<workflow>): <message>`
 - `jarvis run log <id>` — trailing `run_execution_failed` record with the message
 - `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
 - `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran
@@ -416,12 +416,10 @@ is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
-- An executable-tree digest mismatch on CLI start, resume, or workflow dispatch
-  automatically bounces an idle daemon, waits for recovery, and retries once. Its
-  stderr output records revisions and recovery counts. If any `isLive` row exists
-  it names the IDs and refuses; finish or recover them first. Use `--no-auto-bounce`
-  to retain manual restart control. TUI start/resume guards use the same digest
-  comparison and refuse on mismatch (no auto-bounce).
+- CLI start, resume, and workflow dispatch select the current executable's
+  digest-keyed daemon and start it on demand. They never bounce another daemon;
+  list and wait likewise show only selected-daemon state. Leave a legacy
+  `daemon.sock` daemon alone.
 - A reconciled orphan with a missing or unresolvable workflow write snapshot is not auto-resumed.
   It stays `killed`; `list` / `wait` report `unsupported_resume_context` with `retryable: false`
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
@@ -429,7 +427,7 @@ is lost.
 
 ### Wedged run, no agent activity
 
-Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls
+Check the selected `~/.jarvis/daemon-<executable-tree-digest>.log` and `jarvis run log <run-id>`. Plan draft stalls
 historically threw before agent invoke (fixed in shipped PRs); similar failures
 may still exit without `iteration_started` follow-up until
 `write-loop-iteration-timeout-on-stall` lands.
@@ -695,7 +693,7 @@ Operators add bullets here; delete when fixed.
   it read as the documented strand defect: the operator drafted a seed for a phantom bug and
   `pkill`ed one healthy plan run at ~15 minutes. **Before concluding a run is stranded, check
   `jarvis run log <id>` for a `loop_finished` and wait out the gate** — a genuinely stranded run
-  never settles at all, and `daemon.log` names its failure. See also the `run wait` caveat below: a
+  never settles at all, and the selected daemon process log names its failure. See also the `run wait` caveat below: a
   terminal run id does not mean the workflow is done.
 - **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
   `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing

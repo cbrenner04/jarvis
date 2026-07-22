@@ -7,6 +7,7 @@ import {
   DAEMON_PID_PATH,
   DAEMON_SOCKET_DISPLAY,
   DAEMON_SOCKET_PATH,
+  daemonPathsForDigest,
   jarvisHome,
   MACHINE_CONFIG_PATH,
 } from "./paths.ts";
@@ -28,6 +29,14 @@ describe("paths", () => {
 
   test("DAEMON_SOCKET_DISPLAY is ~/.jarvis/daemon.sock", () => {
     expect(DAEMON_SOCKET_DISPLAY).toBe("~/.jarvis/daemon.sock");
+  });
+
+  test("daemon paths use the complete executable digest without touching legacy paths", () => {
+    expect(daemonPathsForDigest("a-full-digest")).toEqual({
+      socketPath: join(jarvisHome(), "daemon-a-full-digest.sock"),
+      pidPath: join(jarvisHome(), "daemon-a-full-digest.pid"),
+      logPath: join(jarvisHome(), "daemon-a-full-digest.log"),
+    });
   });
 
   test("jarvisHome falls back to ~/.jarvis when JARVIS_HOME is unset", () => {

@@ -1,6 +1,6 @@
 // Real launcher coverage for the test-only detached-daemon ownership contract.
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle.ts";
@@ -140,6 +140,29 @@ socketTest("fixture registers before failed readiness and force-reaps its daemon
 socketTest("fixture reaps daemons after completed and assertion-failed test launchers", async () => {
   expect(await runFixtureTest(false)).toBe(0);
   expect(await runFixtureTest(true)).not.toBe(0);
+});
+
+socketTest("daemon exit clears only its own existing PID lease", async () => {
+  const owned = paths("owned-pid-lease");
+  const replaced = paths("replaced-pid-lease");
+  try {
+    const ownedDaemon = await testDaemons.start(owned.socketPath, { daemonScript: entrypoint, pidPath: owned.pidPath });
+    expect(readFileSync(owned.pidPath, "utf-8")).toBe(String(ownedDaemon.pid));
+    process.kill(ownedDaemon.pid, "SIGTERM");
+    await waitFor(() => !isProcessAlive(ownedDaemon.pid));
+    expect(existsSync(owned.pidPath)).toBe(false);
+
+    const replacedDaemon = await testDaemons.start(replaced.socketPath, { daemonScript: entrypoint, pidPath: replaced.pidPath });
+    writeFileSync(replaced.pidPath, "unrelated-daemon");
+    process.kill(replacedDaemon.pid, "SIGTERM");
+    await waitFor(() => !isProcessAlive(replacedDaemon.pid));
+    expect(readFileSync(replaced.pidPath, "utf-8")).toBe("unrelated-daemon");
+  } finally {
+    rmSync(owned.socketPath, { force: true });
+    rmSync(owned.pidPath, { force: true });
+    rmSync(replaced.socketPath, { force: true });
+    rmSync(replaced.pidPath, { force: true });
+  }
 });
 
 socketTest("owner death reaps opted-in daemon while production daemon stays detached", async () => {

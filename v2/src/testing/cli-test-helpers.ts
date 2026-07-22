@@ -169,13 +169,12 @@ export function workflowFrames(
   ];
 }
 
-/** `main()` consumes one uuid for its operator session id before any RPC id is minted, so a
- * workflow's id sequence is: session, revision status, then `start` and `wait`. */
+/** `main()` consumes one uuid for its operator session id before workflow RPC ids. */
 export const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
 
-/** Stubs the session/status/start/wait uuid sequence for a `run workflow` invocation. */
+/** Stubs the session/start/wait uuid sequence for a `run workflow` invocation. */
 export function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
-  return withFixedUuid([SESSION_UUID, SESSION_UUID, startId, waitId], fn);
+  return withFixedUuid([SESSION_UUID, startId, waitId], fn);
 }
 
 export const COMPLETED_WAIT_RESULT = {

@@ -2,9 +2,58 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
+import { captureIo, cliMain as main, makeIpcClient, tempPaths } from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
 
 describe("daemon command", () => {
+  test("digest-keyed dispatch bypasses a differently keyed daemon", async () => {
+    const cap = captureIo();
+    const paths: string[] = [];
+    const resumeId = "00000000-0000-4000-8000-000000000003";
+    const code = await withFixedUuid(
+      ["00000000-0000-4000-8000-000000000001", resumeId],
+      () => main(["run", "resume", "run-123"], cap.io, {
+      getExecutableDigest: async () => "new-digest",
+      connectIpcClient: async (socketPath) => {
+        paths.push(socketPath);
+        return makeIpcClient([{ kind: "response", id: resumeId, result: { ok: true } }]);
+      },
+    }),
+    );
+
+    expect(code).toBe(0);
+    expect(paths).toEqual([`${process.env.JARVIS_HOME}/daemon-new-digest.sock`]);
+    expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
+  });
+
+  test("digest-keyed list and wait use only the invoking executable daemon", async () => {
+    const paths: string[] = [];
+    const waitId = "00000000-0000-4000-8000-000000000004";
+    const listId = "00000000-0000-4000-8000-000000000003";
+    const digest = "selected-digest";
+    await withFixedUuid(["00000000-0000-4000-8000-000000000005", listId, "00000000-0000-4000-8000-000000000006", waitId], async () => {
+      const listCode = await main(["run", "list"], captureIo().io, {
+        getExecutableDigest: async () => digest,
+        connectIpcClient: async (socketPath) => {
+          paths.push(socketPath);
+          return makeIpcClient([{ kind: "response", id: listId, result: { runs: [] } }]);
+        },
+      });
+      const waitCode = await main(["run", "wait", "run-123"], captureIo().io, {
+        getExecutableDigest: async () => digest,
+        connectIpcClient: async (socketPath) => {
+          paths.push(socketPath);
+          return makeIpcClient([{ kind: "response", id: waitId, result: { runStatus: "completed", loopOutcomeKind: "complete" } }]);
+        },
+      });
+      expect({ listCode, waitCode }).toEqual({ listCode: 0, waitCode: 0 });
+    });
+    expect(paths).toEqual([
+      `${process.env.JARVIS_HOME}/daemon-${digest}.sock`,
+      `${process.env.JARVIS_HOME}/daemon-${digest}.sock`,
+    ]);
+  });
+
   test("daemon start uses injected production paths and prints metadata", async () => {
     const cap = captureIo();
     const paths = tempPaths();

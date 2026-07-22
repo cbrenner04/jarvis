@@ -521,15 +521,16 @@ jarvis write \
 
 Daemon lifecycle commands use production defaults:
 
-- Socket: `~/.jarvis/daemon.sock`
-- PID file: `~/.jarvis/daemon.pid`
+- Socket: `~/.jarvis/daemon-<executable-tree-digest>.sock`
+- PID file: `~/.jarvis/daemon-<executable-tree-digest>.pid`
+- Process log: `~/.jarvis/daemon-<executable-tree-digest>.log`
 
 | Command | Output | Exit |
 | --- | --- | --- |
 | `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
 | `jarvis daemon stop [--force]` | `stopped`, or blocker IDs on stderr | `0`, or `1` when guarded |
 | `jarvis daemon status` | `running loaded=<revision> current=<revision>`, `stale loaded=<revision> current=<revision>`, or `stopped` | `0` when running (executable digests match), `1` when stale (executable digest mismatch) or stopped |
-| `jarvis daemon log` | Retained bytes of the daemon process log (`~/.jarvis/daemon.log`) on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
+| `jarvis daemon log` | Retained bytes of the selected daemon process log on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
 | `jarvis daemon log --follow` | Replay then follow appends on stdout | `130` on SIGINT; `1` on read/watch/reopen failure or when the file is removed while following (missing path on stderr) |
 
 `jarvis daemon stop` refuses when durable non-terminal runs exist and reports
@@ -537,11 +538,11 @@ their IDs on stderr; it does not print `stopped`. Add `--force` to bypass that
 guard and use the existing shutdown path. See the lifecycle contract in
 [`daemon-host.md`](./daemon-host.md#stopdaemonsocketpath-options).
 
-`jarvis daemon status` probes the PID file and socket for lifecycle state and
-compares the daemon's boot-time executable-tree digest with the invoking CLI's
-current digest (`v2/src/**`, `shared/**`, and repo manifests). `loaded` and
-`current` in the output are Git HEAD values for display; they may differ after a
-docs-only merge while the daemon remains running.
+`jarvis daemon status` probes only the invoking executable's digest-keyed PID
+file and socket. A differently keyed daemon and the legacy `daemon.sock` are
+not contacted. Mutating `run start`, `run resume`, and workflow dispatch first
+start or reuse this selected daemon; there is no revision-mismatch handshake,
+auto-bounce, or `--no-auto-bounce` option.
 Output format:
 - `running loaded=<revision> current=<revision>` (exit 0): daemon is alive and executable digests match
 - `stale loaded=<revision> current=<revision>` (exit 1): daemon is alive but executable digests differ (executable code changed since daemon boot)
@@ -565,7 +566,7 @@ removal/failure reporting).
 
 ## TUI CLI
 
-Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
+Socket default: `~/.jarvis/daemon-<executable-tree-digest>.sock` (same as daemon lifecycle commands).
 
 Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactive run
 monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
@@ -652,23 +653,14 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
-Before `jarvis run start`, `jarvis run workflow …`, and `jarvis run resume`,
-the CLI reads daemon `status` with `{ currentRevision, currentExecutableDigest }`
-and compares executable digests. When digests match but HEAD differs (for example
-after a docs-only merge), the daemon advances `loadedRevision` to the invoking
-HEAD in-process and dispatch proceeds with no bounce. For `run start`, `run
-resume`, and workflow starts, an executable-digest mismatch lists runs and
-automatically force-restarts only when no row is `isLive`; it waits for startup
-recovery, reports loaded/current revisions, restart, recovery counts, and its one
-retry on stderr, then retries the original request once. `--no-auto-bounce`
-retains the mismatch refusal and restart guidance. A live row names its IDs and
-refuses without lifecycle mutation; lifecycle, reconnect, or recovery failures
-retain their actionable reason. TUI start/resume guards use the same digest
-comparison and refuse on mismatch (no auto-bounce). Health, status, listing,
-logs/tail, wait, pause, kill, and daemon lifecycle commands remain available;
-the check never changes admitted runs.
+`jarvis run start`, `jarvis run workflow …`, and `jarvis run resume` select the
+invoking executable's digest-keyed daemon before connecting. If it is absent,
+they start it and retry the connection; a concurrent matching start is reused.
+They neither query nor replace a differently keyed or legacy daemon. `list`,
+`wait`, TUI, steering, and lifecycle commands likewise address only the selected
+daemon.
 
-`jarvis run list` and `jarvis run wait` pass through daemon `error` fields
+`jarvis run list` and `jarvis run wait` address only the invoking executable's selected daemon; they never report another digest-keyed daemon's runs. They pass through daemon `error` fields
 verbatim when present (`reason`, `retryable`, `nextAction`); see
 [`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait) for the wire
 contract. Default output is actionable summary only — no stderr dumps or log

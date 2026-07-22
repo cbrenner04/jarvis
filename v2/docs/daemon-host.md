@@ -71,7 +71,17 @@ of sockets: one per executable digest ever run. Under one shared `JARVIS_HOME`,
 durable run rows are shared across keyed daemons — a row created by one daemon is
 visible to all daemons querying the same state store. Liveness (`isLive`) and live
 controls (`pause`, `kill`) are scoped to the owning daemon only: a run launched by
-daemon A remains `isLive: true` only in A's responses until the loop settles. `jarvis cleanup` removes dead sockets (those whose listeners have exited) via a
+daemon A remains `isLive: true` only in A's responses until the loop settles.
+
+When a new daemon starts, it enumerates other digest-keyed sockets in `JARVIS_HOME`
+and sends `supersede` to each one (fire-and-forget, non-blocking). This tells older
+daemons to stop accepting new work and exit once idle. The send is best-effort: a
+peer that cannot be reached or errors does not block startup or prevent other peers
+from being superseded. The new daemon starts serving immediately — startup does not
+wait for peers to retire. Queued runs are not promoted after supersession; existing
+runs complete in the superseded daemon.
+
+`jarvis cleanup` removes dead sockets (those whose listeners have exited) via a
 connect-attempt probe: if the probe receives `ECONNREFUSED` or `ENOENT`, the socket
 is dead and removed; all other error states (timeout, permission error, unexpected
 error) preserve the socket and are reported. Live sockets — those a daemon is
@@ -110,11 +120,12 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | --- | --- | --- | --- |
 | `health` | — | `{ ok: true }` | Channel liveness |
 | `status` | — | `{ state: "running", loadedRevision: string, loadedExecutableDigest: string, recovery: { pending: boolean, reconciled: number, resumed: number } }` | Daemon-host liveness only — not run orchestration status. `loadedRevision` is the daemon's recorded Git HEAD at startup. `loadedExecutableDigest` is the SHA-256 digest of tracked blobs under `v2/src/**`, `shared/**`, and repo manifests at daemon boot. `recovery` is pending until all startup admissions finish; then its stable counts name rows reconciled and successfully auto-resumed. Unsupported and failed admissions are not resumed. |
-| `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-and-resume)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow` with `freshDispatch: true`, creating new run rows for every step and minting a fresh `invocationId`; prior `completed` runs are not reused. A linked implement first materializes and validates its managed worktree; failure returns `worktree_materialization_failed` with that path and the Git or validation reason, before routing or a run row. Returns `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. A `firstStep.workflowInvocationId` request whose prior run is non-terminal (`in-progress`, `paused`, `budget-soft-stopped`) and owned by another invocation is rejected `worktree_claimed` (intent ownership guard). Terminal prior runs (`completed`, `failed`, `blocked`, `killed`) do not block a fresh request, allowing new runs to start. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. Other failures before step 0's run row exists (e.g. an invalid step shape) return an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. |
+| `supersede` | — | `{ ok: true }` | Retire the daemon: close admission to new `start` and `resume` RPCs while serving all other observation and steering commands (`list`, `wait`, `health`, `status`, `pause`, `kill`). Idempotent — multiple calls always return `{ ok: true }`. The daemon exits at idle (no active runs); owned runs complete under the same daemon. Queued runs are not promoted after supersession. |
+| `start` | `{ input: WriteLoopInput } \| { steps: AnyWorkflowStep[] }` | `{ runId: string }` | Exactly one of `input`/`steps`; both, neither, or an empty `steps` array is rejected `invalid_params`. `{ input }` spawns a write loop in the background, or persists it `queued` if memory headroom is unavailable; returns immediately with run ID either way (see [Admission guards](#admission-guards-for-start-and-resume)). Rejected `worktree_claimed` if an existing queued run holds the `(project, branch)` key, or if memory headroom is clear and the key is claimed by a live run. `{ steps }` dispatches to `executeWorkflow` with `freshDispatch: true`, creating new run rows for every step and minting a fresh `invocationId`; prior `completed` runs are not reused. A linked implement first materializes and validates its managed worktree; failure returns `worktree_materialization_failed` with that path and the Git or validation reason, before routing or a run row. Returns `{ runId }` for step 0 once its run row is durably created; the workflow then keeps running in the background. A `firstStep.workflowInvocationId` request whose prior run is non-terminal (`in-progress`, `paused`, `budget-soft-stopped`) and owned by another invocation is rejected `worktree_claimed` (intent ownership guard). Terminal prior runs (`completed`, `failed`, `blocked`, `killed`) do not block a fresh request, allowing new runs to start. Rejected `insufficient_memory` (not queued) if memory headroom is unavailable at call time. Other failures before step 0's run row exists (e.g. an invalid step shape) return an error rather than hanging, surfacing `executeWorkflow`'s thrown message as `invalid_params`. Rejected `daemon_superseded` if the daemon is retiring. |
 | `list` | — | `{ runs: Array<{runId, project, branch, status, isLive, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, reviewPasses?, reviewBehavior?, workflow?, prNumber?, prUrl?}> }` | List durable runs merged with in-memory liveness; `isLive=true` only while the loop's Promise is executing. After spawn-boundary executor failure: `status: "failed"`, `isLive: false` (see [Spawn-boundary failure capture](#spawn-boundary-failure-capture)). Optional outcome fields; optional `error` on non-success terminals (see [Operator error on list and wait](#operator-error-on-list-and-wait)). Optional `prNumber` and `prUrl` when publication confirmed a PR. Workflow-backed rows may also carry authored per-step progress (see [Workflow snapshots on list rows](#workflow-snapshots-on-list-rows)). Implement workflow rows may also carry retained `reviewPasses` and `reviewBehavior` (see [Implement review selection on list rows](#implement-review-selection-on-list-rows)). For workflow entry rows (the returned run id from a `start { steps }` invocation), `status` reflects a rollup over all steps in the invocation: the first authored durable step's terminal-but-not-completed status, `killed` if an authored durable step has no row in a non-live invocation, or `completed` if all authored durable steps are completed; while the workflow is live, status is `in-progress` regardless of step row state. When a stopping sibling owns the terminal outcome, entry `loopOutcomeKind`, `iterationsConsumed`, and `error` come from that sibling, while `resumable` remains eligible only when the entry row itself can resume. Other step rows in that workflow report their own durable statuses. Terminal runs (`completed`, `failed`, `blocked`, `killed`) are bounded to the 50 newest by creation time; all other statuses are exempt and always returned. Step runs of a listed workflow invocation are retained with that invocation regardless of the bound. Retention filters the response only — durable rows are kept (see [Terminal run list retention](#terminal-run-list-retention)). |
 | `pause` | `{ runId: string }` | `{ ok: true }` | Signal graceful pause for an active run. The run continues at the next iteration boundary (in-flight step is not aborted). Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed` when the row is not boundary-terminal (`completed`, `blocked`, `failed`). Leaves the worktree dirty. Rejected `run_not_active` if run is unknown, not active, or is a workflow-started run (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). |
-| `resume` | `{ runId: string }` | `{ ok: true }` | Resumes paused, budget-stopped, killed, or retryable-publication workflow write runs only after shared snapshot reconstruction. The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Eligible publication retries are `completion_commit_failed`, `ready_gate_failed`, and `surviving_mutation_failed`; `ready_flip_failed` is a terminal non-resumable settlement and is rejected with `terminal_run`; `list` and `wait` expose the matching retryable reason with `nextAction: "resume"` or terminal reason with `nextAction: "stop"`. Ad-hoc stopped runs remain unsupported. |
+| `resume` | `{ runId: string }` | `{ ok: true }` | Resumes paused, budget-stopped, killed, or retryable-publication workflow write runs only after shared snapshot reconstruction. The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Eligible publication retries are `completion_commit_failed`, `ready_gate_failed`, and `surviving_mutation_failed`; `ready_flip_failed` is a terminal non-resumable settlement and is rejected with `terminal_run`; `list` and `wait` expose the matching retryable reason with `nextAction: "resume"` or terminal reason with `nextAction: "stop"`. Ad-hoc stopped runs remain unsupported. Rejected `daemon_superseded` if the daemon is retiring. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. On a workflow entry, a hidden finalization row that owns the rollup failure supplies outcome fields and error detail; entry resumability remains tied to the entry row. Unsupported stopped write context returns `error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" }` and forces `resumable: false`, even when the historical loop record was resumable. Otherwise behavior is unchanged; optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
@@ -332,11 +343,16 @@ step is deferred to a future consumer.
 There is no global single in-flight guard — multiple runs may be active
 concurrently across different `(project, branch)` keys.
 
-1. **Existing queued run for the key (`start` only):** Rejected with
+1. **Daemon retiring (`start` and `resume`):** Rejected with
+   `code: "daemon_superseded"` if the daemon is retiring (after `supersede`
+   is called). The guard runs before any claim, run row, or worktree
+   materialization.
+
+2. **Existing queued run for the key (`start` only):** Rejected with
    `code: "worktree_claimed"` when an existing durable `queued` run already
    holds the `(project, branch)` key — never queue a second entry behind it.
 
-2. **Memory watermark (`start` only):** `start` then checks
+3. **Memory watermark (`start` only):** `start` then checks
    `hasMemoryHeadroom()` (see [Memory watermark](#memory-watermark)). Not
    clearing the floor persists the run durably with status `queued` (its
    `WriteLoopInput` saved for later promotion) and returns `{ runId }`
@@ -346,7 +362,7 @@ concurrently across different `(project, branch)` keys.
    conflict once memory clears. `start` never blocks waiting for memory to
    free.
 
-3. **Per-`(project, branch)` key (live claim):** Once memory clears the
+4. **Per-`(project, branch)` key (live claim):** Once memory clears the
    floor, `start` is rejected with `code: "worktree_claimed"` when the key is
    held by a live run — the same guard applies to `resume`,
    which has no memory check and spawns immediately once its key check
@@ -354,7 +370,7 @@ concurrently across different `(project, branch)` keys.
    against the `WorktreeOwnershipRegistry`, so the check and its error shape
    can't drift between them.
 
-4. **Workflow starts (`start` with `{ steps }`):** the same two guards
+5. **Workflow starts (`start` with `{ steps }`):** the same two guards
    (queued-run check, then live-claim check) run first, against a key
    derived from the workflow's first step — `worktree.projectName`/
    `worktree.branchName` when that step's `behavior` is `"write"`, else its

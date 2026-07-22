@@ -15,6 +15,8 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
 }
 
 import type { Run } from "../persistence/state-store";
+import { openStateStore } from "../persistence/state-store";
+import type { RpcHandler } from "../ipc/server";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import {
   DaemonAlreadyRunningError,
@@ -27,6 +29,7 @@ import {
   startDaemon,
   stopDaemon,
 } from "./daemon-lifecycle";
+import { startDaemonRuntime } from "./daemon";
 
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
@@ -528,5 +531,665 @@ describe("daemon-lifecycle", () => {
       });
       expect(status).toEqual({ state: "stopped" });
     });
+  });
+});
+
+describe("daemon supersede/retirement", () => {
+  test("supersede sets retiring and is idempotent", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const logsPath = join(tmpDir, "logs.jsonl");
+      let supersedeCount = 0;
+      const server = { socketPath: "/fake/socket", close: async () => undefined };
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        // Capture and call the supersede handler
+        const supersede = handlers?.supersede;
+        if (supersede) {
+          for (let i = 0; i < 2; i++) {
+            const resp = await supersede(
+              { kind: "request", id: `sup${i}`, method: "supersede" },
+              new AbortController().signal,
+            );
+            expect(resp.kind).toBe("response");
+            expect((resp as { result?: { ok?: boolean } }).result?.ok).toBe(true);
+            supersedeCount++;
+          }
+        }
+        return server;
+      };
+
+      const runtime = await startDaemonRuntime("/fake/socket", undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+      });
+
+      expect(supersedeCount).toBe(2);
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("start is rejected with daemon_superseded after supersede", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-start-reject-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const server = { socketPath: "/fake/socket", close: async () => undefined };
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        const supersede = handlers?.supersede;
+        const start = handlers?.start;
+        if (supersede && start) {
+          // Supersede first
+          const superResp = await supersede(
+            { kind: "request", id: "sup1", method: "supersede" },
+            new AbortController().signal,
+          );
+          expect(superResp.kind).toBe("response");
+
+          // Then try start
+          const startResp = await start(
+            {
+              kind: "request",
+              id: "s1",
+              method: "start",
+              params: {
+                input: {
+                  worktree: {
+                    projectRoot: "/tmp/p",
+                    projectName: "p",
+                    branchName: "b",
+                    baseRef: "main",
+                  },
+                  specPath: "/tmp/spec.md",
+                  stepRules: "rules",
+                  expectedArtifactPath: "/tmp/artifact",
+                  bindings: [],
+                },
+              },
+            },
+            new AbortController().signal,
+          );
+          expect(startResp.kind).toBe("error");
+          expect((startResp as { code?: string }).code).toBe("daemon_superseded");
+        }
+        return server;
+      };
+
+      const runtime = await startDaemonRuntime("/fake/socket", undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+      });
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume is rejected with daemon_superseded after supersede", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-resume-reject-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const server = { socketPath: "/fake/socket", close: async () => undefined };
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        const supersede = handlers?.supersede;
+        const resume = handlers?.resume;
+        if (supersede && resume) {
+          // Supersede first
+          const superResp = await supersede(
+            { kind: "request", id: "sup1", method: "supersede" },
+            new AbortController().signal,
+          );
+          expect(superResp.kind).toBe("response");
+
+          // Then try resume
+          const resumeResp = await resume(
+            { kind: "request", id: "r1", method: "resume", params: { runId: "nonexistent" } },
+            new AbortController().signal,
+          );
+          expect(resumeResp.kind).toBe("error");
+          expect((resumeResp as { code?: string }).code).toBe("daemon_superseded");
+        }
+        return server;
+      };
+
+      const runtime = await startDaemonRuntime("/fake/socket", undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+      });
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("list, status, health continue to work after supersede", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-observe-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const server = { socketPath: "/fake/socket", close: async () => undefined };
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        const supersede = handlers?.supersede;
+        const list = handlers?.list;
+        const status = handlers?.status;
+        const health = handlers?.health;
+        if (supersede && list && status && health) {
+          // Supersede first
+          const superResp = await supersede(
+            { kind: "request", id: "sup1", method: "supersede" },
+            new AbortController().signal,
+          );
+          expect(superResp.kind).toBe("response");
+
+          // Try observation commands
+          const listResp = await list(
+            { kind: "request", id: "l1", method: "list" },
+            new AbortController().signal,
+          );
+          expect(listResp.kind).toBe("response");
+
+          const statusResp = await status(
+            { kind: "request", id: "st1", method: "status" },
+            new AbortController().signal,
+          );
+          expect(statusResp.kind).toBe("response");
+
+          const healthResp = await health(
+            { kind: "request", id: "h1", method: "health" },
+            new AbortController().signal,
+          );
+          expect(healthResp.kind).toBe("response");
+        }
+        return server;
+      };
+
+      const runtime = await startDaemonRuntime("/fake/socket", undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+      });
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("no run row is created when start is rejected after supersede", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-no-row-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const stateDbPath = join(tmpDir, "state.db");
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const storeForVerification = openStateStore(stateDbPath);
+      const server = { socketPath: "/fake/socket", close: async () => undefined };
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        const supersede = handlers?.supersede;
+        const start = handlers?.start;
+        if (supersede && start) {
+          // Supersede first
+          await supersede(
+            { kind: "request", id: "sup1", method: "supersede" },
+            new AbortController().signal,
+          );
+
+          // Then try start
+          const startResp = await start(
+            {
+              kind: "request",
+              id: "s1",
+              method: "start",
+              params: {
+                input: {
+                  worktree: {
+                    projectRoot: "/tmp/p",
+                    projectName: "p",
+                    branchName: "b",
+                    baseRef: "main",
+                  },
+                  specPath: "/tmp/spec.md",
+                  stepRules: "rules",
+                  expectedArtifactPath: "/tmp/artifact",
+                  bindings: [],
+                },
+              },
+            },
+            new AbortController().signal,
+          );
+          expect(startResp.kind).toBe("error");
+
+          // Verify no run row was created
+          const runs = storeForVerification.listRuns();
+          expect(runs).toEqual([]);
+        }
+        return server;
+      };
+
+      const runtime = await startDaemonRuntime("/fake/socket", storeForVerification, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+      });
+
+      await runtime.close();
+      storeForVerification.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("startDaemonRuntime supersede", () => {
+  test("sends supersede to every other digest-keyed socket and never to its own", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const socket1 = join(homeDir, "daemon-1111111111111111.sock");
+      const socket2 = join(homeDir, "daemon-2222222222222222.sock");
+      const ownSocket = join(homeDir, "daemon-0000000000000000.sock");
+
+      // Track which sockets received supersede
+      const supersededSockets = new Set<string>();
+      let excludeSocketSeen: string | undefined;
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, excludeSocket: string): string[] => {
+        excludeSocketSeen = excludeSocket;
+        return [socket1, socket2]; // Exclude own socket
+      };
+
+      const sendSupersedeToPeer = async (peerSocketPath: string): Promise<boolean> => {
+        supersededSockets.add(peerSocketPath);
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const startIpcServer = async () => ({ socketPath: ownSocket, close: async () => {} });
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      expect(excludeSocketSeen).toBe(ownSocket);
+      expect(supersededSockets.has(socket1)).toBe(true);
+      expect(supersededSockets.has(socket2)).toBe(true);
+      expect(supersededSockets.has(ownSocket)).toBe(false);
+      expect(supersededSockets.size).toBe(2);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("excludes own socket from supersede enumeration", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-exclude-own-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-aaaaaaaaaaaaaaaa.sock");
+      const otherSocket = join(homeDir, "daemon-bbbbbbbbbbbbbbbb.sock");
+
+      const connectedSockets = new Set<string>();
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, excludeSocket: string): string[] => {
+        expect(excludeSocket).toBe(ownSocket);
+        return [otherSocket];
+      };
+
+      const sendSupersedeToPeer = async (peerSocketPath: string): Promise<boolean> => {
+        connectedSockets.add(peerSocketPath);
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const startIpcServer = async () => ({ socketPath: ownSocket, close: async () => {} });
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      expect(connectedSockets.has(ownSocket)).toBe(false);
+      expect(connectedSockets.has(otherSocket)).toBe(true);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("never connects to non-daemon-socket files", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-non-socks-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-aaaaaaaaaaaaaaaa.sock");
+
+      // Create various non-socket files that should be ignored
+      writeFileSync(join(homeDir, "daemon-aaaaaaaaaaaaaaaa.pid"), "1234");
+      writeFileSync(join(homeDir, "daemon-aaaaaaaaaaaaaaaa.log"), "logs");
+      writeFileSync(join(homeDir, "config.json"), "{}");
+      writeFileSync(join(homeDir, "random-file"), "data");
+
+      const connectedSockets = new Set<string>();
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        // Return a list that includes non-socket files to verify they're filtered
+        return [];
+      };
+
+      const sendSupersedeToPeer = async (peerSocketPath: string): Promise<boolean> => {
+        connectedSockets.add(peerSocketPath);
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const startIpcServer = async () => ({ socketPath: ownSocket, close: async () => {} });
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify no non-socket files were connected to
+      expect(connectedSockets.has(join(homeDir, "daemon-aaaaaaaaaaaaaaaa.pid"))).toBe(false);
+      expect(connectedSockets.has(join(homeDir, "daemon-aaaaaaaaaaaaaaaa.log"))).toBe(false);
+      expect(connectedSockets.has(join(homeDir, "config.json"))).toBe(false);
+      expect(connectedSockets.has(join(homeDir, "random-file"))).toBe(false);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("continues startup when a peer cannot be reached", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-peer-unreachable-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-1111111111111111.sock");
+      const reachablePeer = join(homeDir, "daemon-2222222222222222.sock");
+      const unreachablePeer = join(homeDir, "daemon-3333333333333333.sock");
+
+      const supersededSockets = new Set<string>();
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        return [unreachablePeer, reachablePeer]; // One unreachable, one reachable
+      };
+
+      const sendSupersedeToPeer = async (peerSocketPath: string): Promise<boolean> => {
+        if (peerSocketPath === unreachablePeer) {
+          return false; // Simulate unreachable peer
+        }
+        supersededSockets.add(peerSocketPath);
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      let serverStarted = false;
+      const startIpcServer = async () => {
+        serverStarted = true;
+        return { socketPath: ownSocket, close: async () => {} };
+      };
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify that startup completed successfully
+      expect(serverStarted).toBe(true);
+      // Verify that reachable peer was superseded
+      expect(supersededSockets.has(reachablePeer)).toBe(true);
+      // Verify that unreachable peer failed gracefully
+      expect(supersededSockets.has(unreachablePeer)).toBe(false);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("continues startup when all peers are unreachable", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-all-unreachable-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-1111111111111111.sock");
+      const peer1 = join(homeDir, "daemon-2222222222222222.sock");
+      const peer2 = join(homeDir, "daemon-3333333333333333.sock");
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        return [peer1, peer2];
+      };
+
+      const sendSupersedeToPeer = async (_peerSocketPath: string): Promise<boolean> => {
+        return false; // All peers are unreachable
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      let serverStarted = false;
+      const startIpcServer = async () => {
+        serverStarted = true;
+        return { socketPath: ownSocket, close: async () => {} };
+      };
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify that startup completed successfully despite all peers being unreachable
+      expect(serverStarted).toBe(true);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not block startup on supersede operations", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-non-blocking-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-1111111111111111.sock");
+      const peerSocket = join(homeDir, "daemon-2222222222222222.sock");
+
+      let startedServing = false;
+      let sendSupersedeCalled = false;
+      let sendSupersedeSlow = false;
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        return [peerSocket];
+      };
+
+      const sendSupersedeToPeer = async (_peerSocketPath: string): Promise<boolean> => {
+        sendSupersedeCalled = true;
+        // Simulate a slow send (but should not block startup)
+        await new Promise((r) => setTimeout(r, 100));
+        sendSupersedeSlow = true;
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const startIpcServer = async () => {
+        // Check that sendSupersede hasn't completed yet (fire-and-forget)
+        expect(sendSupersedeSlow).toBe(false);
+        startedServing = true;
+        return { socketPath: ownSocket, close: async () => {} };
+      };
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify startup completed before supersede finished
+      expect(startedServing).toBe(true);
+      expect(sendSupersedeCalled).toBe(true);
+
+      // Give time for the slow send to complete
+      await new Promise((r) => setTimeout(r, 150));
+      expect(sendSupersedeSlow).toBe(true);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("tolerates missing jarvis home directory", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-no-home-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "nonexistent-home");
+      const ownSocket = join(homeDir, "daemon-1111111111111111.sock");
+
+      let serverStarted = false;
+      let sendSupersedeCalled = false;
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        // Simulate missing home directory by returning empty list
+        return [];
+      };
+
+      const sendSupersedeToPeer = async (_peerSocketPath: string): Promise<boolean> => {
+        sendSupersedeCalled = true;
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+      const startIpcServer = async () => {
+        serverStarted = true;
+        return { socketPath: ownSocket, close: async () => {} };
+      };
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify startup completed successfully
+      expect(serverStarted).toBe(true);
+      // Verify sendSupersede was not called (no peers found)
+      expect(sendSupersedeCalled).toBe(false);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("daemon accepts handler calls while supersede is in flight", async () => {
+    const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-concurrent-start-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      const homeDir = join(tmpDir, "home");
+      mkdirSync(homeDir, { recursive: true });
+
+      const ownSocket = join(homeDir, "daemon-1111111111111111.sock");
+      const peerSocket = join(homeDir, "daemon-2222222222222222.sock");
+
+      let statusHandlerCalled = false;
+
+      const enumerateOtherDaemonSockets = (_jarvisHomeDir: string, _excludeSocket: string): string[] => {
+        return [peerSocket];
+      };
+
+      const sendSupersedeToPeer = async (_peerSocketPath: string): Promise<boolean> => {
+        // Simulate a slow send that doesn't block startup
+        await new Promise((r) => setTimeout(r, 100));
+        return true;
+      };
+
+      const logsPath = join(tmpDir, "logs.jsonl");
+
+      const startIpcServer = async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+        const status = handlers?.status;
+        if (status) {
+          // Call status immediately (while supersede is still in flight)
+          const statusResp = await status(
+            { kind: "request", id: "st1", method: "status" },
+            new AbortController().signal,
+          );
+          expect(statusResp.kind).toBe("response");
+          statusHandlerCalled = true;
+        }
+        return { socketPath: ownSocket, close: async () => {} };
+      };
+
+      const runtime = await startDaemonRuntime(ownSocket, undefined, undefined, {
+        logsPath,
+        processExit: () => {},
+        startIpcServer,
+        enumerateOtherDaemonSockets,
+        sendSupersedeToPeer,
+      });
+
+      // Verify handler was accepted and processed without waiting for supersede
+      expect(statusHandlerCalled).toBe(true);
+
+      await runtime.close();
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { readdirSync } from "node:fs";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
@@ -19,6 +20,8 @@ import {
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
+import { connectIpcClient } from "../ipc/client";
+import { createRpcTransport } from "../ipc/rpc-transport";
 import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
@@ -397,6 +400,8 @@ export type RunControlHandlerDeps = {
   settleDelayMs?: number;
   /** Test seam for pre-existing daemon-memory ownership. */
   registry?: WorktreeOwnershipRegistry;
+  /** Getter for the daemon's retiring state; defaults to false. */
+  isRetiring?: () => boolean;
 };
 
 export type WaitRunCompletionResult = {
@@ -468,6 +473,7 @@ export type PromoteQueuedRunDeps = {
   settleDelayMs: () => number;
   settleState: PromotionSettleState;
   spawnWriteLoop: (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput) => void;
+  isRetiring?: () => boolean;
 };
 
 /**
@@ -480,7 +486,10 @@ export type PromoteQueuedRunDeps = {
  * performs on the row it just queued).
  */
 export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDelay = false): void {
-  const { store, registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop } = deps;
+  const { store, registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop, isRetiring } = deps;
+  if (isRetiring?.()) {
+    return;
+  }
   if (!bypassSettleDelay && Date.now() < settleState.suppressedUntil) {
     return;
   }
@@ -557,6 +566,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     injectedSettleDelayMs !== undefined
       ? () => injectedSettleDelayMs
       : () => loadSettleDelayMs(resolveMachineProfile());
+  const getRetiring = deps.isRetiring ?? (() => false);
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
@@ -640,7 +650,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const promoteQueuedRun = (bypassSettleDelay = false): void =>
     promoteQueuedRunImpl(
-      { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop },
+      { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop, isRetiring: getRetiring },
       bypassSettleDelay,
     );
 
@@ -752,6 +762,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
   const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
+    if (getRetiring()) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring" };
+    }
+
     if (steps.length === 0) {
       return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
     }
@@ -812,6 +826,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
+    if (getRetiring()) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring" };
+    }
+
     const resolved = resolveWriteLoopBindings(rawInput);
     if (!resolved.ok) {
       return { kind: "error", code: "invalid_params", message: resolved.message };
@@ -1073,6 +1091,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   }
 
   const resumeHandler: RpcHandler = async (frame) => {
+    if (getRetiring()) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring" };
+    }
+
     const params = frame.params as { runId?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
@@ -1198,6 +1220,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     wait: waitHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
+    /** True when no active runs are in-flight. */
+    isIdle: (): boolean => activeRuns.size === 0,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
     close: (): void => {
       for (const controller of waitAbortControllers) {
@@ -1278,6 +1302,11 @@ export type DaemonStartupDeps = {
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
   recoverReconciledRuns?: typeof recoverReconciledRuns;
+  processExit?: (code: number) => void;
+  /** Enumerate other daemon sockets in jarvis home, excluding the daemon's own socket. */
+  enumerateOtherDaemonSockets?: (jarvisHomeDir: string, excludeSocket: string) => string[];
+  /** Send supersede message to a peer daemon socket. Returns true if successful, false if failed. */
+  sendSupersedeToPeer?: (peerSocketPath: string) => Promise<boolean>;
 };
 
 export async function recoverReconciledRuns(
@@ -1315,6 +1344,41 @@ export async function recoverReconciledRuns(
   return { resumed };
 }
 
+/** Default implementation: enumerate other daemon sockets in jarvis home. */
+function defaultEnumerateOtherDaemonSockets(jarvisHomeDir: string, excludeSocket: string): string[] {
+  const sockets: string[] = [];
+  try {
+    const entries = readdirSync(jarvisHomeDir);
+    for (const entry of entries) {
+      const socketPath = join(jarvisHomeDir, entry);
+      // Match only daemon-<key>.sock files (not .pid, .log, etc.)
+      if (entry.startsWith("daemon-") && entry.endsWith(".sock") && socketPath !== excludeSocket) {
+        sockets.push(socketPath);
+      }
+    }
+  } catch {
+    // Missing home directory or read error; continue without superseding peers
+  }
+  return sockets;
+}
+
+/** Default implementation: send supersede message to a peer daemon socket. */
+async function defaultSendSupersedeToPeer(peerSocketPath: string): Promise<boolean> {
+  try {
+    const client = await connectIpcClient(peerSocketPath);
+    const transport = createRpcTransport(client);
+    try {
+      await transport.request("supersede", undefined, { timeoutMs: 1_000 });
+      return true;
+    } finally {
+      transport.close();
+    }
+  } catch {
+    // Connect error, RPC error, or timeout; peer is unreachable or errored
+    return false;
+  }
+}
+
 export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,
@@ -1333,6 +1397,7 @@ export async function startDaemonRuntime(
     reconciliationLogSink.close();
   }
   let shutdownRequested = false;
+  let retiring = false;
   const operatorSessionId = crypto.randomUUID();
 
   let loadedRevision: string;
@@ -1379,8 +1444,14 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  const supersedeHandler: RpcHandler = () => {
+    retiring = true;
+    return { kind: "response", result: { ok: true } };
+  };
+
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
+    isIdle: checkIsIdle,
     close: _closeRunControlHandlers,
     ...runControlHandlers
   } = createRunControlHandlers({
@@ -1390,12 +1461,14 @@ export async function startDaemonRuntime(
     operatorSessionId,
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
+    isRetiring: () => retiring,
   });
 
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
+    supersede: supersedeHandler,
     ...runControlHandlers,
   };
 
@@ -1406,6 +1479,21 @@ export async function startDaemonRuntime(
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
+  }
+
+  // Supersede other digest-keyed daemons, best-effort and non-blocking
+  const enumerateOtherSockets = startupDeps.enumerateOtherDaemonSockets ?? defaultEnumerateOtherDaemonSockets;
+  const sendSupersede = startupDeps.sendSupersedeToPeer ?? defaultSendSupersedeToPeer;
+  try {
+    const otherSockets = enumerateOtherSockets(jarvisHome(), socketPath);
+    for (const peerSocket of otherSockets) {
+      // Fire-and-forget; do not await or propagate errors
+      sendSupersede(peerSocket).catch(() => {
+        // Peer unreachable or errored; continue without blocking
+      });
+    }
+  } catch {
+    // Enumeration error; continue without superseding peers
   }
 
   const recoveryLogSink = createLogSink(logsPath);
@@ -1446,15 +1534,20 @@ export async function startDaemonRuntime(
     }
   };
 
+  const processExit = startupDeps.processExit ?? ((code: number) => process.exit(code));
+
   const checkShutdown = setInterval(() => {
+    if (retiring && checkIsIdle()) {
+      shutdownRequested = true;
+    }
     if (shutdownRequested) {
       void close()
         .then(() => {
-          process.exit(0);
+          processExit(0);
         })
         .catch((err: unknown) => {
           console.error("Error during shutdown:", err);
-          process.exit(1);
+          processExit(1);
         });
     }
   }, 100);

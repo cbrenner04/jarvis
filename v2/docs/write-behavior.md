@@ -543,6 +543,19 @@ their IDs on stderr; it does not print `stopped`. Add `--force` to bypass that
 guard and use the existing shutdown path. See the lifecycle contract in
 [`daemon-host.md`](./daemon-host.md#stopdaemonsocketpath-options).
 
+### Daemon retirement
+
+When an operator starts a fresh daemon (due to executable digest update), the old
+daemon is superseded. The `supersede` RPC closes admission: new `start` and `resume`
+RPCs are rejected with `daemon_superseded`, preventing new work from entering the
+retiring daemon. Observation and steering commands (`list`, `wait`, `health`, `status`,
+`pause`, `kill`) continue serving so the operator can inspect and control in-flight
+runs. The retiring daemon exits at idle (when no active runs remain). Owned runs
+complete under the same daemon, preserving their worktree locks, agent processes,
+and log sinks. Queued runs are not promoted after supersession and do not prevent
+the daemon from exiting. This allows a keyed-socket daemon to retire gracefully while
+its successor immediately begins serving new work.
+
 `jarvis daemon status` probes the PID file and socket for lifecycle state and
 compares the daemon's boot-time executable-tree digest with the invoking CLI's
 current digest (`v2/src/**`, `shared/**`, and repo manifests). `loaded` and

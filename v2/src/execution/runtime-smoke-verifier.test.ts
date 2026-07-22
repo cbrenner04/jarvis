@@ -161,7 +161,7 @@ index 1234567..abcdefg 100644
 -  return 0;
 +  return 1;
 `;
-    let executedCommands: string[] = [];
+    const executedCommands: string[] = [];
     const sourceFiles = new Map<string, string>([
       ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
       ["v2/src/daemon/daemon.ts", "export {};"],
@@ -533,7 +533,7 @@ index 1234567..abcdefg 100644
       ["v2/src/daemon/daemon.ts", "export {};"],
     ]);
 
-    let recordedTimeouts: number[] = [];
+    const recordedTimeouts: number[] = [];
     let timeNow = 1000;
 
     const result = await verifyRuntimeSmoke(
@@ -729,7 +729,7 @@ index 1234567..abcdefg 100644
 +  return 1;
 `;
 
-    let executedCommands: string[] = [];
+    const executedCommands: string[] = [];
 
     const result = await verifyRuntimeSmoke(
       {
@@ -802,7 +802,6 @@ index 1234567..abcdefg 100644
   });
 
   describe("input validation guards", () => {
-
     it("daemon lifecycle rejects zero PID from start response", async () => {
       const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
 index 1234567..abcdefg 100644

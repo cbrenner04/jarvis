@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, normalize, relative, resolve, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join, normalize, relative, resolve } from "node:path";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
@@ -205,7 +205,13 @@ async function verifyDaemonLifecycleHandshake(
   const deadline = getCurrentTime() + timeoutMs;
 
   try {
-    const startResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "start"], deadline - getCurrentTime(), env);
+    const startResult = await executeEntrypoint(
+      cwd,
+      "v2/src/cli.ts",
+      ["daemon", "start"],
+      deadline - getCurrentTime(),
+      env,
+    );
     if (!startResult.success) {
       return smokeFailure("bun run v2/src/cli.ts daemon start", startResult.output);
     }
@@ -221,7 +227,13 @@ async function verifyDaemonLifecycleHandshake(
       return smokeFailure("bun run v2/src/cli.ts daemon start", `invalid pid in response: ${startData.pid}`);
     }
 
-    const statusResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "status"], deadline - getCurrentTime(), env);
+    const statusResult = await executeEntrypoint(
+      cwd,
+      "v2/src/cli.ts",
+      ["daemon", "status"],
+      deadline - getCurrentTime(),
+      env,
+    );
     if (!statusResult.success) {
       return smokeFailure("bun run v2/src/cli.ts daemon status", statusResult.output);
     }
@@ -230,7 +242,13 @@ async function verifyDaemonLifecycleHandshake(
       return smokeFailure("bun run v2/src/cli.ts daemon status", `daemon not in running state: ${statusResult.output}`);
     }
 
-    const stopResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "stop"], deadline - getCurrentTime(), env);
+    const stopResult = await executeEntrypoint(
+      cwd,
+      "v2/src/cli.ts",
+      ["daemon", "stop"],
+      deadline - getCurrentTime(),
+      env,
+    );
     if (!stopResult.success) {
       return smokeFailure("bun run v2/src/cli.ts daemon stop", stopResult.output);
     }

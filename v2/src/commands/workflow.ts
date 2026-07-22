@@ -144,15 +144,23 @@ async function maybeResetStaleWorkspace(
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
     return undefined;
   }
-  const resetResult = await resetStaleWorkspace(
-    worktree.projectName,
-    worktree.branchName,
-    worktree.projectRoot,
-    deps.jarvisRoot ?? jarvisHome(),
-    deps.subprocessRunner ?? realAsyncSubprocessRunner,
-    async () => [],
-    io,
-  );
+  // Runs inside the connected dispatch scope, so an escaping throw would otherwise be reported as a
+  // daemon connection error. Classify reset failures here instead.
+  let resetResult: Awaited<ReturnType<typeof resetStaleWorkspace>>;
+  try {
+    resetResult = await resetStaleWorkspace(
+      worktree.projectName,
+      worktree.branchName,
+      worktree.projectRoot,
+      deps.jarvisRoot ?? jarvisHome(),
+      deps.subprocessRunner ?? realAsyncSubprocessRunner,
+      async () => [],
+      io,
+    );
+  } catch (error) {
+    io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
   if (resetResult.status === "refused") {
     io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
     return 1;
@@ -215,9 +223,9 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!builderInputResult.ok) return 1;
   const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
   if (!prepared.ok) return 1;
-  const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
-  if (resetExitCode !== undefined) return resetExitCode;
-  return withConnectDispatch(io, deps, async (client) =>
-    startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io),
-  );
+  return withConnectDispatch(io, deps, async (client) => {
+    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
+    if (resetExitCode !== undefined) return resetExitCode;
+    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
+  });
 }

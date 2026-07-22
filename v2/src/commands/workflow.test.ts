@@ -771,9 +771,6 @@ describe("implement preflight stale workspace reset", () => {
       ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
       cap.io,
       resetImplementDeps({
-        connectIpcClient: async () => {
-          throw new Error("should not contact daemon");
-        },
         subprocessRunner: {
           runAsync: async (cmd, args) => {
             if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
@@ -782,6 +779,7 @@ describe("implement preflight stale workspace reset", () => {
             return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
           },
         },
+        connectIpcClient: async () => makeIpcClient([]),
       }),
     );
 
@@ -813,6 +811,44 @@ describe("implement preflight stale workspace reset", () => {
 
     expect(code).toBe(0);
     expect(teardownCalls).toEqual([]);
+  });
+
+  test("run workflow implement preserves stale workspace when dispatch is unreachable", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    let connectAttempted = false;
+    const teardownCalls: string[] = [];
+
+    const code = await main(
+      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+      cap.io,
+      resetImplementDeps({
+        subprocessRunner: {
+          runAsync: async (cmd, args, cwd) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            if (cmd === "git" && args[0] === "push" && args[2] === "--delete") teardownCalls.push("remote-delete");
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+          },
+        },
+        connectIpcClient: async () => {
+          connectAttempted = true;
+          throw new Error("Failed to connect to daemon on socket mock");
+        },
+        startDaemon: async () => {
+          throw new Error("Failed to start daemon");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(connectAttempted).toBe(true);
+    expect(cap.read().stderr).toContain("Failed to start daemon");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch"], resetProjectRoot);
+    expect(branchList).toContain(resetBranch);
   });
 });
 

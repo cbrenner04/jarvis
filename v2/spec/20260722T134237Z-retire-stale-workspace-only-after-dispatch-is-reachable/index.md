@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Retire inside the connected dispatch scope](./00-retire-inside-connected-scope.md)
+- [x] [00 - Retire inside the connected dispatch scope](./00-retire-inside-connected-scope.md)

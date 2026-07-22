@@ -205,15 +205,23 @@ Linked-index checkboxes are not the completion source of truth.
 
 On an incomplete re-run with git enabled, preflight retires a stale workspace for
 the resolved `(project, branch)` after daemon connect and before the write step
-starts: close the matching open draft PR (when exactly one
-exists), remove the materialized worktree, and delete local and remote branch refs
-so materialization recreates from `--base`. First runs with no existing worktree
-skip this path. Refusal exits `1` without mutation when the workspace is
-live-held, the matching PR is ready (non-draft), or multiple open PRs match the
-branch — stderr names the blocking state. Recovery: end the live run or wait for
-its lock to clear; mark the PR draft again or merge it; or close duplicate PRs
-until exactly one open draft remains, then re-run. Manual fallback: `jarvis
-cleanup --abandon <branch>` when guards pass. Because the guard now runs after
+starts, in this order: remove the materialized worktree, delete the local branch,
+delete the remote branch, then close the matching open draft PR (when exactly one
+exists), so materialization recreates from `--base`. The sequence aborts at the
+first failing step. First runs with no existing worktree skip this path.
+
+Two kinds of `1` exit come out of this path, and they are not the same state:
+
+- **Pre-mutation refusal** — nothing was touched. Raised when the workspace is
+  live-held, the matching PR is ready (non-draft), or multiple open PRs match the
+  branch; stderr names the blocking state. Recovery: end the live run or wait for
+  its lock to clear; mark the PR draft again or merge it; or close duplicate PRs
+  until exactly one open draft remains, then re-run. Manual fallback: `jarvis
+  cleanup --abandon <branch>` when guards pass.
+- **Partial teardown** — stderr reads `retirement failed at <step>; <what
+  remains>`. Local artifacts may already be gone. Finish the teardown by hand (see
+  [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) for the per-step remnants
+  and commands), then re-run. Because the guard now runs after
 connect, a refused re-run leaves behind the daemon it auto-started when none was
 listening — stop it with `jarvis daemon stop` if you did not want one up.
 
@@ -383,7 +391,16 @@ jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
 jarvis cleanup --yes --abandon <name>  # agent/scripted removal
 ```
 
-`--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions (close PR, remove worktree, delete local and remote branches), prompts for confirmation, then best-effort closes the PR, force-removes the worktree, and deletes both branches. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
+`--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions in order (remove worktree, delete local branch, delete remote branch, close PR), prompts for confirmation, then executes them sequentially. Remote deletion is a no-op success when the branch was never pushed or the repo has no `origin`; a real remote failure (auth, network, protected ref) aborts. If any step fails, the operation stops immediately and exits nonzero. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
+
+**Partial retirement.** An abort leaves everything from the failed step onward, and stderr names both the step and the remnants. `--abandon` cannot resume once the worktree is gone (name resolution only sees materialized worktrees), so finish by hand from the project root:
+
+| Aborted at | What remains | Finish with |
+| --- | --- | --- |
+| worktree removal | worktree, local branch, remote branch, PR | fix the removal blocker, re-run `--abandon` |
+| local branch deletion | local branch, remote branch, PR | `git worktree prune && git branch -D <branch>`, then the two rows below |
+| remote branch deletion | remote branch, PR | `git push origin --delete <branch>`, then the row below |
+| PR closure | open PR | `gh pr close <number>` |
 
 **PR-ownership gates:** `--abandon` refuses and changes nothing if:
 

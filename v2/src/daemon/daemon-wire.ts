@@ -23,6 +23,11 @@ export type DaemonListRunRow = {
   branch: string;
   status: RunStatus;
   isLive: boolean;
+  /** Terminal loop outcome, including the workflow stopping row's outcome on entry rows. */
+  loopOutcomeKind?: WaitRunCompletionResult["loopOutcomeKind"];
+  iterationsConsumed?: number;
+  /** Whether this row's own run id is eligible for resume. */
+  resumable?: boolean;
   error?: RunOperatorError;
   /** Retained implement review count; absent on non-implement workflow rows. */
   reviewPasses?: number;

@@ -419,6 +419,41 @@ function workflowEntrySnapshot(run: LoadedRun | undefined): WorkflowSnapshot | u
   return run?.stepId === snapshot.steps[0]?.stepId ? snapshot : undefined;
 }
 
+function workflowSurvivingMutationOwner(
+  entryRun: LoadedRun,
+  rollupStatus: RunStatus,
+  siblingRuns: LoadedRun[],
+  reader: LogReader | undefined,
+): { run: LoadedRun; terminalRecord: PersistedRecord & { event: LoopFinishedEvent } } | undefined {
+  if (!isSettledRunStatus(rollupStatus) || entryRun.status === rollupStatus) return undefined;
+  const run = siblingRuns.find((sibling) => sibling.stepId?.endsWith("~shrink") && sibling.status === "failed");
+  const terminalRecord = run && findTerminalLogRecord(reader?.tail(run.id) ?? []);
+  return run && terminalRecord?.event.kind === "loop_finished" && terminalRecord.event.loopOutcomeKind === "surviving_mutation_failed"
+    ? { run, terminalRecord: terminalRecord as PersistedRecord & { event: LoopFinishedEvent } }
+    : undefined;
+}
+
+export function projectWorkflowEntryResult(
+  entryResult: WaitRunCompletionResult | undefined,
+  entryCanResume: boolean,
+): WaitRunCompletionResult {
+  return {
+    runStatus: entryResult?.runStatus ?? "failed",
+    ...(entryResult?.loopOutcomeKind !== undefined
+      ? {
+          loopOutcomeKind: entryResult.loopOutcomeKind,
+          ...(entryResult.iterationsConsumed === undefined ? {} : { iterationsConsumed: entryResult.iterationsConsumed }),
+          ...(entryResult.resumable === undefined
+            ? {}
+            : { resumable: entryCanResume ? entryResult.resumable : false }),
+        }
+      : {}),
+    ...(entryResult?.error === undefined
+      ? {}
+      : { error: entryCanResume ? entryResult.error : { ...entryResult.error, retryable: false, nextAction: "stop" } }),
+  };
+}
+
 export type { WorkflowStepListStatus } from "./workflow-list-snapshot.ts";
 export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
@@ -546,6 +581,27 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         : { runStatus };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
+  };
+
+  const workflowEntryResult = (
+    entryRun: LoadedRun,
+    snapshot: WorkflowSnapshot,
+    rollupStatus: RunStatus,
+  ): WaitRunCompletionResult => {
+    const entryRecord = findTerminalLogRecord(logReader?.tail(entryRun.id) ?? []);
+    const siblingRuns = store
+      .findRunsByInvocationId(snapshot.invocationId)
+      .map((run) => store.loadRun(run.id))
+      .filter((run): run is LoadedRun => run !== undefined);
+    const owner = workflowSurvivingMutationOwner(entryRun, rollupStatus, siblingRuns, logReader);
+    if (owner === undefined) {
+      return resultFrom(entryRun.id, rollupStatus, entryRecord);
+    }
+
+    const entryResult = resultFrom(owner.run.id, rollupStatus, owner.terminalRecord);
+    const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
+    const entryCanResume = entryResumeContext?.ok === true;
+    return projectWorkflowEntryResult({ ...entryResult, runStatus: rollupStatus }, entryCanResume);
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {
@@ -877,7 +933,20 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   ) => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
     const terminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
-    const error = runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+    const entrySnapshot = workflowEntrySnapshot(fullRun);
+    const entryResult =
+      entrySnapshot === undefined || fullRun === undefined
+        ? undefined
+        : workflowEntryResult(fullRun, entrySnapshot, reportedStatus);
+    const error =
+      entryResult?.error ??
+      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+    const {
+      runStatus: _entryRunStatus,
+      error: _entryError,
+      worktreePath: _entryWorktreePath,
+      ...entryOutcomeFields
+    } = entryResult ?? { runStatus: reportedStatus };
 
     return {
       runId: run.id,
@@ -885,6 +954,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       branch: run.branch,
       status: reportedStatus,
       isLive,
+      ...entryOutcomeFields,
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun !== undefined && snapshot !== undefined
@@ -1059,8 +1129,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
       isLive: false,
     });
-    const terminalRecord = findTerminalLogRecord(reader.tail(run.id));
-    return { kind: "response", result: resultFrom(run.id, rollupStatus, terminalRecord) };
+    return { kind: "response", result: workflowEntryResult(run, snapshot, rollupStatus) };
   };
 
   /** Wait on a non-entry run: settle from the durable status, else follow the log to its terminal record. */

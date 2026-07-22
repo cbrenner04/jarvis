@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, projectWorkflowEntryResult } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -110,6 +110,29 @@ test("wait returns immediately for quiescent run with last loop_finished payload
     iterationsConsumed: 3,
     resumable: false,
   });
+});
+
+test("workflow entry payload omits absent optional outcome fields", () => {
+  const present = projectWorkflowEntryResult(
+    { runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: true },
+    false,
+  );
+  expect(present).toMatchObject({
+    loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: false,
+  });
+
+  const absent = projectWorkflowEntryResult({ runStatus: "failed" }, false);
+  expect(absent).not.toHaveProperty("loopOutcomeKind");
+  expect(absent).not.toHaveProperty("iterationsConsumed");
+  expect(absent).not.toHaveProperty("resumable");
+
+  const partial = projectWorkflowEntryResult(
+    { runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed" },
+    false,
+  );
+  expect(partial).toMatchObject({ loopOutcomeKind: "surviving_mutation_failed" });
+  expect(partial).not.toHaveProperty("iterationsConsumed");
+  expect(partial).not.toHaveProperty("resumable");
 });
 
 test("wait on resumed in-progress run ignores historical loop_finished and resolves on next edge", async () => {
@@ -389,6 +412,78 @@ test("list and wait report surviving_mutation_failed as failed, resumable, and m
       survivingMutationSourceFile: "src/guard.ts",
       survivingMutationSourceLine: 17,
     },
+  });
+});
+
+test("workflow entry wait and list report surviving_mutation_failed from hidden shrink after implement completes", async () => {
+  const invocationId = "inv-entry-surviving-mutation";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [{
+      stepId: "implement", role: "implement", stepRules: "retry rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"],
+      agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] }, shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] } } },
+    }],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement", workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement~shrink", workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: true,
+    survivingMutation: "operator-flip: === → !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed", retryable: false, nextAction: "stop",
+    survivingMutation: "operator-flip: === → !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+  };
+  const wait = await expectResponse(await waitDirect("entry-surviving-mutation", entryRunId));
+  expect(wait).toEqual({
+    runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: false, error: expectedError,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find((row) => row.runId === entryRunId);
+  expect(entry).toEqual(expect.objectContaining({
+    runId: entryRunId,
+    status: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: false,
+    error: expectedError,
+  }));
+  expect(entry?.error).not.toEqual(expect.objectContaining({ nextAction: "resume" }));
+});
+
+test("workflow entry wait and list preserve complete outcome after hidden shrink completes", async () => {
+  const invocationId = "inv-entry-complete";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [{ stepId: "implement", role: "implement", stepRules: "retry rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] }],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement", workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md", stepId: "implement~shrink", workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  finishLoop(shrinkRunId, "completed", 2);
+
+  expect(await expectResponse(await waitDirect("entry-complete", entryRunId))).toMatchObject({
+    runStatus: "completed", loopOutcomeKind: "complete",
+  });
+  const list = await expectResponse(await listDirect());
+  expect((list.runs as Array<{ runId: string; status: string }>).find((row) => row.runId === entryRunId)).toMatchObject({
+    status: "completed", loopOutcomeKind: "complete", iterationsConsumed: 1, resumable: false,
   });
 });
 

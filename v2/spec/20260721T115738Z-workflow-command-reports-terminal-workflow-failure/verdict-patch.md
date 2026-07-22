@@ -1,0 +1,3 @@
+1. Workflow entry `list` results must expose the owner-sourced `loopOutcomeKind`, `iterationsConsumed`, and entry-eligible `resumable` value, alongside `error`. Update the wire contract, regressions, and durable daemon/workflow docs accordingly. The completed spec requires `wait` and `list` to share outcome projection; currently `list` projects only the error.
+
+2. Pin optional-field omission with `loopOutcomeKind` present while `iterationsConsumed` and `resumable` are absent, asserting both keys are omitted. The existing outer-spread absence case cannot detect inverted inner conditionals, which the acceptance criterion explicitly requires guarding.

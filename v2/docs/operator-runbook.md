@@ -448,7 +448,7 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 ### Publication / completion failures
 
 Retryable `completion_commit_failed`, `ready_gate_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access or test coverage, then
-`jarvis run resume <run-id>`. Resume reuses the persisted write snapshot before replaying
+`jarvis run resume <run-id>`. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot before replaying
 publication; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
 **`ready_flip_failed` is terminal** — do not resume. The flip error identifies the PR by number (`error.prNumber`); inspect and manually fix the PR draft → ready transition. The fix does not require a daemon restart or `jarvis run resume`. The PR number is also available via `jarvis run list <run-id>` as the `readyFlipPrNumber` field; use it to identify the PR to fix. After manual fix, verify `gh pr view <prNumber> --json isDraft` reports `false`, then proceed with the next workflow step or close the run.

@@ -14,14 +14,14 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
   return readFileSync(logPath, "utf-8");
 }
 
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { Run } from "../persistence/state-store";
 import { openStateStore } from "../persistence/state-store.ts";
-import type { IpcServer, RpcHandler } from "../ipc/server.ts";
-import { startDaemonRuntime, listPeerDaemonSockets } from "./daemon.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
 import { writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { listPeerDaemonSockets, startDaemonRuntime } from "./daemon.ts";
 import {
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
@@ -517,17 +517,12 @@ describe("daemon-lifecycle", () => {
         let startHandler: RpcHandler | undefined;
         let supersedeHandler: RpcHandler | undefined;
 
-        const runtime = await startDaemonRuntime(
-          dbPath,
-          store,
-          undefined,
-          {
-            startIpcServer: stubIpcServer((handlers) => {
-              startHandler = handlers.start;
-              supersedeHandler = handlers.supersede;
-            }),
-          },
-        );
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          startIpcServer: stubIpcServer((handlers) => {
+            startHandler = handlers.start;
+            supersedeHandler = handlers.supersede;
+          }),
+        });
 
         await new Promise((r) => setImmediate(r));
 
@@ -535,10 +530,7 @@ describe("daemon-lifecycle", () => {
         await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
 
         if (!startHandler) throw new Error("start handler not registered");
-        const response = await startHandler(
-          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
-          rpcSignal(),
-        );
+        const response = await startHandler(rpcFrame("start1", "start", { input: mockWriteLoopInput() }), rpcSignal());
 
         expect(response).toMatchObject({ kind: "error", code: "daemon_superseded" });
         expect(store.listRuns()).toEqual([]);
@@ -565,17 +557,12 @@ describe("daemon-lifecycle", () => {
         let resumeHandler: RpcHandler | undefined;
         let supersedeHandler: RpcHandler | undefined;
 
-        const runtime = await startDaemonRuntime(
-          dbPath,
-          store,
-          undefined,
-          {
-            startIpcServer: stubIpcServer((handlers) => {
-              resumeHandler = handlers.resume;
-              supersedeHandler = handlers.supersede;
-            }),
-          },
-        );
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          startIpcServer: stubIpcServer((handlers) => {
+            resumeHandler = handlers.resume;
+            supersedeHandler = handlers.supersede;
+          }),
+        });
 
         await new Promise((r) => setImmediate(r));
 
@@ -613,19 +600,14 @@ describe("daemon-lifecycle", () => {
         let statusHandler: RpcHandler | undefined;
         let supersedeHandler: RpcHandler | undefined;
 
-        const runtime = await startDaemonRuntime(
-          dbPath,
-          store,
-          undefined,
-          {
-            startIpcServer: stubIpcServer((handlers) => {
-              listHandler = handlers.list;
-              healthHandler = handlers.health;
-              statusHandler = handlers.status;
-              supersedeHandler = handlers.supersede;
-            }),
-          },
-        );
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          startIpcServer: stubIpcServer((handlers) => {
+            listHandler = handlers.list;
+            healthHandler = handlers.health;
+            statusHandler = handlers.status;
+            supersedeHandler = handlers.supersede;
+          }),
+        });
 
         await new Promise((r) => setImmediate(r));
 
@@ -871,10 +853,7 @@ describe("daemon-lifecycle", () => {
         });
 
         expect(superseded.sort()).toEqual(
-          [
-            join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock"),
-            join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock"),
-          ].sort(),
+          [join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock"), join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock")].sort(),
         );
         expect(superseded).not.toContain(ownSocket);
       } finally {
@@ -966,10 +945,7 @@ describe("daemon-lifecycle", () => {
           recoverReconciledRuns: async () => ({ resumed: 0 }),
           hasMemoryHeadroom: () => true,
           writeLoopExecutor: createFakeWriteLoopExecutor().executor,
-          listPeerDaemonSockets: () => [
-            "/jarvis-home/daemon-dead.sock",
-            "/jarvis-home/daemon-live.sock",
-          ],
+          listPeerDaemonSockets: () => ["/jarvis-home/daemon-dead.sock", "/jarvis-home/daemon-live.sock"],
           sendSupersede: async (socketPath) => {
             superseded.push(socketPath);
             if (socketPath.endsWith("dead.sock")) {
@@ -981,15 +957,10 @@ describe("daemon-lifecycle", () => {
           }),
         });
 
-        expect(superseded.sort()).toEqual(
-          ["/jarvis-home/daemon-dead.sock", "/jarvis-home/daemon-live.sock"].sort(),
-        );
+        expect(superseded.sort()).toEqual(["/jarvis-home/daemon-dead.sock", "/jarvis-home/daemon-live.sock"].sort());
 
         if (!startHandler) throw new Error("start handler not registered");
-        const response = await startHandler(
-          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
-          rpcSignal(),
-        );
+        const response = await startHandler(rpcFrame("start1", "start", { input: mockWriteLoopInput() }), rpcSignal());
         expect(response.kind).toBe("response");
       } finally {
         rmSync(dbPath, { force: true });
@@ -1043,10 +1014,7 @@ describe("daemon-lifecycle", () => {
         });
 
         if (!startHandler) throw new Error("start handler not registered");
-        const response = await startHandler(
-          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
-          rpcSignal(),
-        );
+        const response = await startHandler(rpcFrame("start1", "start", { input: mockWriteLoopInput() }), rpcSignal());
         expect(response.kind).toBe("response");
 
         releaseSlowPeer?.();

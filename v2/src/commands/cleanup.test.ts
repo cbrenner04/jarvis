@@ -1602,7 +1602,7 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon aborts on remote branch deletion failure and does not close PR", async () => {
     const branch = "feat/fail-remote-branch";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];

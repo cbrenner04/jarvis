@@ -808,11 +808,7 @@ async function performAbandonmentSteps(
 
   // Step 1: Remove worktree
   try {
-    await runner.runAsync(
-      "git",
-      ["worktree", "remove", "--force", worktreePath],
-      projectRoot ?? ".",
-    );
+    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot ?? ".");
     io.stdout(`Removed worktree: ${worktreePath}\n`);
   } catch (err) {
     io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);

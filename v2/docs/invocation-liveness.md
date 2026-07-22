@@ -2,9 +2,11 @@
 
 Behavioral contract for **stall** (process up, no useful progress toward the step
 outcome) vs **slow work** (long but legitimate) during one agent invocation. Shared
-invocation now detects stdout/stderr-only stalls when a caller supplies an
-`idleOutputMs` budget; workflow loops consume outcomes. Workspace and marker signals,
-profiles, and stall-driven binding advance remain deferred.
+invocation detects stdout/stderr-only stalls when a caller supplies an `idleOutputMs`
+budget; the review path (`critic`, `actuator`, debate roles) now enforces a concrete
+idle budget (default 90_000 ms); workflow loops consume outcomes. Workspace and marker
+signals, per-role and per-behavior idle budgets, stall-driven binding advance, and
+operator-visible stall diagnostics remain deferred.
 
 Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md),
 [`v1-behaviors.md`](./v1-behaviors.md).
@@ -113,6 +115,8 @@ Exemplars:
 ## Deferred to first enforcement consumer
 
 - Workspace and step-marker signal algorithms, weights, intervals, and timeout tables per profile.
+- **Per-role and per-behavior idle budgets** — the review path pins the default (90_000
+  ms); per-role overrides and per-behavior profiles land at first consumer.
 - **Profile context plumbing** — behavior, resolved role, and step metadata supplied
   into shared invocation for profile selection (including metadata-tightened bounds).
 - **Stall-driven binding advance** — contract extension beyond quota-only fallback:

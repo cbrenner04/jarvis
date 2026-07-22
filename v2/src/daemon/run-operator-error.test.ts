@@ -111,6 +111,7 @@ test.each([
   ["landing", "landing_failed", "resume"],
   ["error", "invocation_error", "stop"],
   ["timeout", "role_timeout", "stop"],
+  ["stall", "role_stalled", "stop"],
 ] as const)("composeRunOperatorError maps failureKind %s from log and store-only failed paths", (failureKind, reason, nextAction) => {
   const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [] })]);
   const expected = err(reason, nextAction, failureKind === "landing");
@@ -144,6 +145,26 @@ test("composeRunOperatorError returns invocation_error for legacy detail-free bi
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);
+});
+
+test("composeRunOperatorError maps stall failureKind to role_stalled with retryable false and nextAction stop", () => {
+  const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind: "stall", bindingAttempts: [] })]);
+  const expected = err("role_stalled", "stop");
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+});
+
+test("composeRunOperatorError differs for stall vs error failureKind", () => {
+  const stallRun = runWith("failed", [attempt("invocation_failure", { failureKind: "stall", bindingAttempts: [] })]);
+  const errorRun = runWith("failed", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]);
+
+  const stallErr = composeRunOperatorError(stallRun);
+  const errorErr = composeRunOperatorError(errorRun);
+
+  expect(stallErr?.reason).toBe("role_stalled");
+  expect(errorErr?.reason).toBe("invocation_error");
+  expect(stallErr?.reason).not.toEqual(errorErr?.reason);
 });
 
 test("composeRunOperatorError returns harness_failure for run_execution_failed and failed without mappable attempt detail", () => {

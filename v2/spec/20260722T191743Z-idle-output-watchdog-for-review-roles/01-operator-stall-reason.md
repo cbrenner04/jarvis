@@ -17,16 +17,16 @@ error, and the distinction the watchdog exists to make stops at the execution la
 
 ## Acceptance criteria
 
-- [ ] A run whose last attempt is `invocation_failure` with `failureKind: "stall"` reports
+- [x] A run whose last attempt is `invocation_failure` with `failureKind: "stall"` reports
       `error.reason: "role_stalled"` with `retryable: false` and `nextAction: "stop"` from
       `jarvis run list` / `wait`.
-- [ ] A `failureKind: "timeout"` attempt still reports `role_timeout`, and a `failureKind: "error"`
+- [x] A `failureKind: "timeout"` attempt still reports `role_timeout`, and a `failureKind: "error"`
       attempt still reports `invocation_error`.
-- [ ] A new test in `v2/src/daemon/run-operator-error.test.ts` covers the `stall` mapping and fails
+- [x] A new test in `v2/src/daemon/run-operator-error.test.ts` covers the `stall` mapping and fails
       against the pre-fix mapping (which yields `invocation_error`).
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; where
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails; where
       a guard suppresses an effect, the negative case proves the effect is absent.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -1,4 +1,5 @@
 import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
+import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
@@ -20,7 +21,69 @@ async function waitForRecovery(client: IpcClient): Promise<{ reconciled: number;
   throw new Error("daemon startup recovery did not complete");
 }
 
-/** Dispatches work once, bouncing a stale idle daemon at most once. */
+const CONNECT_DEADLINE_MS = 5000;
+const CONNECT_RETRY_INTERVAL_MS = 50;
+
+/** Connects to the keyed daemon, starting it when nothing is listening. A start that loses the race
+ * (`DaemonAlreadyRunningError`) is treated as "the winner is up"; every other `startDaemon` error is
+ * re-thrown unchanged. Whichever CLI started it, the daemon may not accept connections immediately,
+ * so the post-start connect retries against injected `now`/`sleep` until its deadline. */
+export async function connectWithAutoStart(deps: CliDeps, socketPath: string): Promise<IpcClient> {
+  const now = deps.now ?? (() => Date.now());
+  const sleep = deps.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  let lastError: unknown;
+  try {
+    return await deps.connectIpcClient(socketPath);
+  } catch (error) {
+    lastError = error;
+  }
+
+  try {
+    await deps.startDaemon(socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+  } catch (error) {
+    if (!(error instanceof DaemonAlreadyRunningError)) throw error;
+    lastError = error;
+  }
+
+  const deadline = now() + CONNECT_DEADLINE_MS;
+  for (;;) {
+    try {
+      return await deps.connectIpcClient(socketPath);
+    } catch (error) {
+      lastError = error;
+    }
+    if (now() >= deadline) break;
+    await sleep(CONNECT_RETRY_INTERVAL_MS);
+  }
+  throw new Error(
+    `Failed to connect to daemon on socket ${socketPath} after starting it (${CONNECT_DEADLINE_MS}ms deadline exceeded)`,
+    { cause: lastError },
+  );
+}
+
+/** Routes a dispatch failure to stderr: daemon-reported errors verbatim, everything else as a
+ * connection error once a client existed, or a lifecycle error when the connect itself never landed. */
+function reportDispatchError(io: Io, error: unknown, connected: boolean): void {
+  if (error instanceof RpcError) {
+    io.stderr(formatRpcError(error));
+    return;
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.startsWith("malformed RPC") ||
+    message === "invalid daemon response" ||
+    message.includes("recovery did not") ||
+    message.includes("Failed to connect to daemon on socket")
+  ) {
+    io.stderr(`${message}\n`);
+    return;
+  }
+  io.stderr(connected ? formatConnectionError(error) : formatLifecycleError(error));
+}
+
+/** Dispatches work once, bouncing a stale idle daemon at most once. Every mutating dispatch auto-starts
+ * the keyed daemon when absent; `autoBounce` governs only the stale-daemon restart. */
 export async function withAutoBounceDispatch(
   io: Io,
   deps: CliDeps,
@@ -29,7 +92,8 @@ export async function withAutoBounceDispatch(
 ): Promise<number> {
   let client: IpcClient | undefined;
   try {
-    client = await deps.connectIpcClient(deps.socketPath);
+    client = await connectWithAutoStart(deps, deps.socketPath);
+
     const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision, deps.getExecutableDigest);
     if (mismatch === undefined) return await dispatch(client);
     if (!autoBounce) {
@@ -63,12 +127,7 @@ export async function withAutoBounceDispatch(
     }
     return await dispatch(client);
   } catch (error) {
-    if (error instanceof RpcError) io.stderr(formatRpcError(error));
-    else if (error instanceof Error && error.message.startsWith("malformed RPC")) io.stderr(`${error.message}\n`);
-    else if (error instanceof Error && error.message === "invalid daemon response") io.stderr(`${error.message}\n`);
-    else if (error instanceof Error && error.message.includes("recovery did not")) io.stderr(`${error.message}\n`);
-    else if (client === undefined) io.stderr(formatLifecycleError(error));
-    else io.stderr(formatConnectionError(error));
+    reportDispatchError(io, error, client !== undefined);
     return 1;
   } finally {
     client?.close();

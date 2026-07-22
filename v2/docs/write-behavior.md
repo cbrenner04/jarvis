@@ -674,6 +674,15 @@ comparison and refuse on mismatch (no auto-bounce). Health, status, listing,
 logs/tail, wait, pause, kill, and daemon lifecycle commands remain available;
 the check never changes admitted runs.
 
+**Keyed-daemon auto-start:** mutating dispatch (`run start`, `run resume`,
+`run workflow`) starts the daemon at the invoking digest's socket/PID/log paths
+when the initial connect fails, then retries the connect under a bounded
+deadline; a lost start race (`DaemonAlreadyRunningError`) is treated as reuse,
+every other `startDaemon` error surfaces as a lifecycle error. Auto-start is
+silent on success and is not gated by `--no-auto-bounce`, which governs only the
+stale-daemon restart above. Read-only commands (`run list`, `run wait`, `tui`,
+`daemon status`) still report a missing daemon. The single-socket-per-digest model ensures multiple CLI instances on the same executable digest coexist on one daemon; differently-keyed daemons run independently and do not interfere.
+
 `jarvis run list` and `jarvis run wait` pass through daemon `error` fields
 verbatim when present (`reason`, `retryable`, `nextAction`); see
 [`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait) for the wire

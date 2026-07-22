@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
+import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
@@ -479,6 +480,206 @@ describe("revision mismatch and auto-bounce", () => {
     );
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("daemon start failed: address in use");
+  });
+});
+
+describe("keyed daemon auto-start on dispatch", () => {
+  const KEYED_SOCKET = "/keyed/digest-a.sock";
+  const OTHER_SOCKET = "/keyed/digest-b.sock";
+
+  test("run start auto-starts the keyed daemon when absent, then dispatches", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectPaths: string[] = [];
+    const startCalls: Array<{ socketPath: string; pidPath: string | undefined; logPath: string | undefined }> = [];
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        pidPath: "/keyed/digest-a.pid",
+        logPath: "/keyed/digest-a.log",
+        connectIpcClient: async (socketPath) => {
+          connectPaths.push(socketPath);
+          if (connectPaths.length === 1) throw new Error("ECONNREFUSED");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-autostart" } }], { sent });
+        },
+        startDaemon: async (socketPath, options) => {
+          startCalls.push({ socketPath, pidPath: options?.pidPath, logPath: options?.logPath });
+          return { pid: 7, socketPath };
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-autostart\n", stderr: "" });
+    expect(startCalls).toEqual([
+      { socketPath: KEYED_SOCKET, pidPath: "/keyed/digest-a.pid", logPath: "/keyed/digest-a.log" },
+    ]);
+    expect(connectPaths).toEqual([KEYED_SOCKET, KEYED_SOCKET]);
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+  });
+
+  test("run start reuses a running keyed daemon without starting one", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-reused" } }], { sent }),
+        startDaemon: async () => {
+          throw new Error("should not start");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-reused\n", stderr: "" });
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+  });
+
+  test("a live daemon on another digest's socket receives no request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const otherSent: unknown[] = [];
+    const startCalls: string[] = [];
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === OTHER_SOCKET) {
+            const otherRuns = { runs: [{ runId: "other", isLive: true }] };
+            return makeIpcClient([{ kind: "response", id: "list", result: otherRuns }], { sent: otherSent });
+          }
+          if (sent.length === 0 && startCalls.length === 0) throw new Error("ECONNREFUSED");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-keyed" } }], { sent });
+        },
+        startDaemon: async (socketPath) => {
+          startCalls.push(socketPath);
+          return { pid: 7, socketPath };
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(startCalls).toEqual([KEYED_SOCKET]);
+    expect(otherSent).toEqual([]);
+    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+  });
+
+  test("--no-auto-bounce still auto-starts the keyed daemon", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let started = 0;
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          if (started === 0) throw new Error("ECONNREFUSED");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-no-bounce" } }], { sent });
+        },
+        startDaemon: async (socketPath) => {
+          started += 1;
+          return { pid: 7, socketPath };
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(started).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "run-no-bounce\n", stderr: "" });
+  });
+
+  test("a lost start race connects to the winner and dispatches", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let startCount = 0;
+    let connects = 0;
+    const code = await withFixedUuid(["operator", "status", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        socketPath: KEYED_SOCKET,
+        connectIpcClient: async () => {
+          connects += 1;
+          if (connects === 1) throw new Error("ECONNREFUSED");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-race-loser" } }], { sent });
+        },
+        startDaemon: async () => {
+          startCount += 1;
+          throw new DaemonAlreadyRunningError(KEYED_SOCKET);
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect({ startCount, connects }).toEqual({ startCount: 1, connects: 2 });
+    expect(cap.read()).toEqual({ stdout: "run-race-loser\n", stderr: "" });
+  });
+
+  test("a non-race start failure reports a lifecycle error with exit 1 and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(fx.runStartArgs, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+      socketPath: KEYED_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      startDaemon: async () => {
+        throw new Error("daemon start failed: log directory missing");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toContain("daemon start failed: log directory missing");
+  });
+
+  test("an exhausted connect deadline exits 1 with a connection error and no dispatch", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let time = 0;
+    const code = await main(fx.runStartArgs, cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+      socketPath: KEYED_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      startDaemon: async (socketPath) => ({ pid: 7, socketPath }),
+      now: () => time,
+      sleep: async (ms) => {
+        time += ms;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(cap.read().stderr).toBe(
+      `Failed to connect to daemon on socket ${KEYED_SOCKET} after starting it (5000ms deadline exceeded)\n`,
+    );
+    expect(time).toBe(5000);
+  });
+
+  test("read-only run list reports the missing daemon instead of starting one", async () => {
+    const cap = captureIo();
+    let started = 0;
+    const code = await main(["run", "list"], cap.io, {
+      socketPath: KEYED_SOCKET,
+      connectIpcClient: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      startDaemon: async (socketPath) => {
+        started += 1;
+        return { pid: 7, socketPath };
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(started).toBe(0);
+    expect(cap.read().stderr).toBe("ECONNREFUSED\n");
   });
 });
 

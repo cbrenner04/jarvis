@@ -42,6 +42,10 @@ export type CliDeps = {
   jarvisRoot?: string;
   /** Subprocess runner for `cleanup` (gh/git); defaults to `realAsyncSubprocessRunner`. Injectable for tests. */
   subprocessRunner?: AsyncSubprocessRunner;
+  /** Current time in milliseconds; defaults to Date.now(). Injectable for tests. */
+  now?: () => number;
+  /** Sleep for specified milliseconds; defaults to real setTimeout. Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
   socketPath: string;
   pidPath: string;
   logPath: string;
@@ -68,6 +72,8 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     cwd: () => process.cwd(),
     getCurrentRevision: getInvokingRevision,
     getExecutableDigest: getInvokingExecutableDigest,
+    now: () => Date.now(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,

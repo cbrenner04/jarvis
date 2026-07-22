@@ -28,15 +28,15 @@ the same digest can also start it at once, and the loser gets
 
 ## Acceptance criteria
 
-- [ ] Mutating dispatch with no daemon on the invoking digest's socket starts one at that socket/PID/log triple and then dispatches.
-- [ ] Mutating dispatch with the matching daemon already running dispatches without calling `startDaemon`.
-- [ ] Mutating dispatch succeeds while a daemon keyed by a different digest is live with running runs, and that daemon's socket receives no request.
-- [ ] A start that loses the race (`DaemonAlreadyRunningError`) connects to the winner and dispatches; any other `startDaemon` error surfaces as a lifecycle error with exit 1 and no dispatch.
-- [ ] The post-race connect retries against injected `now`/`sleep` — no real-clock delay in tests — and exits 1 with a connection error once its deadline passes.
-- [ ] Read-only commands (`run list`, `run wait`, `tui`, `daemon status`) still report a missing daemon rather than starting one.
-- [ ] New tests in `v2/src/cli/stale-dispatch.test.ts` cover the absent-daemon start and the race path and fail against the pre-change code, which reports a lifecycle error instead of starting and treats the race as a failure.
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails: the already-connected branch proves `startDaemon` is never called, the race branch proves no second start is attempted, and the non-race branch proves no connect retry happens.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] Mutating dispatch with no daemon on the invoking digest's socket starts one at that socket/PID/log triple and then dispatches.
+- [x] Mutating dispatch with the matching daemon already running dispatches without calling `startDaemon`.
+- [x] Mutating dispatch succeeds while a daemon keyed by a different digest is live with running runs, and that daemon's socket receives no request.
+- [x] A start that loses the race (`DaemonAlreadyRunningError`) connects to the winner and dispatches; any other `startDaemon` error surfaces as a lifecycle error with exit 1 and no dispatch.
+- [x] The post-race connect retries against injected `now`/`sleep` — no real-clock delay in tests — and exits 1 with a connection error once its deadline passes.
+- [x] Read-only commands (`run list`, `run wait`, `tui`, `daemon status`) still report a missing daemon rather than starting one.
+- [x] New tests in `v2/src/cli/stale-dispatch.test.ts` cover the absent-daemon start and the race path and fail against the pre-change code, which reports a lifecycle error instead of starting and treats the race as a failure.
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails: the already-connected branch proves `startDaemon` is never called, the race branch proves no second start is attempted, and the non-race branch proves no connect retry happens.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

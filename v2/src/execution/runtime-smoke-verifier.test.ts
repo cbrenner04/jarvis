@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDaemonHandshake, type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import { type RuntimeSmokeVerifierInput, runDaemonHandshake, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 
 describe("runtime-smoke-verifier", () => {
   async function verifyMappedEntrypoint(
@@ -450,7 +450,12 @@ index 1234567..abcdefg 100644
           remove: async (home: string) => {
             homes.delete(home);
           },
-          runAsync: async (_cmd: string, args: string[], _cwd: string, options: { timeoutMs?: number; env?: NodeJS.ProcessEnv }) => {
+          runAsync: async (
+            _cmd: string,
+            args: string[],
+            _cwd: string,
+            options: { timeoutMs?: number; env?: NodeJS.ProcessEnv },
+          ) => {
             invocations.push({ args, timeoutMs: options.timeoutMs ?? -1, home: options.env?.JARVIS_HOME });
             const outcome = outcomes[outcomeIndex++];
             if (outcome instanceof Error) throw outcome;
@@ -458,15 +463,20 @@ index 1234567..abcdefg 100644
             if (args.includes("stop")) daemonAlive = false;
             return outcome ?? "";
           },
-          readPid: async () => daemonAlive ? 42 : null,
+          readPid: async () => (daemonAlive ? 42 : null),
           isProcessAlive: () => daemonAlive,
-          terminateProcess: () => { daemonAlive = false; },
+          terminateProcess: () => {
+            daemonAlive = false;
+          },
         },
       };
     }
 
     it("shares the wall-clock bound across successful interactions and removes local state", async () => {
-      const fixture = lifecycleSeams(["started\n", "running loaded=a current=a\n", "stopped\n", "stopped\n"], [0, 0, 10, 20, 30]);
+      const fixture = lifecycleSeams(
+        ["started\n", "running loaded=a current=a\n", "stopped\n", "stopped\n"],
+        [0, 0, 10, 20, 30],
+      );
 
       await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({ success: true, output: "" });
 
@@ -534,7 +544,10 @@ index 1234567..abcdefg 100644
     });
 
     it("reaps the daemon before removing local state when forced cleanup fails", async () => {
-      const fixture = lifecycleSeams(["started\n", new Error("status failed"), new Error("forced stop failed")], [0, 0, 10, 20]);
+      const fixture = lifecycleSeams(
+        ["started\n", new Error("status failed"), new Error("forced stop failed")],
+        [0, 0, 10, 20],
+      );
 
       await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({
         success: false,
@@ -605,12 +618,16 @@ index 1234567..abcdefg 100644
     it("observes clean through the real CLI-daemon handshake and cleans its local home", async () => {
       const { dir, baseSha } = runtimeFixture();
       try {
-        writeFileSync(join(dir, "v2", "src", "daemon-entrypoint.ts"), `${readFileSync(join(dir, "v2", "src", "daemon-entrypoint.ts"), "utf8")}\n// smoke change\n`);
+        writeFileSync(
+          join(dir, "v2", "src", "daemon-entrypoint.ts"),
+          `${readFileSync(join(dir, "v2", "src", "daemon-entrypoint.ts"), "utf8")}\n// smoke change\n`,
+        );
         execFileSync("git", ["add", "-A"], { cwd: dir });
         execFileSync("git", ["commit", "-q", "-m", "change daemon entrypoint"], { cwd: dir });
 
         const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
-        if (result.kind === "smoke-failure") throw new Error(`real handshake failed: ${result.command}: ${result.observation}`);
+        if (result.kind === "smoke-failure")
+          throw new Error(`real handshake failed: ${result.command}: ${result.observation}`);
         expect(result.kind).toBe("observed-clean");
         expect(readdirSync(dir).filter((name) => name.startsWith(".runtime-smoke-")).length).toBe(0);
       } finally {

@@ -1,6 +1,10 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname, join, normalize, relative, resolve } from "node:path";
-import { AsyncSubprocessError, realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
@@ -86,6 +90,104 @@ function deadlineExceeded(command: string): { success: false; output: string; co
   return { success: false, command, output: `runtime smoke deadline expired before ${command}` };
 }
 
+type HandshakeFailure = { success: false; output: string; command: string };
+type LifecycleRun = (args: string[]) => Promise<string>;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function defaultReadPid(home: string): Promise<number | null> {
+  try {
+    const value = Number.parseInt(await readFile(join(home, "daemon.pid"), "utf8"), 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultIsProcessAlive(candidate: number): boolean {
+  try {
+    process.kill(candidate, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function failureFrom(error: unknown): HandshakeFailure {
+  if (typeof error === "object" && error !== null && "command" in error && "output" in error) {
+    return { success: false, command: String(error.command), output: String(error.output) };
+  }
+  return { success: false, command: lifecycleCommand(["start"]), output: errorMessage(error) };
+}
+
+function lifecycleRunner(
+  cwd: string,
+  runtimeHome: string,
+  deadline: number,
+  now: () => number,
+  runAsync: AsyncSubprocessRunner["runAsync"],
+): LifecycleRun {
+  return async (args) => {
+    const command = lifecycleCommand(args);
+    const remaining = remainingTimeout(deadline, now);
+    if (remaining <= 0) throw deadlineExceeded(command);
+    try {
+      return await runAsync("bun", ["run", "v2/src/cli.ts", "daemon", ...args], cwd, {
+        timeoutMs: remaining,
+        env: { ...process.env, JARVIS_HOME: runtimeHome },
+      });
+    } catch (error) {
+      const baseOutput =
+        error instanceof AsyncSubprocessError ? `${error.message}\n${error.stderr}` : errorMessage(error);
+      const daemonLog =
+        args[0] === "start" ? await readFile(join(runtimeHome, "daemon.log"), "utf8").catch(() => "") : "";
+      const output = daemonLog === "" ? baseOutput : `${baseOutput}\n${daemonLog}`;
+      throw Object.assign(new Error(output), { command, output });
+    }
+  };
+}
+
+async function cleanupDaemon(
+  runtimeHome: string,
+  daemonMayExist: boolean,
+  pid: number | null,
+  run: LifecycleRun,
+  readPid: (runtimeHome: string) => Promise<number | null>,
+  isProcessAlive: (pid: number) => boolean,
+  terminateProcess: (pid: number) => void,
+  remove: (path: string, options: { recursive: true; force: true }) => Promise<void>,
+): Promise<string | null> {
+  const daemonPid = pid ?? (await readPid(runtimeHome));
+  let forcedStopSucceeded = false;
+  let cleanupFailure: string | null = null;
+  try {
+    await run(["stop", "--force"]);
+    forcedStopSucceeded = true;
+  } catch {
+    // A deadline or CLI failure still falls through to direct process reaping.
+  }
+  if (daemonPid !== null && isProcessAlive(daemonPid)) {
+    try {
+      terminateProcess(daemonPid);
+    } catch (error) {
+      cleanupFailure ??= errorMessage(error);
+    }
+    if (isProcessAlive(daemonPid)) cleanupFailure ??= `daemon process ${daemonPid} remained alive after cleanup`;
+  }
+  if (daemonMayExist && !forcedStopSucceeded && daemonPid === null) {
+    cleanupFailure ??= "forced daemon stop failed without a pid to confirm termination";
+  }
+  if (cleanupFailure !== null) return cleanupFailure;
+  try {
+    await remove(runtimeHome, { recursive: true, force: true });
+    return null;
+  } catch (error) {
+    return errorMessage(error);
+  }
+}
+
 export async function runDaemonHandshake(
   cwd: string,
   timeoutMs: number,
@@ -96,48 +198,23 @@ export async function runDaemonHandshake(
   const createTempDir = seams?.mkdtemp ?? mkdtemp;
   const remove = seams?.remove ?? rm;
   const deadline = now() + timeoutMs;
-  let runtimeHome: string | null = null;
-  let pid: number | null = null;
-  let daemonMayExist = false;
-  let forcedStopSucceeded = false;
-  let failure: { success: false; output: string; command: string } | null = null;
-  let cleanupFailure: string | null = null;
+  let runtimeHome: string;
   try {
     runtimeHome = await createTempDir(join(cwd, ".runtime-smoke-"));
   } catch (error) {
-    return { success: false, command: "runtime smoke setup", output: error instanceof Error ? error.message : String(error) };
+    return {
+      success: false,
+      command: "runtime smoke setup",
+      output: error instanceof Error ? error.message : String(error),
+    };
   }
-  const env = { ...process.env, JARVIS_HOME: runtimeHome };
-  const readPid = seams?.readPid ?? (async (home: string) => {
-    try {
-      const value = Number.parseInt(await readFile(join(home, "daemon.pid"), "utf8"), 10);
-      return Number.isInteger(value) && value > 0 ? value : null;
-    } catch {
-      return null;
-    }
-  });
-  const isProcessAlive = seams?.isProcessAlive ?? ((candidate: number) => {
-    try {
-      process.kill(candidate, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  const readPid = seams?.readPid ?? defaultReadPid;
+  const isProcessAlive = seams?.isProcessAlive ?? defaultIsProcessAlive;
   const terminateProcess = seams?.terminateProcess ?? ((candidate: number) => process.kill(candidate, "SIGKILL"));
-  const run = async (args: string[]): Promise<string> => {
-    const command = lifecycleCommand(args);
-    const remaining = remainingTimeout(deadline, now);
-    if (remaining <= 0) throw deadlineExceeded(command);
-    try {
-      return await runAsync("bun", ["run", "v2/src/cli.ts", "daemon", ...args], cwd, { timeoutMs: remaining, env });
-    } catch (error) {
-      const baseOutput = error instanceof AsyncSubprocessError ? `${error.message}\n${error.stderr}` : error instanceof Error ? error.message : String(error);
-      const daemonLog = args[0] === "start" ? await readFile(join(runtimeHome, "daemon.log"), "utf8").catch(() => "") : "";
-      const output = daemonLog === "" ? baseOutput : `${baseOutput}\n${daemonLog}`;
-      throw Object.assign(new Error(output), { command, output });
-    }
-  };
+  const run = lifecycleRunner(cwd, runtimeHome, deadline, now, runAsync);
+  let pid: number | null = null;
+  let daemonMayExist = false;
+  let failure: HandshakeFailure | null = null;
 
   try {
     await run(["start"]);
@@ -145,42 +222,29 @@ export async function runDaemonHandshake(
     pid = await readPid(runtimeHome);
     const status = await run(["status"]);
     if (!status.startsWith("running ")) {
-      failure = { success: false, command: lifecycleCommand(["status"]), output: `daemon status was not compatible: ${status}` };
+      failure = {
+        success: false,
+        command: lifecycleCommand(["status"]),
+        output: `daemon status was not compatible: ${status}`,
+      };
     } else {
       await run(["stop"]);
     }
   } catch (error) {
-    failure = typeof error === "object" && error !== null && "command" in error && "output" in error
-      ? { success: false, command: String(error.command), output: String(error.output) }
-      : { success: false, command: lifecycleCommand(["start"]), output: error instanceof Error ? error.message : String(error) };
-  } finally {
-    if (pid === null) pid = await readPid(runtimeHome);
-    try {
-      await run(["stop", "--force"]);
-      forcedStopSucceeded = true;
-    } catch {
-      // A deadline or CLI failure still falls through to direct process reaping.
-    }
-    if (pid !== null && isProcessAlive(pid)) {
-      try {
-        terminateProcess(pid);
-      } catch (error) {
-        cleanupFailure ??= error instanceof Error ? error.message : String(error);
-      }
-      if (isProcessAlive(pid)) cleanupFailure ??= `daemon process ${pid} remained alive after cleanup`;
-    }
-    if (daemonMayExist && !forcedStopSucceeded && pid === null) {
-      cleanupFailure ??= "forced daemon stop failed without a pid to confirm termination";
-    }
-    if (cleanupFailure === null) {
-      try {
-        await remove(runtimeHome, { recursive: true, force: true });
-      } catch (error) {
-        cleanupFailure = error instanceof Error ? error.message : String(error);
-      }
-    }
+    failure = failureFrom(error);
   }
-  if (cleanupFailure !== null) return { success: false, command: lifecycleCommand(["stop", "--force"]), output: cleanupFailure };
+  const cleanupFailure = await cleanupDaemon(
+    runtimeHome,
+    daemonMayExist,
+    pid,
+    run,
+    readPid,
+    isProcessAlive,
+    terminateProcess,
+    remove,
+  );
+  if (cleanupFailure !== null)
+    return { success: false, command: lifecycleCommand(["stop", "--force"]), output: cleanupFailure };
   return failure ?? { success: true, output: "" };
 }
 
@@ -312,7 +376,12 @@ export async function verifyRuntimeSmoke(
     };
   }
 
-  const result = await executeEntrypoint(input.worktreePath, surface.entrypoint, surface.args, RUNTIME_SMOKE_TIMEOUT_MS);
+  const result = await executeEntrypoint(
+    input.worktreePath,
+    surface.entrypoint,
+    surface.args,
+    RUNTIME_SMOKE_TIMEOUT_MS,
+  );
 
   if (!result.success) {
     return {

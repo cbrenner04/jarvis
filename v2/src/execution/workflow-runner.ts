@@ -1381,11 +1381,13 @@ type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_
 
 function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
   kind: "complete" | "invocation_failure";
+  failureKind: InvocationFailureKind | undefined;
   terminalRole: ReviewDebateRole;
   completionAgent: string | undefined;
 } {
   const lastCycle = result.cycles.at(-1);
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
+  const failureKind = lastCycle?.kind === "role_failed" ? lastCycle.failureKind : undefined;
   const terminalRole: ReviewDebateRole =
     lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
   const actuatorExecution =
@@ -1394,7 +1396,7 @@ function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeRevi
     kind === "complete" && actuatorExecution?.result.kind === "ok"
       ? actuatorExecution.binding.metadata?.agent?.trim()
       : undefined;
-  return { kind, terminalRole, completionAgent };
+  return { kind, failureKind, terminalRole, completionAgent };
 }
 
 /**
@@ -1483,7 +1485,7 @@ async function runReviewDebateStep(
     ...onRoleStart,
   });
 
-  const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
+  const { kind, failureKind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -1524,11 +1526,13 @@ async function runReviewDebateStep(
     });
   }
 
+  const isTimeout = kind === "invocation_failure" && failureKind === "timeout";
+
   return {
     kind,
     runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable: isTimeout,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }
@@ -1870,7 +1874,7 @@ function standardReviewRoleFailureOutcome(
     kind: "invocation_failure",
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable: result.failureKind === "timeout",
     ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
   };
 }
@@ -1955,6 +1959,8 @@ async function runProfileReviewStep(
     bindings,
     verdictPath: reviewInput.verdictPath,
     maxCycles: reviewInput.maxCycles,
+    // Without this the step's per-role bound is dropped and every role falls back to the default.
+    ...(reviewInput.roleTimeoutMs !== undefined ? { roleTimeoutMs: reviewInput.roleTimeoutMs } : {}),
     ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
@@ -1995,11 +2001,13 @@ async function runProfileReviewStep(
     }
   }
 
+  const isTimeout = result.kind === "invocation_failure" && result.failureKind === "timeout";
+
   return {
     kind,
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable: isTimeout,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }

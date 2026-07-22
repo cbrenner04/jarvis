@@ -110,11 +110,11 @@ test.each([
   ["no_binding", "no_binding", "fix_config"],
   ["landing", "landing_failed", "resume"],
   ["error", "invocation_error", "stop"],
-  ["timeout", "role_timeout", "stop"],
+  ["timeout", "role_timeout", "retry_later"],
   ["stall", "role_stalled", "stop"],
 ] as const)("composeRunOperatorError maps failureKind %s from log and store-only failed paths", (failureKind, reason, nextAction) => {
   const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [] })]);
-  const expected = err(reason, nextAction, failureKind === "landing");
+  const expected = err(reason, nextAction, failureKind === "landing" || failureKind === "timeout");
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);

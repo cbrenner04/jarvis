@@ -266,13 +266,21 @@ Do not assume parity between them — see [Gate trust](#gate-trust) for what the
 A review step whose role invocation exceeds its per-role wall-clock bound settles
 `invocation_failure` with `failureKind: "timeout"` and attribution on the run
 row; `jarvis run list` / `wait` report `error.reason: "role_timeout"` (distinct
-from write-loop `iteration_timeout`). An idle-output watchdog on the same role
-invocation times out when the actuator produces no output for a configured idle
-budget (default 90_000 ms, v1 parity), settles `invocation_failure` with
-`failureKind: "stall"`, and reports `error.reason: "role_stalled"`. Unlike
-`role_timeout` (wall-clock from start), `role_stalled` reflects hung output;
+from write-loop `iteration_timeout`). A timeout reports retryable/retry_later, and
+recovery is re-dispatching the same workflow — **not** `jarvis run resume`, which
+hard-errors on a `failed` run that is not publication-retry-eligible. In an
+implement workflow the re-dispatch reuses the completed write step's checkpoint
+without re-invoking the write-step agent; an intent or plan review timeout is
+equally retryable but has no write checkpoint behind it, so its re-dispatch re-runs
+the whole workflow. Inspect the worktree first: the aborted actuator's partial
+edits are still on disk and the re-dispatch sweeps them into the next completion
+commit. An idle-output
+watchdog on the same role invocation times out when the actuator produces no
+output for a configured idle budget (default 90_000 ms, v1 parity), settles
+`invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
+Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output;
 unlike `iteration_timeout` (write-loop timeout), it applies only to review-step
-role invocations. Both `role_timeout` and `role_stalled` are non-retryable/stop.
+role invocations. `role_timeout` is retryable/retry_later; `role_stalled` is non-retryable/stop.
 
 ## Gate trust
 

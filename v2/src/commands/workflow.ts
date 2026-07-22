@@ -15,7 +15,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { resetStaleWorkspace, type DestroyedArtifacts } from "./cleanup.ts";
+import { type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,

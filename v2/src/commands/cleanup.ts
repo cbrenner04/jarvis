@@ -813,7 +813,9 @@ export type DestroyedArtifacts = {
   remoteBranch?: string;
 };
 
-type AbandonOutcome = { ok: true; destroyed: DestroyedArtifacts } | { ok: false; step: RetirementStep; destroyed: DestroyedArtifacts };
+type AbandonOutcome =
+  | { ok: true; destroyed: DestroyedArtifacts }
+  | { ok: false; step: RetirementStep; destroyed: DestroyedArtifacts };
 
 /** Artifacts a caller still owns after retirement aborted at `step`. */
 function remainingArtifactsAfter(step: RetirementStep): string {

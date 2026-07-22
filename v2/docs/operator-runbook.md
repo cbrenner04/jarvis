@@ -204,15 +204,18 @@ tree. If all non-human-only criteria are checked, it exits `1` with
 Linked-index checkboxes are not the completion source of truth.
 
 On an incomplete re-run with git enabled, preflight retires a stale workspace for
-the resolved `(project, branch)` before the write step starts: close the matching
-open draft PR (when exactly one exists), remove the materialized worktree, and
-delete local and remote branch refs so materialization recreates from `--base`.
-First runs with no existing worktree skip this path. Refusal exits `1` without
-mutation when the workspace is live-held, the matching PR is ready (non-draft),
-or multiple open PRs match the branch — stderr names the blocking state. Recovery:
-end the live run or wait for its lock to clear; mark the PR draft again or merge
-it; or close duplicate PRs until exactly one open draft remains, then re-run.
-Manual fallback: `jarvis cleanup --abandon <branch>` when guards pass.
+the resolved `(project, branch)` after daemon connect and before the write step
+starts: close the matching open draft PR (when exactly one
+exists), remove the materialized worktree, and delete local and remote branch refs
+so materialization recreates from `--base`. First runs with no existing worktree
+skip this path. Refusal exits `1` without mutation when the workspace is
+live-held, the matching PR is ready (non-draft), or multiple open PRs match the
+branch — stderr names the blocking state. Recovery: end the live run or wait for
+its lock to clear; mark the PR draft again or merge it; or close duplicate PRs
+until exactly one open draft remains, then re-run. Manual fallback: `jarvis
+cleanup --abandon <branch>` when guards pass. Because the guard now runs after
+connect, a refused re-run leaves behind the daemon it auto-started when none was
+listening — stop it with `jarvis daemon stop` if you did not want one up.
 
 ### Ad-hoc write loop (live pause/kill)
 

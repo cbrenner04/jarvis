@@ -31,21 +31,21 @@ closed, worktree removed, both refs deleted, no run dispatched.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/commands/workflow.test.ts` drives `run workflow implement` against a
+- [x] A new test in `v2/src/commands/workflow.test.ts` drives `run workflow implement` against a
       materialized stale worktree with dispatch unreachable (connect fails and daemon start fails),
       and asserts no `gh pr close`, no worktree removal, and both local and remote branch refs
       survive; it fails against the pre-fix ordering and passes after the change.
-- [ ] Inverting the added ordering guard (retiring before the connect instead of inside the
+- [x] Inverting the added ordering guard (retiring before the connect instead of inside the
       connected scope) makes that test fail.
-- [ ] Existing `implement preflight stale workspace reset` tests in
+- [x] Existing `implement preflight stale workspace reset` tests in
       `v2/src/commands/workflow.test.ts` stay green: the happy path still retires and then dispatches
       with unchanged stdout, the live-held case still exits `1` without starting a run, and a fresh
       run still performs no teardown.
-- [ ] `v2/docs/operator-runbook.md` § implement workflow states retirement runs only after the
+- [x] `v2/docs/operator-runbook.md` § implement workflow states retirement runs only after the
       invocation is known dispatchable.
-- [ ] `v2/docs/v1-behaviors.md` records the changed preflight ordering on the existing implement
+- [x] `v2/docs/v1-behaviors.md` records the changed preflight ordering on the existing implement
       re-run reset entry.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

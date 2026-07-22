@@ -1499,8 +1499,12 @@ async function runReviewDebateStep(
     }
   }
 
+  let failureKind: InvocationFailureKind | undefined;
   if (kind === "invocation_failure") {
     const failed = result.cycles.at(-1);
+    if (failed?.kind === "role_failed") {
+      failureKind = failed.failureKind;
+    }
     store.commitCompletionBoundary({
       attemptId,
       runStatus: "failed",
@@ -1524,11 +1528,13 @@ async function runReviewDebateStep(
     });
   }
 
+  const resumable = kind === "invocation_failure" && failureKind === "timeout";
+
   return {
     kind,
     runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }
@@ -1870,7 +1876,7 @@ function standardReviewRoleFailureOutcome(
     kind: "invocation_failure",
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable: result.failureKind === "timeout",
     ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
   };
 }
@@ -1995,11 +2001,13 @@ async function runProfileReviewStep(
     }
   }
 
+  const resumable = kind === "invocation_failure" && "failureKind" in result && result.failureKind === "timeout";
+
   return {
     kind,
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: false,
+    resumable,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }

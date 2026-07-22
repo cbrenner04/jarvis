@@ -73,7 +73,7 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   no_binding: op("no_binding", "fix_config"),
   landing: op("landing_failed", "resume", true),
   error: op("invocation_error", "stop"),
-  timeout: op("role_timeout", "stop"),
+  timeout: op("role_timeout", "retry_later", true),
 };
 
 /** Chronologically last terminal event; `list` and `wait` share this selection. */

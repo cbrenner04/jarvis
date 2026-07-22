@@ -541,8 +541,12 @@ armed with a per-role wall-clock bound (`roleTimeoutMs`, defaulting to the
 write-loop iteration timeout). A timer abort classifies as `failureKind:
 "timeout"` with `role`/`agent`/`model`/`boundMs` attribution on the role
 execution and, when the review step settles `invocation_failure`, on the run
-row; daemon `error.reason: "role_timeout"` (non-resumable, `nextAction:
-"stop"`). A caller-signal abort (pause/kill) keeps its existing failure kind.
+row; daemon `error.reason: "role_timeout"` (resumable, `nextAction: "retry_later"`).
+When a timeout occurs after a write step has committed (e.g., implement completes
+and a review timeout follows), the completed implementation and verdict are
+preserved; re-dispatching the same workflow reuses the write checkpoint. Other
+role failure kinds remain non-resumable. A caller-signal abort (pause/kill)
+keeps its existing failure kind.
 
 **Enforcement and isolation:** When the intent profile is configured,
 the review step enforces role filesystem boundaries. Before and after each

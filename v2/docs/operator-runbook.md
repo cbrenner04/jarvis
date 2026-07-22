@@ -404,6 +404,23 @@ both the write (run/plan) path and the implement workflow path.
 
 **Blocker text persistence**: When a `blocked` outcome satisfies the blocker-text contract (agent appended non-empty `## Blocker`), the agent's blocker body is extracted and persisted as a durable `blocker_text_detail` log record. This allows you to retrieve the blocker reason from `jarvis run log <run-id>` without requiring access to the worktree spec file, which may not survive after the run completes. The persisted text is truncated to 500 characters for storage efficiency. Query the run log via `jarvis run log <run-id> | grep blocker_text_detail` to see the persisted blocker text inline, or parse the structured log for the `blocker_text_detail` event with its `blockerText` field.
 
+### Timed-out review step
+
+When a review role (critic, actuator, or debate role) exceeds its wall-clock bound, the step reports
+`error.reason: "role_timeout"` (retryable, `nextAction: "retry_later"`). If the timeout occurs after a prior
+write step has completed and committed (e.g., implement finishes successfully, then review times out), the
+completed implementation is preserved on the branch and the verdict file is written. The review step does not
+delete or modify the commit.
+
+**Recovery:** Re-dispatch the same workflow without modification. The runner reuses the completed write step's
+checkpoint (no re-invocation of agents), skips that step, and runs the review step again. The verdict file
+is overwritten by the adjudicator's new output. This allows review to complete in subsequent runs when
+underlying latency or agent issues resolve. Inspect `~/.jarvis/daemon.log` for `role_timeout` context
+(agent, model, bound in milliseconds) to investigate the root cause.
+
+If you want to adjust the role timeout, update the workflow or spec configuration and re-dispatch; do not
+modify the run row directly.
+
 ### Orphaned non-terminal runs after daemon restart
 
 Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason

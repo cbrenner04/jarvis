@@ -1546,6 +1546,26 @@ function debateVerdictPath(): string {
   return join(mkdtempSync(join(tmpdir(), "workflow-review-debate-")), "verdict.md");
 }
 
+/** Actuator hangs past its bound (aborts on signal); adjudicator and other roles resolve immediately. */
+function createActuatorTimeoutDebateBinding(): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }) => ({
+    id: `${agentId}/${adapterModel}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: ({ signal }) =>
+      adapterModel === "ACT"
+        ? new Promise<InvocationResult>((resolve) =>
+            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+              once: true,
+            }),
+          )
+        : Promise.resolve(
+            adapterModel === "ADJ"
+              ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+              : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+          ),
+  });
+}
+
 function createDebateStep(
   overrides: Partial<Omit<ReviewDebateWorkflowStep, "behavior">> & { stepId: string; verdictPath: string },
 ): ReviewDebateWorkflowStep {
@@ -3089,22 +3109,7 @@ describe("executeWorkflow review-debate dispatch", () => {
       stepId: "debate-timeout",
       verdictPath: debateVerdictPath(),
       roleTimeoutMs: boundMs,
-      createBinding: ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        metadata: { agent: agentId, model: adapterModel },
-        invoke: ({ signal }) =>
-          adapterModel === "ACT"
-            ? new Promise<InvocationResult>((resolve) =>
-                signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
-                  once: true,
-                }),
-              )
-            : Promise.resolve(
-                adapterModel === "ADJ"
-                  ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
-                  : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
-              ),
-      }),
+      createBinding: createActuatorTimeoutDebateBinding(),
     });
 
     await withStateStore(async (store) => {
@@ -3114,7 +3119,7 @@ describe("executeWorkflow review-debate dispatch", () => {
         kind: "invocation_failure",
         stepIndex: 0,
         stepId: "debate-timeout",
-        resumable: false,
+        resumable: true,
       });
       expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toEqual({
         failureKind: "timeout",
@@ -3125,6 +3130,66 @@ describe("executeWorkflow review-debate dispatch", () => {
         boundMs,
         message: `review: actuator exceeded ${boundMs}ms bound (agent=claude, model=ACT)`,
       });
+    });
+  });
+
+  test("preserves committed work and verdict when review-debate actuator exceeds its bound", async () => {
+    const boundMs = 5;
+    const branchName = "implement-review-timeout";
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        writeFileSync(join(cwd, "proof.txt"), "implementation complete\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const verdictPath = join(worktreePath, "verdict-patch.md");
+
+    const reviewStep = createDebateStep({
+      stepId: "review-timeout",
+      branch: branchName,
+      verdictPath,
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: createActuatorTimeoutDebateBinding(),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 1,
+        stepId: "review-timeout",
+        resumable: true,
+      });
+
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement",
+      });
+      expect(implementRun?.status).toBe("completed");
+
+      const reviewRun = store.loadRun(result.runId);
+      expect(reviewRun?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+        failureKind: "timeout",
+        role: "actuator",
+      });
+
+      expect(existsSync(verdictPath)).toBe(true);
+      expect(readFileSync(verdictPath, "utf8")).toContain("apply this fix");
+
+      expect(existsSync(join(worktreePath, "proof.txt"))).toBe(true);
+      expect(readFileSync(join(worktreePath, "proof.txt"), "utf8")).toContain("implementation complete");
     });
   });
 

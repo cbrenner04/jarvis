@@ -221,9 +221,15 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 - **Partial teardown** — stderr reads `retirement failed at <step>; <what
   remains>`. Local artifacts may already be gone. Finish the teardown by hand (see
   [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) for the per-step remnants
-  and commands), then re-run. Because the guard now runs after
-connect, a refused re-run leaves behind the daemon it auto-started when none was
-listening — stop it with `jarvis daemon stop` if you did not want one up.
+  and commands), then re-run. When any retirement step destroyed artifacts before
+  the invocation exits non-zero, stderr also prints a `Retirement destroyed
+  artifacts:` block listing each destruction event from this invocation (closed PR
+  number, worktree path, local branch, remote branch) — not a live re-probe of git
+  or GitHub. A started run may have recreated the worktree and branch after
+  retirement; treat the summary as a teardown log, not current state. Because the
+  guard now runs after connect, a refused re-run leaves behind the daemon it
+  auto-started when none was listening — stop it with `jarvis daemon stop` if you
+  did not want one up.
 
 ### Ad-hoc write loop (live pause/kill)
 

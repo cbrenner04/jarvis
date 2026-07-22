@@ -195,12 +195,21 @@ function changedPathsFromDiff(diffOutput: string): string[] {
   return [...paths];
 }
 
-function deriveGuardMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
-  const guardMatches = Array.from(content.matchAll(/(!\s*[a-zA-Z_][a-zA-Z0-9_]*|!(?:\([^)]+\)))/g));
+function deriveGuardMutations(
+  file: string,
+  lineNum: number,
+  content: string,
+  masked: string,
+  candidates: Candidate[],
+): void {
+  const guardMatches = Array.from(masked.matchAll(/(!\s*[a-zA-Z_][a-zA-Z0-9_]*|!(?:\([^)]+\)))/g));
   for (const match of guardMatches) {
     if (match.index === undefined) continue;
-    const original = match[0];
     const start = match.index;
+    // Matching happens on the masked line, but the mutation is applied to the
+    // real file: a guard span may enclose a masked string (`!("k" in o)`), so
+    // the candidate's text has to come from the original line.
+    const original = content.slice(start, start + match[0].length);
     let mutated: string;
 
     if (original.startsWith("!")) {
@@ -235,12 +244,18 @@ function flipOperator(original: string): string {
   return original;
 }
 
-function deriveOperatorMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
-  const comparisonMatches = Array.from(content.matchAll(/([=!><]+)/g));
+function deriveOperatorMutations(
+  file: string,
+  lineNum: number,
+  content: string,
+  masked: string,
+  candidates: Candidate[],
+): void {
+  const comparisonMatches = Array.from(masked.matchAll(/([=!><]+)/g));
   for (const match of comparisonMatches) {
     if (match.index === undefined) continue;
-    const original = match[0];
     const start = match.index;
+    const original = content.slice(start, start + match[0].length);
     const mutated = flipOperator(original);
 
     if (mutated !== original) {
@@ -257,14 +272,20 @@ function deriveOperatorMutations(file: string, lineNum: number, content: string,
   }
 }
 
-function deriveDestructiveMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
+function deriveDestructiveMutations(
+  file: string,
+  lineNum: number,
+  content: string,
+  masked: string,
+  candidates: Candidate[],
+): void {
   const destructiveMatches = Array.from(
-    content.matchAll(/\b(unlink|rmdir|rm|delete|destroy|remove)(?:Sync|Async)?\s*\(/g),
+    masked.matchAll(/\b(unlink|rmdir|rm|delete|destroy|remove)(?:Sync|Async)?\s*\(/g),
   );
   for (const match of destructiveMatches) {
     if (match.index === undefined) continue;
-    const original = match[0];
     const start = match.index;
+    const original = content.slice(start, start + match[0].length);
     const mutated = `// MUTATED: ${original}`;
 
     candidates.push({
@@ -279,6 +300,74 @@ function deriveDestructiveMutations(file: string, lineNum: number, content: stri
   }
 }
 
+/** Masks from an opening delimiter at `i` through its matching `closeChar`, honoring backslash escapes. Returns the index past the close (or end of line if unterminated). */
+function maskDelimitedSpan(masked: string[], i: number, closeChar: string): number {
+  masked[i] = " ";
+  i++;
+  while (i < masked.length) {
+    if (masked[i] === "\\" && i + 1 < masked.length) {
+      masked[i] = " ";
+      masked[i + 1] = " ";
+      i += 2;
+    } else if (masked[i] === closeChar) {
+      masked[i] = " ";
+      i++;
+      break;
+    } else {
+      masked[i] = " ";
+      i++;
+    }
+  }
+  return i;
+}
+
+// Masks a block comment opening at `i` through its close delimiter. Returns the
+// index past the close, or end of line when the comment does not close here.
+function maskBlockComment(masked: string[], i: number): number {
+  masked[i] = " ";
+  masked[i + 1] = " ";
+  i += 2;
+  while (i < masked.length) {
+    if (masked[i] === "*" && i + 1 < masked.length && masked[i + 1] === "/") {
+      masked[i] = " ";
+      masked[i + 1] = " ";
+      i += 2;
+      return i;
+    }
+    masked[i] = " ";
+    i++;
+  }
+  return i;
+}
+
+export function maskNonCodeSpans(line: string): string {
+  const masked = line.split("");
+  let i = 0;
+
+  while (i < masked.length) {
+    const char = masked[i];
+
+    if (char === "/" && i + 1 < masked.length && masked[i + 1] === "/") {
+      masked.fill(" ", i);
+      break;
+    }
+
+    if (char === "/" && i + 1 < masked.length && masked[i + 1] === "*") {
+      i = maskBlockComment(masked, i);
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      i = maskDelimitedSpan(masked, i, char);
+      continue;
+    }
+
+    i++;
+  }
+
+  return masked.join("");
+}
+
 function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
   const candidates: Candidate[] = [];
 
@@ -287,9 +376,11 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
     return candidates;
   }
 
-  deriveGuardMutations(file, lineNum, content, candidates);
-  deriveOperatorMutations(file, lineNum, content, candidates);
-  deriveDestructiveMutations(file, lineNum, content, candidates);
+  const maskedContent = maskNonCodeSpans(content);
+
+  deriveGuardMutations(file, lineNum, content, maskedContent, candidates);
+  deriveOperatorMutations(file, lineNum, content, maskedContent, candidates);
+  deriveDestructiveMutations(file, lineNum, content, maskedContent, candidates);
 
   return candidates;
 }
@@ -322,11 +413,15 @@ function applyMutation(fileContent: string, candidate: Candidate): string {
   if (line === undefined) {
     throw new Error(`Line ${candidate.line} is undefined`);
   }
-  const newLine = line.replace(candidate.originalText, candidate.mutatedText);
 
-  if (newLine === line) {
-    throw new Error(`Failed to apply mutation: ${candidate.originalText} not found in line ${candidate.line}`);
+  const slice = line.slice(candidate.columnStart, candidate.columnEnd);
+  if (slice !== candidate.originalText) {
+    throw new Error(
+      `Failed to apply mutation: expected "${candidate.originalText}" at ${candidate.columnStart}-${candidate.columnEnd} but found "${slice}"`,
+    );
   }
+
+  const newLine = line.slice(0, candidate.columnStart) + candidate.mutatedText + line.slice(candidate.columnEnd);
 
   lines[lineIndex] = newLine;
   return lines.join("\n");

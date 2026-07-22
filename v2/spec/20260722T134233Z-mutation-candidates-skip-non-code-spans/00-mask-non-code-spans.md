@@ -28,14 +28,14 @@ applied inside the string.
 
 ## Acceptance criteria
 
-- [ ] A changed line in a code file whose only `<`, `>`, `!`, or `delete(` text sits inside a string literal yields no mutation candidate. A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` drives the verifier over such a diff, asserts a `pass` with `candidateCount: 0`, and fails against the pre-change deriver.
-- [ ] `<` inside a trailing `//` line comment and inside a backtick template literal likewise yield no candidate, asserted by tests in the same file.
-- [ ] A genuine comparison operator on the same line as a string containing `<` is still mutated, and the applied mutation lands on the operator rather than inside the string — asserted by a test that inspects the written file content.
-- [ ] A regression test pins the exact `v2/src/cli/usage.ts` `CLEANUP_USAGE` line as a changed line and asserts it produces no candidate; it fails against the pre-change verifier.
-- [ ] Escaped quotes (`"a \" b < c"`) and single-quoted strings adjacent to real operators are masked correctly, asserted by a test.
-- [ ] Existing `v2/src/execution/diff-derived-mutation-verifier.test.ts` tests stay green (candidate derivation, scoped-test execution, restoration, bounds, and result semantics unchanged).
-- [ ] Inverting each conditional this change adds or modifies — the masking lexer's quote-open, quote-close, escape, and comment-start branches, and `applyMutation`'s column-slice guard — fails at least one test. For the masking branches the negative case asserts the candidate is present when masking is off, proving the suppression is what removes it.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A changed line in a code file whose only `<`, `>`, `!`, or `delete(` text sits inside a string literal yields no mutation candidate. A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` drives the verifier over such a diff, asserts a `pass` with `candidateCount: 0`, and fails against the pre-change deriver.
+- [x] `<` inside a trailing `//` line comment and inside a backtick template literal likewise yield no candidate, asserted by tests in the same file.
+- [x] A genuine comparison operator on the same line as a string containing `<` is still mutated, and the applied mutation lands on the operator rather than inside the string — asserted by a test that inspects the written file content.
+- [x] A regression test pins the exact `v2/src/cli/usage.ts` `CLEANUP_USAGE` line as a changed line and asserts it produces no candidate; it fails against the pre-change verifier.
+- [x] Escaped quotes (`"a \" b < c"`) and single-quoted strings adjacent to real operators are masked correctly, asserted by a test.
+- [x] Existing `v2/src/execution/diff-derived-mutation-verifier.test.ts` tests stay green (candidate derivation, scoped-test execution, restoration, bounds, and result semantics unchanged).
+- [x] Inverting each conditional this change adds or modifies — the masking lexer's quote-open, quote-close, escape, and comment-start branches, and `applyMutation`'s column-slice guard — fails at least one test. For the masking branches the negative case asserts the candidate is present when masking is off, proving the suppression is what removes it.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

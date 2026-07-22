@@ -88,6 +88,34 @@ Use this review question set:
 - Is another test already proving the same behavior more directly?
 - Is the runtime cost justified for the default parallel suite?
 
+## Do not call production behavior in test doubles
+
+Test doubles must not compute their responses by calling the production functions they stand in for; a double that delegates to production defeats the purpose of stubbing. This is enforced by a static guard (`scripts/guard-test-double-production-calls.ts`), which runs as part of `bun run check`.
+
+**Forbidden pattern:** a test double imports a production function and calls it to compute its response:
+
+```typescript
+// BAD: importing production dispatch to use it in a double
+import { advanceLoadedRevision } from "../cli.ts";
+
+export function makeWorkflowDouble() {
+  return {
+    invoke: async ({ cwd }) => {
+      const revision = advanceLoadedRevision(cwd); // VIOLATION: double calls production
+      return { kind: "ok", stdout: revision };
+    },
+  };
+}
+```
+
+**Allowed forms:**
+
+- **Type-only imports** (`import type { Type } from "..."`) — safe because they disappear at runtime.
+- **Imported constants never called** — importing `DEFAULT_TIMEOUT` and using its value is fine; using a computed constant is not a call.
+- **Allowlisted builder/entry-point calls** — specific functions exist to initialize shared state for testing: `main()` (CLI entry point), `openStateStore()` (state store init), `startDaemon()` (daemon spawning), `isProcessAlive()` (process probe). These are fixtures that span the test boundary, not behavior doubles. To add an allowlisted call, edit the `ALLOWED_CALLS` set in `scripts/guard-test-double-production-calls.ts` with a reason comment.
+
+When a test needs a production function's output, inject it as a fixture argument instead of calling the function inside the double.
+
 ## Do not reimplement production logic in test doubles
 
 When an exported production seam can be exercised with injected fakes, call that seam. Do not recreate owned behavior in local doubles, stub handlers, or copied control flow.

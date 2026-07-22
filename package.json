@@ -9,7 +9,7 @@
     "jarvis": "bin/jarvis"
   },
   "scripts": {
-    "check": "bun biome check . && bun run scripts/guard-sync-child-processes.ts && bun run scripts/guard-deterministic-daemon-tests.ts",
+    "check": "bun biome check . && bun run scripts/guard-sync-child-processes.ts && bun run scripts/guard-deterministic-daemon-tests.ts && bun run scripts/guard-test-double-production-calls.ts",
     "check:fix": "bun biome check --write .",
     "check:fix:unsafe": "bun biome check --write --unsafe .",
     "fix": "bun run check:fix:unsafe",

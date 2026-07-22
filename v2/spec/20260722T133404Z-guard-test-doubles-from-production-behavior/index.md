@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Guard production calls in test doubles](./00-guard-production-calls-in-test-doubles.md)
+- [x] [00 - Guard production calls in test doubles](./00-guard-production-calls-in-test-doubles.md)

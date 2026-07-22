@@ -25,12 +25,12 @@ Such a double asserts the implementation against itself. Only review catches thi
 
 ## Acceptance criteria
 
-- [ ] A new `test-doubles production-call guard` test rejects the known `advanceLoadedRevision` pattern — a value import of a production dispatch helper called to compute a double's status reply — and fails against the pre-guard code.
-- [ ] The guard test accepts type-only production imports, imported production constants that are never called, and allowlisted builder/entry-point calls (`openStateStore`, `main`, `startDaemon`, `isProcessAlive`).
-- [ ] The guard scans all files under `v2/src/testing/**` (not only `*.test.ts`) and reports `<file>:<line>: <module>#<export>` on stderr, exiting non-zero when violations exist.
-- [ ] `bun run check` runs the guard and passes against the current tree.
-- [ ] Inverting each added guard condition (drop the type-only skip; drop the allowlist check; drop the production-module path check) makes at least one guard test fail; the allowlist-drop case proves the suppression itself is tested.
-- [ ] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
+- [x] A new `test-doubles production-call guard` test rejects the known `advanceLoadedRevision` pattern — a value import of a production dispatch helper called to compute a double's status reply — and fails against the pre-guard code.
+- [x] The guard test accepts type-only production imports, imported production constants that are never called, and allowlisted builder/entry-point calls (`openStateStore`, `main`, `startDaemon`, `isProcessAlive`).
+- [x] The guard scans all files under `v2/src/testing/**` (not only `*.test.ts`) and reports `<file>:<line>: <module>#<export>` on stderr, exiting non-zero when violations exist.
+- [x] `bun run check` runs the guard and passes against the current tree.
+- [x] Inverting each added guard condition (drop the type-only skip; drop the allowlist check; drop the production-module path check) makes at least one guard test fail; the allowlist-drop case proves the suppression itself is tested.
+- [x] `bun run check`, `bun run typecheck`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

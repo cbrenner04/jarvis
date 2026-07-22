@@ -147,6 +147,70 @@ expect(killed).toEqual([2000]);
 
 The behavior under test (capture descendants, kill survivors by PID+identity, prune gone/reused PIDs) is pure and does not depend on real OS scheduling. See [`v1/test/modes/patch/reap.test.ts`](../../../v1/test/modes/patch/reap.test.ts) for the full test suite.
 
+## Test doubles must not call production behavior
+
+Test fixtures and mocks under `v2/src/testing/**` must never compute their responses by calling the production behavior they stand in for. Such calls turn the double into a self-referential assertion that checks implementation against itself rather than catching behavioral drift or misuse.
+
+### Rejected pattern
+
+```typescript
+import { dispatchWorkflowStep } from "../workflow/dispatcher.ts";
+
+export function createWorkflowStepDouble() {
+  const response = dispatchWorkflowStep(input); // ← violation: test double calls production
+  return { ...response, mockedField: true };
+}
+```
+
+### Allowed patterns
+
+**Type-only imports from production** are safe and do not require allowlisting:
+
+```typescript
+import type { WorkflowStep } from "../workflow/types.ts";
+
+export function createDouble(): WorkflowStep {
+  return { kind: "step", data: {} };
+}
+```
+
+**Value imports of constants or utilities** that are never *called* are safe:
+
+```typescript
+import { DEFAULT_TIMEOUT } from "../constants.ts";
+
+export function createDouble() {
+  return { timeout: DEFAULT_TIMEOUT };
+}
+```
+
+**Allowlisted production entry points** are permitted when the test needs production behavior (e.g., daemon lifecycle management or state-store access for hermetic integration). The allowlist is maintained in `scripts/guard-test-double-production-calls.ts`:
+
+```typescript
+import { startDaemon, isProcessAlive } from "../daemon/daemon-lifecycle.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { main } from "../cli.ts";
+
+// These are allowlisted and may be called to set up integration fixtures
+const daemon = await startDaemon(socketPath);
+const isAlive = isProcessAlive(daemon.pid);
+const store = openStateStore(dbPath);
+const exitCode = await main(["--help"]);
+```
+
+### How to extend the allowlist
+
+If a new production entry point must be called from a test double (e.g., for hermetic integration fixtures), add it to the `ALLOWLIST` set in `scripts/guard-test-double-production-calls.ts` with a reason:
+
+```typescript
+const ALLOWLIST = new Set([
+  "../daemon/daemon-lifecycle.ts#startDaemon",
+  // Add new entry as "../path/to/module.ts#exportName" with a reason in a comment above
+]);
+```
+
+A static guard (`scripts/guard-test-double-production-calls.ts`) verifies this rule and runs as part of `bun run check`.
+
 ## Out of scope
 
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

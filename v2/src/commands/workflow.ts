@@ -15,7 +15,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { resetStaleWorkspace, type DestroyedArtifacts } from "./cleanup.ts";
+import { type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -212,7 +212,7 @@ function formatDestroyedArtifacts(destroyed: DestroyedArtifacts): string {
   if (destroyed.removedWorktree !== undefined) lines.push(`  worktree: ${destroyed.removedWorktree}`);
   if (destroyed.deletedLocalBranch !== undefined) lines.push(`  local branch: ${destroyed.deletedLocalBranch}`);
   if (destroyed.deletedRemoteBranch !== undefined) lines.push(`  remote branch: ${destroyed.deletedRemoteBranch}`);
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {

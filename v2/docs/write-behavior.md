@@ -917,6 +917,31 @@ Unreadable index identity fails with a title-resolution error naming the spec pa
 there is no `jarvis: complete run` fallback. Existing matching open PRs retain
 their titles.
 
+## Uncovered changed-line reporter
+
+`reportUncoveredChangedLines` (`v2/src/execution/uncovered-changed-lines.ts`) is a
+standalone advisory module (not yet wired into the write step) that names changed
+production code lines no scoped test executed.
+
+It diffs the working tree against `<runBase>` (`git diff <runBase>`) plus untracked
+production files — not `<runBase>...HEAD`, which is empty before Jarvis commits at
+the completion boundary. Only added lines in changed production files whose paths
+match `isCodePath` (same extension rule as diff-derived mutation verification) are
+reported; docs, specs, prompts, and JSON produce no lines.
+
+Coverage is collected with exactly one `bun test --coverage --coverage-reporter=lcov`
+invocation scoped to the directories implied by `classifyChangedPaths` on the changed
+paths (for example `./v2/` for a `v2/**`-only diff), not a repo-wide run and not
+per-file `test:v*` script invocations. Output is written under the worktree's
+gitignored `.scratch/` and deleted after parsing. A changed code file absent from the
+lcov output counts as fully uncovered.
+
+The module returns uncovered sites as data plus rendered agent-facing text from one
+call. Report text names file and line only; it computes no percentage, ratio, or
+threshold, and states that executed ≠ asserted and that the mutation verifier decides
+adequacy. Coverage collection failures (non-zero exit, timeout, empty output, or
+unparseable lcov) fail soft: no report and no thrown error.
+
 ## Diff-derived mutation verification
 
 After the scoped ready gate passes (green suite) and before the draft→ready flip,

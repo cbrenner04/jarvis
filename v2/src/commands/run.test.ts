@@ -582,6 +582,55 @@ describe("run control", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
   });
 
+  test("run list renders surviving-mutation columns independently and omits them when absent", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000011";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                runs: [
+                  {
+                    runId: "mutation",
+                    project: "demo",
+                    branch: "main",
+                    status: "failed",
+                    isLive: false,
+                    error: {
+                      reason: "surviving_mutation_failed",
+                      retryable: true,
+                      nextAction: "resume",
+                      survivingMutation: "operator-flip",
+                      survivingMutationSourceFile: "src/guard.ts",
+                      survivingMutationSourceLine: 17,
+                    },
+                  },
+                  { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+                ],
+              },
+            },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const [mutation, plain] = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n")
+      .map((row) => row.split("\t"));
+    expect(mutation?.[10]).toBe("operator-flip");
+    expect(mutation?.[11]).toBe("src/guard.ts");
+    expect(mutation?.[12]).toBe("17");
+    expect(plain?.[10]).toBe("-");
+    expect(plain?.[11]).toBe("-");
+    expect(plain?.[12]).toBe("-");
+  });
+
   test("run wait missing run ID prints run-control usage and exits 1", async () => {
     const cap = captureIo();
 

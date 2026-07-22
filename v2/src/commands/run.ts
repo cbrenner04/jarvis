@@ -23,6 +23,9 @@ function formatListRunRow(run: DaemonListRunRow): string {
     e?.nextAction ?? "-",
     run.worktreePath ?? "-",
     e?.publicationFailure === undefined ? "-" : JSON.stringify(e.publicationFailure),
+    e?.survivingMutation ?? "-",
+    e?.survivingMutationSourceFile ?? "-",
+    e?.survivingMutationSourceLine === undefined ? "-" : String(e.survivingMutationSourceLine),
     run.prNumber !== undefined ? String(run.prNumber) : "-",
     run.prUrl ?? "-",
   ];

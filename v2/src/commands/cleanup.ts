@@ -637,22 +637,16 @@ export async function runCleanupCommand(
 
 /**
  * Shared retirement sequence: `git worktree remove` (throws on failure) →
- * `worktree prune` (best-effort) → `branch -D` (best-effort) → optionally
- * `push origin --delete` (best-effort).
+ * `worktree prune` (best-effort) → `branch -D` (best-effort).
  */
 async function removeWorktreeAndBranch(
   branch: string,
   worktreePath: string,
   projectRoot: string,
-  options: { force?: boolean; deleteRemoteBranch?: boolean },
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
 ): Promise<void> {
-  await runner.runAsync(
-    "git",
-    ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath],
-    projectRoot,
-  );
+  await runner.runAsync("git", ["worktree", "remove", worktreePath], projectRoot);
   io.stdout(`Removed worktree: ${worktreePath}\n`);
 
   try {
@@ -668,17 +662,6 @@ async function removeWorktreeAndBranch(
     io.stdout(
       `Warning: Could not delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-  }
-
-  if (options.deleteRemoteBranch === true) {
-    try {
-      await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot);
-      io.stdout(`Deleted remote branch: ${branch}\n`);
-    } catch (err) {
-      io.stdout(
-        `Warning: Could not delete remote branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
-    }
   }
 }
 
@@ -699,7 +682,7 @@ export async function performWorktreeRemovals(
     const worktree = candidate.worktree;
     try {
       // cwd doesn't matter for absolute worktree paths
-      await removeWorktreeAndBranch(worktree.branch, worktree.path, projectRootForCandidate(candidate), {}, runner, io);
+      await removeWorktreeAndBranch(worktree.branch, worktree.path, projectRootForCandidate(candidate), runner, io);
       io.stdout(`Retired: ${worktree.path}\n`);
       await afterRetirement?.(candidate);
     } catch (err) {
@@ -738,7 +721,11 @@ export async function resetStaleWorkspace(
   if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
-  return abandonResult === 0 ? { status: "reset" } : { status: "refused", reason: "abandonment failed" };
+  if (abandonResult.ok) return { status: "reset" };
+  return {
+    status: "refused",
+    reason: `retirement failed at ${abandonResult.step}; ${remainingArtifactsAfter(abandonResult.step)}`,
+  };
 }
 
 async function isWorktreeLiveHeld(
@@ -812,6 +799,70 @@ async function resolveName(
   return { error: `No worktree found matching name "${name}"` };
 }
 
+/** Retirement steps, in execution order. */
+type RetirementStep = "worktree removal" | "local branch deletion" | "remote branch deletion" | "PR closure";
+
+type AbandonOutcome = { ok: true } | { ok: false; step: RetirementStep };
+
+/** Artifacts a caller still owns after retirement aborted at `step`. */
+function remainingArtifactsAfter(step: RetirementStep): string {
+  switch (step) {
+    case "worktree removal":
+      return "worktree, local branch, remote branch, and PR remain";
+    case "local branch deletion":
+      return "local branch, remote branch, and PR remain (worktree removed)";
+    case "remote branch deletion":
+      return "remote branch and PR remain (worktree and local branch removed)";
+    case "PR closure":
+      return "PR remains open (worktree, local branch, and remote branch removed)";
+  }
+}
+
+/**
+ * True when `git push origin --delete` failed because the remote branch is
+ * already gone — the goal state, not a failure.
+ */
+function isRemoteRefAlreadyAbsent(err: unknown): boolean {
+  const text =
+    err instanceof AsyncSubprocessError
+      ? `${err.message}\n${err.stderr}`
+      : err instanceof Error
+        ? err.message
+        : String(err);
+  return /remote ref does not exist/i.test(text);
+}
+
+/**
+ * Deletes the remote branch, treating "already absent" as success: a workspace
+ * whose run died before its first push, or a repo with no `origin`, has no
+ * remote ref to delete. Genuine failures (auth, network, protected ref) fail.
+ */
+async function deleteRemoteBranch(
+  branch: string,
+  cwd: string,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void },
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await runner.runAsync("git", ["remote", "get-url", "origin"], cwd);
+  } catch {
+    io.stdout(`No origin remote; remote branch ${branch} already absent\n`);
+    return { ok: true };
+  }
+
+  try {
+    await runner.runAsync("git", ["push", "origin", "--delete", branch], cwd);
+    io.stdout(`Deleted remote branch: ${branch}\n`);
+    return { ok: true };
+  } catch (err) {
+    if (isRemoteRefAlreadyAbsent(err)) {
+      io.stdout(`Remote branch ${branch} already absent\n`);
+      return { ok: true };
+    }
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function performAbandonmentSteps(
   branch: string,
   worktreePath: string,
@@ -819,32 +870,48 @@ async function performAbandonmentSteps(
   prNumber: number | undefined,
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): Promise<number> {
-  // Best-effort: close the PR
-  if (prNumber !== undefined) {
-    try {
-      await runner.runAsync("gh", ["pr", "close", String(prNumber)], projectRoot ?? ".");
-      io.stdout(`Closed PR #${prNumber}\n`);
-    } catch (err) {
-      io.stdout(`Warning: Could not close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
-    }
+): Promise<AbandonOutcome> {
+  const cwd = projectRoot ?? ".";
+
+  try {
+    await runner.runAsync("git", ["worktree", "remove", "--force", worktreePath], cwd);
+    io.stdout(`Removed worktree: ${worktreePath}\n`);
+  } catch (err) {
+    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { ok: false, step: "worktree removal" };
   }
 
   try {
-    await removeWorktreeAndBranch(
-      branch,
-      worktreePath,
-      projectRoot ?? ".",
-      { force: true, deleteRemoteBranch: true },
-      runner,
-      io,
-    );
-  } catch (err) {
-    io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+    await runner.runAsync("git", ["worktree", "prune"], cwd);
+  } catch {
+    // Prune may fail but shouldn't block the operation
   }
 
-  return 0;
+  try {
+    await runner.runAsync("git", ["branch", "-D", branch], cwd);
+    io.stdout(`Deleted local branch: ${branch}\n`);
+  } catch (err) {
+    io.stderr(`Failed to delete local branch ${branch}: ${err instanceof Error ? err.message : String(err)}\n`);
+    return { ok: false, step: "local branch deletion" };
+  }
+
+  const remote = await deleteRemoteBranch(branch, cwd, runner, io);
+  if (!remote.ok) {
+    io.stderr(`Failed to delete remote branch ${branch}: ${remote.message}\n`);
+    return { ok: false, step: "remote branch deletion" };
+  }
+
+  if (prNumber !== undefined) {
+    try {
+      await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd);
+      io.stdout(`Closed PR #${prNumber}\n`);
+    } catch (err) {
+      io.stderr(`Failed to close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
+      return { ok: false, step: "PR closure" };
+    }
+  }
+
+  return { ok: true };
 }
 
 export async function runAbandonCommand(
@@ -895,12 +962,12 @@ export async function runAbandonCommand(
   io.stdout(`  Project: ${project}\n`);
   io.stdout(`  Branch: ${branch}\n`);
   io.stdout(`  Worktree: ${worktreePath}\n`);
-  if (prNumber !== undefined) {
-    io.stdout(`  close: PR #${prNumber}\n`);
-  }
   io.stdout(`  remove: worktree at ${worktreePath}\n`);
   io.stdout(`  delete: local branch ${branch}\n`);
   io.stdout(`  delete: remote branch ${branch}\n`);
+  if (prNumber !== undefined) {
+    io.stdout(`  close: PR #${prNumber}\n`);
+  }
 
   if (options.dryRun) {
     io.stdout("(dry-run: no changes made)\n");
@@ -917,7 +984,10 @@ export async function runAbandonCommand(
 
   // Execute abandonment
   const result = await performAbandonmentSteps(branch, worktreePath, projectRoot, prNumber, runner, io);
-  if (result !== 0) return result;
+  if (!result.ok) {
+    io.stderr(`Retirement stopped at ${result.step}: ${remainingArtifactsAfter(result.step)}\n`);
+    return 1;
+  }
 
   io.stdout(`Abandoned workspace: ${workspaceName}\n`);
   return 0;

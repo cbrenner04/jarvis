@@ -695,8 +695,12 @@ describe("implement preflight stale workspace reset", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 55, isDraft: true }]);
         }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           closedPrs.push(Number(args[2]));
+          return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
       },
@@ -732,8 +736,12 @@ describe("implement preflight stale workspace reset", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 56, isDraft: true }]);
         }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           closedPrs.push(Number(args[2]));
+          return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
       },

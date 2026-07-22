@@ -971,6 +971,11 @@ describe("cleanup: runAbandonCommand", () => {
     writeFileSync(join(projectRoot, "README.md"), "# Test\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+
+    // Real local bare remote so remote-branch deletion has an `origin` to act on.
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], tempRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], projectRoot);
   });
 
   afterEach(() => {
@@ -989,8 +994,14 @@ describe("cleanup: runAbandonCommand", () => {
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         invocations.push({ cmd, args: [...args] });
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ number: 123, state: "DRAFT" });
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 123, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -1051,6 +1062,9 @@ describe("cleanup: runAbandonCommand", () => {
             return "";
           }
         }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -1072,18 +1086,21 @@ describe("cleanup: runAbandonCommand", () => {
     expect(closeInvocation?.args).toEqual(["pr", "close", "456"]);
   });
 
-  test("abandon completes worktree/branch retirement even if gh pr close fails", async () => {
+  test("abandon fails (nonzero) if gh pr close fails", async () => {
     const branch = "feat/pr-close-fails";
     const worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
 
-    let stdout = "";
+    let stderr = "";
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           throw new Error("gh pr close failed");
@@ -1099,14 +1116,13 @@ describe("cleanup: runAbandonCommand", () => {
       jarvisRoot,
       mockRunner,
       daemonClient,
-      { stdout: (s) => (stdout += s), stderr: () => {} },
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
     );
 
-    expect(code).toBe(0);
-    expect(stdout).toContain("Warning: Could not close PR");
-    expect(stdout).toContain("Abandoned workspace");
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to close PR");
 
-    // Verify worktree was still removed despite PR close failure
+    // Verify worktree was removed (earlier steps succeeded)
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
   });
@@ -1179,12 +1195,27 @@ describe("cleanup: runAbandonCommand", () => {
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
 
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 789, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
     const code = await (await import("./cleanup.ts")).runAbandonCommand(
       branch,
       { promptConfirm: async () => true },
       registry,
       jarvisRoot,
-      realAsyncSubprocessRunner,
+      mockRunner,
       daemonClient,
       { stdout: () => {}, stderr: () => {} },
     );
@@ -1380,11 +1411,19 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           gitRemoveInvoked = true;
         }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          // Mock successful remote branch deletion
+          return "";
+        }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 445, isDraft: true }]);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 445, state: "DRAFT" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          // Mock successful PR close
+          return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -1407,6 +1446,352 @@ describe("cleanup: runAbandonCommand", () => {
     // Verify worktree is gone
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon aborts and exits nonzero on worktree removal failure, leaving branches and PR intact", async () => {
+    const branch = "feat/abort-worktree";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<{ cmd: string; args: string[]; step: string }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          invocations.push({ cmd, args: [...args], step: "remove-worktree" });
+          throw new Error("simulated worktree remove failure");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocations.push({ cmd, args: [...args], step: "delete-branch" });
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push({ cmd, args: [...args], step: "delete-remote" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push({ cmd, args: [...args], step: "close-pr" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 555, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to remove worktree");
+    // Later steps should not be executed
+    expect(invocations.map((i) => i.step)).toEqual(["remove-worktree"]);
+    // Worktree still exists
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("abandon aborts and exits nonzero on local branch deletion failure, leaving remote branch and PR intact", async () => {
+    const branch = "feat/abort-local-branch";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          invocations.push("delete-branch");
+          throw new Error("simulated branch delete failure");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 556, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to delete local branch");
+    // Only up to and including the failed step
+    expect(invocations).toEqual(["delete-branch"]);
+    // Remote branch should not be deleted and PR should not be closed
+  });
+
+  test("abandon aborts and exits nonzero on remote branch deletion failure, leaving PR intact", async () => {
+    const branch = "feat/abort-remote-branch";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+          throw new Error("simulated remote delete failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 557, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to delete remote branch");
+    // Only up to and including the failed step
+    expect(invocations).toEqual(["delete-remote"]);
+    // PR should not be closed
+  });
+
+  test("abandon aborts and exits nonzero on PR closure failure", async () => {
+    const branch = "feat/abort-pr-close";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          invocations.push("delete-remote");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+          throw new Error("simulated PR close failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 558, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to close PR");
+    // The remote delete ran and nothing followed the failed closure
+    expect(invocations).toEqual(["delete-remote", "close-pr"]);
+    // Worktree should be removed despite PR close failure
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR", async () => {
+    const branch = "feat/step-order";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    const stepOrder: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          stepOrder.push("remove-worktree");
+        }
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
+          stepOrder.push("delete-local-branch");
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          stepOrder.push("delete-remote-branch");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          stepOrder.push("close-pr");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 559, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stepOrder).toEqual(["remove-worktree", "delete-local-branch", "delete-remote-branch", "close-pr"]);
+  });
+
+  // Goal-state cases: the remote branch is already gone. Both run real git so the
+  // absence is observed end-to-end rather than stubbed.
+  test("abandon succeeds when the repo has no origin remote", async () => {
+    const branch = "feat/no-origin";
+    const worktreePath = await createUnmergedWorktree(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "remove", "origin"], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const gitCommands: string[][] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+        if (cmd === "git") gitCommands.push([...args]);
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("already absent");
+    expect(stdout).toContain("Abandoned workspace");
+    expect(gitCommands.some((args) => args[0] === "push")).toBe(false);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon succeeds when the branch was never pushed to origin, then closes the PR", async () => {
+    const branch = "feat/never-pushed";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const stepOrder: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 561, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          stepOrder.push("close-pr");
+          return "";
+        }
+        // Real `git push origin --delete` against the bare origin that never
+        // received this branch: git reports "remote ref does not exist".
+        if (cmd === "git" && args[0] === "push") stepOrder.push("delete-remote");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain(`Remote branch ${branch} already absent`);
+    expect(stepOrder).toEqual(["delete-remote", "close-pr"]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("abandon preview lists actions in execution order", async () => {
+    const branch = "feat/preview-order";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stdout = "";
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 560, isDraft: true }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    // Verify preview order: remove worktree, delete local, delete remote, then close PR
+    const removeIdx = stdout.indexOf("remove: worktree");
+    const deleteLocalIdx = stdout.indexOf("delete: local branch");
+    const deleteRemoteIdx = stdout.indexOf("delete: remote branch");
+    const closeIdx = stdout.indexOf("close: PR");
+    expect(removeIdx).toBeGreaterThan(0);
+    expect(deleteLocalIdx).toBeGreaterThan(removeIdx);
+    expect(deleteRemoteIdx).toBeGreaterThan(deleteLocalIdx);
+    expect(closeIdx).toBeGreaterThan(deleteRemoteIdx);
   });
 });
 
@@ -1650,6 +2035,8 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -1669,6 +2056,11 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     writeFileSync(join(projectRoot, "README.md"), "# Test\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+
+    // Real local bare remote so remote-branch deletion has an `origin` to act on.
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], tempRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], projectRoot);
   });
 
   afterEach(() => {
@@ -1684,6 +2076,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 123, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          return "";
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           closedPrs.push(Number(args[2]));
@@ -1787,7 +2182,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(readFileSync(subspecPath, "utf8")).toBe(subspecContent);
   });
 
-  test("reset closes draft PR before deleting branch", async () => {
+  test("reset deletes branch before closing PR in new retirement order", async () => {
     const branch = "impl/pr-close-order";
     await setupWorktreeAndBranch(branch);
 
@@ -1797,14 +2192,19 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
           return JSON.stringify([{ number: 789, isDraft: true }]);
         }
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
-          invocationOrder.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          invocationOrder.push("remove-worktree");
         }
         if (cmd === "git" && args[0] === "branch" && args[1] === "-D") {
           invocationOrder.push("branch-delete");
         }
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           invocationOrder.push("push-delete");
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocationOrder.push("pr-close");
+          return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -1813,10 +2213,56 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, mockRunner);
 
     expect(result.status).toBe("reset");
-    const prCloseIdx = invocationOrder.indexOf("pr-close");
-    const branchDeleteIdx = invocationOrder.indexOf("branch-delete");
-    expect(prCloseIdx).toBeGreaterThanOrEqual(0);
-    expect(branchDeleteIdx).toBeGreaterThanOrEqual(0);
-    expect(prCloseIdx).toBeLessThan(branchDeleteIdx);
+    // New retirement order: worktree, local branch, remote branch, PR
+    expect(invocationOrder).toEqual(["remove-worktree", "branch-delete", "push-delete", "pr-close"]);
+  });
+
+  test("refusal from a partial teardown names the failed step and the surviving artifacts", async () => {
+    const branch = "impl/partial-teardown";
+    await setupWorktreeAndBranch(branch);
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 790, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
+          throw new Error("remote rejected: protected branch");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    expect(result.status === "refused" ? result.reason : "").toContain("remote branch deletion");
+    expect(result.status === "refused" ? result.reason : "").toContain("worktree and local branch removed");
+  });
+
+  test("reset succeeds when the branch was never pushed to origin", async () => {
+    const branch = "impl/never-pushed";
+    await setupWorktreeAndBranch(branch);
+
+    const closedPrs: number[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 791, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          closedPrs.push(Number(args[2]));
+          return "";
+        }
+        // Real `git push origin --delete` runs against the bare origin, which
+        // never received this branch.
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("reset");
+    expect(closedPrs).toEqual([791]);
   });
 });

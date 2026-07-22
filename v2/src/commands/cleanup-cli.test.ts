@@ -218,11 +218,12 @@ describe("cleanup command through main", () => {
   // delegates git to the real runner rooted in the temp project.
   function mergedPrRunner(projectRoot: string): AsyncSubprocessRunner {
     return {
-      runAsync: async (cmd, args) => {
+      runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
+        // Pass through all other commands, don't apply a default cwd - let git commands run from their specified cwd
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
   }

@@ -20,16 +20,16 @@ lets later steps run.
 
 ## Acceptance criteria
 
-- [ ] Retirement (`jarvis cleanup --abandon <name>` and the implement-rerun stale-workspace reset) removes the worktree and deletes the local branch before deleting the remote branch or closing the PR.
-- [ ] A retirement whose worktree removal or local branch deletion fails reports the failure, exits nonzero, and issues no `git push origin --delete` and no `gh pr close`.
-- [ ] A retirement whose remote branch deletion fails reports the failure, exits nonzero, and issues no `gh pr close`.
-- [ ] A retirement whose PR closure fails reports the failure and exits nonzero.
-- [ ] A fully successful retirement still ends with the worktree removed, local branch deleted, remote branch deleted, and PR closed.
-- [ ] The `--abandon` preview lists the planned actions in execution order (remove worktree, delete local branch, delete remote branch, close PR).
-- [ ] New tests in `v2/src/commands/cleanup.test.ts` assert the recorded command order and each abort-point (local failure, remote failure, PR-closure failure); they fail against the pre-fix code.
-- [ ] Inverting each added abort guard (continuing past a failed step instead of returning) makes at least one test fail, and the abort-point tests prove the later commands are absent, not merely unasserted.
-- [ ] Existing `cleanup.test.ts` bulk-retirement tests stay green (`performWorktreeRemovals` best-effort local-branch behavior unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] Retirement (`jarvis cleanup --abandon <name>` and the implement-rerun stale-workspace reset) removes the worktree and deletes the local branch before deleting the remote branch or closing the PR.
+- [x] A retirement whose worktree removal or local branch deletion fails reports the failure, exits nonzero, and issues no `git push origin --delete` and no `gh pr close`.
+- [x] A retirement whose remote branch deletion fails reports the failure, exits nonzero, and issues no `gh pr close`.
+- [x] A retirement whose PR closure fails reports the failure and exits nonzero.
+- [x] A fully successful retirement still ends with the worktree removed, local branch deleted, remote branch deleted, and PR closed.
+- [x] The `--abandon` preview lists the planned actions in execution order (remove worktree, delete local branch, delete remote branch, close PR).
+- [x] New tests in `v2/src/commands/cleanup.test.ts` assert the recorded command order and each abort-point (local failure, remote failure, PR-closure failure); they fail against the pre-fix code.
+- [x] Inverting each added abort guard (continuing past a failed step instead of returning) makes at least one test fail, and the abort-point tests prove the later commands are absent, not merely unasserted.
+- [x] Existing `cleanup.test.ts` bulk-retirement tests stay green (`performWorktreeRemovals` best-effort local-branch behavior unchanged).
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

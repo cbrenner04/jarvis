@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
+import { daemonPathsForDigest } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
@@ -83,7 +84,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
   ]);
 });
 
-test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
+test("defaults socket path to the invoking executable's keyed daemon when omitted", async () => {
   let seenPath: string | undefined;
   await withFixedStreamId(async () => {
     const tail = await connectTuiLogTail("run-123", {
@@ -95,7 +96,7 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     await collectRecords(tail);
     tail.close();
   });
-  expect(seenPath).toBe(DAEMON_SOCKET_PATH);
+  expect(seenPath).toBe(daemonPathsForDigest(await getInvokingExecutableDigest()).socketPath);
 });
 
 test("replays then follows records in server stream-data arrival order until benign stream-end", async () => {

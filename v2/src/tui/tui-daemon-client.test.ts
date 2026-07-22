@@ -9,7 +9,7 @@ import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { daemonPathsForDigest } from "../paths.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { STALE_EXECUTABLE_DIGEST, TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
+import { TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";

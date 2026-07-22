@@ -3,7 +3,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
 import type { Io } from "./io.ts";
-import { formatConnectionError, formatLifecycleError, formatRpcError, request } from "./ipc.ts";
+import { formatConnectionError, formatLifecycleError, formatRpcError } from "./ipc.ts";
 
 async function connectWhenReady(deps: CliDeps, timeoutMs = 5_000): Promise<IpcClient> {
   const deadline = Date.now() + timeoutMs;

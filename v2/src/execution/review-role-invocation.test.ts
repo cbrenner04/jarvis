@@ -136,12 +136,9 @@ describe("invokeReviewRole", () => {
   test("passes idleOutputMs to executeWithQuotaFallback invocation", async () => {
     const idleBoundMs = 100;
     let capturedIdleOutputMs: number | undefined;
-    await invokeReviewRole(
-      { cwd: "/fake", roleTimeoutMs: 5_000, idleOutputMs: idleBoundMs },
-      "critic",
-      "inspect",
-      [capturingBinding((v) => (capturedIdleOutputMs = v))],
-    );
+    await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: 5_000, idleOutputMs: idleBoundMs }, "critic", "inspect", [
+      capturingBinding((v) => (capturedIdleOutputMs = v)),
+    ]);
     expect(capturedIdleOutputMs).toBe(idleBoundMs);
   });
 

@@ -536,6 +536,14 @@ creates a snapshot or durable state. When reached, it resolves the roles
 independently through the normal agent/rung fallback, then runs the review
 cycle with enforcement (for intent workflows).
 
+Each role invocation (`critic`, `actuator`, and every `review-debate` role) is
+armed with a per-role wall-clock bound (`roleTimeoutMs`, defaulting to the
+write-loop iteration timeout). A timer abort classifies as `failureKind:
+"timeout"` with `role`/`agent`/`model`/`boundMs` attribution on the role
+execution and, when the review step settles `invocation_failure`, on the run
+row; daemon `error.reason: "role_timeout"` (non-resumable, `nextAction:
+"stop"`). A caller-signal abort (pause/kill) keeps its existing failure kind.
+
 **Enforcement and isolation:** When the intent profile is configured,
 the review step enforces role filesystem boundaries. Before and after each
 review cycle, the working tree is checked:

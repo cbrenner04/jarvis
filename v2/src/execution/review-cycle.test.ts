@@ -150,6 +150,7 @@ describe("executeReviewCycle", () => {
 });
 
 test("a hung critic is aborted at the role wall clock", async () => {
+  const boundMs = 5;
   const hungCritic: InvocationBinding = {
     id: "critic.hung",
     metadata: { agent: "critic", model: "hung" },
@@ -166,9 +167,20 @@ test("a hung critic is aborted at the role wall clock", async () => {
     bindings: { critic: [hungCritic], actuator: [] },
     verdictPath: join(dir(), "verdict.md"),
     maxCycles: 1,
-    roleTimeoutMs: 5,
+    roleTimeoutMs: boundMs,
   });
-  expect(result).toMatchObject({ kind: "invocation_failure", failedRole: "critic" });
+  expect(result).toMatchObject({
+    kind: "invocation_failure",
+    failedRole: "critic",
+    failureKind: "timeout",
+    cycles: [{ kind: "role_failed", failedRole: "critic", failureKind: "timeout" }],
+  });
+  expect(result.cycles[0]?.roleResults.critic?.roleTimeout).toEqual({
+    role: "critic",
+    agent: "critic",
+    model: "hung",
+    boundMs,
+  });
 });
 
 test("stamps pass metadata onto serializable object profile contexts", async () => {

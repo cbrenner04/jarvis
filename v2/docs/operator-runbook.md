@@ -263,6 +263,11 @@ Two valid paths:
 
 Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
 
+A review step whose role invocation exceeds its per-role wall-clock bound settles
+`invocation_failure` with `failureKind: "timeout"` and attribution on the run
+row; `jarvis run list` / `wait` report `error.reason: "role_timeout"` (distinct
+from write-loop `iteration_timeout`).
+
 ## Gate trust
 
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,

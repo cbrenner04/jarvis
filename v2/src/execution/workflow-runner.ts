@@ -33,7 +33,9 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
+import type { InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
 import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
+import type { ReviewRoleInvocationExecution } from "./review-role-invocation.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
@@ -1498,7 +1500,21 @@ async function runReviewDebateStep(
   }
 
   if (kind === "invocation_failure") {
-    store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
+    const failed = result.cycles.at(-1);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      ...(failed?.kind === "role_failed"
+        ? {
+            invocationFailureDetail: buildReviewInvocationFailureDetail(
+              failed.failureKind,
+              failed.failedRole,
+              failed.roleResults[failed.failedRole],
+            ),
+          }
+        : {}),
+    });
   } else {
     store.commitCompletionBoundary({
       attemptId,
@@ -1706,6 +1722,24 @@ function reviewedIntentEvidenceFailure(result: ReviewCycleResult, verdictPath: s
   }
 }
 
+function buildReviewInvocationFailureDetail(
+  failureKind: InvocationFailureKind,
+  failedRole: string,
+  roleExecution: ReviewRoleInvocationExecution | undefined,
+  message?: string,
+): InvocationFailureDetail {
+  const timeout = roleExecution?.roleTimeout;
+  return {
+    failureKind,
+    bindingAttempts: [],
+    message:
+      timeout !== undefined
+        ? `review: ${failedRole} exceeded ${timeout.boundMs}ms bound (agent=${timeout.agent ?? "unknown"}, model=${timeout.model ?? "unknown"})`
+        : (message ?? `review: ${failedRole} invocation failed (${failureKind})`),
+    ...(timeout !== undefined ? timeout : {}),
+  };
+}
+
 function reviewedIntentFailureMessage(result: Extract<ReviewCycleResult, { kind: "invocation_failure" }>): string {
   if (
     (result.failedRole === "critic" || result.failedRole === "actuator") &&
@@ -1884,12 +1918,22 @@ async function runStandardReviewStep(
 
   if (result.kind === "invocation_failure") {
     const message = reviewedIntentFailureMessage(result);
+    const lastCycle = result.cycles.at(-1);
+    const failedRole =
+      result.failedRole ?? (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
+    const roleExecution =
+      lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
     if (landing?.kind === "intent-stage") {
       store.commitCompletionBoundary({
         attemptId: ids.attemptId,
         runStatus: "failed",
         outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: result.failureKind, bindingAttempts: [], message },
+        invocationFailureDetail: buildReviewInvocationFailureDetail(
+          result.failureKind,
+          failedRole,
+          roleExecution,
+          message,
+        ),
       });
     }
     return {

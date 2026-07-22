@@ -17,7 +17,7 @@ async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps)
     return null;
   }
   try {
-    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, statePath: deps.statePath, force: argv[1] === "--force" });
     io.stdout("stopped\n");
     return 0;
   } catch (error) {
@@ -31,7 +31,12 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
 
   if (subcommand === "start" && argv.length === 1) {
     try {
-      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+      const result = await deps.startDaemon(deps.socketPath, {
+        pidPath: deps.pidPath,
+        logPath: deps.logPath,
+        statePath: deps.statePath,
+        logsPath: deps.logsPath,
+      });
       io.stdout(`${JSON.stringify(result)}\n`);
       return 0;
     } catch (error) {

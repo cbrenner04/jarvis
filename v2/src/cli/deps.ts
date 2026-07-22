@@ -45,6 +45,8 @@ export type CliDeps = {
   socketPath: string;
   pidPath: string;
   logPath: string;
+  statePath: string;
+  logsPath: string;
   machineConfigPath: string;
 };
 
@@ -71,6 +73,8 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,
+    statePath: "",
+    logsPath: "",
     machineConfigPath: MACHINE_CONFIG_PATH,
     ...deps,
     workflowPresetBuilders: deps?.workflowPresetBuilders ?? WORKFLOW_PRESET_BUILDERS,

@@ -30,6 +30,22 @@ describe("daemon command", () => {
     });
   });
 
+  test("daemon start selects the invoking executable digest instead of a legacy socket", async () => {
+    const cap = captureIo();
+    let socketPath = "";
+    const code = await main(["daemon", "start"], cap.io, {
+      getExecutableDigest: async () => "new-digest",
+      startDaemon: async (socket) => {
+        socketPath = socket;
+        return { pid: 42, socketPath: socket };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(socketPath).toContain("daemon-new-digest.sock");
+    expect(socketPath).not.toEndWith("/daemon.sock");
+  });
+
   test("daemon start passes through lifecycle errors tersely", async () => {
     const cap = captureIo();
 

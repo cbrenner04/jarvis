@@ -38,17 +38,13 @@ Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 
 ## Start the daemon
 
-`jarvis run start` connects to the daemon over `~/.jarvis/daemon.sock`. Nothing
-auto-starts the daemon — start it first:
-
-```bash
-jarvis daemon start
-```
+`jarvis run start` selects a daemon socket from the invoking executable digest
+and starts that daemon automatically when needed.
 
 On success stdout is compact JSON with the child PID and socket path, for example:
 
 ```json
-{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon.sock"}
+{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon-<digest>.sock"}
 ```
 
 Confirm with `jarvis daemon status` (`running` when healthy).
@@ -177,7 +173,7 @@ records:
 jarvis daemon log --follow
 ```
 
-This reads `~/.jarvis/daemon.log` directly and works even when the daemon is
+This reads the selected digest-keyed daemon log directly and works even when the daemon is
 not running. Use `jarvis run log <run-id>` or `jarvis tui log <run-id>` for
 structured records belonging to one run.
 
@@ -474,3 +470,10 @@ named title-resolution error, with no generic completion title.
 
 - [`daemon-host.md`](./daemon-host.md) — IPC methods, `list`/`wait` error shape, resume semantics
 - [`workflow-runner.md`](./workflow-runner.md) — multi-step workflows and the `implement` preset
+
+## Daemon routing
+
+Workflow dispatch automatically starts or reuses the daemon keyed by the invoking
+executable digest. No fixed socket or manual daemon start is required; list and wait
+show only runs owned by that selected daemon. Its PID, process log, run state, and
+structured logs use the same key; legacy `daemon.sock` is not consulted.

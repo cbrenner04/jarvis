@@ -1,7 +1,8 @@
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
+import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
+import { daemonPathsForDigest } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 
 /**
@@ -25,7 +26,7 @@ export type TuiLogTailClient = {
 
 /** Options for {@link connectTuiLogTail}; production defaults apply when omitted. */
 export type ConnectTuiLogTailOptions = {
-  /** Unix socket path; defaults to `~/.jarvis/daemon.sock`. */
+  /** Unix socket path; defaults to the invoking executable's keyed daemon. */
   socketPath?: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
@@ -90,7 +91,7 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
  * @throws {RpcConnectionError} When the socket is unreachable before `stream-open`.
  */
 export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
-  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
+  const socketPath = options?.socketPath ?? daemonPathsForDigest(await getInvokingExecutableDigest()).socketPath;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;

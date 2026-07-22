@@ -1,10 +1,3 @@
-import {
-  dispatchRevisionMismatch,
-  type GetCurrentRevision,
-  type GetExecutableDigest,
-  getInvokingExecutableDigest,
-  getInvokingRevision,
-} from "../cli/dispatch-revision.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -18,7 +11,8 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
+import { daemonPathsForDigest } from "../paths.ts";
+import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };
@@ -55,12 +49,13 @@ export type TuiDaemonClient = {
 
 /** Options for {@link connectTuiDaemon}; production defaults apply when omitted. */
 export type ConnectTuiDaemonOptions = {
-  /** Unix socket path; defaults to `~/.jarvis/daemon.sock`. */
+  /** Unix socket path; defaults to the invoking executable's keyed daemon. */
   socketPath?: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
-  getCurrentRevision?: GetCurrentRevision;
-  getExecutableDigest?: GetExecutableDigest;
+  getExecutableDigest?: () => Promise<string>;
+  /** Retained injection seam; revision checks no longer use it. */
+  getCurrentRevision?: () => Promise<string>;
 };
 
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
@@ -76,10 +71,8 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
  * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
-  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
+  const socketPath = options?.socketPath ?? daemonPathsForDigest(await (options?.getExecutableDigest ?? getInvokingExecutableDigest)()).socketPath;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
-  const getCurrentRevision = options?.getCurrentRevision ?? getInvokingRevision;
-  const getExecutableDigest = options?.getExecutableDigest ?? getInvokingExecutableDigest;
 
   let client: IpcClient;
   try {
@@ -95,17 +88,6 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
     );
-
-  const guard = async (): Promise<void> => {
-    const mismatch = await dispatchRevisionMismatch(
-      (params) => transport.request("status", params),
-      getCurrentRevision,
-      getExecutableDigest,
-    );
-    if (mismatch !== undefined) {
-      throw new RpcConnectionError(mismatch.trim());
-    }
-  };
 
   return {
     async health() {
@@ -124,7 +106,6 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
       return parseListRuns(await transport.request("list")) as DaemonListResult;
     },
     async start(input) {
-      await guard();
       return parseOrThrow(
         parseStartResult(await transport.request("start", { input })),
         "malformed RPC reply: invalid start result",
@@ -132,7 +113,6 @@ export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promi
     },
     pause: (runId) => okRunRpc("pause", runId),
     async resume(runId) {
-      await guard();
       return parseOrThrow(
         parseHealthResult(await transport.request("resume", { runId })),
         "malformed RPC reply: invalid resume result",

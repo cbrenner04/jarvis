@@ -1250,9 +1250,9 @@ export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,
   logReader?: LogReader,
-  startupDeps: DaemonStartupDeps = {},
+  startupDeps: DaemonStartupDeps & { statePath?: string } = {},
 ): Promise<{ close: () => Promise<void> }> {
-  const store = stateStore ?? openStateStore();
+  const store = stateStore ?? openStateStore(startupDeps.statePath);
   const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;

@@ -25,15 +25,15 @@ A fixed daemon socket makes a newly built CLI negotiate with incompatible daemon
 
 ## Acceptance criteria
 
-- [ ] Every CLI IPC connection and daemon lifecycle operation selects `daemon-<executable-tree-digest>.sock`; a differently keyed or legacy `daemon.sock` receives no health, status, list, stop, or dispatch request.
-- [ ] Start, resume, and workflow dispatch start or reuse the selected daemon and proceed while a differently keyed daemon owns live runs.
-- [ ] `jarvis run list` and `jarvis run wait` return only rows and outcomes from the daemon selected for the invoking executable.
-- [ ] Revision-mismatch refusal, automatic bounce, and `--no-auto-bounce` are absent from dispatch and CLI usage.
-- [ ] A regression test in `v2/src/commands/daemon.test.ts` proves digest-keyed dispatch bypasses a live differently keyed daemon and fails against the pre-fix code.
-- [ ] The concurrent-start race is covered: when auto-start loses to another CLI starting the same keyed daemon, `DaemonAlreadyRunningError` is swallowed and dispatch proceeds against the winner, while any other start error propagates. Auto-starting daemons on demand is what this change introduces, so this race is now a normal path, not an edge case. **Cover the race at both layers.** The CLI layer (`v2/src/cli/stale-dispatch.ts`) decides whether to swallow `DaemonAlreadyRunningError`; the lifecycle layer (`v2/src/daemon/daemon-lifecycle.ts`) is where the PID-lease `openSync(pidPath, "wx")` *raises* it, and its `code !== "EEXIST"` guard must be pinned in both directions — `EEXIST` becomes `DaemonAlreadyRunningError`, every other `errno` propagates unchanged. Covering one layer does not cover the other. **Two prior attempts stalled here**: PR #1923 on `stale-dispatch.ts:28`, then PR #1935 on `daemon-lifecycle.ts:118` after the CLI layer was covered.
-- [ ] Every guard this change adds is pinned in both directions, so inverting any one of them fails a test.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` document keyed selection, automatic matching-daemon dispatch, single-daemon list/wait scope, legacy-socket non-interaction, and retired bounce behavior in their durable homes.
+- [x] Every CLI IPC connection and daemon lifecycle operation selects `daemon-<executable-tree-digest>.sock`; a differently keyed or legacy `daemon.sock` receives no health, status, list, stop, or dispatch request.
+- [x] Start, resume, and workflow dispatch start or reuse the selected daemon and proceed while a differently keyed daemon owns live runs.
+- [x] `jarvis run list` and `jarvis run wait` return only rows and outcomes from the daemon selected for the invoking executable.
+- [x] Revision-mismatch refusal, automatic bounce, and `--no-auto-bounce` are absent from dispatch and CLI usage.
+- [x] A regression test in `v2/src/commands/daemon.test.ts` proves digest-keyed dispatch bypasses a live differently keyed daemon and fails against the pre-fix code.
+- [x] The concurrent-start race is covered: when auto-start loses to another CLI starting the same keyed daemon, `DaemonAlreadyRunningError` is swallowed and dispatch proceeds against the winner, while any other start error propagates. Auto-starting daemons on demand is what this change introduces, so this race is now a normal path, not an edge case. **Cover the race at both layers.** The CLI layer (`v2/src/cli/stale-dispatch.ts`) decides whether to swallow `DaemonAlreadyRunningError`; the lifecycle layer (`v2/src/daemon/daemon-lifecycle.ts`) is where the PID-lease `openSync(pidPath, "wx")` *raises* it, and its `code !== "EEXIST"` guard must be pinned in both directions — `EEXIST` becomes `DaemonAlreadyRunningError`, every other `errno` propagates unchanged. Covering one layer does not cover the other. **Two prior attempts stalled here**: PR #1923 on `stale-dispatch.ts:28`, then PR #1935 on `daemon-lifecycle.ts:118` after the CLI layer was covered.
+- [x] Every guard this change adds is pinned in both directions, so inverting any one of them fails a test.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`, `v2/docs/first-workflow-walkthrough.md`, and `v2/docs/v1-behaviors.md` document keyed selection, automatic matching-daemon dispatch, single-daemon list/wait scope, legacy-socket non-interaction, and retired bounce behavior in their durable homes.
 
 ## Documentation updates
 

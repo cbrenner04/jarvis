@@ -131,6 +131,44 @@ describe("daemon-lifecycle", () => {
       ).rejects.toThrow("PID file directory does not exist");
     });
 
+    test("reclaims a stale PID lease", async () => {
+      const dir = join(process.env.TMPDIR || "/tmp", `jarvis-pid-lease-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      const pidPath = join(dir, "daemon.pid");
+      writeFileSync(pidPath, "123");
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            pidPath,
+            socketProber: { probe: async () => false },
+            daemonScript: "/fake/script",
+          }),
+        ).rejects.toThrow("died during startup");
+        expect(existsSync(pidPath)).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("propagates PID-lease errors other than EEXIST", async () => {
+      const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
+      const dir = join(process.env.TMPDIR || "/tmp", `jarvis-pid-error-${Date.now()}`);
+      mkdirSync(dir, { recursive: true });
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            pidPath: join(dir, "daemon.pid"),
+            socketProber: { probe: async () => false },
+            openPidLease: () => {
+              throw error;
+            },
+          }),
+        ).rejects.toBe(error);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     test("writes to logPath when provided", async () => {
       const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
       mkdirSync(tmpDir, { recursive: true });

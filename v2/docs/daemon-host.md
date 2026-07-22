@@ -58,9 +58,8 @@ stale-socket recovery, or max concurrent client cap in the library. The CLI,
 [`jarvis tui`](./write-behavior.md#tui-cli) (IPC `start` consumer over the
 production socket), [`jarvis tui log <run-id>`](./write-behavior.md#tui-cli)
 (IPC tail consumer over the same socket), and daemon lifecycle commands pin
-`~/.jarvis/daemon.sock`
-plus `~/.jarvis/daemon.pid` at the consumer layer; other callers still pass
-explicit paths.
+digest-keyed socket, PID, process-log, run-state, and structured-log paths at the
+consumer layer; other callers still pass explicit paths.
 
 ## Framing
 
@@ -389,12 +388,12 @@ through the persisted log store and log-server stream path, not `<logPath>`.
 Concurrent daemons sharing one `logPath` are unsupported; double-start
 protection covers the real case.
 
-**CLI default:** The CLI pins `~/.jarvis/daemon.log` alongside `daemon.sock`
-and `daemon.pid`; other callers supply `logPath` explicitly or omit it to
-discard.
+**CLI default:** The CLI pins digest-keyed process-log, socket, PID, run-state,
+and structured-log paths; other callers supply `logPath` explicitly or omit it.
 
-**Double-start protection:** If the socket already responds to `health`, throws
-`DaemonAlreadyRunningError` (no second child spawned).
+**Double-start protection:** If the socket responds or a live PID lease exists,
+throws `DaemonAlreadyRunningError`. Dead leases are reclaimed; failures and normal
+daemon exit release their lease.
 
 **Readiness:** Polls the socket for `health` response. Throws
 `DaemonReadinessTimeoutError` if the child is alive but socket doesn't respond
@@ -600,3 +599,9 @@ structured stream is the durable run timeline once records exist. See
 and daemon host). Custom RPC handlers override built-in `health`/`status` if
 provided. `connectIpcClient(socketPath)` is a thin test/caller helper.
 Frame encode/decode lives in `v2/src/ipc/`.
+
+## Executable-keyed daemon selection
+
+The v2 CLI derives `daemon-<executable-tree-digest>.sock` before IPC and uses
+matching PID, process-log, run-state, and structured-log paths. Concurrent keyed
+daemons own separate runs and never interact with legacy `~/.jarvis/daemon.sock`.

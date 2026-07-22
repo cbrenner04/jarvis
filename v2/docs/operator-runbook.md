@@ -71,12 +71,8 @@ them (`implement-preflight-validates-spec-in-missing-worktree` #1417,
 `plan-draft-write-loop-prompt`) were marked complete while the operator-visible
 failure survived — the fix landed one layer away from the bug.
 
-**Bounce the daemon only when a merge changes executable code.** Merges touching only
-`v2/spec/**`, `v2/docs/**`, or other non-executable paths need no bounce — work dispatch
-advances the daemon's recorded HEAD in-process. Merges touching `v2/src/**`, `shared/**`,
-or repo manifests still run the boot-time code snapshot until an idle bounce
-(`jarvis daemon stop && jarvis daemon start`); with live runs, dispatch refuses until
-they finish or you recover.
+Each executable selects its digest-keyed daemon. New builds start or reuse their
+own daemon and do not disturb daemons with live runs.
 
 ## North star
 
@@ -166,8 +162,8 @@ jarvis daemon status    # running → exit 0
 jarvis daemon stop      # when intentionally shutting down
 ```
 
-Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
-`jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
+Socket: `~/.jarvis/daemon-<digest>.sock`. PID, process log, run state, and structured
+logs use the same digest. `jarvis daemon log` reads the selected process log.
 
 ### Workflow presets (registered names)
 
@@ -325,7 +321,7 @@ A workflow can die after its step runs settle (review step, publication) — ste
 rows then all read `completed` while nothing was committed, pushed, or published.
 Diagnose with:
 
-- `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
+- selected digest-keyed daemon log — `Workflow execution failed (<workflow>): <message>`
 - `jarvis run log <id>` — trailing `run_execution_failed` record with the message
 - `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
 - `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran
@@ -414,12 +410,8 @@ is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
-- An executable-tree digest mismatch on CLI start, resume, or workflow dispatch
-  automatically bounces an idle daemon, waits for recovery, and retries once. Its
-  stderr output records revisions and recovery counts. If any `isLive` row exists
-  it names the IDs and refuses; finish or recover them first. Use `--no-auto-bounce`
-  to retain manual restart control. TUI start/resume guards use the same digest
-  comparison and refuse on mismatch (no auto-bounce).
+- CLI start, resume, and workflow dispatch route to a digest-keyed daemon and
+  auto-start only that daemon when absent; a differently keyed live daemon is unaffected.
 - A reconciled orphan with a missing or unresolvable workflow write snapshot is not auto-resumed.
   It stays `killed`; `list` / `wait` report `unsupported_resume_context` with `retryable: false`
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
@@ -427,7 +419,7 @@ is lost.
 
 ### Wedged run, no agent activity
 
-Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls
+Check the selected digest-keyed daemon log and `jarvis run log <run-id>`. Plan draft stalls
 historically threw before agent invoke (fixed in shipped PRs); similar failures
 may still exit without `iteration_started` follow-up until
 `write-loop-iteration-timeout-on-stall` lands.
@@ -610,7 +602,7 @@ Operators add bullets here; delete when fixed.
   surviving mutation text plus source file and line. `run resume` accepts that row. During the
   post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
   `surviving-mutation-failure-is-resumable-failed`.
-- **Docs-only merges do not halt dispatch (2026-07-21):** work-dispatch guards compare an executable-tree digest (`v2/src/**`, `shared/**`, and repo manifests), not HEAD alone. Merges touching only `v2/spec/**`, `v2/docs/**`, or other non-executable paths advance the daemon's recorded `loadedRevision` in-process and dispatch proceeds with no bounce, including while runs are live. Merges touching `v2/src/**`, `shared/**`, or manifests still require an idle daemon bounce or refuse with live run IDs when a bounce is unsafe.
+- **Digest-keyed dispatch:** a new executable starts or reuses only its own daemon. Concurrent daemons own separate runs. A startup-race loser waits for the winner; a crash leaves a reclaimable PID lease. Do not bounce another daemon or touch legacy `daemon.sock`.
 
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding
@@ -632,7 +624,7 @@ Operators add bullets here; delete when fixed.
   review step, and read the diff.
 - **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
-  nothing can clear it. A stranded row prevents the daemon restart needed after a revision mismatch.
+  nothing can clear it.
   `run list` shows the tell: `in-progress` + `not-live` on a spec
   whose PR already merged. **Recovery (verified 2026-07-16): `kill -9 <daemon-pid>` then
   `jarvis daemon start`.** Startup reconciliation settles every orphaned non-terminal row to
@@ -720,3 +712,10 @@ Operators add bullets here; delete when fixed.
 | [`daemon-host.md`](./daemon-host.md) | IPC, errors, retention |
 | [`coding-standards.md`](./coding-standards.md) | Restraint principles |
 | [`v1/docs/operator-runbook.md`](../../v1/docs/operator-runbook.md) | Plan/run/cleanup/triage/cost |
+
+## Digest-keyed daemons
+
+The invoking executable selects its own digest-keyed daemon socket and lifecycle
+files. Start, resume, and workflow dispatch auto-start only that daemon; do not
+bounce an existing daemon after a merge. `run list` and `run wait` are scoped to
+this one daemon. Leave legacy `daemon.sock` alone.

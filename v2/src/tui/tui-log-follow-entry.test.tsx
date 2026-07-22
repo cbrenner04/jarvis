@@ -304,6 +304,7 @@ describe("runTuiLogFollow", () => {
     let openedTail = false;
 
     const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => {
         openedTail = true;
@@ -328,6 +329,7 @@ describe("runTuiLogFollow", () => {
     const tail = immediateTail(records);
 
     const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => tail,
     });
@@ -349,6 +351,7 @@ describe("runTuiLogFollow", () => {
     const blocking = createBlockingTail(records);
 
     const pending = runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => blocking.client,
     });
@@ -368,6 +371,7 @@ describe("runTuiLogFollow", () => {
     const blocking = createBlockingTail(records);
 
     const pending = runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => blocking.client,
     });
@@ -390,6 +394,7 @@ describe("runTuiLogFollow", () => {
     const tail = immediateTail();
 
     const code = await runTuiLogFollow("run-missing", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => tail,
     });
@@ -414,6 +419,7 @@ describe("runTuiLogFollow", () => {
     };
 
     const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => tail,
     });
@@ -440,6 +446,7 @@ describe("runTuiLogFollow", () => {
     };
 
     const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
       connectTuiLogTail: async () => tail,
       inkRender: ink.inkRender,
     });
@@ -466,21 +473,22 @@ describe("runTuiLogFollow", () => {
 
     await expect(
       runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
         viewHost: view.host,
         connectTuiLogTail: async () => tail,
       }),
     ).rejects.toThrow("unexpected tail failure");
   });
 
-  test("defaults socket path to production unless tests inject one", async () => {
+  test("passes provided socket path to connectTuiLogTail", async () => {
     let seenPath: string | undefined;
     const tail = immediateTail();
 
     await runTuiLogFollow("run-123", {
-      viewHost: createViewHost().host,
       socketPath: "/tmp/injected.sock",
+      viewHost: createViewHost().host,
       connectTuiLogTail: async (_runId, options) => {
-        seenPath = options?.socketPath;
+        seenPath = options.socketPath;
         return tail;
       },
     });

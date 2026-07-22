@@ -30,8 +30,8 @@ export type CliDeps = {
   readDaemonProcessLog: typeof readDaemonProcessLog;
   followDaemonProcessLog: typeof followDaemonProcessLog;
   onSigint: (handler: () => void) => () => void;
-  runTuiEntry: (deps?: RunTuiEntryDeps) => Promise<number>;
-  runTuiLogFollow: (runId: string, deps?: RunTuiLogFollowDeps) => Promise<number>;
+  runTuiEntry: (deps: RunTuiEntryDeps) => Promise<number>;
+  runTuiLogFollow: (runId: string, deps: RunTuiLogFollowDeps) => Promise<number>;
   workflowPresetBuilders: Readonly<Record<string, WorkflowPresetBuilder>>;
   readProjectRegistry: () => Record<string, { root: string; origin?: string }>;
   cwd: () => string;

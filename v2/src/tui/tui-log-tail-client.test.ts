@@ -83,10 +83,12 @@ test("uses injected connectIpcClient instead of production transport", async () 
   ]);
 });
 
-test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
+test("requires explicit socket path", async () => {
   let seenPath: string | undefined;
+  const testSocketPath = "/tmp/test-socket.sock";
   await withFixedStreamId(async () => {
     const tail = await connectTuiLogTail("run-123", {
+      socketPath: testSocketPath,
       connectIpcClient: async (socketPath) => {
         seenPath = socketPath;
         return makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }]);
@@ -95,7 +97,7 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     await collectRecords(tail);
     tail.close();
   });
-  expect(seenPath).toBe(DAEMON_SOCKET_PATH);
+  expect(seenPath).toBe(testSocketPath);
 });
 
 test("replays then follows records in server stream-data arrival order until benign stream-end", async () => {
@@ -108,6 +110,7 @@ test("replays then follows records in server stream-data arrival order until ben
   const client = makeIpcClient([], { deferred: true, sent });
 
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => client,
   });
 
@@ -124,6 +127,7 @@ test("replays then follows records in server stream-data arrival order until ben
 
 test("benign stream-end without prior stream-data yields no records", async () => {
   const tail = await connectTuiLogTail("run-missing", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }]),
   });
 
@@ -135,6 +139,7 @@ test("benign stream-end without prior stream-data yields no records", async () =
 
 test("error-payload stream-end rejects with RpcConnectionError", async () => {
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () =>
       makeIpcClient([
         {
@@ -153,6 +158,7 @@ test("error-payload stream-end rejects with RpcConnectionError", async () => {
 
 test("malformed stream-data payload rejects with RpcConnectionError", async () => {
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => makeIpcClient([{ kind: "stream-data", streamId: STREAM_ID, payload: "{not-json" }]),
   });
 
@@ -168,6 +174,7 @@ test.each([
   ["missing event", JSON.stringify({ runId: "run-123" })],
 ])("stream-data payload with %s rejects with RpcConnectionError", async (_label, payload) => {
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => makeIpcClient([{ kind: "stream-data", streamId: STREAM_ID, payload }]),
   });
 
@@ -180,6 +187,7 @@ test.each([
 test("connection loss during records iteration rejects with RpcConnectionError", async () => {
   const client = makeIpcClient([], { deferred: true });
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => client,
   });
 
@@ -196,6 +204,7 @@ test("close sends stream-end for the opened stream id", async () => {
   const client = makeIpcClient([], { deferred: true, sent });
 
   const tail = await connectTuiLogTail("run-123", {
+    socketPath: "/tmp/test.sock",
     connectIpcClient: async () => client,
   });
 

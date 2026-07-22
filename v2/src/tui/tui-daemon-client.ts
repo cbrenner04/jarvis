@@ -18,7 +18,6 @@ import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };
@@ -55,8 +54,8 @@ export type TuiDaemonClient = {
 
 /** Options for {@link connectTuiDaemon}; production defaults apply when omitted. */
 export type ConnectTuiDaemonOptions = {
-  /** Unix socket path; defaults to `~/.jarvis/daemon.sock`. */
-  socketPath?: string;
+  /** Unix socket path; required. */
+  socketPath: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
   getCurrentRevision?: GetCurrentRevision;
@@ -69,17 +68,17 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
 }
 
 /**
- * Open a TUI daemon client on the production or injected socket.
+ * Open a TUI daemon client on the provided socket.
  *
- * @param options Optional socket path and `connectIpcClient` seam.
+ * @param options Socket path is required; optional `connectIpcClient` seam.
  * @returns A client exposing `health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, and `close` on one connection.
  * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
-export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
-  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
-  const connectFn = options?.connectIpcClient ?? connectIpcClient;
-  const getCurrentRevision = options?.getCurrentRevision ?? getInvokingRevision;
-  const getExecutableDigest = options?.getExecutableDigest ?? getInvokingExecutableDigest;
+export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
+  const socketPath = options.socketPath;
+  const connectFn = options.connectIpcClient ?? connectIpcClient;
+  const getCurrentRevision = options.getCurrentRevision ?? getInvokingRevision;
+  const getExecutableDigest = options.getExecutableDigest ?? getInvokingExecutableDigest;
 
   let client: IpcClient;
   try {

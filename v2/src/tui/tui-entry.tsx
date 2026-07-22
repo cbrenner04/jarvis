@@ -68,11 +68,10 @@ function steeringFeedbackFromError(error: unknown): string {
 }
 
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */
-export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
-  const resolved = deps ?? {};
-  const connectFn = resolved.connectTuiDaemon ?? connectTuiDaemon;
-  const refreshScheduler = resolved.refreshScheduler ?? createRefreshScheduler();
-  const connectOptions = resolved.socketPath !== undefined ? { socketPath: resolved.socketPath } : undefined;
+export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
+  const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
+  const refreshScheduler = deps.refreshScheduler ?? createRefreshScheduler();
+  const connectOptions = { socketPath: deps.socketPath };
 
   let client: TuiDaemonClient | undefined;
   let session: TuiMonitorSession | undefined;
@@ -230,7 +229,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     client = await connectFn(connectOptions);
   } catch (error) {
     if (error instanceof RpcConnectionError) {
-      await presentFeedback({ kind: "unavailable" }, resolved);
+      await presentFeedback({ kind: "unavailable" }, deps);
       return 1;
     }
     throw error;
@@ -280,7 +279,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
           resolveQuit();
         },
       },
-      resolved,
+      deps,
     );
 
     refreshHandle = refreshScheduler.start(() => {
@@ -291,7 +290,7 @@ export async function runTuiEntry(deps?: RunTuiEntryDeps): Promise<number> {
     return 0;
   } catch (error) {
     if (error instanceof RpcError || error instanceof RpcConnectionError) {
-      await presentFeedback(entryErrorFeedback(error), resolved);
+      await presentFeedback(entryErrorFeedback(error), deps);
       return 1;
     }
     throw error;

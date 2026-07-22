@@ -36,10 +36,10 @@ export type TuiLogFollowViewHost = {
 
 /** Dependencies for {@link runTuiLogFollow}. */
 export type RunTuiLogFollowDeps = {
-  /** Unix socket path; production default is `~/.jarvis/daemon.sock`. */
-  socketPath?: string;
+  /** Unix socket path; required. */
+  socketPath: string;
   /** Injectable tail client seam; defaults to {@link connectTuiLogTail}. */
-  connectTuiLogTail?: (runId: string, options?: ConnectTuiLogTailOptions) => Promise<TuiLogTailClient>;
+  connectTuiLogTail?: (runId: string, options: ConnectTuiLogTailOptions) => Promise<TuiLogTailClient>;
   /** When set, skips production ink rendering. */
   viewHost?: TuiLogFollowViewHost;
   /** Injectable ink render; defaults to production `render`. */

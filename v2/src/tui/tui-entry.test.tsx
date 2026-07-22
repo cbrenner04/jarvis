@@ -233,9 +233,10 @@ function entryDeps(
   return {
     clientOptions,
     deps: {
+      socketPath: "/tmp/test.sock",
       connectTuiDaemon: async () => fakeClient(clientOptions),
       ...overrides,
-    },
+    } as RunTuiEntryDeps,
   };
 }
 
@@ -250,6 +251,7 @@ describe("runTuiEntry", () => {
     let attempted = false;
 
     const code = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiDaemon: async () => {
         attempted = true;
@@ -615,6 +617,7 @@ describe("runTuiEntry", () => {
     const view = createViewHost();
 
     const unhealthy = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -623,6 +626,7 @@ describe("runTuiEntry", () => {
     });
 
     const unavailableStatus = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -642,6 +646,7 @@ describe("runTuiEntry", () => {
     const view = createViewHost();
 
     const code = await runTuiEntry({
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -698,6 +703,7 @@ describe("runTuiEntry", () => {
     };
 
     const pending = runTuiEntry({
+      socketPath: "/tmp/test.sock",
       viewHost: view.host,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () => client,

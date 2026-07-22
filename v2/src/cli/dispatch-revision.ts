@@ -15,12 +15,17 @@ export type GetExecutableDigest = () => Promise<string>;
 
 const jarvisRepoRoot = resolve(import.meta.dir, "../../..");
 
+let memoizedDigest: string | undefined;
+
 export async function getInvokingRevision(): Promise<string> {
   return await getCurrentHeadAsync(jarvisRepoRoot, realAsyncSubprocessRunner);
 }
 
 export async function getInvokingExecutableDigest(): Promise<string> {
-  return await getExecutableTreeDigest(jarvisRepoRoot, realAsyncSubprocessRunner);
+  if (memoizedDigest === undefined) {
+    memoizedDigest = await getExecutableTreeDigest(jarvisRepoRoot, realAsyncSubprocessRunner);
+  }
+  return memoizedDigest;
 }
 
 /** Advance recorded HEAD when dispatch reports a matching executable digest with HEAD drift. */

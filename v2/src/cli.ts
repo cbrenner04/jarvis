@@ -19,6 +19,8 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
+import { daemonPathsByDigest } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
@@ -126,7 +128,14 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
   };
-  const runtimeDeps = createRuntimeDeps(deps);
+  const digest = deps?.getExecutableDigest ? await deps.getExecutableDigest() : await getInvokingExecutableDigest();
+  const keyedPaths = daemonPathsByDigest(digest);
+  const runtimeDeps = createRuntimeDeps({
+    socketPath: keyedPaths.socketPath,
+    pidPath: keyedPaths.pidPath,
+    logPath: keyedPaths.logPath,
+    ...deps,
+  });
   const command = argv[0];
   const operatorSessionId = crypto.randomUUID();
 

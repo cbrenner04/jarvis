@@ -1,7 +1,6 @@
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 
 /**
@@ -25,8 +24,8 @@ export type TuiLogTailClient = {
 
 /** Options for {@link connectTuiLogTail}; production defaults apply when omitted. */
 export type ConnectTuiLogTailOptions = {
-  /** Unix socket path; defaults to `~/.jarvis/daemon.sock`. */
-  socketPath?: string;
+  /** Unix socket path; required. */
+  socketPath: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
 };
@@ -82,16 +81,16 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
 }
 
 /**
- * Open a TUI log tail client on the production or injected socket.
+ * Open a TUI log tail client on the provided socket.
  *
  * @param runId Run whose persisted log stream to open.
- * @param options Optional socket path and `connectIpcClient` seam.
+ * @param options Socket path is required; optional `connectIpcClient` seam.
  * @returns A client exposing `records` and `close` on one connection.
  * @throws {RpcConnectionError} When the socket is unreachable before `stream-open`.
  */
-export async function connectTuiLogTail(runId: string, options?: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
-  const socketPath = options?.socketPath ?? DAEMON_SOCKET_PATH;
-  const connectFn = options?.connectIpcClient ?? connectIpcClient;
+export async function connectTuiLogTail(runId: string, options: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
+  const socketPath = options.socketPath;
+  const connectFn = options.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;
   try {

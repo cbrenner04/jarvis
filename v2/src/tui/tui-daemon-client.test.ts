@@ -106,10 +106,12 @@ test("uses injected connectIpcClient instead of production transport", async () 
   ]);
 });
 
-test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
+test("requires explicit socket path", async () => {
   let seenPath: string | undefined;
+  const testSocketPath = "/tmp/test-socket.sock";
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: testSocketPath,
       connectIpcClient: async (socketPath) => {
         seenPath = socketPath;
         return makeGatedIpcClient([{ kind: "response", id: HEALTH_REQUEST_ID, result: { ok: true } }]);
@@ -118,13 +120,14 @@ test("defaults socket path to ~/.jarvis/daemon.sock when omitted", async () => {
     await client.health();
     client.close();
   });
-  expect(seenPath).toBe(DAEMON_SOCKET_PATH);
+  expect(seenPath).toBe(testSocketPath);
 });
 
 test("health then status reuse one connection without reconnecting", async () => {
   let connectCalls = 0;
   await withFixedUuid([HEALTH_REQUEST_ID, STATUS_REQUEST_ID, LIST_REQUEST_ID, WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () => {
         connectCalls += 1;
         return makeGatedIpcClient([
@@ -159,6 +162,7 @@ test("health then status reuse one connection without reconnecting", async () =>
 test("daemon error replies reject as RpcError with code and message", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, START_REQUEST_ID, START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([
           { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
@@ -185,6 +189,7 @@ test("wait sends one correlated IPC wait request and returns only present option
   const sent: unknown[] = [];
   await withFixedUuid([WAIT_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient(
           [
@@ -213,7 +218,7 @@ test("list succeeds while wait is unresolved on the same client", async () => {
   const deferred = makeIpcClient([], { deferred: true, sent });
 
   await withFixedUuid([WAIT_REQUEST_ID, LIST_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
+    const client = await connectTuiDaemon({ socketPath: "/tmp/test.sock", connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
     const listPromise = client.list();
 
@@ -250,7 +255,7 @@ test("late correlated wait replies do not resolve an abandoned promise", async (
   const deferred = makeIpcClient([], { deferred: true });
 
   await withFixedUuid([WAIT_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
+    const client = await connectTuiDaemon({ socketPath: "/tmp/test.sock", connectIpcClient: async () => deferred });
     let resolved = false;
     const waitPromise = client.wait("run-123").then(
       () => {
@@ -272,7 +277,7 @@ test("replacing wait abandons the prior pending request without resolving it", a
   const deferred = makeIpcClient([], { deferred: true });
 
   await withFixedUuid([WAIT_FIRST_ID, WAIT_SECOND_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
+    const client = await connectTuiDaemon({ socketPath: "/tmp/test.sock", connectIpcClient: async () => deferred });
     const abandoned = client.wait("run-a");
     const replacement = client.wait("run-b");
 
@@ -294,6 +299,7 @@ test("replacing wait abandons the prior pending request without resolving it", a
 test("rejects malformed RPC replies with RpcConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () => makeGatedIpcClient([{ kind: "stream-open", streamId: "s1" } as IpcFrame]),
     });
 
@@ -305,6 +311,7 @@ test("rejects malformed RPC replies with RpcConnectionError", async () => {
 test("rejects non-correlated RPC replies with RpcConnectionError", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () => makeGatedIpcClient([{ kind: "response", id: "other-id", result: { ok: true } }]),
     });
 
@@ -337,6 +344,7 @@ test("start sends one correlated IPC start request and returns runId", async () 
   const sent: unknown[] = [];
   await withFixedUuid([STATUS_REQUEST_ID, START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([statusFrame(), { kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
           sent,
@@ -368,6 +376,7 @@ test("revision mismatch rejects start and human-decision resume before their mut
   const sent: unknown[] = [];
   await withFixedUuid([STATUS_REQUEST_ID, STATUS_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient(
           [
@@ -429,6 +438,7 @@ test.each([
       : [{ kind: "response", id: requestId, result: { ok: true } }];
   await withFixedUuid(ids, async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () => makeGatedIpcClient(frames, { sent }),
       getCurrentRevision: matchingRevision,
       getExecutableDigest: matchingDigest,
@@ -457,7 +467,7 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
   const deferred = makeIpcClient([], { deferred: true, sent });
 
   await withFixedUuid([WAIT_REQUEST_ID, PAUSE_REQUEST_ID, KILL_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({ connectIpcClient: async () => deferred });
+    const client = await connectTuiDaemon({ socketPath: "/tmp/test.sock", connectIpcClient: async () => deferred });
     const waitPromise = client.wait("run-123");
 
     const pausePromise = client.pause("run-123");
@@ -489,6 +499,7 @@ test("steering RPCs succeed while wait is unresolved on the same client", async 
 test("malformed success payloads reject as RpcConnectionError", async () => {
   await withFixedUuid([PAUSE_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([{ kind: "response", id: PAUSE_REQUEST_ID, result: { ok: false } }]),
     });

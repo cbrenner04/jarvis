@@ -21,6 +21,13 @@ export const RUN_STATUSES = [
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+export class RunOwnershipConflictError extends Error {
+  constructor(readonly project: string, readonly branch: string) {
+    super(`Worktree already claimed for project=${project}, branch=${branch}`);
+    this.name = "RunOwnershipConflictError";
+  }
+}
+
 const runStatusSet = new Set<string>(RUN_STATUSES);
 
 export function isRunStatus(value: unknown): value is RunStatus {
@@ -197,6 +204,9 @@ export interface StateStore {
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
+  /** Non-terminal runs admitted by a daemon process. */
+  listActiveRunIdsByOwnerPid?(pid: number): string[];
+
   /** True once {@link close} has run — deferred daemon work must check this rather than race a closed DB. */
   isClosed(): boolean;
 
@@ -216,6 +226,12 @@ const SCHEMA = `
     worktree_path TEXT NOT NULL,
     branch TEXT NOT NULL,
     spec_path TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS run_claims (
+    project TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    owner_identity TEXT NOT NULL,
+    PRIMARY KEY (project, branch)
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -399,14 +415,26 @@ class StateStoreImpl implements StateStore {
     const id = crypto.randomUUID();
     const workflowSnapshotJson = args.workflowSnapshot === undefined ? null : JSON.stringify(args.workflowSnapshot);
     const queuedInputJson = args.queuedInput === undefined ? null : JSON.stringify(args.queuedInput);
-    this.db
+    this.db.transaction(() => {
+      const claim = this.db
+        .prepare("SELECT owner_identity AS ownerIdentity FROM run_claims WHERE project = ? AND branch = ?")
+        .get(args.project, args.branch) as { ownerIdentity: string } | null;
+      if (claim !== null && claim.ownerIdentity !== this.currentIdentity) {
+        throw new RunOwnershipConflictError(args.project, args.branch);
+      }
+      if (claim === null) {
+        this.db
+          .prepare("INSERT INTO run_claims (project, branch, owner_identity) VALUES (?, ?, ?)")
+          .run(args.project, args.branch, this.currentIdentity);
+      }
+      this.db
       .prepare(`
         INSERT INTO runs (
           id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title, owner_identity
         )
         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(
+        .run(
         id,
         args.project,
         args.specRef,
@@ -419,8 +447,10 @@ class StateStoreImpl implements StateStore {
         workflowSnapshotJson,
         queuedInputJson,
         args.creationTitle ?? null,
-        this.currentIdentity,
-      );
+          this.currentIdentity,
+        );
+      this.releaseClaimIfSettled(id);
+    })();
     return id;
   }
 
@@ -526,11 +556,15 @@ class StateStoreImpl implements StateStore {
       this.db
         .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ? WHERE id = ?")
         .run(args.runStatus, attempt.runId);
+      this.releaseClaimIfSettled(attempt.runId);
     })();
   }
 
   setRunStatus(runId: string, status: RunStatus): void {
-    this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+      this.releaseClaimIfSettled(runId);
+    })();
   }
 
   commitGuardedKill(runId: string): void {
@@ -539,6 +573,7 @@ class StateStoreImpl implements StateStore {
       if (!row) throw new Error(`Run ${runId} not found`);
       if (isBoundaryTerminalRunStatus(row.status)) return;
       this.db.prepare("UPDATE runs SET status = 'killed' WHERE id = ?").run(runId);
+      this.releaseClaimIfSettled(runId);
     })();
   }
 
@@ -584,6 +619,7 @@ class StateStoreImpl implements StateStore {
             `UPDATE runs SET status = ?, reconciliation_pending = 1 WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
           )
           .run(isReviewDebate ? "interrupted" : "killed", candidate.id);
+        this.releaseClaimIfSettled(candidate.id);
       }
       return (
         this.db
@@ -603,6 +639,27 @@ class StateStoreImpl implements StateStore {
     return (
       this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC`).all() as RunRow[]
     ).map(mapRunRow);
+  }
+
+  listActiveRunIdsByOwnerPid(pid: number): string[] {
+    return (
+      this.db
+        .prepare(`SELECT id FROM runs WHERE owner_identity LIKE ? AND status IN (${ORPHAN_STATUSES})`)
+        .all(`${pid}:%`) as Array<{ id: string }>
+    ).map((run) => run.id);
+  }
+
+  private releaseClaimIfSettled(runId: string): void {
+    const run = this.db.prepare("SELECT project, branch FROM runs WHERE id = ?").get(runId) as
+      | { project: string; branch: string }
+      | null;
+    if (!run) return;
+    const active = this.db
+      .prepare(`SELECT 1 FROM runs WHERE project = ? AND branch = ? AND status IN (${ORPHAN_STATUSES}) LIMIT 1`)
+      .get(run.project, run.branch);
+    if (active === null) {
+      this.db.prepare("DELETE FROM run_claims WHERE project = ? AND branch = ?").run(run.project, run.branch);
+    }
   }
 
   hasQueuedRun(args: { project: string; branch: string }): boolean {

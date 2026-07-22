@@ -521,8 +521,8 @@ jarvis write \
 
 Daemon lifecycle commands use production defaults:
 
-- Socket: `~/.jarvis/daemon.sock`
-- PID file: `~/.jarvis/daemon.pid`
+- Socket: `~/.jarvis/daemon-<executable-tree-digest>.sock`
+- PID file: `~/.jarvis/daemon-<executable-tree-digest>.pid`
 
 | Command | Output | Exit |
 | --- | --- | --- |
@@ -565,7 +565,8 @@ removal/failure reporting).
 
 ## TUI CLI
 
-Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
+Socket selection: `~/.jarvis/daemon-<executable-tree-digest>.sock` (same as
+daemon lifecycle commands). TUI observes only that selected daemon.
 
 Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactive run
 monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
@@ -577,8 +578,8 @@ monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
 
 | Command | Output | Exit |
 | --- | --- | --- |
-| `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |
-| `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start`; mid-session tail failure: ink `daemon_error: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable, mid-session tail failure, or usage error |
+| `jarvis tui` | Interactive ink run monitor; entry-time RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming the selected keyed socket and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time RPC failure before the monitor opens |
+| `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming the selected keyed socket and `jarvis daemon start`; mid-session tail failure: ink `daemon_error: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable, mid-session tail failure, or usage error |
 
 On entry with a non-empty daemon `list`, the monitor selects the first row
 (daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
@@ -652,21 +653,14 @@ before retrying `jarvis tui` or `jarvis tui log <run-id>`.
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
-Before `jarvis run start`, `jarvis run workflow …`, and `jarvis run resume`,
-the CLI reads daemon `status` with `{ currentRevision, currentExecutableDigest }`
-and compares executable digests. When digests match but HEAD differs (for example
-after a docs-only merge), the daemon advances `loadedRevision` to the invoking
-HEAD in-process and dispatch proceeds with no bounce. For `run start`, `run
-resume`, and workflow starts, an executable-digest mismatch lists runs and
-automatically force-restarts only when no row is `isLive`; it waits for startup
-recovery, reports loaded/current revisions, restart, recovery counts, and its one
-retry on stderr, then retries the original request once. `--no-auto-bounce`
-retains the mismatch refusal and restart guidance. A live row names its IDs and
-refuses without lifecycle mutation; lifecycle, reconnect, or recovery failures
-retain their actionable reason. TUI start/resume guards use the same digest
-comparison and refuse on mismatch (no auto-bounce). Health, status, listing,
-logs/tail, wait, pause, kill, and daemon lifecycle commands remain available;
-the check never changes admitted runs.
+`jarvis run start`, `jarvis run workflow …`, and `jarvis run resume` start or
+reuse only the invoking executable's keyed daemon, then dispatch directly.
+If a concurrent CLI won the same-key start race, its
+`DaemonAlreadyRunningError` is reused; other lifecycle errors fail dispatch.
+There is no revision handshake, bounce, or `--no-auto-bounce`. `jarvis run
+list`, `wait`, TUI, logs, steering, and lifecycle commands target only that
+same keyed daemon; a legacy `daemon.sock` or differently keyed daemon receives
+no IPC request.
 
 `jarvis run list` and `jarvis run wait` pass through daemon `error` fields
 verbatim when present (`reason`, `retryable`, `nextAction`); see

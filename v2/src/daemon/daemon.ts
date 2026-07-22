@@ -32,6 +32,7 @@ import {
 import {
   isTerminalRunStatus,
   openStateStore,
+  RunOwnershipConflictError,
   type Run,
   type RunStatus,
   type StateStore,
@@ -783,24 +784,34 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const worktreePath = getExternalWorktreePath(input.worktree);
 
     if (!checkMemoryHeadroom()) {
-      const runId = store.createRun({
-        project: key.project,
-        specRef: input.worktree.baseRef,
-        worktreePath,
-        branch: key.branch,
-        specPath: input.specPath,
-        status: "queued",
-        queuedInput: input,
-        ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
-        ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-      });
+      let runId: string;
+      try {
+        runId = store.createRun({
+          project: key.project,
+          specRef: input.worktree.baseRef,
+          worktreePath,
+          branch: key.branch,
+          specPath: input.specPath,
+          status: "queued",
+          queuedInput: input,
+          ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
+          ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
+        });
+      } catch (error) {
+        if (error instanceof RunOwnershipConflictError) {
+          return { kind: "error", code: "worktree_claimed", message: error.message };
+        }
+        throw error;
+      }
       // Memory may have recovered between the check above and this row being
       // persisted; recheck once immediately rather than waiting for a later exit.
       promoteQueuedRun(true);
       return { kind: "response", result: { runId } };
     }
 
-    const runId = store.createRun({
+    let runId: string;
+    try {
+      runId = store.createRun({
       project: key.project,
       specRef: input.worktree.baseRef,
       worktreePath,
@@ -808,7 +819,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       specPath: input.specPath,
       ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
       ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-    });
+      });
+    } catch (error) {
+      if (error instanceof RunOwnershipConflictError) {
+        return { kind: "error", code: "worktree_claimed", message: error.message };
+      }
+      throw error;
+    }
 
     spawnWriteLoop(key, runId, worktreePath, input);
     promoteQueuedRun();

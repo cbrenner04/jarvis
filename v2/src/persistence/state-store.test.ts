@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
+import { isOwnerAlive, openStateStore, RunOwnershipConflictError, type StateStore } from "./state-store";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
 
@@ -59,6 +59,20 @@ describe("StateStore", () => {
 
     store = openStateStore(TEST_DB_PATH);
     expect(loadRunOrThrow(store, runId).project).toBe("test-project");
+  });
+
+  test("different live daemon owners cannot admit the same project branch", () => {
+    const other = openStateStore(TEST_DB_PATH, { currentIdentity: "other-daemon" });
+    try {
+      seedRun(store);
+      expect(() => seedRun(other)).toThrow(RunOwnershipConflictError);
+      const runId = store.listRuns()[0]?.id;
+      expect(runId).toBeDefined();
+      store.setRunStatus(runId as string, "completed");
+      expect(() => seedRun(other)).not.toThrow();
+    } finally {
+      other.close();
+    }
   });
 
   test("records attempt start with correct fields", () => {

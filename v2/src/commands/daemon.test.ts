@@ -5,6 +5,27 @@ import { join } from "node:path";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
 
 describe("daemon command", () => {
+  test("digest-keyed dispatch bypasses legacy and differently keyed daemons", async () => {
+    const cap = captureIo();
+    const calls: string[] = [];
+    const digest = "selected-digest";
+
+    const code = await main(["daemon", "start"], cap.io, {
+      getExecutableDigest: async () => digest,
+      startDaemon: async (socketPath, options) => {
+        calls.push(socketPath, options?.pidPath ?? "", options?.logPath ?? "");
+        return { pid: 7, socketPath };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(calls).toEqual([
+      expect.stringContaining(`jarvis-${digest}.sock`),
+      expect.stringContaining(`daemon-${digest}.pid`),
+      expect.stringContaining(`daemon-${digest}.log`),
+    ]);
+    expect(calls.join(" ")).not.toContain(" daemon.sock");
+  });
   test("daemon start uses injected production paths and prints metadata", async () => {
     const cap = captureIo();
     const paths = tempPaths();

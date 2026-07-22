@@ -121,11 +121,37 @@ export async function startDaemon(
     throw new DaemonAlreadyRunningError(socketPath);
   }
 
-  const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
+  // The PID file is also the cross-process startup lease. It is acquired
+  // before stale-socket cleanup, so a losing starter cannot unlink a winner.
+  let leaseAcquired = false;
+  if (options?.pidPath) {
+    const pidDir = dirname(options.pidPath);
+    if (!existsSync(pidDir)) {
+      throw new Error(`PID file directory does not exist: ${pidDir}`);
+    }
+    try {
+      const lease = openSync(options.pidPath, "wx");
+      closeSync(lease);
+      leaseAcquired = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      throw new DaemonAlreadyRunningError(socketPath);
+    }
+  }
 
-  const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
+  try {
+    // A stale listener can only be removed by the lease holder. Re-probe after
+    // acquisition because another process may have bound it meanwhile.
+    if (await socketProber.probe(socketPath, 500)) {
+      throw new DaemonAlreadyRunningError(socketPath);
+    }
+    rmSync(socketPath, { force: true });
 
-  const proc = spawn("bun", [daemonScript], {
+    const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
+
+    const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
+
+    const proc = spawn("bun", [daemonScript], {
     detached: true,
     stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
     env: {
@@ -135,43 +161,43 @@ export async function startDaemon(
     },
   });
 
-  // Close parent's copy of the log fd
-  if (logFd !== undefined) {
+    // Close parent's copy of the log fd
+    if (logFd !== undefined) {
     try {
       closeSync(logFd);
     } catch {
       // Ignore close errors
     }
-  }
-
-  if (proc.pid === undefined) {
-    throw new Error("Failed to spawn daemon process: pid is undefined");
-  }
-  const pid = proc.pid;
-  options?.onSpawn?.(pid);
-  proc.unref();
-
-  if (options?.pidPath) {
-    const pidDir = dirname(options.pidPath);
-    if (!existsSync(pidDir)) {
-      throw new Error(`PID file directory does not exist: ${pidDir}`);
     }
-    writeFileSync(options.pidPath, String(pid));
-  }
 
-  const startTime = Date.now();
-  while (Date.now() - startTime < readinessTimeoutMs) {
+    if (proc.pid === undefined) {
+    throw new Error("Failed to spawn daemon process: pid is undefined");
+    }
+    const pid = proc.pid;
+    options?.onSpawn?.(pid);
+    proc.unref();
+
+    if (options?.pidPath) {
+      writeFileSync(options.pidPath, String(pid));
+    }
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < readinessTimeoutMs) {
     if (!processProber.isAlive(pid)) {
       throw new Error(`Daemon process ${pid} died during startup`);
     }
     const up = await socketProber.probe(socketPath, 100);
     if (up) {
-      return { pid, socketPath };
+        return { pid, socketPath };
     }
     await new Promise((r) => setTimeout(r, 50));
-  }
+    }
 
-  throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+    throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+  } catch (error) {
+    if (leaseAcquired && options?.pidPath) rmSync(options.pidPath, { force: true });
+    throw error;
+  }
 }
 
 async function terminateProcess(pid: number, killTimeoutMs: number, processProber: ProcessProber): Promise<void> {
@@ -199,7 +225,10 @@ async function terminateProcess(pid: number, killTimeoutMs: number, processProbe
 }
 
 /** Refuse a non-forced stop when the durable store holds any non-terminal run. */
-function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | undefined): void {
+function assertStopAllowed(
+  stateStore: Pick<StateStore, "listRuns" | "listActiveRunIdsByOwnerPid" | "close"> | undefined,
+  ownerPid: number | null,
+): void {
   let store = stateStore;
   let ownsStore = false;
   try {
@@ -207,10 +236,9 @@ function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | 
       store = openStateStore();
       ownsStore = true;
     }
-    const blockers = store
-      .listRuns()
-      .filter((run) => !isTerminalRunStatus(run.status))
-      .map((run) => run.id);
+    const blockers = ownerPid === null || store.listActiveRunIdsByOwnerPid === undefined
+      ? store.listRuns().filter((run) => !isTerminalRunStatus(run.status)).map((run) => run.id)
+      : store.listActiveRunIdsByOwnerPid(ownerPid);
     if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
   } catch (error) {
     if (error instanceof DaemonStopRefusedError) throw error;
@@ -227,17 +255,13 @@ export async function stopDaemon(
     killTimeoutMs?: number;
     pidPath?: string;
     force?: boolean;
-    stateStore?: Pick<StateStore, "listRuns" | "close">;
+    stateStore?: Pick<StateStore, "listRuns" | "listActiveRunIdsByOwnerPid" | "close">;
     processProber?: ProcessProber;
   },
 ): Promise<void> {
   const drainTimeoutMs = options?.drainTimeoutMs ?? 2_000;
   const killTimeoutMs = options?.killTimeoutMs ?? 3_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
-
-  if (!options?.force) {
-    assertStopAllowed(options?.stateStore);
-  }
 
   let pid: number | null = null;
   if (options?.pidPath && existsSync(options.pidPath)) {
@@ -246,6 +270,10 @@ export async function stopDaemon(
     } catch {
       // ignore parse errors, pidPath is optional
     }
+  }
+
+  if (!options?.force) {
+    assertStopAllowed(options?.stateStore, pid);
   }
 
   try {

@@ -7,6 +7,7 @@ import {
   DAEMON_PID_PATH,
   DAEMON_SOCKET_DISPLAY,
   DAEMON_SOCKET_PATH,
+  daemonPaths,
   jarvisHome,
   MACHINE_CONFIG_PATH,
 } from "./paths.ts";
@@ -14,6 +15,18 @@ import {
 const REAL_HOME = join(homedir(), ".jarvis");
 
 describe("paths", () => {
+  test("daemon paths are keyed by the full executable-tree digest", () => {
+    expect(daemonPaths("a".repeat(64))).toEqual({
+      socketPath: join("/tmp", `jarvis-${"a".repeat(64)}.sock`),
+      pidPath: join(jarvisHome(), `daemon-${"a".repeat(64)}.pid`),
+      logPath: join(jarvisHome(), `daemon-${"a".repeat(64)}.log`),
+    });
+  });
+
+  test("production digest-keyed socket fits the macOS Unix-path limit", () => {
+    expect(Buffer.byteLength(daemonPaths("a".repeat(64)).socketPath)).toBeLessThanOrEqual(103);
+  });
+
   test("DAEMON_SOCKET_PATH is <jarvis-home>/daemon.sock", () => {
     expect(DAEMON_SOCKET_PATH).toBe(join(jarvisHome(), "daemon.sock"));
   });

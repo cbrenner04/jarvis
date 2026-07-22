@@ -58,9 +58,10 @@ stale-socket recovery, or max concurrent client cap in the library. The CLI,
 [`jarvis tui`](./write-behavior.md#tui-cli) (IPC `start` consumer over the
 production socket), [`jarvis tui log <run-id>`](./write-behavior.md#tui-cli)
 (IPC tail consumer over the same socket), and daemon lifecycle commands pin
-`~/.jarvis/daemon.sock`
-plus `~/.jarvis/daemon.pid` at the consumer layer; other callers still pass
-explicit paths.
+`~/.jarvis/daemon-<executable-tree-digest>.sock` plus matching `.pid` and
+`.log` paths at the consumer layer. The digest is the full SHA-256 executable
+tree digest. Each invocation selects its key before IPC; it never probes,
+stops, or replaces legacy `daemon.sock`.
 
 ## Framing
 
@@ -389,9 +390,9 @@ through the persisted log store and log-server stream path, not `<logPath>`.
 Concurrent daemons sharing one `logPath` are unsupported; double-start
 protection covers the real case.
 
-**CLI default:** The CLI pins `~/.jarvis/daemon.log` alongside `daemon.sock`
-and `daemon.pid`; other callers supply `logPath` explicitly or omit it to
-discard.
+**CLI default:** The CLI pins `daemon-<executable-tree-digest>.log` alongside
+the matching keyed socket and PID file. Concurrent differently keyed daemons
+therefore have separate process logs and lifecycle metadata.
 
 **Double-start protection:** If the socket already responds to `health`, throws
 `DaemonAlreadyRunningError` (no second child spawned).

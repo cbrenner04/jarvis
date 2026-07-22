@@ -33,7 +33,7 @@ export const DOCS_MERGE_REVISION = "docs-merge-head";
 export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
 export const STALE_EXECUTABLE_DIGEST = "stale-executable-digest";
 
-/** `runtimeMain` with fixed revision/digest preflights so dispatch guards are deterministic. */
+/** `runtimeMain` with fixed executable identity and a no-op matching-daemon lifecycle seam. */
 export function cliMain(
   argv: readonly string[],
   io?: Parameters<typeof runtimeMain>[1],
@@ -42,6 +42,7 @@ export function cliMain(
   return runtimeMain(argv, io, {
     getCurrentRevision: async () => TEST_REVISION,
     getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+    startDaemon: async (socketPath) => ({ pid: 1, socketPath }),
     ...deps,
   });
 }
@@ -169,13 +170,12 @@ export function workflowFrames(
   ];
 }
 
-/** `main()` consumes one uuid for its operator session id before any RPC id is minted, so a
- * workflow's id sequence is: session, revision status, then `start` and `wait`. */
+/** `main()` consumes one UUID for its operator session before workflow `start` and `wait`. */
 export const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
 
-/** Stubs the session/status/start/wait uuid sequence for a `run workflow` invocation. */
+/** Stubs the session/start/wait UUID sequence for a `run workflow` invocation. */
 export function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
-  return withFixedUuid([SESSION_UUID, SESSION_UUID, startId, waitId], fn);
+  return withFixedUuid([SESSION_UUID, startId, waitId], fn);
 }
 
 export const COMPLETED_WAIT_RESULT = {

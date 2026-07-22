@@ -166,8 +166,8 @@ jarvis daemon status    # running → exit 0
 jarvis daemon stop      # when intentionally shutting down
 ```
 
-Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
-`jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
+Socket: `~/.jarvis/daemon-<executable-tree-digest>.sock`. Process log:
+`~/.jarvis/daemon-<executable-tree-digest>.log`.
 
 ### Workflow presets (registered names)
 
@@ -414,12 +414,9 @@ is lost.
 
 **Two traps here, both seeded, both observed live on 2026-07-14:**
 
-- An executable-tree digest mismatch on CLI start, resume, or workflow dispatch
-  automatically bounces an idle daemon, waits for recovery, and retries once. Its
-  stderr output records revisions and recovery counts. If any `isLive` row exists
-  it names the IDs and refuses; finish or recover them first. Use `--no-auto-bounce`
-  to retain manual restart control. TUI start/resume guards use the same digest
-  comparison and refuse on mismatch (no auto-bounce).
+- CLI start, resume, and workflow dispatch select and start or reuse their own
+  digest-keyed daemon. Do not bounce daemons after a merge: a different digest
+  runs independently, and legacy `daemon.sock` is not contacted.
 - A reconciled orphan with a missing or unresolvable workflow write snapshot is not auto-resumed.
   It stays `killed`; `list` / `wait` report `unsupported_resume_context` with `retryable: false`
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
@@ -621,7 +618,7 @@ Operators add bullets here; delete when fixed.
   review step, and read the diff.
 - **`daemon stop` and `run kill` can deadlock each other (2026-07-16):** a durable row that is
   non-terminal *and* not in memory is refused by both (`active durable runs` / `run_not_active`), so
-  nothing can clear it. A stranded row prevents the daemon restart needed after a revision mismatch.
+  nothing can clear it.
   `run list` shows the tell: `in-progress` + `not-live` on a spec
   whose PR already merged. **Recovery (verified 2026-07-16): `kill -9 <daemon-pid>` then
   `jarvis daemon start`.** Startup reconciliation settles every orphaned non-terminal row to

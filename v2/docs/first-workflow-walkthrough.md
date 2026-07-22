@@ -38,8 +38,9 @@ Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 
 ## Start the daemon
 
-`jarvis run start` connects to the daemon over `~/.jarvis/daemon.sock`. Nothing
-auto-starts the daemon — start it first:
+`jarvis run start` selects `~/.jarvis/daemon-<executable-tree-digest>.sock` and
+automatically starts or reuses that daemon. A differently keyed or legacy daemon
+is left untouched. You may start the same keyed daemon explicitly:
 
 ```bash
 jarvis daemon start
@@ -48,7 +49,7 @@ jarvis daemon start
 On success stdout is compact JSON with the child PID and socket path, for example:
 
 ```json
-{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon.sock"}
+{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon-<digest>.sock"}
 ```
 
 Confirm with `jarvis daemon status` (`running` when healthy).

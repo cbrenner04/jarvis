@@ -19,6 +19,7 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
+import { daemonPaths } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
@@ -141,7 +142,23 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   }
 
   const entry = findCommand(command);
-  if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+  if (entry !== undefined) {
+    if (
+      (command === "daemon" || command === "run" || command === "tui") &&
+      deps?.socketPath === undefined &&
+      deps?.pidPath === undefined &&
+      deps?.logPath === undefined
+    ) {
+      try {
+        const paths = daemonPaths(await runtimeDeps.getExecutableDigest());
+        return await entry.handler(argv.slice(1), out, { ...runtimeDeps, ...paths }, operatorSessionId);
+      } catch (error) {
+        out.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 1;
+      }
+    }
+    return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);
+  }
 
   const closeMatches = enumerateCommands().filter((entry) => levenshteinDistance(command, entry.name) <= 2);
   const closeCommand = closeMatches.length === 1 ? closeMatches[0] : undefined;

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { startIpcServer } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   type DaemonClient,
   type DiscoveredWorktree,
@@ -1404,6 +1407,211 @@ describe("cleanup: runAbandonCommand", () => {
     // Verify worktree is gone
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+});
+
+describe("cleanup: dead daemon socket reaping", () => {
+  const socketTest = test.skipIf(!canUseUnixSockets());
+  let tempRoot: string;
+  let jarvisRoot: string;
+
+  beforeEach(() => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-socket-reap-${Date.now()}-${Math.random()}`);
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    mkdirSync(jarvisRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("runCleanupCommand removes a dead daemon socket whose connect proves no listener is bound", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000001.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("dead daemon socket(s)");
+    expect(existsSync(deadSocket)).toBe(false);
+  });
+
+  socketTest("runCleanupCommand preserves every socket a daemon answers on", async () => {
+    const liveSocket = join(jarvisRoot, "daemon-0000000000000010.sock");
+    rmSync(liveSocket, { force: true });
+    const server = await startIpcServer(liveSocket, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(existsSync(liveSocket)).toBe(true);
+      expect(stdout).not.toContain(`remove: ${liveSocket}`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("runCleanupCommand with --dry-run lists dead sockets and removes none", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000002.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("dry-run");
+    expect(stdout).toContain(`remove: ${deadSocket}`);
+    expect(existsSync(deadSocket)).toBe(true);
+  });
+
+  test("cleanup run with only dead sockets previews and reaps them instead of reporting nothing to clean up", async () => {
+    const deadSocket = join(jarvisRoot, "daemon-0000000000000003.sock");
+    writeFileSync(deadSocket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      store,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("No eligible worktrees");
+    expect(stdout).toContain("dead daemon socket(s)");
+    expect(existsSync(deadSocket)).toBe(false);
+  });
+
+  test("enumeration failure removes no socket in that cleanup run", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000011.sock");
+    writeFileSync(socket, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    chmodSync(jarvisRoot, 0o000);
+    try {
+      let stdout = "";
+      const code = await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(stdout).not.toContain(`remove: ${socket}`);
+    } finally {
+      chmodSync(jarvisRoot, 0o700);
+    }
+
+    expect(existsSync(socket)).toBe(true);
+  });
+
+  socketTest("reports preserved sockets when they are the only socket work", async () => {
+    const preservedSocket = join(jarvisRoot, "daemon-0000000000000012.sock");
+    rmSync(preservedSocket, { force: true });
+    const server = createServer(() => {});
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(preservedSocket, () => resolve());
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+    let stdout = "";
+    try {
+      const code = await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        {
+          stdout: (s) => (stdout += s),
+          stderr: () => {},
+        },
+      );
+
+      expect(code).toBe(0);
+      expect(stdout).not.toContain("No eligible worktrees");
+      expect(stdout).toContain("Preserved 1 daemon socket(s):");
+      expect(stdout).toContain(preservedSocket);
+      expect(stdout).toContain("timed out");
+      expect(existsSync(preservedSocket)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

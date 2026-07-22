@@ -26,15 +26,15 @@ daemon — current or superseded — is still serving.
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup` removes a `~/.jarvis/daemon-<key>.sock` whose connect proves no listener is bound.
-- [ ] `jarvis cleanup` preserves every socket a daemon answers on, whether that daemon is the invoking digest or a superseded one.
-- [ ] A socket whose probe neither succeeds nor proves absence of a listener (timeout, permission error, unexpected error) is preserved and reported with its reason.
-- [ ] A failure enumerating the daemon home removes no socket in that cleanup run.
-- [ ] `jarvis cleanup --dry-run` lists the dead sockets and removes none.
-- [ ] A cleanup run whose only work is dead sockets previews and reaps them instead of reporting nothing to clean up.
-- [ ] A regression test in `v2/src/commands/daemon.test.ts` proves an unprobeable socket is preserved; it fails against the pre-fix code.
-- [ ] Inverting each added guard fails a test: inverting the live-socket guard, the unprobeable-preserve guard, the enumeration-failure guard, or the dry-run guard each makes a test observe a socket removed that must survive.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `jarvis cleanup` removes a `~/.jarvis/daemon-<key>.sock` whose connect proves no listener is bound.
+- [x] `jarvis cleanup` preserves every socket a daemon answers on, whether that daemon is the invoking digest or a superseded one.
+- [x] A socket whose probe neither succeeds nor proves absence of a listener (timeout, permission error, unexpected error) is preserved and reported with its reason.
+- [x] A failure enumerating the daemon home removes no socket in that cleanup run.
+- [x] `jarvis cleanup --dry-run` lists the dead sockets and removes none.
+- [x] A cleanup run whose only work is dead sockets previews and reaps them instead of reporting nothing to clean up.
+- [x] A regression test in `v2/src/commands/daemon.test.ts` proves an unprobeable socket is preserved; it fails against the pre-fix code.
+- [x] Inverting each added guard fails a test: inverting the live-socket guard, the unprobeable-preserve guard, the enumeration-failure guard, or the dry-run guard each makes a test observe a socket removed that must survive.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

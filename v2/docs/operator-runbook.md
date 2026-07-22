@@ -491,6 +491,14 @@ other error occurs, the worktree is marked ineligible and skipped. This prevents
 of an operator's in-flight work. Worktrees ineligible for this session remain untouched; the operator
 can retry `jarvis cleanup` later if issues are resolved.
 
+Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
+is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;
+dead sockets are removed. All other probe results (connection succeeds, timeout, permission error,
+unexpected error) preserve the socket and are reported by reason. This allows `jarvis cleanup` to
+safely run while overlapping keyed daemons are live: each socket is classified independently, and
+only sockets whose daemons have exited are removed. If the jarvis home cannot be enumerated, no
+sockets are removed in that cleanup run.
+
 ## Choosing an actuator
 
 **Claude is usable as patch/implement primary again (2026-07-13).**

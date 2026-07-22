@@ -68,6 +68,14 @@ to its own socket, PID file, and process log, with no interference. Observation
 via `run list` and `run wait` is scoped to the daemon's own socket and does not
 see runs from differently keyed daemons.
 
+Multiple daemons coexisting by keyed socket create a corresponding accumulation
+of sockets: one per executable digest ever run. `jarvis cleanup` removes dead
+sockets (those whose listeners have exited) via a connect-attempt probe: if the
+probe receives `ECONNREFUSED` or `ENOENT`, the socket is dead and removed; all
+other error states (timeout, permission error, unexpected error) preserve the
+socket and are reported. Live sockets — those a daemon is currently answering on,
+whether the invoking digest or a superseded keyed daemon — are never removed.
+
 ## Framing
 
 One connection carries length-prefixed UTF-8 JSON frames:

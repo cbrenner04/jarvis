@@ -7,10 +7,16 @@ import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } fro
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
-import { ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
+import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
+import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+import {
+  appendRuntimeSmokeOutcome,
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+} from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -1132,6 +1138,79 @@ describe("write loop", () => {
       const storedRun = loadRunOnce(stateDbPath, result.runId);
       expect(storedRun?.prNumber).toBe(42);
       expect(storedRun?.prUrl).toBe("https://github.com/owner/repo/pull/42");
+    });
+
+    test("records successful observed runtime smoke separately from not-runnable evidence", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => ({ runtimeSmokeOutcome: { kind: "observed-clean" } }),
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "runtime_smoke_outcome",
+        outcome: "observed-clean",
+      });
+    });
+
+    test("records successful runtime smoke evidence when the ready flip fails", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const outcome = { kind: "observed-clean" } as const;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw new ReadyFlipError(new Error("gh pr ready failed"), outcome);
+        },
+      });
+
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "runtime_smoke_outcome",
+        outcome: "observed-clean",
+      });
+    });
+
+    test("rejects an empty discovery reason before it reaches the durable log", () => {
+      const logSink = new TestLogSink();
+      const invalidOutcome = {
+        kind: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts"],
+        discoveryReason: "",
+      } as unknown as SmokePass;
+
+      expect(() => appendRuntimeSmokeOutcome(logSink, "run-1", invalidOutcome)).toThrow(
+        "Runtime smoke discovery reason must be non-empty",
+      );
+      expect(logSink.getEventsForRun("run-1")).toEqual([]);
+    });
+
+    test("does not record runtime smoke evidence when successful publication has no outcome", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => ({}),
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "runtime_smoke_outcome")).toEqual(
+        [],
+      );
     });
 
     test("completed-run resume replays publication after a prior publication failure", async () => {

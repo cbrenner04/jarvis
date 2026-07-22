@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 
 describe("createReadyFinalizer", () => {
   const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main" };
@@ -21,6 +22,51 @@ describe("createReadyFinalizer", () => {
     await finalizer(input);
 
     expect(calls).toEqual(["gate:/tmp/worktree@main", "flip:feature-branch@/tmp/worktree"]);
+  });
+
+  it("returns a successful runtime smoke outcome", async () => {
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRuntimeSmokeVerification: async () => ({
+        kind: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+      }),
+      ghReadyFlip: async () => {},
+    });
+
+    await expect(finalizer(input)).resolves.toEqual({
+      runtimeSmokeOutcome: {
+        kind: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+      },
+    });
+  });
+
+  it("carries a successful runtime smoke outcome when the ready flip fails", async () => {
+    const outcome = { kind: "observed-clean" } as const;
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      runRuntimeSmokeVerification: async () => outcome,
+      ghReadyFlip: async () => {
+        throw new Error("gh pr ready failed");
+      },
+      delay: noopDelay,
+    });
+
+    await expect(finalizer(input)).rejects.toEqual(
+      expect.objectContaining({
+        name: "ReadyFlipError",
+        runtimeSmokeOutcome: outcome,
+      }),
+    );
+  });
+
+  it("does not return a runtime smoke outcome when no verifier is configured", async () => {
+    const finalizer = createReadyFinalizer({ runReadyGate: async () => {}, ghReadyFlip: async () => {} });
+
+    await expect(finalizer(input)).resolves.toEqual({});
   });
 
   it("leaves the PR draft and does not flip when the ready gate fails", async () => {

@@ -10,10 +10,19 @@ export type SmokeObservedClean = {
   kind: "observed-clean";
 };
 
+declare const nonEmptyDiscoveryReasonBrand: unique symbol;
+
+export type NonEmptyDiscoveryReason = string & { readonly [nonEmptyDiscoveryReasonBrand]: true };
+
+export function nonEmptyDiscoveryReason(value: string): NonEmptyDiscoveryReason {
+  if (value.trim() === "") throw new Error("Runtime smoke discovery reason must be non-empty");
+  return value as NonEmptyDiscoveryReason;
+}
+
 export type SmokeNotRunnable = {
   kind: "not-runnable";
   inspectedPaths: string[];
-  discoveryReason: string;
+  discoveryReason: NonEmptyDiscoveryReason;
 };
 
 export type SmokePass = SmokeObservedClean | SmokeNotRunnable;
@@ -164,7 +173,7 @@ export async function verifyRuntimeSmoke(
     return {
       kind: "not-runnable",
       inspectedPaths: [],
-      discoveryReason: "no production files changed in diff",
+      discoveryReason: nonEmptyDiscoveryReason("no production files changed in diff"),
     };
   }
 
@@ -174,7 +183,7 @@ export async function verifyRuntimeSmoke(
     return {
       kind: "not-runnable",
       inspectedPaths: changedFiles,
-      discoveryReason: "no changed runnable entrypoint found",
+      discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
     };
   }
 

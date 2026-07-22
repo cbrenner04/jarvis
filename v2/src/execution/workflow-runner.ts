@@ -44,6 +44,7 @@ import {
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
 import {
+  appendRuntimeSmokeOutcome,
   executeWriteLoop,
   getUncommittedPaths,
   publishWithReadyRepair,
@@ -830,6 +831,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             );
             totalIterationsConsumed = publication.iterationsConsumed;
             if (publication.failure !== undefined) {
+              appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.failure.runtimeSmokeOutcome);
               const publicationFailure = publicationFailureFor(publication.failure.error);
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
               const isGateFailure = publication.failure.kind === "ready_gate_failed";
@@ -867,6 +869,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }
+            appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.success?.runtimeSmokeOutcome);
             store.setRunStatus(lastResult.runId, "completed");
           }
         } catch (error) {

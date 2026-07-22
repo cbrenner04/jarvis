@@ -43,8 +43,15 @@ entirely. That is what was done to land this spec.
 - Do not discard a committed implementation because a review-application step timed out. Preserve
   the commit and the adjudicated verdict, and settle so the operator can resume or land without
   re-running the write step; rules out the current all-or-nothing failure.
-- Give the actuator its own bound, separate from the write-step `iterationTimeoutMs`; rules out one
-  global timeout serving both a full implementation and a findings-application pass.
+- Port v1's **idle-output watchdog** to the v2 review path rather than adding a second wall-clock
+  bound. v1 arms both: the same 600s `iterationTimeoutMs` abort (`v1/src/modes/patch/review.ts:942`,
+  `controller.abort("actuator-timeout")`) *and* an idle-output timer rescheduled on every output
+  chunk, defaulting to `DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000` (`v1/src/config.ts:137`). v2 has
+  only the wall clock, so a productive-but-slow actuator and a hung one are indistinguishable — the
+  observed failure burned the full 600s with no way to tell which it was. Rules out "give the
+  actuator a shorter wall-clock bound", which would kill slow-but-working actuators just as blindly.
+- The v1 bound is **not** the thing to change: v1's actuator uses the same 600s. Rules out treating
+  this as a v1/v2 timeout-value mismatch.
 - Do not fix this by raising `iterationTimeoutMs` globally; rules out masking a slow actuator by
   giving every role longer.
 
@@ -57,6 +64,9 @@ entirely. That is what was done to land this spec.
 - [ ] The resulting run state is actionable — the operator can land or resume without re-running the
       write step.
 - [ ] A normal-duration actuator run is unaffected, and the write step keeps its existing bound.
+- [ ] An actuator that keeps emitting output is not killed by the idle watchdog, while one silent
+      past the idle bound is killed and reported as an idle-output kill distinct from the
+      wall-clock abort.
 - [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; where
       a guard suppresses an effect, the negative case proves the effect is absent.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

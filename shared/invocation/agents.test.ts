@@ -242,7 +242,10 @@ describe("createResolvedAgentBinding", () => {
       {
         kind: "settle",
         code: 0,
-        stdout: JSON.stringify({ type: "result", result: 'note: you\'ve hit your monthly spend limit on the free tier' }),
+        stdout: JSON.stringify({
+          type: "result",
+          result: "note: you've hit your monthly spend limit on the free tier",
+        }),
       },
     ]);
 
@@ -472,14 +475,16 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("codex binding classifies zero-exit quota patterns", async () => {
-    const quotaZeroExit = fakeSpawn([
-      { kind: "settle", code: 0, stdout: "You've hit your usage limit", stderr: "" },
-    ]);
-    const normalZeroExit = fakeSpawn([
-      { kind: "settle", code: 0, stdout: "completed successfully", stderr: "" },
-    ]);
+    const quotaZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "You've hit your usage limit", stderr: "" }]);
+    const normalZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "completed successfully", stderr: "" }]);
     const blockerZeroExit = fakeSpawn([
-      { kind: "settle", code: 0, stdout: "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run", stderr: "" },
+      {
+        kind: "settle",
+        code: 0,
+        stdout:
+          "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run",
+        stderr: "",
+      },
     ]);
 
     await expect(
@@ -503,7 +508,8 @@ describe("createResolvedAgentBinding", () => {
 
     expect(result3).toMatchObject({
       kind: "ok",
-      stdout: "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run",
+      stdout:
+        "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run",
       stderr: "",
     });
   });
@@ -670,9 +676,7 @@ describe("createResolvedAgentBinding", () => {
     const quotaZeroExit = fakeSpawn([
       { kind: "settle", code: 0, stdout: "monthly cursor usage limit reached", stderr: "" },
     ]);
-    const normalZeroExit = fakeSpawn([
-      { kind: "settle", code: 0, stdout: "completed successfully", stderr: "" },
-    ]);
+    const normalZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "completed successfully", stderr: "" }]);
 
     await expect(
       createResolvedAgentBinding(

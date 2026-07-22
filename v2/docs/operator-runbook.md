@@ -217,6 +217,18 @@ cleanup --abandon <branch>` when guards pass. Because the guard now runs after
 connect, a refused re-run leaves behind the daemon it auto-started when none was
 listening — stop it with `jarvis daemon stop` if you did not want one up.
 
+When a non-zero exit occurs after retirement has begun, a destroyed-artifact
+summary is printed to stderr listing the PR closure, worktree removal, and branch
+deletions that succeeded in that invocation. This summary reports destruction events
+that occurred in the current run, not current on-disk state — a started workflow
+may have recreated a worktree and branch after retirement attempted to remove them.
+The summary is suppressed on successful invocation and when no artifacts were
+destroyed before the failure. A partial retirement (e.g., worktree removed but
+branch deletion failed) lists only the destroyed artifacts. Recover from a partial
+teardown by manually re-running the failed cleanup steps: close the PR with `gh pr
+close <number>`, delete remaining branches with `git branch -D` and `git push
+origin --delete <branch>`.
+
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` /

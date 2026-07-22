@@ -22,14 +22,14 @@ stdout — or guess, when retirement aborted mid-sequence.
 
 ## Acceptance criteria
 
-- [ ] A `run workflow implement` invocation that retires a stale workspace and then exits non-zero prints a stderr summary naming each artifact destroyed in that invocation — closed PR number, worktree path, local branch, remote branch.
-- [ ] A retirement that destroys only some artifacts (e.g. worktree removed, branch deletion failed) summarizes only the destroyed ones; the surviving artifacts are absent from the summary.
-- [ ] An invocation that fails before retirement destroys anything prints no such summary.
-- [ ] A successful dispatch prints no such summary.
-- [ ] New tests in `v2/src/commands/workflow.test.ts` cover the full-teardown, partial-teardown, pre-retirement-failure, and success cases; they fail against the pre-fix code.
-- [ ] Inverting the added suppression guard (emitting the summary regardless of exit code or of an empty record) makes the success-case and pre-retirement-failure tests fail; those tests assert the summary text is absent, not merely unasserted.
-- [ ] Existing `implement preflight stale workspace reset` tests in `v2/src/commands/workflow.test.ts` and the `resetStaleWorkspace` tests in `v2/src/commands/cleanup.test.ts` stay green (teardown sequence unchanged by the added reporting).
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] A `run workflow implement` invocation that retires a stale workspace and then exits non-zero prints a stderr summary naming each artifact destroyed in that invocation — closed PR number, worktree path, local branch, remote branch.
+- [x] A retirement that destroys only some artifacts (e.g. worktree removed, branch deletion failed) summarizes only the destroyed ones; the surviving artifacts are absent from the summary.
+- [x] An invocation that fails before retirement destroys anything prints no such summary.
+- [x] A successful dispatch prints no such summary.
+- [x] New tests in `v2/src/commands/workflow.test.ts` cover the full-teardown, partial-teardown, pre-retirement-failure, and success cases; they fail against the pre-fix code.
+- [x] Inverting the added suppression guard (emitting the summary regardless of exit code or of an empty record) makes the success-case and pre-retirement-failure tests fail; those tests assert the summary text is absent, not merely unasserted.
+- [x] Existing `implement preflight stale workspace reset` tests in `v2/src/commands/workflow.test.ts` and the `resetStaleWorkspace` tests in `v2/src/commands/cleanup.test.ts` stay green (teardown sequence unchanged by the added reporting).
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

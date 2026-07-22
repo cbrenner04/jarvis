@@ -15,7 +15,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { resetStaleWorkspace } from "./cleanup.ts";
+import { resetStaleWorkspace, type DestroyedArtifacts } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -137,12 +137,12 @@ async function maybeResetStaleWorkspace(
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
-): Promise<number | undefined> {
-  if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
+): Promise<{ exitCode: number | undefined; destroyed: DestroyedArtifacts }> {
+  if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return { exitCode: undefined, destroyed: {} };
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
-    return undefined;
+    return { exitCode: undefined, destroyed: {} };
   }
   // Runs inside the connected dispatch scope, so an escaping throw would otherwise be reported as a
   // daemon connection error. Classify reset failures here instead.
@@ -159,13 +159,13 @@ async function maybeResetStaleWorkspace(
     );
   } catch (error) {
     io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
+    return { exitCode: 1, destroyed: {} };
   }
   if (resetResult.status === "refused") {
     io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
-    return 1;
+    return { exitCode: 1, destroyed: resetResult.destroyed };
   }
-  return undefined;
+  return { exitCode: undefined, destroyed: resetResult.destroyed };
 }
 
 async function startWorkflowRun(
@@ -204,6 +204,17 @@ async function startWorkflowRun(
   return waitForRunCompletion(client, start.runId, io);
 }
 
+function formatDestroyedArtifacts(destroyed: DestroyedArtifacts): string {
+  if (Object.keys(destroyed).length === 0) return "";
+
+  const lines = ["destroyed artifacts from retirement:"];
+  if (destroyed.closedPr !== undefined) lines.push(`  closed PR #${destroyed.closedPr}`);
+  if (destroyed.removedWorktree !== undefined) lines.push(`  worktree: ${destroyed.removedWorktree}`);
+  if (destroyed.deletedLocalBranch !== undefined) lines.push(`  local branch: ${destroyed.deletedLocalBranch}`);
+  if (destroyed.deletedRemoteBranch !== undefined) lines.push(`  remote branch: ${destroyed.deletedRemoteBranch}`);
+  return lines.join("\n") + "\n";
+}
+
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
   if (resolved === undefined) {
@@ -224,8 +235,13 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
   if (!prepared.ok) return 1;
   return withConnectDispatch(io, deps, async (client) => {
-    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
-    if (resetExitCode !== undefined) return resetExitCode;
-    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
+    const reset = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
+    if (reset.exitCode !== undefined) return reset.exitCode;
+    const exitCode = await startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
+    if (exitCode !== 0) {
+      const summary = formatDestroyedArtifacts(reset.destroyed);
+      if (summary) io.stderr(summary);
+    }
+    return exitCode;
   });
 }

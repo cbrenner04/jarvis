@@ -1715,7 +1715,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     const result = await callReset(branch, realAsyncSubprocessRunner, async () => [{ isLive: true }]);
 
-    expect(result).toEqual({ status: "refused", reason: expect.stringContaining("live run") });
+    expect(result).toEqual({ status: "refused", reason: expect.stringContaining("live run"), destroyed: {} });
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
@@ -1726,7 +1726,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     const result = await callReset(branch, ghPrListRunner([{ number: 456, isDraft: false }]));
 
-    expect(result).toEqual({ status: "refused", reason: "matching PR is ready (non-draft)" });
+    expect(result).toEqual({ status: "refused", reason: "matching PR is ready (non-draft)", destroyed: {} });
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
@@ -1743,7 +1743,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       ]),
     );
 
-    expect(result).toEqual({ status: "refused", reason: "multiple open PRs match branch" });
+    expect(result).toEqual({ status: "refused", reason: "multiple open PRs match branch", destroyed: {} });
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });

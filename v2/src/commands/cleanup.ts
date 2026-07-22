@@ -638,7 +638,7 @@ export async function runCleanupCommand(
 /**
  * Shared retirement sequence: `git worktree remove` (throws on failure) →
  * `worktree prune` (best-effort) → `branch -D` (best-effort) → optionally
- * `push origin --delete` (best-effort).
+ * `push origin --delete` (best-effort). Returns record of destroyed artifacts.
  */
 async function removeWorktreeAndBranch(
   branch: string,
@@ -647,12 +647,15 @@ async function removeWorktreeAndBranch(
   options: { force?: boolean; deleteRemoteBranch?: boolean },
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
-): Promise<void> {
+): Promise<DestroyedArtifacts> {
+  const destroyed: DestroyedArtifacts = {};
+
   await runner.runAsync(
     "git",
     ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath],
     projectRoot,
   );
+  destroyed.removedWorktree = worktreePath;
   io.stdout(`Removed worktree: ${worktreePath}\n`);
 
   try {
@@ -663,6 +666,7 @@ async function removeWorktreeAndBranch(
 
   try {
     await runner.runAsync("git", ["branch", "-D", branch], projectRoot);
+    destroyed.deletedLocalBranch = branch;
     io.stdout(`Deleted local branch: ${branch}\n`);
   } catch (err) {
     io.stdout(
@@ -673,6 +677,7 @@ async function removeWorktreeAndBranch(
   if (options.deleteRemoteBranch === true) {
     try {
       await runner.runAsync("git", ["push", "origin", "--delete", branch], projectRoot);
+      destroyed.deletedRemoteBranch = branch;
       io.stdout(`Deleted remote branch: ${branch}\n`);
     } catch (err) {
       io.stdout(
@@ -680,6 +685,8 @@ async function removeWorktreeAndBranch(
       );
     }
   }
+
+  return destroyed;
 }
 
 /**
@@ -719,6 +726,13 @@ type AbandonResolution = {
 
 type LiveRunCheck = { live: false } | { live: true; reason: string };
 
+export type DestroyedArtifacts = {
+  closedPr?: number;
+  removedWorktree?: string;
+  deletedLocalBranch?: string;
+  deletedRemoteBranch?: string;
+};
+
 export async function resetStaleWorkspace(
   project: string,
   branch: string,
@@ -727,18 +741,24 @@ export async function resetStaleWorkspace(
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): Promise<{ status: "reset" | "no-op" } | { status: "refused"; reason: string }> {
+): Promise<
+  | { status: "reset" | "no-op"; destroyed: DestroyedArtifacts }
+  | { status: "refused"; reason: string; destroyed: DestroyedArtifacts }
+> {
   const worktreePath = join(jarvisRoot, "worktrees", project, branch);
-  if (!existsSync(worktreePath)) return { status: "no-op" };
+  if (!existsSync(worktreePath)) return { status: "no-op", destroyed: {} };
 
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
-  if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
+  if (liveCheck.live) return { status: "refused", reason: liveCheck.reason, destroyed: {} };
 
   const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason, destroyed: {} };
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
-  return abandonResult === 0 ? { status: "reset" } : { status: "refused", reason: "abandonment failed" };
+  if (abandonResult.status === 0) {
+    return { status: "reset", destroyed: abandonResult.destroyed };
+  }
+  return { status: "refused", reason: "abandonment failed", destroyed: abandonResult.destroyed };
 }
 
 async function isWorktreeLiveHeld(
@@ -819,11 +839,14 @@ async function performAbandonmentSteps(
   prNumber: number | undefined,
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): Promise<number> {
+): Promise<{ status: number; destroyed: DestroyedArtifacts }> {
+  const destroyed: DestroyedArtifacts = {};
+
   // Best-effort: close the PR
   if (prNumber !== undefined) {
     try {
       await runner.runAsync("gh", ["pr", "close", String(prNumber)], projectRoot ?? ".");
+      destroyed.closedPr = prNumber;
       io.stdout(`Closed PR #${prNumber}\n`);
     } catch (err) {
       io.stdout(`Warning: Could not close PR #${prNumber}: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -831,7 +854,7 @@ async function performAbandonmentSteps(
   }
 
   try {
-    await removeWorktreeAndBranch(
+    const branchDestroyed = await removeWorktreeAndBranch(
       branch,
       worktreePath,
       projectRoot ?? ".",
@@ -839,12 +862,13 @@ async function performAbandonmentSteps(
       runner,
       io,
     );
+    Object.assign(destroyed, branchDestroyed);
   } catch (err) {
     io.stderr(`Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}\n`);
-    return 1;
+    return { status: 1, destroyed };
   }
 
-  return 0;
+  return { status: 0, destroyed };
 }
 
 export async function runAbandonCommand(
@@ -917,7 +941,7 @@ export async function runAbandonCommand(
 
   // Execute abandonment
   const result = await performAbandonmentSteps(branch, worktreePath, projectRoot, prNumber, runner, io);
-  if (result !== 0) return result;
+  if (result.status !== 0) return result.status;
 
   io.stdout(`Abandoned workspace: ${workspaceName}\n`);
   return 0;

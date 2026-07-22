@@ -1057,3 +1057,183 @@ describe("intent and plan presets", () => {
     });
   });
 });
+
+describe("retirement-destroyed artifacts reporting", () => {
+  let resetTmp: string;
+  let resetProjectRoot: string;
+  let resetJarvisRoot: string;
+  const resetBranch = "implement-run";
+
+  function resetImplementSteps(branch = resetBranch): AnyWorkflowStep[] {
+    return [
+      {
+        behavior: "write",
+        stepId: "implement",
+        role: "implement",
+        promptId: "patch.prompt.body",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {},
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: "HEAD",
+        },
+        specPath: "index.md",
+        expectedArtifactPath: "index.md",
+      },
+    ];
+  }
+
+  function resetImplementDeps(overrides: NonNullable<Parameters<typeof main>[2]> = {}) {
+    return {
+      cwd: () => resetProjectRoot,
+      jarvisRoot: resetJarvisRoot,
+      readProjectRegistry: () => ({ demo: { root: resetProjectRoot } }),
+      workflowPresetBuilders: {
+        implement: () => ({ ok: true as const, steps: resetImplementSteps() }),
+      },
+      ...overrides,
+    } as NonNullable<Parameters<typeof main>[2]>;
+  }
+
+  async function materializeStaleWorktree(branch = resetBranch): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], resetProjectRoot);
+    const worktreePath = join(resetJarvisRoot, "worktrees", "demo", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], resetProjectRoot);
+    return worktreePath;
+  }
+
+  function makeResetRunner(prNumber: number, opts: { failRemoteDelete?: boolean } = {}): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: prNumber, isDraft: true }]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          return "";
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+          if (opts.failRemoteDelete) throw new Error("remote delete failed");
+          return "";
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    resetTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-reset-destroyed-"));
+    resetProjectRoot = join(resetTmp, "project");
+    resetJarvisRoot = join(resetTmp, "jarvis-home");
+    mkdirSync(resetProjectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], resetProjectRoot);
+    writeFileSync(join(resetProjectRoot, "index.md"), "# Index\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], resetProjectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(resetTmp, { recursive: true, force: true });
+  });
+
+  test("prints destroyed artifacts summary to stderr on failed run after full retirement", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = makeResetRunner(55);
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeIpcClient(workflowFrames("start", "wait", "run-failed", { runStatus: "failed" }), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(3);
+    const stderr = cap.read().stderr;
+    expect(stderr).toContain("destroyed artifacts from retirement:");
+    expect(stderr).toContain(`closed PR #55`);
+    expect(stderr).toContain(`worktree: ${worktreePath}`);
+    expect(stderr).toContain(`local branch: ${resetBranch}`);
+    expect(stderr).toContain(`remote branch: ${resetBranch}`);
+  });
+
+  test("prints only destroyed artifacts in partial retirement on failed run", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = makeResetRunner(56, { failRemoteDelete: true });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeIpcClient(workflowFrames("start", "wait", "run-failed-partial", { runStatus: "failed" }), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(3);
+    const stderr = cap.read().stderr;
+    expect(stderr).toContain("destroyed artifacts from retirement:");
+    expect(stderr).toContain(`closed PR #56`);
+    expect(stderr).toContain(`worktree: ${worktreePath}`);
+    expect(stderr).toContain(`local branch: ${resetBranch}`);
+    // Should NOT contain remote branch since deletion failed
+    expect(stderr).not.toContain(`remote branch: ${resetBranch}`);
+  });
+
+  test("prints no destroyed artifacts summary when run succeeds after reset", async () => {
+    await materializeStaleWorktree();
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = makeResetRunner(57);
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeIpcClient(workflowFrames("start", "wait", "run-success", COMPLETED_WAIT_RESULT), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const stderr = cap.read().stderr;
+    expect(stderr).not.toContain("destroyed artifacts from retirement:");
+  });
+
+  test("prints no destroyed artifacts summary on failed run before retirement", async () => {
+    const cap = captureIo();
+
+    const code = await main(
+      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+      cap.io,
+      resetImplementDeps({
+        workflowPresetBuilders: {
+          implement: () => ({ ok: false, error: "impl.error: test error" }),
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    const stderr = cap.read().stderr;
+    expect(stderr).not.toContain("destroyed artifacts from retirement:");
+  });
+});

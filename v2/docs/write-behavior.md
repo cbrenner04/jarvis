@@ -948,3 +948,24 @@ to avoid dominating implement wall-clock (future enhancement).
 Verification is exercised through injected seams for git-diff, untracked-file discovery,
 and scoped-test execution, enabling unit coverage of candidate derivation, mutation
 application, and failure classification without live subprocess or file I/O.
+
+## Cleanup command
+
+`jarvis cleanup` removes stale worktrees and archived incomplete specs, and reaps dead
+daemon sockets. A worktree is eligible only when its PR is merged, no non-terminal
+durable run references it, and the daemon reports no live run for it. Stranded
+artifacts are complete specs without a materialized owner.
+
+The command enumerates `daemon-*.sock` files under `~/.jarvis/`, probing each with
+a connect attempt to classify liveness. Sockets whose probe receives `ECONNREFUSED` or
+`ENOENT` are classified dead and removed; all other probe results (success, timeout,
+permission error, unexpected error) preserve the socket and are reported. Multiple
+daemons keyed by different executable digests may coexist, so each discovered socket
+is classified independently; live sockets are never removed regardless of which daemon
+owns them. When the jarvis home cannot be enumerated, no sockets are removed in that
+cleanup run.
+
+`jarvis cleanup` with `--dry-run` previews worktrees, artifacts, and dead sockets
+without removal. The confirmation prompt counts all removal candidates; a cleanup run
+whose only work is dead sockets still prompts and proceeds rather than reporting
+nothing to clean up.

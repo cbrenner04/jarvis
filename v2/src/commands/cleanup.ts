@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { getCurrentBranchAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -12,6 +12,7 @@ import { jarvisHome } from "../paths.ts";
 import type { Run, StateStore } from "../persistence/state-store.ts";
 import { isBoundaryTerminalRunStatus } from "../persistence/state-store.ts";
 import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
+import { reapDeadDaemonSockets } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -534,7 +535,14 @@ export async function runCleanupCommand(
     io,
   );
 
-  if (candidates.length === 0 && stranded.length === 0) {
+  const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+
+  if (
+    candidates.length === 0 &&
+    stranded.length === 0 &&
+    reaperResult.dead.length === 0 &&
+    reaperResult.preserved.length === 0
+  ) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
     return 0;
   }
@@ -543,6 +551,18 @@ export async function runCleanupCommand(
   if (stranded.length > 0) {
     io.stdout(`Found ${stranded.length} eligible stranded artifact(s) for cleanup:\n`);
     for (const spec of stranded) previewArtifact(spec, io);
+  }
+  if (reaperResult.dead.length > 0) {
+    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
+    for (const path of reaperResult.dead) {
+      io.stdout(`  remove: ${path}\n`);
+    }
+  }
+  if (reaperResult.preserved.length > 0) {
+    io.stdout(`Preserved ${reaperResult.preserved.length} daemon socket(s):\n`);
+    for (const item of reaperResult.preserved) {
+      io.stdout(`  ${item.path} — ${item.reason}\n`);
+    }
   }
 
   if (options.dryRun) {
@@ -559,6 +579,16 @@ export async function runCleanupCommand(
 
   const stillEligible = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
   const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
+
+  for (const path of reaperResult.dead) {
+    try {
+      rmSync(path, { force: true });
+      io.stdout(`Removed daemon socket: ${path}\n`);
+    } catch (err) {
+      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+      return 1;
+    }
+  }
 
   for (const spec of stranded) {
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);

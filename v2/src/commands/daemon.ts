@@ -1,8 +1,69 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatLifecycleError } from "../cli/ipc.ts";
 import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
+
+type ClassifiedSocket = {
+  path: string;
+  status: "dead" | "live" | "preserved";
+  reason?: string;
+};
+
+export async function reapDeadDaemonSockets(
+  jarvisRoot: string,
+): Promise<{ dead: string[]; preserved: Array<{ path: string; reason: string }> }> {
+  const dead: string[] = [];
+  const preserved: Array<{ path: string; reason: string }> = [];
+
+  if (!existsSync(jarvisRoot)) {
+    return { dead, preserved };
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(jarvisRoot);
+  } catch {
+    return { dead, preserved };
+  }
+
+  const socketFiles = entries.filter((name) => name.startsWith("daemon-") && name.endsWith(".sock"));
+
+  for (const socketFile of socketFiles) {
+    const socketPath = join(jarvisRoot, socketFile);
+    const classification = await classifySocket(socketPath);
+    if (classification.status === "dead") {
+      dead.push(socketPath);
+    } else if (classification.status === "preserved" && classification.reason) {
+      preserved.push({ path: socketPath, reason: classification.reason });
+    }
+  }
+
+  return { dead, preserved };
+}
+
+async function classifySocket(socketPath: string): Promise<ClassifiedSocket> {
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      await transport.request("health", undefined, { timeoutMs: 500 });
+      return { path: socketPath, status: "live" };
+    } finally {
+      transport.close();
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
+      return { path: socketPath, status: "dead" };
+    }
+    const reason = err.message || String(error);
+    return { path: socketPath, status: "preserved", reason };
+  }
+}
 
 function readPid(pidPath: string): number | null {
   if (!existsSync(pidPath)) return null;

@@ -34,19 +34,19 @@ Depends on 00.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/workflow-runner.test.ts` drives a review step whose actuator
+- [x] A new test in `v2/src/execution/workflow-runner.test.ts` drives a review step whose actuator
       exceeds its bound and asserts the run row's persisted invocation-failure detail names the role,
       agent, model, and bound value; it fails against the pre-fix code.
-- [ ] A `run-operator-error.test.ts` test asserts a `timeout` invocation failure composes to
+- [x] A `run-operator-error.test.ts` test asserts a `timeout` invocation failure composes to
       `reason: "role_timeout"` (not `invocation_error`), `retryable: false`, `nextAction: "stop"`.
-- [ ] A non-timeout review-step invocation failure (e.g. `error`, `quota`) still composes to its
+- [x] A non-timeout review-step invocation failure (e.g. `error`, `quota`) still composes to its
       existing reason and next action, pinned by test.
-- [ ] A review step that completes normally settles unchanged — existing `workflow-runner.test.ts`
+- [x] A review step that completes normally settles unchanged — existing `workflow-runner.test.ts`
       review-step tests stay green.
-- [ ] Tests fail when each added or modified guard is inverted; where a guard suppresses the timeout
+- [x] Tests fail when each added or modified guard is inverted; where a guard suppresses the timeout
       detail (non-timeout failure, completed step), the negative case proves no timeout detail is
       persisted.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

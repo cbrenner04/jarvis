@@ -37,21 +37,21 @@ to a genuine agent failure — and nothing records which role hit which bound on
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/review-role-invocation.test.ts` drives a role invocation past a
+- [x] A new test in `v2/src/execution/review-role-invocation.test.ts` drives a role invocation past a
       short `roleTimeoutMs` with a hanging binding and asserts the result classifies as `timeout`
       carrying the role, the binding's agent and model, and the bound value; it fails against the
       pre-fix code.
-- [ ] A caller-signal abort (not the role timer) still classifies as it does today, pinned by a test
+- [x] A caller-signal abort (not the role timer) still classifies as it does today, pinned by a test
       that fails if the timer/caller distinction is dropped.
-- [ ] `executeReviewCycle` and `executeReviewDebate` surface the `timeout` failure kind and its
+- [x] `executeReviewCycle` and `executeReviewDebate` surface the `timeout` failure kind and its
       attribution for the failed role instead of `error`, pinned by tests in `review-cycle.test.ts`
       and `review-debate.test.ts`.
-- [ ] A role invocation that finishes inside its bound is unaffected — existing `review-cycle.test.ts`
+- [x] A role invocation that finishes inside its bound is unaffected — existing `review-cycle.test.ts`
       and `review-debate.test.ts` completion tests stay green.
-- [ ] Tests fail when each added or modified guard is inverted; where a guard suppresses the timeout
+- [x] Tests fail when each added or modified guard is inverted; where a guard suppresses the timeout
       classification (caller abort, non-timeout failure), the negative case proves no timeout
       attribution is attached.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

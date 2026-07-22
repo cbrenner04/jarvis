@@ -1,7 +1,6 @@
 import { writeFileSync } from "node:fs";
 import type {
   InvocationBinding,
-  InvocationExecution,
   InvocationOk,
   InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
@@ -12,6 +11,7 @@ import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocatio
 
 /** Fixed debate role order: adversary -> advocate -> adjudicator -> actuator. */
 export type ReviewDebateRole = "adversary" | "advocate" | "adjudicator" | "actuator";
+type RoleExecution = Awaited<ReturnType<typeof invokeReviewRole>>;
 
 /**
  * Read-only-by-construction: callers must supply `adversary`/`advocate`/`adjudicator`
@@ -26,7 +26,7 @@ export type ReviewDebateRoleBindings = {
 };
 
 type ReviewDebateCycleOutcome = {
-  roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>;
+  roleResults: Partial<Record<ReviewDebateRole, RoleExecution>>;
 } & (
   | { kind: "completed"; verdict: string; actuatorRan: boolean }
   | { kind: "role_failed"; failedRole: ReviewDebateRole; failureKind: InvocationFailureKind; verdict: string | null }
@@ -82,7 +82,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
   const cycles: ReviewDebateCycleOutcome[] = [];
 
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
-    const roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>> = {};
+    const roleResults: Partial<Record<ReviewDebateRole, RoleExecution>> = {};
     const profileContext = cycleProfileContext(args.profileContext, cycle + 1, cycles.at(-1)?.verdict ?? undefined);
 
     const adversary = await invokeReviewRole(
@@ -157,7 +157,7 @@ function roleFailedOutcome(
   failedRole: ReviewDebateRole,
   failureKindValue: InvocationFailureKind,
   verdict: string | null,
-  roleResults: Partial<Record<ReviewDebateRole, InvocationExecution>>,
+  roleResults: Partial<Record<ReviewDebateRole, RoleExecution>>,
 ): ReviewDebateCycleOutcome {
   return { kind: "role_failed", failedRole, failureKind: failureKindValue, verdict, roleResults };
 }

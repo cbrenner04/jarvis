@@ -17,6 +17,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "no_binding",
   "landing_failed",
   "invocation_error",
+  "role_timeout",
   "harness_failure",
   "not_implemented",
   "completion_commit_failed",
@@ -72,6 +73,7 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   no_binding: op("no_binding", "fix_config"),
   landing: op("landing_failed", "resume", true),
   error: op("invocation_error", "stop"),
+  timeout: op("role_timeout", "stop"),
 };
 
 /** Chronologically last terminal event; `list` and `wait` share this selection. */

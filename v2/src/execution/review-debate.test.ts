@@ -266,6 +266,7 @@ describe("executeReviewDebate", () => {
 });
 
 test("a hung adversary is aborted at the role wall clock", async () => {
+  const boundMs = 5;
   const hung: InvocationBinding = {
     id: "adversary.hung",
     metadata: { agent: "adversary", model: "hung" },
@@ -285,9 +286,17 @@ test("a hung adversary is aborted at the role wall clock", async () => {
       maxCycles: 1,
       overrides: { adversary: [hung] },
     }),
-    roleTimeoutMs: 5,
+    roleTimeoutMs: boundMs,
   });
-  expect(result).toMatchObject({ cycles: [{ kind: "role_failed", failedRole: "adversary" }] });
+  expect(result).toMatchObject({
+    cycles: [{ kind: "role_failed", failedRole: "adversary", failureKind: "timeout" }],
+  });
+  expect(result.cycles[0]?.roleResults.adversary?.roleTimeout).toEqual({
+    role: "adversary",
+    agent: "adversary",
+    model: "hung",
+    boundMs,
+  });
 });
 
 test("stamps pass metadata onto serializable object profile contexts", async () => {

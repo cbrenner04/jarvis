@@ -3074,6 +3074,57 @@ describe("executeWorkflow review-debate dispatch", () => {
 
       expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-1", resumable: false });
       expect(store.loadRun(result.runId)).toMatchObject({ status: "failed", attemptCount: 1 });
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toEqual({
+        failureKind: "error",
+        bindingAttempts: [],
+        message: "review: adversary invocation failed (error)",
+      });
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.boundMs).toBeUndefined();
+    });
+  });
+
+  test("persists attributed timeout detail when a review-debate actuator exceeds its bound", async () => {
+    const boundMs = 5;
+    const step = createDebateStep({
+      stepId: "debate-timeout",
+      verdictPath: debateVerdictPath(),
+      roleTimeoutMs: boundMs,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: ({ signal }) =>
+          adapterModel === "ACT"
+            ? new Promise<InvocationResult>((resolve) =>
+                signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+                  once: true,
+                }),
+              )
+            : Promise.resolve(
+                adapterModel === "ADJ"
+                  ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+                  : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+              ),
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 0,
+        stepId: "debate-timeout",
+        resumable: false,
+      });
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toEqual({
+        failureKind: "timeout",
+        bindingAttempts: [],
+        role: "actuator",
+        agent: "claude",
+        model: "ACT",
+        boundMs,
+        message: `review: actuator exceeded ${boundMs}ms bound (agent=claude, model=ACT)`,
+      });
     });
   });
 

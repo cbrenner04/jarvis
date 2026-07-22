@@ -1,7 +1,6 @@
 import { writeFileSync } from "node:fs";
 import type {
   InvocationBinding,
-  InvocationExecution,
   InvocationOk,
   InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
@@ -11,6 +10,7 @@ import { cycleProfileContext } from "./review-profile-context.ts";
 import { invokeReviewRole, reviewRoleFailureKind } from "./review-role-invocation.ts";
 
 export type ReviewCycleRole = "critic" | "actuator";
+type RoleExecution = Awaited<ReturnType<typeof invokeReviewRole>>;
 
 /** Critic bindings are read-only by caller convention; the executor adds no sandbox. */
 export type ReviewCycleRoleBindings = {
@@ -40,20 +40,20 @@ export type ReviewCycleOutcome =
       kind: "completed";
       verdict: string;
       actuatorRan: boolean;
-      roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>;
+      roleResults: Partial<Record<ReviewCycleRole, RoleExecution>>;
     }
   | {
       kind: "role_failed";
       failedRole: ReviewCycleRole;
       failureKind: InvocationFailureKind;
       verdict: string | null;
-      roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>;
+      roleResults: Partial<Record<ReviewCycleRole, RoleExecution>>;
     }
   | {
       kind: "invocation_failure";
       failureKind: "error";
       verdict: string | null;
-      roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>;
+      roleResults: Partial<Record<ReviewCycleRole, RoleExecution>>;
     };
 
 export type ReviewCycleResult =
@@ -87,7 +87,7 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
       return { kind: "invocation_failure", failureKind: "error", cycles };
     }
 
-    const roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>> = {};
+    const roleResults: Partial<Record<ReviewCycleRole, RoleExecution>> = {};
     const profileContext = cycleProfileContext(args.profileContext, cycle + 1, cycles.at(-1)?.verdict ?? undefined);
     const criticPrompt = await resolveCriticPrompt(args, profileContext);
     const critic = await invokeReviewRole(args, "critic", criticPrompt, args.bindings.critic);
@@ -137,7 +137,7 @@ function roleFailedOutcome(
   failedRole: ReviewCycleRole,
   failureKindValue: InvocationFailureKind,
   verdict: string | null,
-  roleResults: Partial<Record<ReviewCycleRole, InvocationExecution>>,
+  roleResults: Partial<Record<ReviewCycleRole, RoleExecution>>,
 ): ReviewCycleOutcome {
   return { kind: "role_failed", failedRole, failureKind: failureKindValue, verdict, roleResults };
 }

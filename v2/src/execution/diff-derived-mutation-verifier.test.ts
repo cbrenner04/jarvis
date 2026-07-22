@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type DiffDerivedMutationVerifierInput, verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import {
+  type DiffDerivedMutationVerifierInput,
+  maskNonCodeSpans,
+  verifyDiffDerivedMutations,
+} from "./diff-derived-mutation-verifier.ts";
 
 // Helper to test diff parsing
 function testParseDiff(diff: string): { file: string; lineNumber: number; content: string }[] {
@@ -670,5 +674,417 @@ ${added}
     expect(result.kind).toBe("pass");
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
     expect(scopedRuns).toBe(0);
+  });
+});
+
+describe("maskNonCodeSpans", () => {
+  it("preserves line length and masks double-quoted strings", () => {
+    const input = `const msg = "usage: <name>";`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+    expect(masked).toContain("const msg =");
+  });
+
+  it("masks single-quoted strings", () => {
+    const input = `const msg = 'usage: <name>';`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+  });
+
+  it("masks backtick template literals", () => {
+    const input = "const msg = `usage: <name>`;";
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+  });
+
+  it("masks line comments", () => {
+    const input = "const x = 5; // placeholder: <name>";
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked.slice(0, 13)).toBe("const x = 5; ");
+    expect(masked.slice(13)).not.toContain("<");
+  });
+
+  it("handles escaped quotes in double-quoted strings", () => {
+    const input = `const msg = "contains \\"escaped< quote\\"";`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+    expect(masked).toContain("const msg =");
+  });
+
+  it("handles escaped quotes in single-quoted strings", () => {
+    const input = `const msg = 'contains \\'escaped< quote\\'';`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+  });
+
+  it("handles escaped backticks in template literals", () => {
+    const input = "const msg = `contains \\`escaped< backtick\\``;";
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+  });
+
+  it("preserves an operator that follows a string containing an escaped quote", () => {
+    const input = `const msg = "a \\" b"; if (x < 5) {}`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    // The escaped quote must not close the string: closing early would reopen a
+    // span at the real closing quote and mask the operator to end of line.
+    expect(masked).toContain("< 5");
+    expect(masked).not.toContain("b");
+  });
+
+  it("masks a self-contained block comment", () => {
+    const input = "const x = 5; /* placeholder: <name> */ const y = 6;";
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+    expect(masked).toContain("const x = 5;");
+    expect(masked).toContain("const y = 6;");
+  });
+
+  it("masks an unterminated block comment to end of line", () => {
+    const input = "const x = 5; /* placeholder: <name>";
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+    expect(masked).toContain("const x = 5;");
+  });
+
+  it("preserves code outside of masked spans", () => {
+    const input = `if (x < 5) const msg = "usage: <name>";`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    // The < in x < 5 should be preserved
+    const operatorAt = input.indexOf("< 5");
+    expect(masked.slice(operatorAt, operatorAt + 2)).toBe("< ");
+    // The < in the string should be masked
+    const stringAngleAt = input.indexOf("<name>");
+    expect(masked.slice(stringAngleAt, stringAngleAt + 2)).not.toContain("<");
+  });
+
+  it("unterminated string masks to end of line", () => {
+    const input = `const msg = "unclosed string with <`;
+    const masked = maskNonCodeSpans(input);
+    expect(masked.length).toBe(input.length);
+    expect(masked).not.toContain("<");
+    expect(masked).toContain("const msg =");
+  });
+});
+
+describe("masking non-code spans", () => {
+  it("yields no candidate when only `<` is inside a double-quoted string", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const msg = "usage: <name>";
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("yields no candidate when `<` is inside a line comment", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const x = 5; // placeholder: <name>
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("yields no candidate when `<` is inside a backtick template literal", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const msg = \`usage: <name>\`;
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("mutates genuine comparison operator on same line as string containing `<`", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++if (x < 5) const msg = "usage: <name>";
+`;
+
+    const originalContent = `if (x < 5) const msg = "usage: <name>";`;
+
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) {
+            mutatedContents.push(content);
+          }
+        },
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBeGreaterThan(0);
+    }
+    // The mutation should be applied to the actual < operator, not the one in the string
+    expect(mutatedContents.length).toBeGreaterThan(0);
+    expect(mutatedContents[0]?.includes("if (x >= 5)")).toBe(true);
+    expect(mutatedContents[0]?.includes('"usage: <name>"')).toBe(true);
+  });
+
+  it("regression: CLEANUP_USAGE line yields no candidate", async () => {
+    const diff = `diff --git a/v2/src/cli/usage.ts b/v2/src/cli/usage.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/cli/usage.ts
++++ b/v2/src/cli/usage.ts
+@@ -16,1 +16,1 @@
++export const CLEANUP_USAGE = "usage: jarvis cleanup [--dry-run] [--yes|-y] [--abandon <name>]\\n";
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("masks escaped quotes inside double-quoted strings", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const msg = "contains \\"escaped< quote\\"";
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("masks single-quoted strings with adjacent operators", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++if (x < 5) const msg = 'usage: <name>';
+`;
+
+    const originalContent = `if (x < 5) const msg = 'usage: <name>';`;
+
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) {
+            mutatedContents.push(content);
+          }
+        },
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBeGreaterThan(0);
+    }
+    // The mutation should be applied to the actual < operator, not the one in the string
+    expect(mutatedContents.length).toBeGreaterThan(0);
+    expect(mutatedContents[0]?.includes("if (x >= 5)")).toBe(true);
+    expect(mutatedContents[0]?.includes("'usage: <name>'")).toBe(true);
+  });
+
+  it("yields no candidate when `>`, `!`, and `delete(` sit inside a string literal", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const msg = "run > out, then !force, then delete(row)";
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("yields no candidate when the only mutable text sits in a self-contained block comment", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const usage = buildUsage(); /** cleanup [--abandon <name>] */
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("yields no candidate when the block comment is unterminated on the line", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++const usage = buildUsage(); /* cleanup [--abandon <name>]
+`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("applies a guard mutation whose span encloses a masked string literal", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++if (!("minFreeGb" in memory)) {
+`;
+
+    const originalContent = `if (!("minFreeGb" in memory)) {`;
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) mutatedContents.push(content);
+        },
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    // The candidate's recorded text must come from the original line, not the
+    // masked one — otherwise applying it throws on the column-slice guard.
+    expect(mutatedContents.length).toBeGreaterThan(0);
+    expect(mutatedContents[0]).toBe(`if (("minFreeGb" in memory)) {`);
+  });
+
+  it("fails the candidate when the recorded columns no longer hold its original text", async () => {
+    const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,1 +1,1 @@
++if (x < 5) return null;
+`;
+
+    await expect(
+      verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          // The worktree file has drifted from the diff, so the slice at the
+          // candidate's columns is not its original text.
+          readFile: async () => `if (yyyyyy < 5) return null;`,
+          writeFile: async () => {},
+          runScopedTests: async () => false,
+        },
+      ),
+    ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
   });
 });

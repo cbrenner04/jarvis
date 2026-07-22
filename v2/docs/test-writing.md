@@ -17,6 +17,8 @@ These tests are the default because they are:
 
 When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`.
 
+Coverage collected during the write step is a pre-filter for never-executed changed production lines only. It certifies execution, not assertion adequacy; the mutation verifier remains the gate for whether tests meaningfully exercise changed behavior.
+
 ## Real-process / real-clock tests (marked exception)
 
 Tests that require real OS processes or wall-clock timing are **marked exceptions**, not the default. Such tests must:

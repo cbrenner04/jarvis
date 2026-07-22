@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
-import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
+import { defaultGitDiff, extractFileFromDiffLine, isProductionFile, parseDiff, changedPathsFromDiff, isCodePath } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;
@@ -129,72 +129,6 @@ interface ChangedLine {
   file: string;
 }
 
-function extractLineNumberFromHunk(line: string): number {
-  const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
-  return match?.[1] ? parseInt(match[1], 10) : 1;
-}
-
-function processDiffLine(
-  line: string,
-  currentFile: string | null,
-  currentNewLineNum: number,
-  lines: ChangedLine[],
-): number {
-  if (line.startsWith("+") && !line.startsWith("+++")) {
-    lines.push({
-      type: "add",
-      lineNumber: currentNewLineNum,
-      content: line.slice(1),
-      file: currentFile as string,
-    });
-    return currentNewLineNum + 1;
-  }
-  if (line.startsWith("-") && !line.startsWith("---")) {
-    return currentNewLineNum;
-  }
-  if (line.startsWith(" ")) {
-    return currentNewLineNum + 1;
-  }
-  return currentNewLineNum;
-}
-
-function parseDiff(diffOutput: string): ChangedLine[] {
-  const lines: ChangedLine[] = [];
-  const diffLines = diffOutput.split("\n");
-
-  let currentFile: string | null = null;
-  let currentNewLineNum = 0;
-  let inHunk = false;
-
-  for (const line of diffLines) {
-    if (line.startsWith("diff --git")) {
-      currentFile = extractFileFromDiffLine(line);
-    } else if (line.startsWith("@@")) {
-      inHunk = true;
-      currentNewLineNum = extractLineNumberFromHunk(line);
-    } else if (inHunk && currentFile) {
-      currentNewLineNum = processDiffLine(line, currentFile, currentNewLineNum, lines);
-      if (!line.startsWith("\\") && line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
-        if (!line.startsWith("+") && !line.startsWith("-") && !line.startsWith(" ")) {
-          inHunk = false;
-        }
-      }
-    }
-  }
-
-  return lines;
-}
-
-function changedPathsFromDiff(diffOutput: string): string[] {
-  const paths = new Set<string>();
-  for (const line of diffOutput.split("\n")) {
-    if (!line.startsWith("diff --git ")) continue;
-    const path = extractFileFromDiffLine(line);
-    if (path !== null && isProductionFile(path)) paths.add(path);
-  }
-  return [...paths];
-}
-
 function deriveGuardMutations(file: string, lineNum: number, content: string, candidates: Candidate[]): void {
   const guardMatches = Array.from(content.matchAll(/(!\s*[a-zA-Z_][a-zA-Z0-9_]*|!(?:\([^)]+\)))/g));
   for (const match of guardMatches) {
@@ -292,10 +226,6 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
   deriveDestructiveMutations(file, lineNum, content, candidates);
 
   return candidates;
-}
-
-function isCodePath(path: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(path);
 }
 
 function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {

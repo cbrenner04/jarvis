@@ -32,6 +32,19 @@ describe("write prompt", () => {
     expect(rendered).toContain("`example-spec`");
   });
 
+  test("renders write.coverage-advisory with the coverage report body", () => {
+    const report = "Uncovered changed lines:\n  src/foo.ts:10";
+    const rendered = renderStepPrompt("write.coverage-advisory", {
+      SPEC_PATH: "spec/example/index.md",
+      STEP_RULES: "Return exactly one terminal token.",
+      COVERAGE_REPORT: report,
+    });
+
+    expect(rendered).toContain(report);
+    expect(rendered).toContain("mutation verifier");
+    expect(rendered).toContain("optional and will not block");
+  });
+
   test("unknown prompt id surfaces the registry lookup error", () => {
     expect(() => renderStepPrompt("no.such.prompt", {})).toThrow(/unknown prompt id/);
   });

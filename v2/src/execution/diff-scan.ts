@@ -13,6 +13,20 @@ export async function defaultGitDiff(cwd: string, baseRef: string): Promise<stri
   }
 }
 
+/** Working-tree diff against run base (uncommitted changes included). */
+export async function workingTreeGitDiff(cwd: string, baseRef: string): Promise<string> {
+  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  try {
+    return await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["diff", baseRef, "--no-ext-diff", "--no-color"],
+      cwd,
+    );
+  } catch {
+    return "";
+  }
+}
+
 const NON_PRODUCTION_PATTERNS = [
   /\.test\.ts$/,
   /\.test\.js$/,
@@ -30,4 +44,81 @@ export function isProductionFile(path: string): boolean {
 export function extractFileFromDiffLine(line: string): string | null {
   const match = line.match(/b\/(.+)$/);
   return match?.[1] ?? null;
+}
+
+export function isCodePath(path: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(path);
+}
+
+interface ChangedLine {
+  type: "add" | "remove";
+  lineNumber: number;
+  content: string;
+  file: string;
+}
+
+function extractLineNumberFromHunk(line: string): number {
+  const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)/);
+  return match?.[1] ? parseInt(match[1], 10) : 1;
+}
+
+function processDiffLine(
+  line: string,
+  currentFile: string | null,
+  currentNewLineNum: number,
+  lines: ChangedLine[],
+): number {
+  if (line.startsWith("+") && !line.startsWith("+++")) {
+    lines.push({
+      type: "add",
+      lineNumber: currentNewLineNum,
+      content: line.slice(1),
+      file: currentFile as string,
+    });
+    return currentNewLineNum + 1;
+  }
+  if (line.startsWith("-") && !line.startsWith("---")) {
+    return currentNewLineNum;
+  }
+  if (line.startsWith(" ")) {
+    return currentNewLineNum + 1;
+  }
+  return currentNewLineNum;
+}
+
+export function parseDiff(diffOutput: string): ChangedLine[] {
+  const lines: ChangedLine[] = [];
+  const diffLines = diffOutput.split("\n");
+
+  let currentFile: string | null = null;
+  let currentNewLineNum = 0;
+  let inHunk = false;
+
+  for (const line of diffLines) {
+    if (line.startsWith("diff --git")) {
+      currentFile = extractFileFromDiffLine(line);
+    } else if (line.startsWith("@@")) {
+      inHunk = true;
+      currentNewLineNum = extractLineNumberFromHunk(line);
+    } else if (inHunk && currentFile) {
+      currentNewLineNum = processDiffLine(line, currentFile, currentNewLineNum, lines);
+      if (!line.startsWith("\\") && line.length > 0 && !line.startsWith("diff") && !line.startsWith("index")) {
+        if (!line.startsWith("+") && !line.startsWith("-") && !line.startsWith(" ")) {
+          inHunk = false;
+        }
+      }
+    }
+  }
+
+  return lines;
+}
+
+export function changedPathsFromDiff(diffOutput: string): string[] {
+  const paths = new Set<string>();
+  for (const line of diffOutput.split("\n")) {
+    if (!line.startsWith("diff --git ")) continue;
+    const path = extractFileFromDiffLine(line);
+    if (path !== null && isProductionFile(path)) paths.add(path);
+  }
+  return [...paths];
 }

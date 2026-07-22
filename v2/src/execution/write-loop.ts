@@ -14,6 +14,7 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
@@ -115,6 +116,7 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  reportUncoveredChangedLines?: typeof reportUncoveredChangedLines;
 };
 
 /**
@@ -130,6 +132,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
+const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 
 /** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
@@ -346,6 +349,23 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
             : resolveSpecPath(worktreePath, args.specPath);
         appendBlockerToSpec(targetSpecPath, reason);
+      }
+
+      if (result.kind === "complete") {
+        try {
+          const reportFn = args.reportUncoveredChangedLines;
+          if (reportFn !== undefined || existsSync(join(worktreePath, ".git"))) {
+            const report = await (reportFn ?? reportUncoveredChangedLines)({
+              worktreePath,
+              runBase: args.worktree.baseRef,
+            });
+            if (report.sites.length > 0) {
+              await runCoverageAdvisoryPass(args, runId, attemptId, report.text);
+            }
+          }
+        } catch {
+          // Reporter and advisory are optional; never block completion.
+        }
       }
 
       const terminal = terminalMapping(result);
@@ -928,6 +948,44 @@ type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
 type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";
+
+/** Optional advisory sub-invocation after a completing iteration; outcome is ignored. */
+async function runCoverageAdvisoryPass(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  reportText: string,
+): Promise<void> {
+  args.logSink?.append(runId, {
+    kind: "coverage_advisory",
+    attemptId,
+    reportText: truncateLogText(reportText),
+  });
+
+  const clock = args.clock ?? (() => new Date());
+  const sessionLog = openSessionLog(runId, formatSessionLogTimestamp(clock()), {
+    ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+    clock,
+  });
+  sessionLog.append("harness", `run=${runId} coverage-advisory attempt=${attemptId}`);
+
+  const executionController = new AbortController();
+  const advisoryArgs: WriteLoopInput = {
+    ...args,
+    promptId: COVERAGE_ADVISORY_PROMPT_ID,
+    promptPlaceholders: { COVERAGE_REPORT: reportText },
+  };
+
+  try {
+    await executeWrite(
+      buildWriteExecuteInput(advisoryArgs, runId, attemptId, executionController.signal, sessionLog),
+    );
+  } catch {
+    // Advisory failures never change the completing boundary.
+  } finally {
+    closeSessionLog(sessionLog, "completed");
+  }
+}
 
 /** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
 async function runReadyRepairIteration(

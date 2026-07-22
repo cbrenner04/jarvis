@@ -458,6 +458,52 @@ plus the same materialized draft context as the critic.
 Workflow dispatch for the `plan-reviewed-light` preset supplies the plan review profile on the
 loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Uncovered changed-line reporter
+
+The uncovered changed-line reporter identifies which of a run's added production code lines
+no test executes, enabling early visibility into test coverage gaps before mutation
+verification stalls a run.
+
+**Diff scope:** The reporter diffs the working tree (`git diff <runBase>`) plus untracked
+production files against the base ref, restricting analysis to added lines in changed
+production files whose extension matches the code-path filter (TypeScript/JavaScript only:
+`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.mts`, `.cjs`, `.cts`). This rules out
+reporting on docs, specs, JSON, prompts, and other non-code changes that have no coverage records.
+
+**Coverage collection:** Coverage is collected via one scoped invocation: `bun test --coverage
+--coverage-reporter=lcov --coverage-dir=.scratch/coverage` against the directories derived from
+changed code paths. The scope classification uses top-level directory names from changed paths
+(`classifyChangedPaths` from `scripts/ci-test-scope.ts`); this is a deliberate simplification
+vs the full script-to-directory mapping the ready gate uses, so the advisory may flag lines
+outside the integration slice the gate would run. Per-file coverage runs are avoided so lcov
+output is unioned rather than overwritten per file. Coverage output is read from
+`.scratch/coverage/lcov.info` and cleaned up after parsing.
+
+**Reporting:** The reporter emits no percentages, ratios, or thresholds. Output names each
+uncovered changed line as `<file>:<line>`, sorted by file then line number. Rendered text
+includes a note that executed lines may still be unasserted; the mutation verifier, not coverage,
+decides test adequacy.
+
+**Fail-soft behavior:** Coverage subprocess failures (non-zero exit, timeout, unparseable output)
+return no report rather than throwing, treating the advisory as optional.
+
+**Write-loop delivery:** On a completing iteration (`done` / `no-work`), after `executeWrite`
+returns `complete` and before `commitCompletionBoundary`, the write loop runs the reporter once
+in git-backed worktrees (skips harness fake worktrees with no `.git`). When the report names
+uncovered lines, the loop issues one advisory sub-invocation through
+`write.coverage-advisory` (`promptId` / `promptPlaceholders` swap, same seam as ready-gate repair).
+The pass consumes no iteration budget, does not start a new attempt row, and never changes the
+completing boundary: the run still commits `complete` and proceeds through publication,
+ready-gate, mutation verification, and runtime smoke even when the advisory pass returns
+`blocked` or fails to invoke. Work the agent does during the advisory pass lands in the
+completion commit after the boundary. Non-`complete` outcomes skip the reporter entirely.
+The loop appends a `coverage_advisory` run-log event (attempt id + truncated report text) before
+the advisory invocation.
+
+**Write-step prompt inventory:** `write.coverage-advisory` — optional post-completion advisory
+re-prompt listing uncovered changed lines; states that executed ≠ asserted, that the mutation
+verifier decides adequacy, and that adding coverage is optional and non-blocking.
+
 ## Runtime smoke verifier
 
 The runtime smoke verifier proves a run's changed production behavior is wired

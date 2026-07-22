@@ -41,26 +41,26 @@ wires it into the write step.
 
 ## Acceptance criteria
 
-- [ ] Given a run-base working-tree production diff and coverage data, the reporter names each
+- [x] Given a run-base working-tree production diff and coverage data, the reporter names each
       changed production code line no test executed, as `<file>:<line>`.
-- [ ] A changed production line the coverage data records as executed is absent from the report.
-- [ ] A changed production code file with no coverage record at all has all of its added lines reported.
-- [ ] Changed non-code files (docs, specs, prompts, JSON) produce no reported lines.
-- [ ] Coverage collection issues exactly one `bun test --coverage` invocation, scoped to the
+- [x] A changed production line the coverage data records as executed is absent from the report.
+- [x] A changed production code file with no coverage record at all has all of its added lines reported.
+- [x] Changed non-code files (docs, specs, prompts, JSON) produce no reported lines.
+- [x] Coverage collection issues exactly one `bun test --coverage` invocation, scoped to the
       directories derived from the changed paths, and no repo-wide or per-file run.
-- [ ] No coverage percentage, ratio, or threshold is computed or emitted anywhere in the module or its output.
-- [ ] The rendered report text states that an executed line may still be unasserted and that the
+- [x] No coverage percentage, ratio, or threshold is computed or emitted anywhere in the module or its output.
+- [x] The rendered report text states that an executed line may still be unasserted and that the
       mutation verifier, not coverage, decides adequacy.
-- [ ] A coverage run that exits non-zero or emits unparseable output yields no report and no thrown error.
-- [ ] `uncovered-changed-lines.test.ts` pins the `cleanup.ts:161` shape — an unreachable fallback
+- [x] A coverage run that exits non-zero or emits unparseable output yields no report and no thrown error.
+- [x] `uncovered-changed-lines.test.ts` pins the `cleanup.ts:161` shape — an unreachable fallback
       branch inside the diff whose lcov hit count is `0` while sibling changed lines are non-zero is
       reported as uncovered; it fails against the pre-change code (the module does not exist).
-- [ ] lcov parsing is pinned against a checked-in fixture captured from real `bun test --coverage --coverage-reporter=lcov` output.
-- [ ] Tests fail when each added guard is inverted: inverting the code-path filter makes the
+- [x] lcov parsing is pinned against a checked-in fixture captured from real `bun test --coverage --coverage-reporter=lcov` output.
+- [x] Tests fail when each added guard is inverted: inverting the code-path filter makes the
       non-code-file case report lines; inverting the executed-line filter makes the covered-line
       case report a line; inverting the fail-soft guard makes the failed-coverage-run case throw.
-- [ ] `diff-derived-mutation-verifier.test.ts` stays green (the diff-parser move is behavior-preserving).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `diff-derived-mutation-verifier.test.ts` stays green (the diff-parser move is behavior-preserving).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

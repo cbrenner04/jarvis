@@ -2510,4 +2510,379 @@ describe("write loop", () => {
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
   });
+
+  describe("coverage advisory", () => {
+    const uncoveredReport = {
+      sites: [{ file: "src/foo.ts", line: 10 }],
+      text: "Uncovered changed lines:\n  src/foo.ts:10\n\nNote: an executed line may still be unasserted.",
+    };
+    const emptyReport = { sites: [] as { file: string; line: number }[], text: "" };
+
+    function stubExecuteWrite(
+      jarvisRoot: string,
+      branchName: string,
+      captured: WriteExecuteInput[],
+      advisoryResult?: Awaited<ReturnType<typeof realExecuteWrite>>["result"],
+    ) {
+      let calls = 0;
+      return async (input: WriteExecuteInput): Promise<Awaited<ReturnType<typeof realExecuteWrite>>> => {
+        calls += 1;
+        captured.push(input);
+        if (input.promptId === "write.coverage-advisory") {
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", branchName),
+            worktreeReused: true,
+            lock: { kind: "acquired" },
+            result:
+              advisoryResult ??
+              ({
+                kind: "complete",
+                token: "done",
+                invocation: { attempts: [], final: null, telemetryFailures: [] },
+              } as const),
+          };
+        }
+        return {
+          worktreePath: join(jarvisRoot, "worktrees", "demo", branchName),
+          worktreeReused: calls > 1,
+          lock: { kind: "acquired" },
+          result: {
+            kind: "complete",
+            token: "done",
+            invocation: { attempts: [], final: null, telemetryFailures: [] },
+          },
+        };
+      };
+    }
+
+    async function runCoverageLoop(args: {
+      jarvisRoot: string;
+      stateDbPath: string;
+      branchName?: string;
+      bindings: readonly InvocationBinding[];
+      logSink?: LogSink;
+      report?: typeof uncoveredReport | typeof emptyReport;
+      advisoryResult?: Awaited<ReturnType<typeof realExecuteWrite>>["result"];
+      completionCommitter?: WriteLoopInput["completionCommitter"];
+      completionPublisher?: WriteLoopInput["completionPublisher"];
+      readyFinalizer?: WriteLoopInput["readyFinalizer"];
+    }) {
+      const branchName = args.branchName ?? "coverage-advisory-run";
+      const captured: WriteExecuteInput[] = [];
+      let reporterCalls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: stubExecuteWrite(args.jarvisRoot, branchName, captured, args.advisoryResult),
+      }));
+
+      const store = openStateStore(args.stateDbPath);
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName,
+            baseRef: "HEAD",
+            jarvisRoot: args.jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: args.bindings,
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+          sessionsDir: join(args.jarvisRoot, "sessions"),
+          publishCompletion: false,
+          ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+          ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
+          ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
+          ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
+          reportUncoveredChangedLines: async () => {
+            reporterCalls += 1;
+            return args.report ?? uncoveredReport;
+          },
+        });
+        return { result, captured, reporterCalls };
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    }
+
+    test("completing run with uncovered lines re-prompts before the completion boundary", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const sink = new TestLogSink();
+      const { result, captured, reporterCalls } = await runCoverageLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink: sink,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      expect(reporterCalls).toBe(1);
+      expect(captured).toHaveLength(2);
+      expect(captured[1]?.promptId).toBe("write.coverage-advisory");
+      expect(captured[1]?.promptPlaceholders?.COVERAGE_REPORT).toBe(uncoveredReport.text);
+
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      const advisoryIndex = events.indexOf("coverage_advisory");
+      const boundaryIndex = events.indexOf("boundary_committed");
+      expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+      expect(boundaryIndex).toBeGreaterThan(advisoryIndex);
+    });
+
+    test("completing run still commits complete when the advisory pass returns blocked", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const { result, captured } = await runCoverageLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        advisoryResult: {
+          kind: "blocked",
+          token: "blocked",
+          invocation: { attempts: [], final: null, telemetryFailures: [] },
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      expect(captured).toHaveLength(2);
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.status).toBe("completed");
+      expect(run?.attempts[0]?.outcomeKind).toBe("done");
+    });
+
+    test("completing run still commits complete when the advisory pass throws", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const captured: WriteExecuteInput[] = [];
+      let calls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: async (input: WriteExecuteInput) => {
+          calls += 1;
+          captured.push(input);
+          if (input.promptId === "write.coverage-advisory") {
+            throw new Error("advisory invoke failed");
+          }
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-advisory-run"),
+            worktreeReused: false,
+            lock: { kind: "acquired" },
+            result: {
+              kind: "complete",
+              token: "done",
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          };
+        },
+      }));
+
+      const store = openStateStore(stateDbPath);
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "coverage-advisory-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+          reportUncoveredChangedLines: async () => uncoveredReport,
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(calls).toBe(2);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("no uncovered lines skips the advisory invocation", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const { result, captured, reporterCalls } = await runCoverageLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        report: emptyReport,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      expect(reporterCalls).toBe(1);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.promptId).toBeUndefined();
+      expect(captured.some((input) => input.promptId === "write.coverage-advisory")).toBe(false);
+    });
+
+    test("progress iteration does not call the reporter", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const captured: WriteExecuteInput[] = [];
+      let reporterCalls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: async (input: WriteExecuteInput) => {
+          captured.push(input);
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-progress-run"),
+            worktreeReused: false,
+            lock: { kind: "acquired" },
+            result: {
+              kind: "progress",
+              token: "progress",
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          };
+        },
+      }));
+
+      const store = openStateStore(stateDbPath);
+      try {
+        await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "coverage-progress-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["progress"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+          maxIterations: 1,
+          reportUncoveredChangedLines: async () => {
+            reporterCalls += 1;
+            return uncoveredReport;
+          },
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+
+      expect(reporterCalls).toBe(0);
+      expect(captured.some((input) => input.promptId === "write.coverage-advisory")).toBe(false);
+    });
+
+    test("blocked iteration does not call the reporter", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const captured: WriteExecuteInput[] = [];
+      let reporterCalls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: async (input: WriteExecuteInput) => {
+          captured.push(input);
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-blocked-run"),
+            worktreeReused: false,
+            lock: { kind: "acquired" },
+            result: {
+              kind: "blocked",
+              token: "blocked",
+              blockerText: "blocked",
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          };
+        },
+      }));
+
+      const store = openStateStore(stateDbPath);
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "coverage-blocked-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["blocked"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+          reportUncoveredChangedLines: async () => {
+            reporterCalls += 1;
+            return uncoveredReport;
+          },
+        });
+
+        expect(result.kind).toBe("blocked");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+
+      expect(reporterCalls).toBe(0);
+      expect(captured.some((input) => input.promptId === "write.coverage-advisory")).toBe(false);
+    });
+
+    test("invocation_failure iteration does not call the reporter", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const captured: WriteExecuteInput[] = [];
+      let reporterCalls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: async (input: WriteExecuteInput) => {
+          captured.push(input);
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-invocation-failure-run"),
+            worktreeReused: false,
+            lock: { kind: "acquired" },
+            result: {
+              kind: "invocation_failure",
+              failureKind: "error",
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          };
+        },
+      }));
+
+      const store = openStateStore(stateDbPath);
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "coverage-invocation-failure-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+          reportUncoveredChangedLines: async () => {
+            reporterCalls += 1;
+            return uncoveredReport;
+          },
+        });
+
+        expect(result.kind).toBe("invocation_failure");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+
+      expect(reporterCalls).toBe(0);
+      expect(captured.some((input) => input.promptId === "write.coverage-advisory")).toBe(false);
+    });
+  });
 });

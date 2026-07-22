@@ -32,28 +32,28 @@ Deliver the report to the agent inside the write step, before the completion bou
 
 ## Acceptance criteria
 
-- [ ] A completing write run with uncovered changed production lines re-prompts the agent once with
+- [x] A completing write run with uncovered changed production lines re-prompts the agent once with
       the report before the completion boundary is committed.
-- [ ] That run still commits a `complete` boundary and proceeds to the existing completion,
+- [x] That run still commits a `complete` boundary and proceeds to the existing completion,
       publication, ready-gate, and mutation-verification path.
-- [ ] The run's outcome and status are unchanged by the advisory pass, including when the advisory
+- [x] The run's outcome and status are unchanged by the advisory pass, including when the advisory
       re-prompt returns `blocked` or fails to invoke.
-- [ ] The advisory pass consumes no iteration budget: `iterationsConsumed` is identical to a run
+- [x] The advisory pass consumes no iteration budget: `iterationsConsumed` is identical to a run
       with no uncovered lines.
-- [ ] A completing run with no uncovered changed lines issues no advisory invocation and no
+- [x] A completing run with no uncovered changed lines issues no advisory invocation and no
       coverage run beyond the reporter's single scoped run.
-- [ ] Non-`complete` outcomes (`progress`, `blocked`, invocation failure) trigger no reporter call.
-- [ ] The `write.coverage-advisory` prompt is registered in `prompts/registry.txt`, states that an
+- [x] Non-`complete` outcomes (`progress`, `blocked`, invocation failure) trigger no reporter call.
+- [x] The `write.coverage-advisory` prompt is registered in `prompts/registry.txt`, states that an
       executed line may still be unasserted and that the mutation verifier decides adequacy, and
       states that adding coverage is optional and will not block the run.
-- [ ] The prompt and the harness contain no coverage percentage, ratio, or threshold.
-- [ ] `write-loop.test.ts` gains a test driving a completing run whose injected reporter returns
+- [x] The prompt and the harness contain no coverage percentage, ratio, or threshold.
+- [x] `write-loop.test.ts` gains a test driving a completing run whose injected reporter returns
       uncovered lines, asserting the advisory invocation fires before the boundary commit and the
       outcome stays `complete`; it fails against the pre-change code.
-- [ ] Tests fail when each added guard is inverted: inverting the empty-report guard makes the
+- [x] Tests fail when each added guard is inverted: inverting the empty-report guard makes the
       no-uncovered-lines case issue an advisory invocation; inverting the `complete`-only guard
       makes a `progress` iteration call the reporter.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

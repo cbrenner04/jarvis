@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { type UncoveredChangedLinesInput, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 
 const FIXTURE_LCOV = `TN:src/execution
 SF:src/execution/cleanup.ts

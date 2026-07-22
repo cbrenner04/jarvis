@@ -1500,7 +1500,7 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon aborts and exits nonzero on local branch deletion failure, leaving remote branch and PR intact", async () => {
     const branch = "feat/abort-local-branch";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
@@ -1545,7 +1545,7 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon aborts and exits nonzero on remote branch deletion failure, leaving PR intact", async () => {
     const branch = "feat/abort-remote-branch";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
@@ -1632,7 +1632,7 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR", async () => {
     const branch = "feat/step-order";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
@@ -1757,7 +1757,7 @@ describe("cleanup: runAbandonCommand", () => {
 
   test("abandon preview lists actions in execution order", async () => {
     const branch = "feat/preview-order";
-    const worktreePath = await createUnmergedWorktree(branch);
+    const _worktreePath = await createUnmergedWorktree(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];

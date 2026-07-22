@@ -1,13 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
-import {
-  defaultGitDiff,
-  extractFileFromDiffLine,
-  isProductionFile,
-  parseDiff,
-  changedPathsFromDiff,
-  type ChangedLine,
-} from "./diff-scan.ts";
+import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;
@@ -128,7 +121,6 @@ async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promi
   }
   return [...paths];
 }
-
 
 function deriveGuardMutations(
   file: string,

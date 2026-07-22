@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { defaultGitDiff, isProductionFile, parseDiff, changedPathsFromDiff } from "./diff-scan.ts";
+import { changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type UncoveredSite = {
   file: string;
@@ -46,16 +46,7 @@ async function defaultCollectCoverage(cwd: string, scope: string[]): Promise<str
     const dirs = Array.from(new Set(scope.map((s) => s.split("/")[0] ?? s)));
     // Run scoped coverage collection
     // bun test --coverage writes to .coverage/lcov.info by default
-    await realAsyncSubprocessRunner.runAsync(
-      "bun",
-      [
-        "test",
-        "--coverage",
-        "--coverage-reporter=lcov",
-        ...dirs,
-      ],
-      cwd,
-    );
+    await realAsyncSubprocessRunner.runAsync("bun", ["test", "--coverage", "--coverage-reporter=lcov", ...dirs], cwd);
 
     // Read lcov output from bun's default location
     const lcovPath = join(cwd, ".coverage", "lcov.info");
@@ -71,6 +62,36 @@ async function defaultCollectCoverage(cwd: string, scope: string[]): Promise<str
 
 function isCodePath(path: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(path);
+}
+
+async function collectChangedFiles(
+  diffOutput: string,
+  worktreePath: string,
+  untrackedFilesProvider: (cwd: string) => Promise<string[]>,
+): Promise<Set<string>> {
+  const changedFiles = new Set<string>();
+
+  const changedLines = parseDiff(diffOutput);
+  for (const line of changedLines) {
+    if (isProductionFile(line.file) && isCodePath(line.file)) {
+      changedFiles.add(line.file);
+    }
+  }
+
+  for (const file of changedPathsFromDiff(diffOutput)) {
+    if (isCodePath(file)) {
+      changedFiles.add(file);
+    }
+  }
+
+  const untracked = await untrackedFilesProvider(worktreePath);
+  for (const file of untracked) {
+    if (isCodePath(file)) {
+      changedFiles.add(file);
+    }
+  }
+
+  return changedFiles;
 }
 
 function parseLcovOutput(lcovContent: string): Map<string, Map<number, number>> {
@@ -91,7 +112,7 @@ function parseLcovOutput(lcovContent: string): Map<string, Map<number, number>> 
       if (lineNumStr !== undefined && hitCountStr !== undefined) {
         const lineNum = parseInt(lineNumStr, 10);
         const hitCount = parseInt(hitCountStr, 10);
-        if (!isNaN(lineNum) && !isNaN(hitCount)) {
+        if (!Number.isNaN(lineNum) && !Number.isNaN(hitCount)) {
           currentLines.set(lineNum, hitCount);
         }
       }
@@ -127,25 +148,7 @@ export async function reportUncoveredChangedLines(
     const changedLines = parseDiff(diffOutput);
 
     // Collect all changed production files
-    const changedFiles = new Set<string>();
-    for (const line of changedLines) {
-      if (isProductionFile(line.file) && isCodePath(line.file)) {
-        changedFiles.add(line.file);
-      }
-    }
-
-    for (const file of changedPathsFromDiff(diffOutput)) {
-      if (isCodePath(file)) {
-        changedFiles.add(file);
-      }
-    }
-
-    const untracked = await untrackedFiles(input.worktreePath);
-    for (const file of untracked) {
-      if (isCodePath(file)) {
-        changedFiles.add(file);
-      }
-    }
+    const changedFiles = await collectChangedFiles(diffOutput, input.worktreePath, untrackedFiles);
 
     if (changedFiles.size === 0) {
       return {
@@ -197,7 +200,8 @@ export async function reportUncoveredChangedLines(
       for (const site of uncoveredSites) {
         renderedText += `${site.file}:${site.line}\n`;
       }
-      renderedText += "\nNote: executed does not imply asserted; the mutation verifier, not coverage, decides adequacy.\n";
+      renderedText +=
+        "\nNote: executed does not imply asserted; the mutation verifier, not coverage, decides adequacy.\n";
     }
 
     return {

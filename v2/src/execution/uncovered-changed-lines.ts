@@ -2,13 +2,7 @@ import { existsSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
-import {
-  workingTreeGitDiff,
-  isProductionFile,
-  parseDiff,
-  changedPathsFromDiff,
-  isCodePath,
-} from "./diff-scan.ts";
+import { changedPathsFromDiff, isCodePath, isProductionFile, parseDiff, workingTreeGitDiff } from "./diff-scan.ts";
 
 export type UncoveredChangedLine = {
   file: string;
@@ -131,6 +125,88 @@ async function addedLinesFromUntrackedFile(
   }
 }
 
+function uniqueCoverageDirectories(codePaths: string[]): string[] {
+  const scope = classifyChangedPaths(codePaths);
+  const directories =
+    scope === "full"
+      ? ["."]
+      : codePaths.map((p) => {
+          const parts = p.split("/");
+          return parts[0] ?? ".";
+        });
+  return [...new Set(directories)] as string[];
+}
+
+async function loadCoverageMap(
+  worktreePath: string,
+  directories: string[],
+  runCoverageTests: (cwd: string, directories: string[]) => Promise<string>,
+  readLcov: (path: string) => Promise<string>,
+  cleanupCoverage: (cwd: string) => Promise<void>,
+): Promise<Map<string, Set<number>> | null> {
+  let coverageOutput = "";
+  try {
+    coverageOutput = await runCoverageTests(worktreePath, directories);
+  } catch {
+    return null;
+  }
+  if (!coverageOutput) {
+    await cleanupCoverage(worktreePath).catch(() => {});
+    return null;
+  }
+
+  const lcovPath = join(worktreePath, COVERAGE_DIR, "lcov.info");
+  try {
+    const lcovContent = await readLcov(lcovPath);
+    await cleanupCoverage(worktreePath).catch(() => {});
+    return parseLcov(lcovContent);
+  } catch {
+    await cleanupCoverage(worktreePath).catch(() => {});
+    return null;
+  }
+}
+
+type ChangedLine = { type: "add" | "remove"; lineNumber: number; content: string; file: string };
+
+function uncoveredSites(changedLines: ChangedLine[], coverage: Map<string, Set<number>>): UncoveredChangedLine[] {
+  const changedLinesByFile = new Map<string, Set<number>>();
+  for (const line of changedLines) {
+    if (line.type !== "add" || !isCodePath(line.file) || !isProductionFile(line.file)) continue;
+    const added = changedLinesByFile.get(line.file) ?? new Set<number>();
+    added.add(line.lineNumber);
+    changedLinesByFile.set(line.file, added);
+  }
+
+  const sites: UncoveredChangedLine[] = [];
+  for (const [file, addedLines] of changedLinesByFile) {
+    const coveredLines = coverage.get(file) ?? new Set<number>();
+    for (const lineNum of addedLines) {
+      if (!coveredLines.has(lineNum)) {
+        sites.push({ file, line: lineNum });
+      }
+    }
+  }
+
+  sites.sort((a, b) => {
+    if (a.file !== b.file) return a.file.localeCompare(b.file);
+    return a.line - b.line;
+  });
+  return sites;
+}
+
+function formatUncoveredReportText(sites: UncoveredChangedLine[]): string {
+  if (sites.length === 0) return "";
+  const textLines = ["Uncovered changed lines:"];
+  for (const site of sites) {
+    textLines.push(`  ${site.file}:${site.line}`);
+  }
+  textLines.push("");
+  textLines.push(
+    "Note: an executed line may still be unasserted. The mutation verifier, not coverage, decides adequacy.",
+  );
+  return textLines.join("\n");
+}
+
 export async function reportUncoveredChangedLines(
   input: UncoveredChangedLinesInput,
   seams?: UncoveredChangedLinesSeams,
@@ -154,13 +230,7 @@ export async function reportUncoveredChangedLines(
     return emptyReport();
   }
 
-  const scope = classifyChangedPaths(codePaths);
-  const directories = scope === "full" ? ["."] : codePaths.map((p) => {
-    const parts = p.split("/");
-    return parts[0] ?? ".";
-  });
-
-  const uniqueDirs = [...new Set(directories)] as string[];
+  const uniqueDirs = uniqueCoverageDirectories(codePaths);
 
   const untrackedLines = (
     await Promise.all(
@@ -171,70 +241,14 @@ export async function reportUncoveredChangedLines(
   ).flat();
   const changedLines = [...diffLines, ...untrackedLines];
 
-  let coverageOutput = "";
-
-  try {
-    coverageOutput = await runCoverageTests(input.worktreePath, uniqueDirs);
-  } catch {
+  const coverage = await loadCoverageMap(input.worktreePath, uniqueDirs, runCoverageTests, readLcov, cleanupCoverage);
+  if (coverage === null) {
     return emptyReport();
   }
 
-  if (!coverageOutput) {
-    await cleanupCoverage(input.worktreePath).catch(() => {});
-    return emptyReport();
-  }
-
-  const lcovPath = join(input.worktreePath, COVERAGE_DIR, "lcov.info");
-  let lcovContent = "";
-
-  try {
-    lcovContent = await readLcov(lcovPath);
-  } catch {
-    await cleanupCoverage(input.worktreePath).catch(() => {});
-    return emptyReport();
-  }
-
-  await cleanupCoverage(input.worktreePath).catch(() => {});
-
-  const coverage = parseLcov(lcovContent);
-
-  const sites: UncoveredChangedLine[] = [];
-  const changedLinesByFile = new Map<string, Set<number>>();
-
-  for (const line of changedLines) {
-    if (line.type !== "add" || !isCodePath(line.file) || !isProductionFile(line.file)) continue;
-    const added = changedLinesByFile.get(line.file) ?? new Set<number>();
-    added.add(line.lineNumber);
-    changedLinesByFile.set(line.file, added);
-  }
-
-  for (const [file, addedLines] of changedLinesByFile) {
-    const coveredLines = coverage.get(file) ?? new Set<number>();
-
-    for (const lineNum of addedLines) {
-      if (!coveredLines.has(lineNum)) {
-        sites.push({ file, line: lineNum });
-      }
-    }
-  }
-
-  sites.sort((a, b) => {
-    if (a.file !== b.file) return a.file.localeCompare(b.file);
-    return a.line - b.line;
-  });
-
-  const textLines: string[] = [];
-  if (sites.length > 0) {
-    textLines.push("Uncovered changed lines:");
-    for (const site of sites) {
-      textLines.push(`  ${site.file}:${site.line}`);
-    }
-    textLines.push("");
-    textLines.push("Note: an executed line may still be unasserted. The mutation verifier, not coverage, decides adequacy.");
-  }
-
+  const sites = uncoveredSites(changedLines, coverage);
   return {
     sites,
-    text: textLines.join("\n"),
+    text: formatUncoveredReportText(sites),
   };
 }

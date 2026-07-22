@@ -17,11 +17,7 @@ export async function defaultGitDiff(cwd: string, baseRef: string): Promise<stri
 export async function workingTreeGitDiff(cwd: string, baseRef: string): Promise<string> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    return await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["diff", baseRef, "--no-ext-diff", "--no-color"],
-      cwd,
-    );
+    return await realAsyncSubprocessRunner.runAsync("git", ["diff", baseRef, "--no-ext-diff", "--no-color"], cwd);
   } catch {
     return "";
   }

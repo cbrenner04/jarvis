@@ -14,7 +14,6 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
@@ -31,6 +30,7 @@ import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts"
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -977,9 +977,7 @@ async function runCoverageAdvisoryPass(
   };
 
   try {
-    await executeWrite(
-      buildWriteExecuteInput(advisoryArgs, runId, attemptId, executionController.signal, sessionLog),
-    );
+    await executeWrite(buildWriteExecuteInput(advisoryArgs, runId, attemptId, executionController.signal, sessionLog));
   } catch {
     // Advisory failures never change the completing boundary.
   } finally {

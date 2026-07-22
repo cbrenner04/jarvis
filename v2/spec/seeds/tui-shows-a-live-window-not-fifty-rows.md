@@ -44,15 +44,12 @@ Sequencing agreed with the operator: `key-the-daemon-by-executable-digest` →
 
 ## Acceptance criteria
 
-- [ ] The TUI shows terminal runs from the last hour and omits older ones.
+- [ ] The TUI shows terminal runs from the last hour and omits older ones. 20 maximum, descending order.
 - [ ] Non-terminal runs are always shown, however old.
-- [ ] Each workflow renders as one row by default; expanding reveals its constituent runs with
-      roles.
+- [ ] Each workflow renders as one row by default; expanding reveals its constituent runs with roles.
 - [ ] A workflow with three or four runs occupies one row, not three or four.
-- [ ] The collapsed row identifies the active step while the workflow is live and its rolled-up
-      terminal status afterward.
-- [ ] Coverage asserts rendered output, not just view-model state — see
-      `v2/docs/test-writing.md` on TUI tests bypassing the render path.
+- [ ] The collapsed row identifies the active step while the workflow is live and its rolled-up terminal status afterward.
+- [ ] Coverage asserts rendered output, not just view-model state — see `v2/docs/test-writing.md` on TUI tests bypassing the render path.
 - [ ] `bun run typecheck`, `test:v2` pass.
 
 ## Documentation updates

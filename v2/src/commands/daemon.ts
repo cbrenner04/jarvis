@@ -17,7 +17,11 @@ async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps)
     return null;
   }
   try {
-    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, statePath: deps.statePath, force: argv[1] === "--force" });
+    await deps.stopDaemon(deps.socketPath, {
+      pidPath: deps.pidPath,
+      statePath: deps.statePath,
+      force: argv[1] === "--force",
+    });
     io.stdout("stopped\n");
     return 0;
   } catch (error) {

@@ -171,18 +171,20 @@ describe("selected daemon dispatch", () => {
     const sent: unknown[] = [];
     let attempts = 0;
     let started = 0;
-    const code = await withFixedUuid(["operator", "start"], () => main(fx.runStartArgs, cap.io, {
-      loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () => {
-        attempts += 1;
-        if (attempts === 1) throw new Error("not running");
-        return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-selected" } }], { sent });
-      },
-      startDaemon: async () => {
-        started += 1;
-        return { pid: 1, socketPath: "selected.sock" };
-      },
-    }));
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error("not running");
+          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-selected" } }], { sent });
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 1, socketPath: "selected.sock" };
+        },
+      }),
+    );
 
     expect(code).toBe(0);
     expect({ attempts, started }).toEqual({ attempts: 2, started: 1 });
@@ -192,9 +194,12 @@ describe("selected daemon dispatch", () => {
   test("reuses a selected daemon without a status handshake", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const code = await withFixedUuid(["operator", "resume"], () => main(["run", "resume", "run-123"], cap.io, {
-      connectIpcClient: async () => makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], { sent }),
-    }));
+    const code = await withFixedUuid(["operator", "resume"], () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], { sent }),
+      }),
+    );
 
     expect(code).toBe(0);
     expect(sent.map((frame) => (frame as { method?: string }).method)).toEqual(["resume"]);
@@ -203,7 +208,8 @@ describe("selected daemon dispatch", () => {
   test("loses a selected-daemon start race to its winner", async () => {
     const cap = captureIo();
     let connections = 0;
-    const code = await withFixedUuid(["operator", "start"], () => main(fx.runStartArgs, cap.io, {
+    const code = await withFixedUuid(["operator", "start"], () =>
+      main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         connectIpcClient: async () => {
           connections += 1;
@@ -214,7 +220,8 @@ describe("selected daemon dispatch", () => {
           const { DaemonAlreadyRunningError } = await import("../daemon/daemon-lifecycle.ts");
           throw new DaemonAlreadyRunningError("selected.sock");
         },
-      }));
+      }),
+    );
     expect(code).toBe(0);
     expect(connections).toBe(2);
     expect(cap.read()).toEqual({ stdout: "winner\n", stderr: "" });
@@ -223,12 +230,14 @@ describe("selected daemon dispatch", () => {
   test("reports a non-race start error", async () => {
     const cap = captureIo();
     const code = await main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () => { throw new Error("not running"); },
-        startDaemon: async () => {
-          throw new Error("daemon start failed");
-        },
-      });
+      loadAgentModelConfig: stubAgentModelConfig,
+      connectIpcClient: async () => {
+        throw new Error("not running");
+      },
+      startDaemon: async () => {
+        throw new Error("daemon start failed");
+      },
+    });
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("daemon start failed");
   });

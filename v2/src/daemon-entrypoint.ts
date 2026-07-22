@@ -1,5 +1,5 @@
-import { startDaemonRuntime } from "./daemon/daemon";
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { startDaemonRuntime } from "./daemon/daemon";
 
 if (process.argv.slice(2).includes("--help")) {
   console.log("usage: daemon-entrypoint [--help]");

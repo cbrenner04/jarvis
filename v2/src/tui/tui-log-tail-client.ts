@@ -1,7 +1,7 @@
+import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 import { daemonPathsForDigest } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 

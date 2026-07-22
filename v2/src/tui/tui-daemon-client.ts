@@ -1,3 +1,4 @@
+import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -12,7 +13,6 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { daemonPathsForDigest } from "../paths.ts";
-import { getInvokingExecutableDigest } from "../cli/dispatch-revision.ts";
 
 /** Successful `health` RPC payload from the daemon host. */
 type TuiDaemonHealthResult = { ok: true };
@@ -71,7 +71,9 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
  * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options?: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
-  const socketPath = options?.socketPath ?? daemonPathsForDigest(await (options?.getExecutableDigest ?? getInvokingExecutableDigest)()).socketPath;
+  const socketPath =
+    options?.socketPath ??
+    daemonPathsForDigest(await (options?.getExecutableDigest ?? getInvokingExecutableDigest)()).socketPath;
   const connectFn = options?.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;

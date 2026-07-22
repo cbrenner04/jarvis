@@ -399,9 +399,7 @@ test.each([
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      { kind: "request", id: requestId, method, params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
     client.close();
   });
 });

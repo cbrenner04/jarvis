@@ -1,7 +1,7 @@
+import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
-import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { Io } from "./io.ts";
 import { formatConnectionError, formatLifecycleError, formatRpcError, request } from "./ipc.ts";
 

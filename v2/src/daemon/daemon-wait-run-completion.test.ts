@@ -118,7 +118,9 @@ test("workflow entry payload omits absent optional outcome fields", () => {
     false,
   );
   expect(present).toMatchObject({
-    loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: false,
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: false,
   });
 
   const absent = projectWorkflowEntryResult({ runStatus: "failed" }, false);
@@ -419,45 +421,83 @@ test("workflow entry wait and list report surviving_mutation_failed from hidden 
   const invocationId = "inv-entry-surviving-mutation";
   const workflowSnapshot = {
     invocationId,
-    steps: [{
-      stepId: "implement", role: "implement", stepRules: "retry rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"],
-      agentModelConfig: { codex: { implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] }, shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] } } },
-    }],
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
   };
   const entryRunId = stateStore.createRun({
-    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-surviving-mutation",
-    specPath: "/tmp/test-project/spec.md", stepId: "implement", workflowSnapshot,
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
   });
   const shrinkRunId = stateStore.createRun({
-    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-surviving-mutation",
-    specPath: "/tmp/test-project/spec.md", stepId: "implement~shrink", workflowSnapshot,
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
   });
   finishLoop(entryRunId, "completed", 1);
   stateStore.setRunStatus(shrinkRunId, "failed");
   logSink.append(shrinkRunId, {
-    kind: "loop_finished", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: true,
-    survivingMutation: "operator-flip: === → !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
   });
 
   const expectedError = {
-    reason: "surviving_mutation_failed", retryable: false, nextAction: "stop",
-    survivingMutation: "operator-flip: === → !==", survivingMutationSourceFile: "src/guard.ts", survivingMutationSourceLine: 17,
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
   };
   const wait = await expectResponse(await waitDirect("entry-surviving-mutation", entryRunId));
   expect(wait).toEqual({
-    runStatus: "failed", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 3, resumable: false, error: expectedError,
-  });
-
-  const list = await expectResponse(await listDirect());
-  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find((row) => row.runId === entryRunId);
-  expect(entry).toEqual(expect.objectContaining({
-    runId: entryRunId,
-    status: "failed",
+    runStatus: "failed",
     loopOutcomeKind: "surviving_mutation_failed",
     iterationsConsumed: 3,
     resumable: false,
     error: expectedError,
-  }));
+  });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toEqual(
+    expect.objectContaining({
+      runId: entryRunId,
+      status: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 3,
+      resumable: false,
+      error: expectedError,
+    }),
+  );
   expect(entry?.error).not.toEqual(expect.objectContaining({ nextAction: "resume" }));
 });
 
@@ -465,26 +505,50 @@ test("workflow entry wait and list preserve complete outcome after hidden shrink
   const invocationId = "inv-entry-complete";
   const workflowSnapshot = {
     invocationId,
-    steps: [{ stepId: "implement", role: "implement", stepRules: "retry rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] }],
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
   };
   const entryRunId = stateStore.createRun({
-    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-complete",
-    specPath: "/tmp/test-project/spec.md", stepId: "implement", workflowSnapshot,
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
   });
   const shrinkRunId = stateStore.createRun({
-    project: "test-project", specRef: "main", worktreePath: "/tmp/test-project", branch: "entry-complete",
-    specPath: "/tmp/test-project/spec.md", stepId: "implement~shrink", workflowSnapshot,
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
   });
   finishLoop(entryRunId, "completed", 1);
   finishLoop(shrinkRunId, "completed", 2);
 
   expect(await expectResponse(await waitDirect("entry-complete", entryRunId))).toMatchObject({
-    runStatus: "completed", loopOutcomeKind: "complete",
+    runStatus: "completed",
+    loopOutcomeKind: "complete",
   });
   const list = await expectResponse(await listDirect());
-  expect((list.runs as Array<{ runId: string; status: string }>).find((row) => row.runId === entryRunId)).toMatchObject({
-    status: "completed", loopOutcomeKind: "complete", iterationsConsumed: 1, resumable: false,
-  });
+  expect((list.runs as Array<{ runId: string; status: string }>).find((row) => row.runId === entryRunId)).toMatchObject(
+    {
+      status: "completed",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 1,
+      resumable: false,
+    },
+  );
 });
 
 test("workflow wait returns killed when review step never runs and workflow is not live", async () => {

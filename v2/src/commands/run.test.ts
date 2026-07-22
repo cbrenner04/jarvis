@@ -595,10 +595,17 @@ describe("run control", () => {
               result: {
                 runs: [
                   {
-                    runId: "mutation", project: "demo", branch: "main", status: "failed", isLive: false,
+                    runId: "mutation",
+                    project: "demo",
+                    branch: "main",
+                    status: "failed",
+                    isLive: false,
                     error: {
-                      reason: "surviving_mutation_failed", retryable: true, nextAction: "resume",
-                      survivingMutation: "operator-flip", survivingMutationSourceFile: "src/guard.ts",
+                      reason: "surviving_mutation_failed",
+                      retryable: true,
+                      nextAction: "resume",
+                      survivingMutation: "operator-flip",
+                      survivingMutationSourceFile: "src/guard.ts",
                       survivingMutationSourceLine: 17,
                     },
                   },
@@ -611,7 +618,11 @@ describe("run control", () => {
     );
 
     expect(code).toBe(0);
-    const [mutation, plain] = cap.read().stdout.trimEnd().split("\n").map((row) => row.split("\t"));
+    const [mutation, plain] = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n")
+      .map((row) => row.split("\t"));
     expect(mutation?.[10]).toBe("operator-flip");
     expect(mutation?.[11]).toBe("src/guard.ts");
     expect(mutation?.[12]).toBe("17");

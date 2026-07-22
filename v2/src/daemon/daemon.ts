@@ -428,7 +428,9 @@ function workflowSurvivingMutationOwner(
   if (!isSettledRunStatus(rollupStatus) || entryRun.status === rollupStatus) return undefined;
   const run = siblingRuns.find((sibling) => sibling.stepId?.endsWith("~shrink") && sibling.status === "failed");
   const terminalRecord = run && findTerminalLogRecord(reader?.tail(run.id) ?? []);
-  return run && terminalRecord?.event.kind === "loop_finished" && terminalRecord.event.loopOutcomeKind === "surviving_mutation_failed"
+  return run &&
+    terminalRecord?.event.kind === "loop_finished" &&
+    terminalRecord.event.loopOutcomeKind === "surviving_mutation_failed"
     ? { run, terminalRecord: terminalRecord as PersistedRecord & { event: LoopFinishedEvent } }
     : undefined;
 }
@@ -442,10 +444,10 @@ export function projectWorkflowEntryResult(
     ...(entryResult?.loopOutcomeKind !== undefined
       ? {
           loopOutcomeKind: entryResult.loopOutcomeKind,
-          ...(entryResult.iterationsConsumed === undefined ? {} : { iterationsConsumed: entryResult.iterationsConsumed }),
-          ...(entryResult.resumable === undefined
+          ...(entryResult.iterationsConsumed === undefined
             ? {}
-            : { resumable: entryCanResume ? entryResult.resumable : false }),
+            : { iterationsConsumed: entryResult.iterationsConsumed }),
+          ...(entryResult.resumable === undefined ? {} : { resumable: entryCanResume ? entryResult.resumable : false }),
         }
       : {}),
     ...(entryResult?.error === undefined
@@ -1115,7 +1117,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * live, then report the rollup status over its sibling step rows.
    */
   const waitForWorkflowEntryRun = async (
-    reader: LogReader,
     run: LoadedRun,
     snapshot: WorkflowSnapshot,
   ): Promise<{ kind: "response"; result: unknown }> => {
@@ -1185,7 +1186,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const entrySnapshot = workflowEntrySnapshot(run);
     return entrySnapshot !== undefined
-      ? waitForWorkflowEntryRun(logReader, run, entrySnapshot)
+      ? waitForWorkflowEntryRun(run, entrySnapshot)
       : waitForLogTerminalRecord(logReader, run, signal);
   };
 

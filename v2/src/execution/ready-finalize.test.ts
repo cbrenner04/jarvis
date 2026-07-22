@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { createReadyFinalizer, ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 
 describe("createReadyFinalizer", () => {
@@ -55,10 +55,12 @@ describe("createReadyFinalizer", () => {
       delay: noopDelay,
     });
 
-    await expect(finalizer(input)).rejects.toEqual(expect.objectContaining({
-      name: "ReadyFlipError",
-      runtimeSmokeOutcome: outcome,
-    }));
+    await expect(finalizer(input)).rejects.toEqual(
+      expect.objectContaining({
+        name: "ReadyFlipError",
+        runtimeSmokeOutcome: outcome,
+      }),
+    );
   });
 
   it("does not return a runtime smoke outcome when no verifier is configured", async () => {

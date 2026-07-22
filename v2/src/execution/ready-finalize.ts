@@ -41,7 +41,9 @@ export type ReadyFinalizationResult = {
   runtimeSmokeOutcome?: SmokePass;
 };
 
-export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<ReadyFinalizationResult | void>;
+export type ReadyFinalizer = (
+  input: ReadyFinalizeInput,
+) => Promise<ReadyFinalizationResult | undefined> | Promise<void>;
 
 export class ReadyFlipError extends Error {
   constructor(

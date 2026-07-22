@@ -7,11 +7,16 @@ import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } fro
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
-import { ReadyGateError, ReadyFlipError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
+import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
-import { appendRuntimeSmokeOutcome, executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "./write-loop.ts";
+import {
+  appendRuntimeSmokeOutcome,
+  executeWriteLoop,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+} from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -1203,7 +1208,9 @@ describe("write loop", () => {
       });
 
       expect(result.kind).toBe("complete");
-      expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "runtime_smoke_outcome")).toEqual([]);
+      expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "runtime_smoke_outcome")).toEqual(
+        [],
+      );
     });
 
     test("completed-run resume replays publication after a prior publication failure", async () => {

@@ -20,8 +20,8 @@ import { type PublicationFailure, publicationFailureFor } from "./publication-re
 import {
   createReadyFinalizer,
   type ReadyFinalizer,
-  ReadyGateError,
   ReadyFlipError,
+  ReadyGateError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
   survivingMutationLogFields,
@@ -901,7 +901,11 @@ export type CompletionPublishSuccess = {
   runtimeSmokeOutcome: SmokePass | undefined;
 };
 
-export function appendRuntimeSmokeOutcome(logSink: LogSink | undefined, runId: string, outcome: SmokePass | undefined): void {
+export function appendRuntimeSmokeOutcome(
+  logSink: LogSink | undefined,
+  runId: string,
+  outcome: SmokePass | undefined,
+): void {
   if (outcome !== undefined) {
     if (outcome.kind === "not-runnable" && outcome.discoveryReason.trim() === "") {
       throw new Error("Runtime smoke discovery reason must be non-empty");

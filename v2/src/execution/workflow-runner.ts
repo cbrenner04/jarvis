@@ -21,7 +21,6 @@ import { landPublication, type PublicationLanding } from "./publication-landing.
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import { survivingMutationLogFields } from "./ready-finalize.ts";
-import { appendRuntimeSmokeOutcome } from "./write-loop.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -45,6 +44,7 @@ import {
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
 import {
+  appendRuntimeSmokeOutcome,
   executeWriteLoop,
   getUncommittedPaths,
   publishWithReadyRepair,

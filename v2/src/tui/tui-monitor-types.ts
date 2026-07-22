@@ -70,8 +70,8 @@ export type TuiRefreshScheduler = {
 
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
-  /** Unix socket path; production default is `~/.jarvis/daemon.sock`. */
-  socketPath?: string;
+  /** Unix socket path; required. */
+  socketPath: string;
   /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
   connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Injectable monitor refresh scheduler; defaults to a 1s interval poller. */

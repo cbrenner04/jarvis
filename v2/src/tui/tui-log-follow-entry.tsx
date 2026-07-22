@@ -26,10 +26,9 @@ async function openLogFollowSession(deps: RunTuiLogFollowDeps, quit: () => void)
 }
 
 /** Connect, tail structured logs for one run, and render until quit or benign stream end. */
-export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps): Promise<number> {
-  const resolved = deps ?? {};
-  const connectFn = resolved.connectTuiLogTail ?? connectTuiLogTail;
-  const connectOptions = resolved.socketPath !== undefined ? { socketPath: resolved.socketPath } : undefined;
+export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps): Promise<number> {
+  const connectFn = deps.connectTuiLogTail ?? connectTuiLogTail;
+  const connectOptions = { socketPath: deps.socketPath };
 
   let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
   let session: TuiLogFollowSession | undefined;
@@ -53,14 +52,14 @@ export async function runTuiLogFollow(runId: string, deps?: RunTuiLogFollowDeps)
     tail = await connectFn(runId, connectOptions);
   } catch (error) {
     if (error instanceof RpcConnectionError) {
-      await presentFeedback({ kind: "unavailable" }, resolved);
+      await presentFeedback({ kind: "unavailable" }, deps);
       return 1;
     }
     throw error;
   }
 
   try {
-    session = await openLogFollowSession(resolved, quit);
+    session = await openLogFollowSession(deps, quit);
     const activeTail = tail;
     const activeSession = session;
 

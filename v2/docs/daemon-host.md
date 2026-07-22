@@ -57,10 +57,16 @@ Callers supply `socketPath` explicitly. There is no production default,
 stale-socket recovery, or max concurrent client cap in the library. The CLI,
 [`jarvis tui`](./write-behavior.md#tui-cli) (IPC `start` consumer over the
 production socket), [`jarvis tui log <run-id>`](./write-behavior.md#tui-cli)
-(IPC tail consumer over the same socket), and daemon lifecycle commands pin
-`~/.jarvis/daemon.sock`
-plus `~/.jarvis/daemon.pid` at the consumer layer; other callers still pass
-explicit paths.
+(IPC tail consumer over the same socket), and daemon lifecycle commands key
+socket, PID, and process-log paths by the invoking executable digest: derived
+from the SHA-256 digest of tracked blobs under `v2/src/**`, `shared/**`, and
+repo manifests, with a 16-hex-char leading slice to stay within the macOS
+`sun_path` limit (104 bytes). The keyed path format is `~/.jarvis/daemon-<key>.sock`,
+`~/.jarvis/daemon-<key>.pid`, and `~/.jarvis/daemon-<key>.log`. This allows
+multiple daemons keyed by different executable digests to coexist: each connects
+to its own socket, PID file, and process log, with no interference. Observation
+via `run list` and `run wait` is scoped to the daemon's own socket and does not
+see runs from differently keyed daemons.
 
 ## Framing
 

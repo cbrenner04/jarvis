@@ -21,12 +21,12 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis daemon start|stop|status`, `run` dispatch, `run list`, `run wait`, `tui`, and `cleanup` connect to `~/.jarvis/daemon-<key>.sock`, where `<key>` derives from the invoking executable tree digest, and start/stop use the matching PID and process-log paths.
-- [ ] A live daemon on a differently keyed socket, and a live daemon on the legacy `~/.jarvis/daemon.sock`, receive no request from the invoking CLI.
-- [ ] Connecting with no explicit socket path is impossible in the TUI daemon and log-tail clients: the path is a required argument.
-- [ ] A regression test drives CLI daemon-touching commands with a stub connector, asserts the requested path is the digest-keyed one and is neither the legacy path nor a differently keyed path, and fails against the pre-change fixed-socket code.
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; the injected-path-wins branch and the resolve-from-digest branch are each pinned, and the negative case proves no connection is opened on the legacy path.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis daemon start|stop|status`, `run` dispatch, `run list`, `run wait`, `tui`, and `cleanup` connect to `~/.jarvis/daemon-<key>.sock`, where `<key>` derives from the invoking executable tree digest, and start/stop use the matching PID and process-log paths.
+- [x] A live daemon on a differently keyed socket, and a live daemon on the legacy `~/.jarvis/daemon.sock`, receive no request from the invoking CLI.
+- [x] Connecting with no explicit socket path is impossible in the TUI daemon and log-tail clients: the path is a required argument.
+- [x] A regression test drives CLI daemon-touching commands with a stub connector, asserts the requested path is the digest-keyed one and is neither the legacy path nor a differently keyed path, and fails against the pre-change fixed-socket code.
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails; the injected-path-wins branch and the resolve-from-digest branch are each pinned, and the negative case proves no connection is opened on the legacy path.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -14,6 +14,9 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).not.toContain("## File output");
     expect(prompt).not.toContain("## Step completion");
     expect(PLAN_DRAFT_PROMPT_ID).toBe("plan.prompt.draft");
+    expect(prompt).toContain("each added or modified guard is inverted");
+    expect(prompt).toContain("suppressed effect is absent");
+    expect(prompt).toContain("Documentation-only and spec-only subspecs are exempt");
   });
 
   test("appends file output and step completion sections when supplied", () => {

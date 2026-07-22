@@ -186,6 +186,8 @@ Target precedence is run override, canonical ready-intent parent (`<targetDir>/r
 
 The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). `reviewPasses` defaults to zero, so the canonical builder omits review unless a positive count is supplied. Positive counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
 
+Plan-drafted acceptance criteria follow the [both-direction guard contract](../../v1/docs/spec-guidance.md#failing-test-requirement-for-runtime-behavior-subspecs).
+
 **CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
 `buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) is a compatibility

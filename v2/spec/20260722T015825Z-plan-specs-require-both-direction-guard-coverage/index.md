@@ -1,3 +1,3 @@
 # Require both-direction guard coverage in planned code changes
 
-- [ ] [00 - Require both-direction guard criteria](./00-require-both-direction-guard-criteria.md)
+- [x] [00 - Require both-direction guard criteria](./00-require-both-direction-guard-criteria.md)

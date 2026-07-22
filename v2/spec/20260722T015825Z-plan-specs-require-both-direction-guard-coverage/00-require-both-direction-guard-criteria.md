@@ -17,14 +17,14 @@ Plan-drafted code changes can satisfy stated effects while leaving inverse guard
 
 ## Acceptance criteria
 
-- [ ] A plan draft gives every code-touching subspec one acceptance criterion requiring tests to fail when each added or modified guard is inverted.
-- [ ] The standing criterion requires the negative case to prove an effect suppressed by a guard is absent.
-- [ ] A plan draft gives documentation-only and spec-only subspecs no both-direction guard criterion.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` drives the production draft write step with code-touching and docs-only ready intents, covers both classification branches and the suppressed-effect obligation, and fails against the pre-change prompt.
-- [ ] Existing plan output shape and standing requirements remain unchanged; `shared/prompts/plan-draft.test.ts` and the revisioned `plan.prompt.draft` rendered snapshot stay green.
-- [ ] `v2/docs/workflow-runner.md`, `v1/docs/spec-guidance.md`, and `v2/docs/v1-behaviors.md` document the conditional criterion and both-direction contract.
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; when a guard suppresses an effect, the negative case proves the effect is absent.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test` pass.
+- [x] A plan draft gives every code-touching subspec one acceptance criterion requiring tests to fail when each added or modified guard is inverted.
+- [x] The standing criterion requires the negative case to prove an effect suppressed by a guard is absent.
+- [x] A plan draft gives documentation-only and spec-only subspecs no both-direction guard criterion.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` drives the production draft write step with code-touching and docs-only ready intents, covers both classification branches and the suppressed-effect obligation, and fails against the pre-change prompt.
+- [x] Existing plan output shape and standing requirements remain unchanged; `shared/prompts/plan-draft.test.ts` and the revisioned `plan.prompt.draft` rendered snapshot stay green.
+- [x] `v2/docs/workflow-runner.md`, `v1/docs/spec-guidance.md`, and `v2/docs/v1-behaviors.md` document the conditional criterion and both-direction contract.
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails; when a guard suppresses an effect, the negative case proves the effect is absent.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test` pass.
 
 ## Documentation updates
 

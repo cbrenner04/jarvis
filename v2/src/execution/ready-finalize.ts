@@ -9,6 +9,7 @@ import {
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
+import type { SmokePass, VerificationResult } from "./runtime-smoke-verifier.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -23,7 +24,7 @@ type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
 type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
-type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<VerificationResult>;
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
@@ -36,7 +37,21 @@ export type ReadyFinalizerSeams = {
   runRuntimeSmokeVerification?: RuntimeSmokeVerificationRunner;
 };
 
-export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<void>;
+export type ReadyFinalizationResult = {
+  runtimeSmokeOutcome?: SmokePass;
+};
+
+export type ReadyFinalizer = (input: ReadyFinalizeInput) => Promise<ReadyFinalizationResult | void>;
+
+export class ReadyFlipError extends Error {
+  constructor(
+    readonly readyFlipError: Error,
+    readonly runtimeSmokeOutcome: SmokePass,
+  ) {
+    super(readyFlipError.message, { cause: readyFlipError });
+    this.name = "ReadyFlipError";
+  }
+}
 
 export class ReadyGateError extends Error {
   constructor(
@@ -223,9 +238,20 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);
     }
-    if (runRuntimeSmokeVerification) {
-      await runRuntimeSmokeVerification(input.worktreePath, input.baseRef);
+    const runtimeSmokeOutcome = runRuntimeSmokeVerification
+      ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef)
+      : undefined;
+    if (runtimeSmokeOutcome?.kind === "smoke-failure") {
+      throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation);
     }
-    await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+    try {
+      await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
+    } catch (error) {
+      if (runtimeSmokeOutcome !== undefined) {
+        throw new ReadyFlipError(error instanceof Error ? error : new Error(String(error)), runtimeSmokeOutcome);
+      }
+      throw error;
+    }
+    return runtimeSmokeOutcome !== undefined ? { runtimeSmokeOutcome } : {};
   };
 }

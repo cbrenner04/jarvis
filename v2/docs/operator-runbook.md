@@ -289,6 +289,8 @@ resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing cov
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
+Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred.
+
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
 exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate

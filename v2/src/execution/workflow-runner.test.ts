@@ -32,7 +32,8 @@ import {
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { landPublication } from "./publication-landing.ts";
-import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {
   executeWorkflow,
@@ -1970,6 +1971,71 @@ describe("executeWorkflow completion publication", () => {
         survivingMutation: "operator-flip: === → !==",
         survivingMutationSourceFile: "src/guard.ts",
         survivingMutationSourceLine: 17,
+      });
+    });
+  });
+
+  test("persists a successful not-runnable runtime smoke outcome after workflow completion", async () => {
+    const step = createStep({
+      stepId: "publish-runtime-smoke-not-runnable",
+      role: "implement",
+      branchName: "publish-runtime-smoke-not-runnable",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => ({
+          runtimeSmokeOutcome: {
+            kind: "not-runnable",
+            inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+            discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+          },
+        }),
+      });
+      expect(result.kind).toBe("complete");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "runtime_smoke_outcome",
+        outcome: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts", "shared/subprocess.ts"],
+        discoveryReason: "no changed runnable entrypoint found",
+      });
+    });
+  });
+
+  test("persists a successful not-runnable runtime smoke outcome when the ready flip fails", async () => {
+    const step = createStep({
+      stepId: "publish-runtime-smoke-flip-failure",
+      role: "implement",
+      branchName: "publish-runtime-smoke-flip-failure",
+    });
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new ReadyFlipError(new Error("gh pr ready failed"), {
+            kind: "not-runnable",
+            inspectedPaths: ["v2/src/execution/write-loop.ts"],
+            discoveryReason: nonEmptyDiscoveryReason("no changed runnable entrypoint found"),
+          });
+        },
+      });
+
+      expect(result.kind).toBe("ready_flip_failed");
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "runtime_smoke_outcome",
+        outcome: "not-runnable",
+        inspectedPaths: ["v2/src/execution/write-loop.ts"],
+        discoveryReason: "no changed runnable entrypoint found",
       });
     });
   });

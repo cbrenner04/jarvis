@@ -21,11 +21,12 @@ import {
   createReadyFinalizer,
   type ReadyFinalizer,
   ReadyGateError,
+  ReadyFlipError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
-import { verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -194,6 +195,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
             });
             if (publication.failure !== undefined) {
+              appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.failure.runtimeSmokeOutcome);
               const publishedResult = {
                 ...prepared.result,
                 iterationsConsumed: publication.iterationsConsumed,
@@ -214,6 +216,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               prepared.result.prNumber = publication.success.prNumber;
               prepared.result.prUrl = publication.success.prUrl;
             }
+            appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
           }
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree));
@@ -465,6 +468,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
           });
           if (publication.failure !== undefined) {
+            appendRuntimeSmokeOutcome(args.logSink, runId, publication.failure.runtimeSmokeOutcome);
             const publishedResult = {
               ...attributed,
               iterationsConsumed: publication.iterationsConsumed,
@@ -485,6 +489,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             attributed.prNumber = publication.success.prNumber;
             attributed.prUrl = publication.success.prUrl;
           }
+          appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
         }
         if (published.commitSha === undefined) {
           const uncommitted = await getUncommittedPaths(worktreePath);
@@ -887,12 +892,33 @@ export type CompletionPublishFailure = {
   error?: Error;
   prNumber?: number;
   prUrl?: string;
+  runtimeSmokeOutcome?: SmokePass;
 };
 
 export type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
+  runtimeSmokeOutcome: SmokePass | undefined;
 };
+
+export function appendRuntimeSmokeOutcome(logSink: LogSink | undefined, runId: string, outcome: SmokePass | undefined): void {
+  if (outcome !== undefined) {
+    if (outcome.kind === "not-runnable" && outcome.discoveryReason.trim() === "") {
+      throw new Error("Runtime smoke discovery reason must be non-empty");
+    }
+    logSink?.append(
+      runId,
+      outcome.kind === "observed-clean"
+        ? { kind: "runtime_smoke_outcome", outcome: "observed-clean" }
+        : {
+            kind: "runtime_smoke_outcome",
+            outcome: "not-runnable",
+            inspectedPaths: outcome.inspectedPaths,
+            discoveryReason: outcome.discoveryReason,
+          },
+    );
+  }
+}
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
 
@@ -1015,7 +1041,7 @@ async function runPublisher(
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
-): Promise<void> {
+): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
     createReadyFinalizer({
@@ -1037,9 +1063,7 @@ async function runReadyFinalizer(
           worktreePath,
           runBase: baseRef,
         });
-        if (verificationResult.kind === "smoke-failure") {
-          throw new RuntimeSmokeFailedError(verificationResult.command, verificationResult.observation);
-        }
+        return verificationResult;
       },
     });
   const finalInput = {
@@ -1048,7 +1072,7 @@ async function runReadyFinalizer(
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
   };
-  await readyFinalizer(finalInput);
+  return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
 
 function buildFinalizationErrorResponse(
@@ -1068,6 +1092,15 @@ function buildFinalizationErrorResponse(
     return {
       kind: "runtime_smoke_failed",
       error: err,
+      ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(prUrl !== undefined ? { prUrl } : {}),
+    };
+  }
+  if (err instanceof ReadyFlipError) {
+    return {
+      kind: "ready_flip_failed",
+      error: err,
+      runtimeSmokeOutcome: err.runtimeSmokeOutcome,
       ...(prNumber !== undefined ? { prNumber } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
     };
@@ -1094,6 +1127,7 @@ export async function publishCompletionArtifacts(
   },
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
+  let runtimeSmokeOutcome: SmokePass | undefined;
   try {
     publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
@@ -1108,7 +1142,7 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    await runReadyFinalizer(seams, {
+    runtimeSmokeOutcome = await runReadyFinalizer(seams, {
       worktreePath: input.worktreePath,
       baseRef: input.baseRef,
       branch: input.branch,
@@ -1122,6 +1156,7 @@ export async function publishCompletionArtifacts(
     kind: "success",
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
+    runtimeSmokeOutcome,
   };
 }
 

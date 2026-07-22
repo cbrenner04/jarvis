@@ -35,6 +35,18 @@ export type LoopFinishedEvent = {
   survivingMutationSourceLine?: number;
 };
 
+export type RuntimeSmokeOutcomeEvent =
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "observed-clean";
+    }
+  | {
+      kind: "runtime_smoke_outcome";
+      outcome: "not-runnable";
+      inspectedPaths: string[];
+      discoveryReason: string;
+    };
+
 export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
   message?: string;
@@ -92,6 +104,7 @@ export type LogEvent =
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
   | LoopFinishedEvent
+  | RuntimeSmokeOutcomeEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
   | RunRecoveryEvent

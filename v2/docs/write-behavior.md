@@ -478,16 +478,22 @@ read from the checked-out source tree.
 
 **Observation and execution:** The verifier executes the discovered entrypoint
 with its bounded safe probe and observes its success or failure. The CLI runs
-`bun run v2/src/cli.ts help`; the daemon runs
-`bun run v2/src/daemon-entrypoint.ts --help`, which exits before socket or
-daemon setup. Execution is bounded by a wall-clock timeout (default 5 seconds).
-The verifier returns failure when execution fails, times out, or both success
-and failure channels are exhausted.
+`bun run v2/src/cli.ts help`. The daemon executes a full lifecycle handshake
+against an isolated daemon: `bun run v2/src/cli.ts daemon start`, then
+`bun run v2/src/cli.ts daemon status` to verify running state, then
+`bun run v2/src/cli.ts daemon stop` to clean up. The lifecycle verifies that
+CLI and daemon code are compatible and the IPC contract works end-to-end.
+Execution is bounded by a shared wall-clock timeout (default 10 seconds).
+The verifier returns failure when any step fails, times out, or status does not
+report running state.
 
-**Bound and non-destructiveness:** Smoke execution is bounded by a wall-clock
-limit (5000 milliseconds) and ends the smoke as a failure when exceeded.
-Both probes test a valid invocation without modifying filesystem or operator
-state.
+**Bound and non-destructiveness:** Smoke execution is bounded by a shared
+wall-clock limit (10000 milliseconds) across all handshake steps and ends the
+smoke as a failure when exceeded. The daemon lifecycle handshake uses an
+isolated temporary directory (not the operator's `~/.jarvis`) and reaps all
+spawned processes and local IPC artifacts on all outcome paths (success, failure,
+timeout). The CLI help probe and daemon lifecycle both test valid invocations
+without modifying operator state or contacting the operator's daemon.
 
 **Results:** The verifier returns one of three structured results:
 

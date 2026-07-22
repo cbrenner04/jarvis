@@ -2,27 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { CliDeps } from "./deps.ts";
-import { connectWithAutoStart, stripAutoBounceFlag } from "./stale-dispatch.ts";
-
-describe("stripAutoBounceFlag", () => {
-  test("removes --no-auto-bounce flag and reports autoBounce=true when flag is absent", () => {
-    const result = stripAutoBounceFlag(["run", "start"]);
-    expect(result.argv).toEqual(["run", "start"]);
-    expect(result.autoBounce).toBe(true);
-  });
-
-  test("removes --no-auto-bounce flag and reports autoBounce=false when flag is present", () => {
-    const result = stripAutoBounceFlag(["run", "--no-auto-bounce", "start"]);
-    expect(result.argv).toEqual(["run", "start"]);
-    expect(result.autoBounce).toBe(false);
-  });
-
-  test("removes all --no-auto-bounce occurrences", () => {
-    const result = stripAutoBounceFlag(["--no-auto-bounce", "run", "--no-auto-bounce", "start"]);
-    expect(result.argv).toEqual(["run", "start"]);
-    expect(result.autoBounce).toBe(false);
-  });
-});
+import { connectWithAutoStart } from "./stale-dispatch.ts";
 
 describe("connectWithAutoStart", () => {
   function createMockIpc(): IpcClient {

@@ -3,7 +3,6 @@ import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
@@ -1368,8 +1367,7 @@ export async function startDaemonRuntime(
   };
 
   let recoveryStatus = { pending: true, reconciled: reconciledRunIds.length, resumed: 0 };
-  const statusHandler: RpcHandler = (frame) => {
-    loadedRevision = advanceLoadedRevision(loadedRevision, loadedExecutableDigest, frame.params);
+  const statusHandler: RpcHandler = () => {
     return {
       kind: "response",
       result: { state: "running", loadedRevision, loadedExecutableDigest, recovery: recoveryStatus },

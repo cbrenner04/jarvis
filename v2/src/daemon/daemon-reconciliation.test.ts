@@ -485,7 +485,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
   }
 });
 
-test("daemon status contract advances the loaded revision for matching executable HEAD drift", async () => {
+test("daemon status reports the boot revision and digest on every call", async () => {
   let status: RpcHandler | undefined;
   const reader: LogReader = { tail: () => [], async *follow() {} };
 
@@ -505,21 +505,13 @@ test("daemon status contract advances the loaded revision for matching executabl
     const initialResult = (
       initial as { kind: "response"; result: { loadedRevision: string; loadedExecutableDigest: string } }
     ).result;
-    expect(initialResult.loadedRevision).not.toBe("invoking-head");
+    expect(typeof initialResult.loadedRevision).toBe("string");
 
-    const drifted = await status(
-      {
-        kind: "request",
-        id: "drifted",
-        method: "status",
-        params: { currentRevision: "invoking-head", currentExecutableDigest: initialResult.loadedExecutableDigest },
-      },
-      signal,
-    );
-    expect(drifted).toMatchObject({
+    const again = await status({ kind: "request", id: "again", method: "status" }, signal);
+    expect(again).toMatchObject({
       kind: "response",
       result: {
-        loadedRevision: "invoking-head",
+        loadedRevision: initialResult.loadedRevision,
         loadedExecutableDigest: initialResult.loadedExecutableDigest,
       },
     });

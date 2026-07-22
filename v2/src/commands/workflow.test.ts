@@ -12,13 +12,9 @@ import {
   COMPLETED_WAIT_JSON,
   COMPLETED_WAIT_RESULT,
   captureIo,
-  DOCS_MERGE_REVISION,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
-  SESSION_UUID,
-  STALE_EXECUTABLE_DIGEST,
-  TEST_EXECUTABLE_DIGEST,
   withWorkflowUuids,
   workflowFrames,
   writeMachineConfig,
@@ -108,57 +104,19 @@ describe("run workflow dispatch", () => {
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "run-888" } });
   });
 
-  test("run workflow implements its original dispatch once after a safe bounce", async () => {
+  test("run workflow dispatches once to the connected daemon without stopping or restarting it", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     let connections = 0;
-    await withFixedUuid([SESSION_UUID, "status-one", "list", "recovery", "status-two", "start", "wait"], async () => {
+    await withWorkflowUuids("start", "wait", async () => {
       const code = await main([...IMPLEMENT_ARGS], cap.io, {
         cwd: () => fx.repoSub,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
         connectIpcClient: async () => {
           connections += 1;
-          return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-                loadedRevision: "old",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-                sent,
-              })
-            : makeIpcClient(workflowFrames("start", "wait", "workflow-bounced", COMPLETED_WAIT_RESULT), {
-                recovery: { pending: false, reconciled: 1, resumed: 0 },
-                sent,
-              });
+          return makeIpcClient(workflowFrames("start", "wait", "workflow-1", COMPLETED_WAIT_RESULT), { sent });
         },
-        stopDaemon: async () => undefined,
-        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
-      });
-      expect(code).toBe(0);
-    });
-    expect(connections).toBe(2);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
-  test("a docs-only merge dispatches workflow without bounce while live runs exist", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const statusCalls: Array<{ params: unknown }> = [];
-    const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
-    await withWorkflowUuids("start", "wait", async () => {
-      const code = await main([...IMPLEMENT_ARGS], cap.io, {
-        cwd: () => fx.repoSub,
-        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
-        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
-        getCurrentRevision: async () => DOCS_MERGE_REVISION,
-        getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
-        connectIpcClient: async () =>
-          makeIpcClient(workflowFrames("start", "wait", "workflow-docs-merge", COMPLETED_WAIT_RESULT), {
-            sent,
-            statusCalls,
-            statusResponses,
-            loadedRevision: DOCS_MERGE_REVISION,
-            loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
-          }),
         stopDaemon: async () => {
           throw new Error("should not stop");
         },
@@ -168,41 +126,17 @@ describe("run workflow dispatch", () => {
       });
       expect(code).toBe(0);
     });
-    expect(statusCalls).toEqual([
-      {
-        params: {
-          currentRevision: DOCS_MERGE_REVISION,
-          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
-        },
-      },
-    ]);
-    expect(statusResponses).toEqual([
-      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
-    ]);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
+    expect(connections).toBe(1);
+    expect(sent.map((frame) => (frame as { method?: string }).method)).toEqual(["start", "wait"]);
   });
 
-  test("run workflow --no-auto-bounce preserves mismatch refusal without lifecycle work", async () => {
+  test("run workflow implement rejects --no-auto-bounce as unknown before daemon contact", async () => {
     const cap = captureIo();
-    const sent: unknown[] = [];
-    await withFixedUuid([SESSION_UUID, "status"], async () => {
-      const code = await main([...IMPLEMENT_ARGS, "--no-auto-bounce"], cap.io, {
-        cwd: () => fx.repoSub,
-        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
-        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
-        connectIpcClient: async () =>
-          makeIpcClient([], { loadedRevision: "old", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST, sent }),
-        stopDaemon: async () => {
-          throw new Error("should not stop");
-        },
-        startDaemon: async () => {
-          throw new Error("should not start");
-        },
-      });
-      expect(code).toBe(1);
-    });
-    expect(sent).toEqual([]);
-    expect(cap.read().stderr).toContain("restart the daemon before starting or resuming work");
+
+    const code = await main([...IMPLEMENT_ARGS, "--no-auto-bounce"], cap.io, noDaemonDeps({ cwd: () => fx.repoSub }));
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: IMPLEMENT_USAGE });
   });
 
   test("run workflow implement blocks on completion and exits with proper exit code when workflow fails", async () => {

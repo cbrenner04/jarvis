@@ -1,18 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { advanceLoadedRevision } from "../cli/dispatch-revision.ts";
-import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
   type CliRepoFixture,
   captureIo,
-  DOCS_MERGE_REVISION,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
-  STALE_EXECUTABLE_DIGEST,
   stubAgentModelConfig,
-  TEST_EXECUTABLE_DIGEST,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
@@ -170,316 +165,59 @@ describe("run start", () => {
   });
 });
 
-describe("revision mismatch and auto-bounce", () => {
-  test("status fake preserves caller-authored replies despite matching-digest HEAD drift", async () => {
-    const client = makeIpcClient([], {
-      loadedRevision: "pre-docs-merge-head",
-      loadedExecutableDigest: "daemon-digest",
-    });
-
-    const response = client.nextFrame();
-    client.send({
-      kind: "request",
-      id: "status",
-      method: "status",
-      params: {
-        currentRevision: DOCS_MERGE_REVISION,
-        currentExecutableDigest: "daemon-digest",
-      },
-    });
-
-    await expect(response).resolves.toEqual({
-      kind: "response",
-      id: "status",
-      result: {
-        state: "running",
-        loadedRevision: "pre-docs-merge-head",
-        loadedExecutableDigest: "daemon-digest",
-      },
-    });
-  });
-
-  test("revision mismatch refuses fresh starts before IPC start", async () => {
+describe("dispatch to keyed daemons", () => {
+  test("run start dispatches without a preceding status request", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000001";
+
+    const code = await withFixedUuid(requestId, () =>
+      main([...fx.runStartArgs], cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-999" } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "start",
+    });
+    expect(cap.read()).toEqual({ stdout: "run-999\n", stderr: "" });
+  });
+
+  test("run resume dispatches without listing runs, so live runs cannot refuse it", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000001";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "request",
+      method: "resume",
+      params: { runId: "run-123" },
+    });
+    expect(cap.read()).toEqual({ stdout: "resumed run-123\n", stderr: "" });
+  });
+
+  test("--no-auto-bounce flag is rejected as unknown", async () => {
+    const cap = captureIo();
     const code = await main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
       loadAgentModelConfig: stubAgentModelConfig,
-      connectIpcClient: async () =>
-        makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
     });
 
     expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr:
-        "daemon revision mismatch: loaded=loaded-revision current=test-revision; restart the daemon before starting or resuming work\n",
-    });
-  });
-
-  test("revision mismatch refuses ordinary resumes before IPC resume", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const code = await main(["run", "resume", "run-123", "--no-auto-bounce"], cap.io, {
-      connectIpcClient: async () =>
-        makeIpcClient([], { sent, loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST }),
-    });
-
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(cap.read().stderr).toContain("loaded=loaded-revision current=test-revision");
-  });
-
-  test("revision mismatch safely bounces an idle daemon and retries start once", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let connections = 0;
-    let stopped = 0;
-    let started = 0;
-    const code = await withFixedUuid(["operator", "status-one", "list", "recovery", "status-two", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () => {
-          connections += 1;
-          return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-                sent,
-                loadedRevision: "loaded-revision",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-              })
-            : makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-bounced" } }], {
-                sent,
-                recovery: { pending: false, reconciled: 2, resumed: 1 },
-              });
-        },
-        stopDaemon: async () => {
-          stopped += 1;
-        },
-        startDaemon: async () => {
-          started += 1;
-          return { pid: 1, socketPath: "test.sock" };
-        },
-      }),
-    );
-    expect(code).toBe(0);
-    expect({ connections, stopped, started }).toEqual({ connections: 2, stopped: 1, started: 1 });
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-    expect(cap.read()).toEqual({
-      stdout: "run-bounced\n",
-      stderr:
-        "daemon revision mismatch: loaded=loaded-revision current=test-revision; restarted; recovery reconciled=2 resumed=1; retrying original dispatch\n",
-    });
-  });
-
-  test("revision mismatch with a live row refuses without lifecycle mutation", async () => {
-    const cap = captureIo();
-    let stopped = 0;
-    let started = 0;
-    const code = await withFixedUuid(["operator", "status", "list"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              {
-                kind: "response",
-                id: "list",
-                result: {
-                  runs: [
-                    { runId: "live-a", isLive: true },
-                    { runId: "orphan", isLive: false },
-                  ],
-                },
-              },
-            ],
-            { loadedRevision: "loaded-revision", loadedExecutableDigest: STALE_EXECUTABLE_DIGEST },
-          ),
-        stopDaemon: async () => {
-          stopped += 1;
-        },
-        startDaemon: async () => {
-          started += 1;
-          return { pid: 1, socketPath: "test.sock" };
-        },
-      }),
-    );
-    expect(code).toBe(1);
-    expect({ stopped, started }).toEqual({ stopped: 0, started: 0 });
-    expect(cap.read().stderr).toContain("cannot restart while live runs: live-a");
-  });
-
-  test("a post-bounce mismatch does not start a second lifecycle cycle", async () => {
-    const cap = captureIo();
-    let connections = 0;
-    let stopped = 0;
-    let started = 0;
-    const code = await withFixedUuid(["operator", "status-one", "list", "recovery", "status-two"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () => {
-          connections += 1;
-          return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-                loadedRevision: "old",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-              })
-            : makeIpcClient([], {
-                loadedRevision: "still-old",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-                recovery: { pending: false, reconciled: 0, resumed: 0 },
-              });
-        },
-        stopDaemon: async () => {
-          stopped += 1;
-        },
-        startDaemon: async () => {
-          started += 1;
-          return { pid: 1, socketPath: "test.sock" };
-        },
-      }),
-    );
-    expect(code).toBe(1);
-    expect({ stopped, started }).toEqual({ stopped: 1, started: 1 });
-    expect(cap.read().stderr).toContain("loaded=still-old current=test-revision");
-  });
-
-  test("revision mismatch retries an ordinary resume once after a safe bounce", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let connections = 0;
-    const code = await withFixedUuid(["operator", "status-one", "list", "recovery", "status-two", "resume"], () =>
-      main(["run", "resume", "run-123"], cap.io, {
-        connectIpcClient: async () => {
-          connections += 1;
-          return connections === 1
-            ? makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-                loadedRevision: "old",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-                sent,
-              })
-            : makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
-                recovery: { pending: false, reconciled: 1, resumed: 1 },
-                sent,
-              });
-        },
-        stopDaemon: async () => undefined,
-        startDaemon: async () => ({ pid: 1, socketPath: "test.sock" }),
-      }),
-    );
-    expect(code).toBe(0);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
-  });
-
-  test("a docs-only merge dispatches without bounce while live runs exist", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const statusCalls: Array<{ params: unknown }> = [];
-    const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
-    let stopped = 0;
-    let started = 0;
-    expect(
-      advanceLoadedRevision("pre-docs-merge-head", TEST_EXECUTABLE_DIGEST, {
-        currentRevision: DOCS_MERGE_REVISION,
-        currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
-      }),
-    ).toBe(DOCS_MERGE_REVISION);
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        getCurrentRevision: async () => DOCS_MERGE_REVISION,
-        getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-docs-merge" } }], {
-            sent,
-            statusCalls,
-            statusResponses,
-            loadedRevision: DOCS_MERGE_REVISION,
-            loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
-          }),
-        stopDaemon: async () => {
-          stopped += 1;
-        },
-        startDaemon: async () => {
-          started += 1;
-          return { pid: 1, socketPath: "test.sock" };
-        },
-      }),
-    );
-    expect(code).toBe(0);
-    expect({ stopped, started }).toEqual({ stopped: 0, started: 0 });
-    expect(statusCalls).toEqual([
-      {
-        params: {
-          currentRevision: DOCS_MERGE_REVISION,
-          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
-        },
-      },
-    ]);
-    expect(statusResponses).toEqual([
-      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
-    ]);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-    expect(cap.read()).toEqual({ stdout: "run-docs-merge\n", stderr: "" });
-  });
-
-  test("a docs-only merge resumes without bounce while live runs exist", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const statusCalls: Array<{ params: unknown }> = [];
-    const statusResponses: Array<{ loadedRevision: string; loadedExecutableDigest: string }> = [];
-    const code = await withFixedUuid(["operator", "status", "resume"], () =>
-      main(["run", "resume", "run-123"], cap.io, {
-        getCurrentRevision: async () => DOCS_MERGE_REVISION,
-        getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "resume", result: { ok: true } }], {
-            sent,
-            statusCalls,
-            statusResponses,
-            loadedRevision: DOCS_MERGE_REVISION,
-            loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
-          }),
-        stopDaemon: async () => {
-          throw new Error("should not stop");
-        },
-        startDaemon: async () => {
-          throw new Error("should not start");
-        },
-      }),
-    );
-    expect(code).toBe(0);
-    expect(statusCalls).toEqual([
-      {
-        params: {
-          currentRevision: DOCS_MERGE_REVISION,
-          currentExecutableDigest: TEST_EXECUTABLE_DIGEST,
-        },
-      },
-    ]);
-    expect(statusResponses).toEqual([
-      { loadedRevision: DOCS_MERGE_REVISION, loadedExecutableDigest: TEST_EXECUTABLE_DIGEST },
-    ]);
-    expect(sent.filter((frame) => (frame as { method?: string }).method === "resume")).toHaveLength(1);
-  });
-
-  test("a bounce lifecycle failure reports its actionable reason", async () => {
-    const cap = captureIo();
-    const code = await withFixedUuid(["operator", "status", "list"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: "list", result: { runs: [] } }], {
-            loadedRevision: "old",
-            loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-          }),
-        stopDaemon: async () => undefined,
-        startDaemon: async () => {
-          throw new Error("daemon start failed: address in use");
-        },
-      }),
-    );
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("daemon start failed: address in use");
+    expect(cap.read().stderr).toContain("usage:");
   });
 });
 
@@ -492,7 +230,7 @@ describe("keyed daemon auto-start on dispatch", () => {
     const sent: unknown[] = [];
     const connectPaths: string[] = [];
     const startCalls: Array<{ socketPath: string; pidPath: string | undefined; logPath: string | undefined }> = [];
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
+    const code = await withFixedUuid(["operator", "start"], () =>
       main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         socketPath: KEYED_SOCKET,
@@ -522,7 +260,7 @@ describe("keyed daemon auto-start on dispatch", () => {
   test("run start reuses a running keyed daemon without starting one", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
+    const code = await withFixedUuid(["operator", "start"], () =>
       main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         socketPath: KEYED_SOCKET,
@@ -544,7 +282,7 @@ describe("keyed daemon auto-start on dispatch", () => {
     const sent: unknown[] = [];
     const otherSent: unknown[] = [];
     const startCalls: string[] = [];
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
+    const code = await withFixedUuid(["operator", "start"], () =>
       main(fx.runStartArgs, cap.io, {
         loadAgentModelConfig: stubAgentModelConfig,
         socketPath: KEYED_SOCKET,
@@ -567,56 +305,6 @@ describe("keyed daemon auto-start on dispatch", () => {
     expect(startCalls).toEqual([KEYED_SOCKET]);
     expect(otherSent).toEqual([]);
     expect(sent.filter((frame) => (frame as { method?: string }).method === "start")).toHaveLength(1);
-  });
-
-  test("--no-auto-bounce still auto-starts the keyed daemon", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let started = 0;
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
-      main([...fx.runStartArgs, "--no-auto-bounce"], cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        socketPath: KEYED_SOCKET,
-        connectIpcClient: async () => {
-          if (started === 0) throw new Error("ECONNREFUSED");
-          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-no-bounce" } }], { sent });
-        },
-        startDaemon: async (socketPath) => {
-          started += 1;
-          return { pid: 7, socketPath };
-        },
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(started).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "run-no-bounce\n", stderr: "" });
-  });
-
-  test("a lost start race connects to the winner and dispatches", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    let startCount = 0;
-    let connects = 0;
-    const code = await withFixedUuid(["operator", "status", "start"], () =>
-      main(fx.runStartArgs, cap.io, {
-        loadAgentModelConfig: stubAgentModelConfig,
-        socketPath: KEYED_SOCKET,
-        connectIpcClient: async () => {
-          connects += 1;
-          if (connects === 1) throw new Error("ECONNREFUSED");
-          return makeIpcClient([{ kind: "response", id: "start", result: { runId: "run-race-loser" } }], { sent });
-        },
-        startDaemon: async () => {
-          startCount += 1;
-          throw new DaemonAlreadyRunningError(KEYED_SOCKET);
-        },
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect({ startCount, connects }).toEqual({ startCount: 1, connects: 2 });
-    expect(cap.read()).toEqual({ stdout: "run-race-loser\n", stderr: "" });
   });
 
   test("a non-race start failure reports a lifecycle error with exit 1 and no dispatch", async () => {

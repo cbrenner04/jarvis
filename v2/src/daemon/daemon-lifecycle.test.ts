@@ -469,8 +469,7 @@ describe("daemon-lifecycle", () => {
         socketProber,
         connectIpcClient: async () =>
           makeIpcClient([], {
-            loadedRevision: "daemon-head",
-            loadedExecutableDigest: "same-digest",
+            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "same-digest" },
           }),
         getCurrentRevision: async () => "cli-head",
         getExecutableDigest: async () => "same-digest",
@@ -492,8 +491,7 @@ describe("daemon-lifecycle", () => {
         socketProber,
         connectIpcClient: async () =>
           makeIpcClient([], {
-            loadedRevision: "daemon-head",
-            loadedExecutableDigest: "daemon-digest",
+            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "daemon-digest" },
           }),
         getCurrentRevision: async () => "cli-head",
         getExecutableDigest: async () => "cli-digest",

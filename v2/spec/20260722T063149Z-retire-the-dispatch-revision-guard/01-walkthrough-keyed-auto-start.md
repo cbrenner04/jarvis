@@ -16,10 +16,10 @@ what the operator sees.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/first-workflow-walkthrough.md` contains no claim that dispatch uses `~/.jarvis/daemon.sock` and no fixed-socket example output.
-- [ ] The walkthrough's first workflow starts with a mutating `jarvis run` command; manual `jarvis daemon start` appears only as optional lifecycle control.
-- [ ] The walkthrough states that dispatch starts or reuses the daemon keyed by the invoking executable, and describes no bounce-after-merge step.
-- [ ] `bun run lint:md` passes.
+- [x] `v2/docs/first-workflow-walkthrough.md` contains no claim that dispatch uses `~/.jarvis/daemon.sock` and no fixed-socket example output.
+- [x] The walkthrough's first workflow starts with a mutating `jarvis run` command; manual `jarvis daemon start` appears only as optional lifecycle control.
+- [x] The walkthrough states that dispatch starts or reuses the daemon keyed by the invoking executable, and describes no bounce-after-merge step.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

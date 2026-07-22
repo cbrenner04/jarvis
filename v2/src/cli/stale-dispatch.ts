@@ -1,33 +1,16 @@
 import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
-import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
-import { guardWorkDispatch } from "./dispatch-revision.ts";
 import type { Io } from "./io.ts";
-import { formatConnectionError, formatLifecycleError, formatRpcError, request } from "./ipc.ts";
-
-export function stripAutoBounceFlag(argv: readonly string[]): { argv: string[]; autoBounce: boolean } {
-  return { argv: argv.filter((arg) => arg !== "--no-auto-bounce"), autoBounce: !argv.includes("--no-auto-bounce") };
-}
-
-async function waitForRecovery(client: IpcClient): Promise<{ reconciled: number; resumed: number }> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const status = parseStatusResult(await request(client, "status"));
-    if (status?.recovery === undefined) throw new Error("malformed RPC reply: invalid daemon recovery status");
-    if (!status.recovery.pending) return status.recovery;
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("daemon startup recovery did not complete");
-}
+import { formatConnectionError, formatLifecycleError, formatRpcError } from "./ipc.ts";
 
 const CONNECT_DEADLINE_MS = 5000;
 const CONNECT_RETRY_INTERVAL_MS = 50;
 
 /** Connects to the keyed daemon, starting it when nothing is listening. A start that loses the race
  * (`DaemonAlreadyRunningError`) is treated as "the winner is up"; every other `startDaemon` error is
- * re-thrown unchanged. Whichever CLI started it, the daemon may not accept connections immediately,
- * so the post-start connect retries against injected `now`/`sleep` until its deadline. */
+ * re-thrown unchanged. The post-start connect retries against injected `now`/`sleep` until its deadline. */
 export async function connectWithAutoStart(deps: CliDeps, socketPath: string): Promise<IpcClient> {
   const now = deps.now ?? (() => Date.now());
   const sleep = deps.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -70,61 +53,22 @@ function reportDispatchError(io: Io, error: unknown, connected: boolean): void {
     return;
   }
   const message = error instanceof Error ? error.message : "";
-  if (
-    message.startsWith("malformed RPC") ||
-    message === "invalid daemon response" ||
-    message.includes("recovery did not") ||
-    message.includes("Failed to connect to daemon on socket")
-  ) {
+  if (message.startsWith("malformed RPC") || message.includes("Failed to connect to daemon on socket")) {
     io.stderr(`${message}\n`);
     return;
   }
   io.stderr(connected ? formatConnectionError(error) : formatLifecycleError(error));
 }
 
-/** Dispatches work once, bouncing a stale idle daemon at most once. Every mutating dispatch auto-starts
- * the keyed daemon when absent; `autoBounce` governs only the stale-daemon restart. */
-export async function withAutoBounceDispatch(
+/** Connects to the keyed daemon and dispatches work. Auto-starts the daemon if absent. */
+export async function withConnectDispatch(
   io: Io,
   deps: CliDeps,
-  autoBounce: boolean,
   dispatch: (client: IpcClient) => Promise<number>,
 ): Promise<number> {
   let client: IpcClient | undefined;
   try {
     client = await connectWithAutoStart(deps, deps.socketPath);
-
-    const mismatch = await guardWorkDispatch(client, deps.getCurrentRevision, deps.getExecutableDigest);
-    if (mismatch === undefined) return await dispatch(client);
-    if (!autoBounce) {
-      io.stderr(mismatch);
-      return 1;
-    }
-    const [loaded] = /loaded=([^ ]+)/.exec(mismatch)?.slice(1) ?? ["unknown"];
-    const [current] = /current=([^;]+)/.exec(mismatch)?.slice(1) ?? ["unknown"];
-    const list = parseListRuns(await request(client, "list"));
-    if (list === undefined) throw new Error("invalid daemon response");
-    const live = list.runs.filter((run) => run.isLive).map((run) => run.runId);
-    if (live.length > 0) {
-      io.stderr(
-        `daemon revision mismatch: loaded=${loaded} current=${current}; cannot restart while live runs: ${live.join(", ")}\n`,
-      );
-      return 1;
-    }
-    client.close();
-    client = undefined;
-    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: true });
-    await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
-    client = await deps.connectIpcClient(deps.socketPath);
-    const recovery = await waitForRecovery(client);
-    io.stderr(
-      `daemon revision mismatch: loaded=${loaded} current=${current}; restarted; recovery reconciled=${recovery.reconciled} resumed=${recovery.resumed}; retrying original dispatch\n`,
-    );
-    const secondMismatch = await guardWorkDispatch(client, deps.getCurrentRevision, deps.getExecutableDigest);
-    if (secondMismatch !== undefined) {
-      io.stderr(secondMismatch);
-      return 1;
-    }
     return await dispatch(client);
   } catch (error) {
     reportDispatchError(io, error, client !== undefined);

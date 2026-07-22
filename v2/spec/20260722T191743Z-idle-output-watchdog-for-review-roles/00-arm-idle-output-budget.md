@@ -26,20 +26,20 @@ the budget (`shared/invocation/agents.ts` `armIdleTimer`, pinned by `shared/invo
 
 ## Acceptance criteria
 
-- [ ] A review role invocation whose binding keeps emitting output past the idle bound runs to
+- [x] A review role invocation whose binding keeps emitting output past the idle bound runs to
       completion and is not reported as a failure.
-- [ ] A review role invocation whose binding goes silent past the idle bound settles
+- [x] A review role invocation whose binding goes silent past the idle bound settles
       `invocation_failure` with `failureKind: "stall"`, carrying role/agent/model and the idle bound,
       and is distinct from the wall-clock `failureKind: "timeout"` path.
-- [ ] New tests in `v2/src/execution/review-role-invocation.test.ts` cover both directions and fail
+- [x] New tests in `v2/src/execution/review-role-invocation.test.ts` cover both directions and fail
       against the pre-fix code (which supplies no `idleOutputMs`).
-- [ ] The write step's invocation still supplies no idle budget; a test asserts the write-loop
+- [x] The write step's invocation still supplies no idle budget; a test asserts the write-loop
       invocation is called without `idleOutputMs`.
-- [ ] `v2/src/execution/review-role-invocation.test.ts` wall-clock timeout and caller-abort tests
+- [x] `v2/src/execution/review-role-invocation.test.ts` wall-clock timeout and caller-abort tests
       stay green (existing bounds unchanged by the addition).
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; where
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails; where
       a guard suppresses an effect, the negative case proves the effect is absent.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

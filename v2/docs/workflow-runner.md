@@ -537,12 +537,15 @@ independently through the normal agent/rung fallback, then runs the review
 cycle with enforcement (for intent workflows).
 
 Each role invocation (`critic`, `actuator`, and every `review-debate` role) is
-armed with a per-role wall-clock bound (`roleTimeoutMs`, defaulting to the
-write-loop iteration timeout). A timer abort classifies as `failureKind:
-"timeout"` with `role`/`agent`/`model`/`boundMs` attribution on the role
-execution and, when the review step settles `invocation_failure`, on the run
-row; daemon `error.reason: "role_timeout"` (non-resumable, `nextAction:
-"stop"`). A caller-signal abort (pause/kill) keeps its existing failure kind.
+armed with two bounds: a per-role wall-clock bound (`roleTimeoutMs`, defaulting
+to the write-loop iteration timeout) and a per-role idle-output budget
+(`idleOutputMs`, defaulting to 90_000 ms). A wall-clock timer abort classifies
+as `failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution.
+An idle-output stall (no stdout/stderr for `idleOutputMs`) classifies as
+`failureKind: "stall"` with identical attribution. Both settle as `invocation_failure`
+on the run row; daemon `error.reason: "role_timeout"` or `"role_idle_stall"`
+(non-resumable, `nextAction: "stop"`). A caller-signal abort (pause/kill) keeps
+its existing failure kind.
 
 **Enforcement and isolation:** When the intent profile is configured,
 the review step enforces role filesystem boundaries. Before and after each

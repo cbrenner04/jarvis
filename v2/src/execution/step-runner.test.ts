@@ -896,4 +896,26 @@ describe("step runner blocker-text contract", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("write-step invocation does not receive idleOutputMs", async () => {
+    let capturedIdleOutputMs: number | undefined;
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "agent",
+          metadata: { agent: "claude", model: "opus" },
+          invoke: async ({ idleOutputMs }) => {
+            capturedIdleOutputMs = idleOutputMs;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(capturedIdleOutputMs).toBeUndefined();
+  });
 });

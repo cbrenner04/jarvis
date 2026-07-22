@@ -18,6 +18,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "landing_failed",
   "invocation_error",
   "role_timeout",
+  "role_stalled",
   "harness_failure",
   "not_implemented",
   "completion_commit_failed",
@@ -74,6 +75,7 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   landing: op("landing_failed", "resume", true),
   error: op("invocation_error", "stop"),
   timeout: op("role_timeout", "stop"),
+  stall: op("role_stalled", "stop"),
 };
 
 /** Chronologically last terminal event; `list` and `wait` share this selection. */

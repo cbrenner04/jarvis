@@ -18,12 +18,9 @@ function hungBinding(id: string, agent: string, model: string): InvocationBindin
 describe("invokeReviewRole", () => {
   test("classifies a role-timer abort as timeout with attribution", async () => {
     const boundMs = 5;
-    const execution = await invokeReviewRole(
-      { cwd: "/fake", roleTimeoutMs: boundMs },
-      "critic",
-      "inspect",
-      [hungBinding("critic.hung", "claude", "opus")],
-    );
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      hungBinding("critic.hung", "claude", "opus"),
+    ]);
     expect(reviewRoleFailureKind(execution)).toBe("timeout");
     expect(execution.roleTimeout).toEqual({
       role: "critic",

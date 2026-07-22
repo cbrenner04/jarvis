@@ -3095,11 +3095,9 @@ describe("executeWorkflow review-debate dispatch", () => {
         invoke: ({ signal }) =>
           adapterModel === "ACT"
             ? new Promise<InvocationResult>((resolve) =>
-                signal?.addEventListener(
-                  "abort",
-                  () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }),
-                  { once: true },
-                ),
+                signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+                  once: true,
+                }),
               )
             : Promise.resolve(
                 adapterModel === "ADJ"
@@ -3112,7 +3110,12 @@ describe("executeWorkflow review-debate dispatch", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store });
 
-      expect(result).toMatchObject({ kind: "invocation_failure", stepIndex: 0, stepId: "debate-timeout", resumable: false });
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 0,
+        stepId: "debate-timeout",
+        resumable: false,
+      });
       expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toEqual({
         failureKind: "timeout",
         bindingAttempts: [],

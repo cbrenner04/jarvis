@@ -17,6 +17,7 @@ import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
+import type { InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -33,10 +34,9 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import type { InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
 import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
-import type { ReviewRoleInvocationExecution } from "./review-role-invocation.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
+import type { ReviewRoleInvocationExecution } from "./review-role-invocation.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -1764,6 +1764,175 @@ type ReviewWorkflowCycleInput = Omit<
   | "profileContext"
 >;
 
+function commitIntentStageInvocationFailure(
+  store: StateStore,
+  ids: ReviewStepExecutionIds,
+  invocationFailureDetail: InvocationFailureDetail,
+): void {
+  store.commitCompletionBoundary({
+    attemptId: ids.attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail,
+  });
+}
+
+function standardReviewWorkspaceFailureOutcome(
+  step: ReviewWorkflowStep,
+  landing: ReviewWorkflowStep["landing"],
+  ids: ReviewStepExecutionIds,
+  store: StateStore,
+): ReviewStepOutcome | undefined {
+  if (landing?.kind !== "intent-stage") {
+    return undefined;
+  }
+  const workspaceFailure = reviewedIntentWorkspaceFailure(resolve(step.cwd, landing.stagingDir));
+  if (workspaceFailure === undefined) {
+    return undefined;
+  }
+  commitIntentStageInvocationFailure(store, ids, {
+    failureKind: "error",
+    bindingAttempts: [],
+    message: workspaceFailure,
+  });
+  return {
+    kind: "invocation_failure",
+    runId: ids.runId,
+    iterationsConsumed: 0,
+    resumable: false,
+    invocationFailureMessage: workspaceFailure,
+  };
+}
+
+async function runStandardReviewCycle(
+  step: ReviewWorkflowStep,
+  reviewInput: ReviewWorkflowCycleInput,
+  landing: ReviewWorkflowStep["landing"],
+  reviewCycleInput: ReviewCycleInput,
+) {
+  if (landing?.kind === "intent-stage") {
+    return executeReviewCycleEnforced({
+      input: reviewCycleInput,
+      invocationId: landing.invocationId,
+      stagingDir: resolve(step.cwd, landing.stagingDir),
+      cwd: step.cwd,
+      verdictPath: reviewInput.verdictPath,
+    });
+  }
+  return {
+    result: await executeReviewCycle(reviewCycleInput),
+    verdictState: { kind: "missing" } as const,
+    boundaryViolation: undefined as string | undefined,
+  };
+}
+
+function standardReviewBoundaryFailureOutcome(
+  boundaryViolationMsg: string,
+  landing: ReviewWorkflowStep["landing"],
+  ids: ReviewStepExecutionIds,
+  store: StateStore,
+  iterationsConsumed: number,
+): ReviewStepOutcome {
+  if (landing?.kind === "intent-stage") {
+    commitIntentStageInvocationFailure(store, ids, {
+      failureKind: "error",
+      bindingAttempts: [],
+      message: boundaryViolationMsg,
+    });
+  }
+  return {
+    kind: "invocation_failure",
+    runId: ids.runId,
+    iterationsConsumed,
+    resumable: true,
+    invocationFailureMessage: boundaryViolationMsg,
+  };
+}
+
+function standardReviewRoleFailureOutcome(
+  result: Extract<ReviewCycleResult, { kind: "invocation_failure" }>,
+  landing: ReviewWorkflowStep["landing"],
+  ids: ReviewStepExecutionIds,
+  store: StateStore,
+): ReviewStepOutcome {
+  const message = reviewedIntentFailureMessage(result);
+  const lastCycle = result.cycles.at(-1);
+  const failedRole = result.failedRole ?? (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
+  const roleExecution = lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
+  if (landing?.kind === "intent-stage") {
+    commitIntentStageInvocationFailure(
+      store,
+      ids,
+      buildReviewInvocationFailureDetail(result.failureKind, failedRole, roleExecution, message),
+    );
+  }
+  return {
+    kind: "invocation_failure",
+    runId: ids.runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
+  };
+}
+
+function standardReviewEvidenceFailureOutcome(
+  result: Extract<ReviewCycleResult, { kind: "complete" }>,
+  landing: ReviewWorkflowStep["landing"],
+  reviewInput: ReviewWorkflowCycleInput,
+  ids: ReviewStepExecutionIds,
+  store: StateStore,
+): ReviewStepOutcome | undefined {
+  if (landing?.kind !== "intent-stage") {
+    return undefined;
+  }
+  const evidenceFailure = reviewedIntentEvidenceFailure(result, reviewInput.verdictPath);
+  if (evidenceFailure === undefined) {
+    return undefined;
+  }
+  commitIntentStageInvocationFailure(store, ids, {
+    failureKind: "error",
+    bindingAttempts: [],
+    message: evidenceFailure,
+  });
+  return {
+    kind: "invocation_failure",
+    runId: ids.runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    invocationFailureMessage: evidenceFailure,
+  };
+}
+
+async function finalizeStandardReviewStep(
+  step: ReviewWorkflowStep,
+  landing: ReviewWorkflowStep["landing"],
+  result: Extract<ReviewCycleResult, { kind: "complete" }>,
+  ids: ReviewStepExecutionIds,
+  store: StateStore,
+): Promise<ReviewStepOutcome> {
+  const completionAgent =
+    result.cycles.at(-1)?.kind === "completed"
+      ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
+      : undefined;
+  if (landing === undefined || landing.kind === "none") {
+    return {
+      kind: "complete",
+      runId: ids.runId,
+      iterationsConsumed: result.cycles.length,
+      resumable: false,
+      ...(completionAgent ? { completionAgent } : {}),
+    };
+  }
+  store.commitCompletionBoundary({
+    attemptId: ids.attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+  const landed = await finishReviewedLanding(step, landing, ids.runId, store, completionAgent);
+  return { ...landed, iterationsConsumed: result.cycles.length };
+}
+
 async function runProfileReviewStep(
   step: ReviewWorkflowStep,
   reviewInput: ReviewWorkflowCycleInput,
@@ -1847,24 +2016,11 @@ async function runStandardReviewStep(
   store: StateStore,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
-  if (landing?.kind === "intent-stage") {
-    const workspaceFailure = reviewedIntentWorkspaceFailure(resolve(step.cwd, landing.stagingDir));
-    if (workspaceFailure !== undefined) {
-      store.commitCompletionBoundary({
-        attemptId: ids.attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: workspaceFailure },
-      });
-      return {
-        kind: "invocation_failure",
-        runId: ids.runId,
-        iterationsConsumed: 0,
-        resumable: false,
-        invocationFailureMessage: workspaceFailure,
-      };
-    }
+  const workspaceFailureOutcome = standardReviewWorkspaceFailureOutcome(step, landing, ids, store);
+  if (workspaceFailureOutcome !== undefined) {
+    return workspaceFailureOutcome;
   }
+
   const profile = rehydrateReviewPromptProfile(step.profile);
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
@@ -1875,39 +2031,15 @@ async function runStandardReviewStep(
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
   };
 
-  const enforcementResult =
-    landing?.kind === "intent-stage"
-      ? await executeReviewCycleEnforced({
-          input: reviewCycleInput,
-          invocationId: landing.invocationId,
-          stagingDir: resolve(step.cwd, landing.stagingDir),
-          cwd: step.cwd,
-          verdictPath: reviewInput.verdictPath,
-        })
-      : {
-          result: await executeReviewCycle(reviewCycleInput),
-          verdictState: { kind: "missing" } as const,
-          boundaryViolation: undefined as string | undefined,
-        };
-
-  const { result, boundaryViolation: boundaryViolationMsg } = enforcementResult;
+  const { result, boundaryViolation: boundaryViolationMsg } = await runStandardReviewCycle(
+    step,
+    reviewInput,
+    landing,
+    reviewCycleInput,
+  );
 
   if (boundaryViolationMsg !== undefined) {
-    if (landing?.kind === "intent-stage") {
-      store.commitCompletionBoundary({
-        attemptId: ids.attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: boundaryViolationMsg },
-      });
-    }
-    return {
-      kind: "invocation_failure",
-      runId: ids.runId,
-      iterationsConsumed: result.cycles.length,
-      resumable: true,
-      invocationFailureMessage: boundaryViolationMsg,
-    };
+    return standardReviewBoundaryFailureOutcome(boundaryViolationMsg, landing, ids, store, result.cycles.length);
   }
 
   onProgress?.(invocationId, stepId, {
@@ -1917,74 +2049,15 @@ async function runStandardReviewStep(
   });
 
   if (result.kind === "invocation_failure") {
-    const message = reviewedIntentFailureMessage(result);
-    const lastCycle = result.cycles.at(-1);
-    const failedRole =
-      result.failedRole ?? (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
-    const roleExecution =
-      lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
-    if (landing?.kind === "intent-stage") {
-      store.commitCompletionBoundary({
-        attemptId: ids.attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: buildReviewInvocationFailureDetail(
-          result.failureKind,
-          failedRole,
-          roleExecution,
-          message,
-        ),
-      });
-    }
-    return {
-      kind: "invocation_failure",
-      runId: ids.runId,
-      iterationsConsumed: result.cycles.length,
-      resumable: false,
-      ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
-    };
+    return standardReviewRoleFailureOutcome(result, landing, ids, store);
   }
 
-  if (landing?.kind === "intent-stage") {
-    const evidenceFailure = reviewedIntentEvidenceFailure(result, reviewInput.verdictPath);
-    if (evidenceFailure !== undefined) {
-      store.commitCompletionBoundary({
-        attemptId: ids.attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: evidenceFailure },
-      });
-      return {
-        kind: "invocation_failure",
-        runId: ids.runId,
-        iterationsConsumed: result.cycles.length,
-        resumable: false,
-        invocationFailureMessage: evidenceFailure,
-      };
-    }
+  const evidenceFailureOutcome = standardReviewEvidenceFailureOutcome(result, landing, reviewInput, ids, store);
+  if (evidenceFailureOutcome !== undefined) {
+    return evidenceFailureOutcome;
   }
 
-  const completionAgent =
-    result.cycles.at(-1)?.kind === "completed"
-      ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
-      : undefined;
-  if (landing === undefined || landing.kind === "none") {
-    return {
-      kind: "complete",
-      runId: ids.runId,
-      iterationsConsumed: result.cycles.length,
-      resumable: false,
-      ...(completionAgent ? { completionAgent } : {}),
-    };
-  }
-  store.commitCompletionBoundary({
-    attemptId: ids.attemptId,
-    runStatus: "completed",
-    outcomeKind: "done",
-    ...(completionAgent ? { completionAgent } : {}),
-  });
-  const landed = await finishReviewedLanding(step, landing, ids.runId, store, completionAgent);
-  return { ...landed, iterationsConsumed: result.cycles.length };
+  return finalizeStandardReviewStep(step, landing, result, ids, store);
 }
 
 async function runReviewDispatch(

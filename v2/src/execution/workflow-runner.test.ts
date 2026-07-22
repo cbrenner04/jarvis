@@ -1542,6 +1542,28 @@ function createDebateBindingFactory(
   };
 }
 
+function createTimeoutBindingFactory(
+  onActuatorInvoke?: () => void,
+): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+    id: `${agentId}/${adapterModel}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: ({ signal }) =>
+      adapterModel === "ACT"
+        ? new Promise<InvocationResult>((resolve) => {
+            onActuatorInvoke?.();
+            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+              once: true,
+            });
+          })
+        : Promise.resolve(
+            adapterModel === "ADJ"
+              ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+              : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+          ),
+  });
+}
+
 function debateVerdictPath(): string {
   return join(mkdtempSync(join(tmpdir(), "workflow-review-debate-")), "verdict.md");
 }
@@ -3114,7 +3136,7 @@ describe("executeWorkflow review-debate dispatch", () => {
         kind: "invocation_failure",
         stepIndex: 0,
         stepId: "debate-timeout",
-        resumable: false,
+        resumable: true,
       });
       expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toEqual({
         failureKind: "timeout",
@@ -3241,6 +3263,7 @@ describe("executeWorkflow implement patch review", () => {
     verdictPath: string;
     cwd: string;
     createBinding?: ReviewDebateWorkflowStep["createBinding"];
+    roleTimeoutMs?: number;
   }): ReviewDebateWorkflowStep {
     return {
       behavior: "review-debate",
@@ -3259,6 +3282,7 @@ describe("executeWorkflow implement patch review", () => {
       agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
       profile: implementReviewPromptProfile,
       profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
+      ...(args.roleTimeoutMs !== undefined ? { roleTimeoutMs: args.roleTimeoutMs } : {}),
       ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
     };
   }
@@ -3455,6 +3479,154 @@ describe("executeWorkflow implement patch review", () => {
       expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
       expect(published.at(-1)).toEqual({ specPath: "spec.md", agent: "claude" });
       expect(committedVerdicts.at(-1)).toBe("apply review edit");
+    });
+  });
+
+  test("settles review-debate timeout after committed implement write step with resumable=true and preserves commit and verdict", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-timeout",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const boundMs = 5;
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: createTimeoutBindingFactory(),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 1,
+        stepId: "implement-review",
+        resumable: true,
+      });
+      expect(readFileSync(join(worktreePath, "verdict-patch.md"), "utf8")).toBe("apply this fix");
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+        failureKind: "timeout",
+        role: "actuator",
+        boundMs,
+      });
+    });
+  });
+
+  test("re-dispatching after review-debate timeout does not re-run the implement write step", async () => {
+    let implementInvocationCount = 0;
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-timeout-redispatch",
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        implementInvocationCount += 1;
+        writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const boundMs = 5;
+    let actuatorInvocationCount = 0;
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: createTimeoutBindingFactory(() => {
+        actuatorInvocationCount += 1;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const firstResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+      expect(implementInvocationCount).toBeGreaterThan(0);
+
+      implementInvocationCount = 0;
+      actuatorInvocationCount = 0;
+      const secondResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+      expect(implementInvocationCount).toBe(0);
+      expect(actuatorInvocationCount).toBe(1);
+    });
+  });
+
+  test("non-timeout review-debate failures remain resumable=false", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-error",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) =>
+        adapterModel === "ADV"
+          ? ({ kind: "error", exitCode: 1, stderr: "boom" } as const)
+          : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+      ),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({
+        kind: "invocation_failure",
+        stepIndex: 1,
+        stepId: "implement-review",
+        resumable: false,
+      });
     });
   });
 });
@@ -3877,6 +4049,91 @@ describe("executeWorkflow review dispatch", () => {
       expect(store.loadRun(result.runId)?.attempts.at(-1)?.invocationFailureDetail?.message).toBe(
         result.invocationFailureMessage,
       );
+    });
+  });
+
+  function criticOnlyStep(overrides: Partial<ReviewWorkflowStep>): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "review-guard",
+      project: "demo",
+      branch: "review-guard",
+      cwd: "/fake",
+      prompt: "inspect",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-guard-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      ...overrides,
+    };
+  }
+
+  function criticBinding(invoke: InvocationBinding["invoke"]): NonNullable<ReviewWorkflowStep["createBinding"]> {
+    return ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke,
+    });
+  }
+
+  test("settles a timed-out critic as resumable on both the non-durable and reviewed-intent paths", async () => {
+    const boundMs = 5;
+    const hangingCritic = criticBinding(
+      ({ signal }) =>
+        new Promise<InvocationResult>((resolve) => {
+          signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+            once: true,
+          });
+        }),
+    );
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-timeout-"));
+    stageReviewedIntent(workspace);
+
+    await withStateStore(async (store) => {
+      expect(
+        await executeWorkflow({
+          steps: [criticOnlyStep({ roleTimeoutMs: boundMs, createBinding: hangingCritic })],
+          stateStore: store,
+        }),
+      ).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      const durable = await executeWorkflow({
+        steps: [
+          reviewedIntentStep(workspace, {
+            branch: "intent/timeout",
+            roleTimeoutMs: boundMs,
+            createBinding: hangingCritic,
+          }),
+        ],
+        stateStore: store,
+      });
+      expect(durable).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(store.loadRun(durable.runId)?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+        failureKind: "timeout",
+        role: "critic",
+        boundMs,
+      });
+    });
+  });
+
+  test("keeps a non-timeout critic failure non-resumable on both the non-durable and reviewed-intent paths", async () => {
+    const failingCritic = criticBinding(async () => ({ kind: "error", exitCode: 1, stderr: "boom" }) as const);
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-error-"));
+    stageReviewedIntent(workspace);
+
+    await withStateStore(async (store) => {
+      expect(
+        await executeWorkflow({ steps: [criticOnlyStep({ createBinding: failingCritic })], stateStore: store }),
+      ).toMatchObject({ kind: "invocation_failure", resumable: false });
+
+      const durable = await executeWorkflow({
+        steps: [reviewedIntentStep(workspace, { branch: "intent/error", createBinding: failingCritic })],
+        stateStore: store,
+      });
+      expect(durable).toMatchObject({ kind: "invocation_failure", resumable: false });
+      expect(store.loadRun(durable.runId)?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+        failureKind: "error",
+      });
     });
   });
 

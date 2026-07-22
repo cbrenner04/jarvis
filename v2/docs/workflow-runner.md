@@ -543,7 +543,12 @@ to the write-loop iteration timeout) and a per-role idle-output budget
 as `failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution.
 An idle-output stall (no stdout/stderr for `idleOutputMs`) classifies as
 `failureKind: "stall"` with identical attribution. Both settle as `invocation_failure`
-on the run row; daemon `error.reason: "role_timeout"` or `"role_idle_stall"`
+on the run row. A timeout returns `resumable: true` and daemon `error.reason: "role_timeout"`
+(`nextAction: "retry_later"`); recovery is re-dispatching the same workflow, which
+in an implement workflow reuses the completed write step's checkpoint without
+re-invoking the write-step agent. The guard keys on `failureKind` alone, so an
+intent or plan review timeout is equally retryable with no write checkpoint behind
+it. A stall returns `resumable: false` and daemon `error.reason: "role_stalled"`
 (non-resumable, `nextAction: "stop"`). A caller-signal abort (pause/kill) keeps
 its existing failure kind.
 

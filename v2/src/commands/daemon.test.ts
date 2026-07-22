@@ -10,15 +10,14 @@ describe("daemon command", () => {
     const cap = captureIo();
     const paths: string[] = [];
     const resumeId = "00000000-0000-4000-8000-000000000003";
-    const code = await withFixedUuid(
-      ["00000000-0000-4000-8000-000000000001", resumeId],
-      () => main(["run", "resume", "run-123"], cap.io, {
-      getExecutableDigest: async () => "new-digest",
-      connectIpcClient: async (socketPath) => {
-        paths.push(socketPath);
-        return makeIpcClient([{ kind: "response", id: resumeId, result: { ok: true } }]);
-      },
-    }),
+    const code = await withFixedUuid(["00000000-0000-4000-8000-000000000001", resumeId], () =>
+      main(["run", "resume", "run-123"], cap.io, {
+        getExecutableDigest: async () => "new-digest",
+        connectIpcClient: async (socketPath) => {
+          paths.push(socketPath);
+          return makeIpcClient([{ kind: "response", id: resumeId, result: { ok: true } }]);
+        },
+      }),
     );
 
     expect(code).toBe(0);
@@ -31,23 +30,28 @@ describe("daemon command", () => {
     const waitId = "00000000-0000-4000-8000-000000000004";
     const listId = "00000000-0000-4000-8000-000000000003";
     const digest = "selected-digest";
-    await withFixedUuid(["00000000-0000-4000-8000-000000000005", listId, "00000000-0000-4000-8000-000000000006", waitId], async () => {
-      const listCode = await main(["run", "list"], captureIo().io, {
-        getExecutableDigest: async () => digest,
-        connectIpcClient: async (socketPath) => {
-          paths.push(socketPath);
-          return makeIpcClient([{ kind: "response", id: listId, result: { runs: [] } }]);
-        },
-      });
-      const waitCode = await main(["run", "wait", "run-123"], captureIo().io, {
-        getExecutableDigest: async () => digest,
-        connectIpcClient: async (socketPath) => {
-          paths.push(socketPath);
-          return makeIpcClient([{ kind: "response", id: waitId, result: { runStatus: "completed", loopOutcomeKind: "complete" } }]);
-        },
-      });
-      expect({ listCode, waitCode }).toEqual({ listCode: 0, waitCode: 0 });
-    });
+    await withFixedUuid(
+      ["00000000-0000-4000-8000-000000000005", listId, "00000000-0000-4000-8000-000000000006", waitId],
+      async () => {
+        const listCode = await main(["run", "list"], captureIo().io, {
+          getExecutableDigest: async () => digest,
+          connectIpcClient: async (socketPath) => {
+            paths.push(socketPath);
+            return makeIpcClient([{ kind: "response", id: listId, result: { runs: [] } }]);
+          },
+        });
+        const waitCode = await main(["run", "wait", "run-123"], captureIo().io, {
+          getExecutableDigest: async () => digest,
+          connectIpcClient: async (socketPath) => {
+            paths.push(socketPath);
+            return makeIpcClient([
+              { kind: "response", id: waitId, result: { runStatus: "completed", loopOutcomeKind: "complete" } },
+            ]);
+          },
+        });
+        expect({ listCode, waitCode }).toEqual({ listCode: 0, waitCode: 0 });
+      },
+    );
     expect(paths).toEqual([
       `${process.env.JARVIS_HOME}/daemon-${digest}.sock`,
       `${process.env.JARVIS_HOME}/daemon-${digest}.sock`,

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { withDaemonDispatch } from "./stale-dispatch.ts";

@@ -152,7 +152,10 @@ socketTest("daemon exit clears only its own existing PID lease", async () => {
     await waitFor(() => !isProcessAlive(ownedDaemon.pid));
     expect(existsSync(owned.pidPath)).toBe(false);
 
-    const replacedDaemon = await testDaemons.start(replaced.socketPath, { daemonScript: entrypoint, pidPath: replaced.pidPath });
+    const replacedDaemon = await testDaemons.start(replaced.socketPath, {
+      daemonScript: entrypoint,
+      pidPath: replaced.pidPath,
+    });
     writeFileSync(replaced.pidPath, "unrelated-daemon");
     process.kill(replacedDaemon.pid, "SIGTERM");
     await waitFor(() => !isProcessAlive(replacedDaemon.pid));

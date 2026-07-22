@@ -1,5 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -188,7 +188,9 @@ export class WorktreeOwnershipRegistry {
       throw new DaemonDoubleClaimError(key);
     }
     if (claimPath !== undefined) {
-      mkdirSync(this.claimsPath!, { recursive: true });
+      const claimsPath = this.claimsPath;
+      if (claimsPath === undefined) throw new Error("Durable claim path is unavailable");
+      mkdirSync(claimsPath, { recursive: true });
       try {
         const fd = openSync(claimPath, "wx");
         try {

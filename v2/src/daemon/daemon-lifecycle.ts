@@ -123,82 +123,95 @@ function removeLeaseIfOwned(pidPath: string, owner: string): void {
   }
 }
 
-export async function startDaemon(
+type StartDaemonOptions = {
+  daemonScript?: string;
+  readinessTimeoutMs?: number;
+  pidPath?: string;
+  logPath?: string;
+  logCapBytes?: number;
+  processProber?: ProcessProber;
+  socketProber?: SocketProber;
+  testOwnerPid?: number;
+  onSpawn?: (pid: number) => void;
+};
+
+function acquireLease(
   socketPath: string,
-  options?: {
-    daemonScript?: string;
-    readinessTimeoutMs?: number;
-    pidPath?: string;
-    logPath?: string;
-    logCapBytes?: number;
-    processProber?: ProcessProber;
-    socketProber?: SocketProber;
-    testOwnerPid?: number;
-    onSpawn?: (pid: number) => void;
-  },
-): Promise<DaemonMetadata> {
-  const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
-  const logCapBytes = options?.logCapBytes ?? 5 * 1024 * 1024;
-  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
-  const socketProber = options?.socketProber ?? { probe: probeSocket };
-
-  const alreadyUp = await socketProber.probe(socketPath, 500);
-  if (alreadyUp) {
-    throw new DaemonAlreadyRunningError(socketPath);
-  }
-
-  let leaseOwner: string | undefined;
-  let spawnedPid: number | undefined;
-  if (options?.pidPath) {
-    const pidDir = dirname(options.pidPath);
-    if (!existsSync(pidDir)) {
-      throw new Error(`PID file directory does not exist: ${pidDir}`);
-    }
-    leaseOwner = `starting:${process.pid}:${crypto.randomUUID()}`;
-    for (;;) {
-      try {
-        writeFileSync(options.pidPath, leaseOwner, { flag: "wx" });
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        const owner = readLeaseOwner(options.pidPath);
-        if (owner === undefined && hasMalformedLease(options.pidPath)) throw new DaemonAlreadyRunningError(socketPath);
-        if (owner !== undefined && processProber.isAlive(owner)) throw new DaemonAlreadyRunningError(socketPath);
-        rmSync(options.pidPath, { force: true });
-      }
+  pidPath: string | undefined,
+  processProber: ProcessProber,
+): string | undefined {
+  if (pidPath === undefined) return undefined;
+  const pidDir = dirname(pidPath);
+  if (!existsSync(pidDir)) throw new Error(`PID file directory does not exist: ${pidDir}`);
+  const leaseOwner = `starting:${process.pid}:${crypto.randomUUID()}`;
+  for (;;) {
+    try {
+      writeFileSync(pidPath, leaseOwner, { flag: "wx" });
+      return leaseOwner;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const owner = readLeaseOwner(pidPath);
+      if (owner === undefined && hasMalformedLease(pidPath)) throw new DaemonAlreadyRunningError(socketPath);
+      if (owner !== undefined && processProber.isAlive(owner)) throw new DaemonAlreadyRunningError(socketPath);
+      rmSync(pidPath, { force: true });
     }
   }
+}
 
-  try {
-    const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
-    const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
-    const proc = spawn("bun", [daemonScript], {
+function spawnDaemon(socketPath: string, options: StartDaemonOptions, logCapBytes: number): number {
+  const daemonScript = options.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
+  const logFd = options.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
+  const proc = spawn("bun", [daemonScript], {
     detached: true,
     stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
     env: {
       ...process.env,
       DAEMON_SOCKET_PATH: socketPath,
-      ...(options?.pidPath === undefined ? {} : { DAEMON_PID_PATH: options.pidPath }),
-      ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
+      ...(options.pidPath === undefined ? {} : { DAEMON_PID_PATH: options.pidPath }),
+      ...(options.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
     },
-    });
-
-  // Close parent's copy of the log fd
-    if (logFd !== undefined) {
+  });
+  if (logFd !== undefined) {
     try {
       closeSync(logFd);
     } catch {
-      // Ignore close errors
+      // Ignore close errors.
     }
-    }
+  }
+  if (proc.pid === undefined) throw new Error("Failed to spawn daemon process: pid is undefined");
+  options.onSpawn?.(proc.pid);
+  proc.unref();
+  return proc.pid;
+}
 
-    if (proc.pid === undefined) {
-      throw new Error("Failed to spawn daemon process: pid is undefined");
-    }
-    const pid = proc.pid;
+async function waitForDaemonReady(
+  socketPath: string,
+  pid: number,
+  readinessTimeoutMs: number,
+  processProber: ProcessProber,
+  socketProber: SocketProber,
+): Promise<void> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < readinessTimeoutMs) {
+    if (!processProber.isAlive(pid)) throw new Error(`Daemon process ${pid} died during startup`);
+    if (await socketProber.probe(socketPath, 100)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+}
+
+export async function startDaemon(socketPath: string, options?: StartDaemonOptions): Promise<DaemonMetadata> {
+  const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
+  const logCapBytes = options?.logCapBytes ?? 5 * 1024 * 1024;
+  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
+  const socketProber = options?.socketProber ?? { probe: probeSocket };
+
+  if (await socketProber.probe(socketPath, 500)) throw new DaemonAlreadyRunningError(socketPath);
+  let leaseOwner = acquireLease(socketPath, options?.pidPath, processProber);
+  let spawnedPid: number | undefined;
+  try {
+    const pid = spawnDaemon(socketPath, options ?? {}, logCapBytes);
     spawnedPid = pid;
-    options?.onSpawn?.(pid);
-    proc.unref();
 
     if (options?.pidPath && leaseOwner !== undefined) {
       if (readFileSync(options.pidPath, "utf-8").trim() !== leaseOwner) {
@@ -208,18 +221,8 @@ export async function startDaemon(
       leaseOwner = String(pid);
     }
 
-    const startTime = Date.now();
-    while (Date.now() - startTime < readinessTimeoutMs) {
-      if (!processProber.isAlive(pid)) {
-        throw new Error(`Daemon process ${pid} died during startup`);
-      }
-      const up = await socketProber.probe(socketPath, 100);
-      if (up) {
-        return { pid, socketPath };
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+    await waitForDaemonReady(socketPath, pid, readinessTimeoutMs, processProber, socketProber);
+    return { pid, socketPath };
   } catch (error) {
     if (options?.pidPath !== undefined && spawnedPid !== undefined) {
       await terminateProcess(spawnedPid, 3_000, processProber);

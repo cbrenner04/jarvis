@@ -34,28 +34,28 @@ classification is missing.
 
 ## Acceptance criteria
 
-- [ ] A codex invocation that exits `0` with `You've hit your usage limit` in its output is classified
+- [x] A codex invocation that exits `0` with `You've hit your usage limit` in its output is classified
       `quota`, not `ok`; a new case in `shared/invocation/agents.test.ts` pins that text and fails
       against the current claude-only branch.
-- [ ] A cursor invocation that exits `0` with `monthly cursor usage limit reached` in its output is
+- [x] A cursor invocation that exits `0` with `monthly cursor usage limit reached` in its output is
       classified `quota`, pinned by a new case in the same file that fails pre-fix.
-- [ ] A claude zero-exit quota envelope is still classified `quota`: `shared/invocation/agents.test.ts`
+- [x] A claude zero-exit quota envelope is still classified `quota`: `shared/invocation/agents.test.ts`
       "claude zero-exit quota envelope returns quota" and `shared/invocation/claude-json.test.ts` stay
       green.
-- [ ] A zero-exit invocation with ordinary output is still `ok` for claude, codex, and cursor — a
+- [x] A zero-exit invocation with ordinary output is still `ok` for claude, codex, and cursor — a
       negative case per classifier proves the new detection does not fire on normal completions.
-- [ ] A zero-exit codex invocation whose output is an agent-authored `## Blocker` reading
+- [x] A zero-exit codex invocation whose output is an agent-authored `## Blocker` reading
       "the environment rejected validation with its usage limit before the required v2 gates could run"
       is still classified `ok` (no quota envelope), pinning that genuine blockers are not swallowed.
-- [ ] A write/implement step whose first binding returns a zero-exit codex quota envelope advances to
+- [x] A write/implement step whose first binding returns a zero-exit codex quota envelope advances to
       the next configured binding and completes on it; a new `v2/src/execution/step-runner.test.ts`
       case drives this through the real classification path and fails against the pre-fix code.
-- [ ] Existing `step-runner.test.ts` blocked-outcome coverage stays green — a step whose agent returns
+- [x] Existing `step-runner.test.ts` blocked-outcome coverage stays green — a step whose agent returns
       a non-quota `## Blocker` still settles blocked (`agent_blocked` / `inspect_spec` mapping in
       `v2/src/daemon/run-operator-error.ts` unchanged).
-- [ ] Tests pin every added or modified guard in both directions so inverting any guard fails; the
+- [x] Tests pin every added or modified guard in both directions so inverting any guard fails; the
       classifier-scoping guard's negative case proves claude output is not text-matched.
-- [ ] `bun run typecheck`, `bun run test:v1`, and `bun run test:v2` pass (`shared/**` is touched).
+- [x] `bun run typecheck`, `bun run test:v1`, and `bun run test:v2` pass (`shared/**` is touched).
 
 ## Documentation updates
 

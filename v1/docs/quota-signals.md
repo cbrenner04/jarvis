@@ -112,6 +112,7 @@ codes after fallback exhaustion, and telemetry semantics.
 | Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
 | Zero exit (spawn layer; no adapter reclassification) | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
 | Zero exit + Claude verified stdout JSON quota envelope (`is_error: true`, `api_error_status: 429`, quota message in `result`) | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
+| Zero exit + Codex or Cursor quota pattern in combined stderr+stdout | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
 
 Mode-specific note: patch mode runs one selected agent per iteration, while
 plan mode executes an inner agent-order loop per phase invocation. **Documented
@@ -258,6 +259,8 @@ sample below is exit-`0` JSON on stdout.
 
 ## Codex
 
+Codex quota detection now covers both non-zero exits and zero exits. On zero exit, the spawn layer checks combined stderr+stdout against the committed `codexQuotaPatterns` list; when a pattern matches, the result is reclassified from `ok` to `quota` before returning to the binding caller. This mirrors non-zero exit detection and allows fallback to advance when a quota exhaustion exits cleanly. Non-zero exit detection and credential/auth patterns are unchanged.
+
 ### Observed credential/auth stderr (real samples)
 
 - 2026-06-25 — Codex refresh token revoked (exit non-zero, stderr)
@@ -271,6 +274,8 @@ sample below is exit-`0` JSON on stdout.
 - No real samples recorded yet.
 
 ## Cursor
+
+Cursor quota detection now covers both non-zero exits and zero exits. On zero exit, the spawn layer checks combined stderr+stdout against the committed `cursorQuotaPatterns` list; when a pattern matches, the result is reclassified from `ok` to `quota` before returning to the binding caller. This mirrors non-zero exit detection and allows fallback to advance when a quota exhaustion exits cleanly.
 
 ### Observed quota stderr (real samples)
 
@@ -328,28 +333,40 @@ Status key:
 
 ### `codexQuotaPatterns`
 
-- `/\\byou[‘’]ve (?:hit|reached) your usage limit\\b/i` — Unverified.
+Non-zero exit and zero-exit quota detection.
+
+- `/\\byou[‘’]ve (?:hit|reached) your usage limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\busage limit\\b.*\\b(?:reset|resets|window)\\b/i` — Unverified.
+- `/\\busage limit\\b.*\\b(?:reset|resets|window)\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\brate_limit_exceeded\\b/i` — Unverified.
+- `/\\brate_limit_exceeded\\b/i` — Unverified (zero-exit path).
+  Sample link: none yet.
+- `/\\binsufficient[_ ]quota\\b/i` — Unverified (zero-exit path).
+  Sample link: none yet.
+- `/\\bquota exceeded\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
 
 ### `cursorQuotaPatterns`
 
-- `/\\byou['’]ve hit your usage limit\\b/i` — Unverified.
+Non-zero exit and zero-exit quota detection.
+
+- `/\\byou[‘’]ve hit your usage limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\byou['’]ve hit your free requests limit\\b/i` — Unverified.
+- `/\\byou[‘’]ve hit your free requests limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\btotal usage limit reached\\b/i` — Unverified.
+- `/\\btotal usage limit reached\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\bmonthly cursor usage limit\\b/i` — Unverified.
+- `/\\bmonthly cursor usage limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\bon-demand spending limit\\b/i` — Unverified.
+- `/\\bon-demand spending limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\bspend limit\\b/i` — Unverified.
+- `/\\bspend limit\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
-- `/\\bresource_exhausted\\b/i` — Unverified.
+- `/\\bresource_exhausted\\b/i` — Unverified (zero-exit path).
+  Sample link: none yet.
+- `/\\binsufficient[_ ]quota\\b/i` — Unverified (zero-exit path).
+  Sample link: none yet.
+- `/\\bquota exceeded\\b/i` — Unverified (zero-exit path).
   Sample link: none yet.
 
 ### `opencodeQuotaPatterns`

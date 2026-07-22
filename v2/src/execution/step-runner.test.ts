@@ -270,6 +270,27 @@ describe("step runner classification", () => {
     expect(invocations).toEqual(["claude/M1", "claude/M2"]);
   });
 
+  test("zero-exit codex quota advances to next binding", async () => {
+    const invocations: string[] = [];
+    const bindings = createImplementBindings(({ agentId, adapterModel }) => async () => {
+      invocations.push(`${agentId}/${adapterModel}`);
+      if (adapterModel === "M1") {
+        return { kind: "quota", stderr: "You've hit your usage limit" } as const;
+      }
+      return { kind: "ok", stdout: "done", stderr: "" } as const;
+    });
+
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings,
+      contracts: [],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(invocations).toEqual(["claude/M1", "claude/M2"]);
+  });
+
   test("settled invocations still emit telemetry when runner later returns contract_miss or invalid_token", async () => {
     const rows: InvocationCompletedRecord[] = [];
     const telemetry = writeStepTelemetry(rows, ["inv-1"]);

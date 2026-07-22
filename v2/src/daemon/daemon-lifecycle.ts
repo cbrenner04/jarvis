@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import type { GetExecutableDigest } from "../cli/dispatch-revision.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
@@ -288,7 +287,7 @@ export async function getDaemonStatus(
     processProber?: ProcessProber;
     socketProber?: SocketProber;
     getCurrentRevision?: GetCurrentRevisionFn;
-    getExecutableDigest?: GetExecutableDigest;
+    getExecutableDigest?: () => Promise<string>;
     connectIpcClient?: typeof connectIpcClient;
   },
 ): Promise<DaemonStatusResult> {

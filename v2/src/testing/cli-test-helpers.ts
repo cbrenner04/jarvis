@@ -28,34 +28,27 @@ export function captureIo() {
   };
 }
 
-export const TEST_REVISION = "test-revision";
-export const DOCS_MERGE_REVISION = "docs-merge-head";
 export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
-export const STALE_EXECUTABLE_DIGEST = "stale-executable-digest";
 
-/** `runtimeMain` with fixed revision/digest preflights so dispatch guards are deterministic. */
+/** `runtimeMain` with a fixed executable digest so daemon path keying is deterministic. */
 export function cliMain(
   argv: readonly string[],
   io?: Parameters<typeof runtimeMain>[1],
   deps?: Parameters<typeof runtimeMain>[2],
 ): Promise<number> {
   return runtimeMain(argv, io, {
-    getCurrentRevision: async () => TEST_REVISION,
     getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
     ...deps,
   });
 }
 
-/** Supplies the admission preflight used by run-control tests without changing their RPC fixtures. */
+/** Replays queued frames in response to CLI requests, recording what was sent. `statusResult` answers
+ * `status` requests for `jarvis daemon status`, whose request id is not stubbed by the caller. */
 export function makeIpcClient(
   frames: unknown[],
   options?: {
     sent?: unknown[];
-    loadedRevision?: string;
-    loadedExecutableDigest?: string;
-    recovery?: { pending: boolean; reconciled: number; resumed: number };
-    statusCalls?: Array<{ params: unknown }>;
-    statusResponses?: Array<{ loadedRevision: string; loadedExecutableDigest: string }>;
+    statusResult?: { loadedRevision: string; loadedExecutableDigest: string };
   },
 ): IpcClient {
   const queue = [...frames] as IpcFrame[];
@@ -77,25 +70,12 @@ export function makeIpcClient(
   return {
     send(frame: unknown): void {
       const request = frame as { kind?: string; id?: string; method?: string };
-      if (request.kind === "request" && request.method === "status" && typeof request.id === "string") {
-        options?.statusCalls?.push({ params: (frame as { params?: unknown }).params });
-        const loadedExecutableDigest = options?.loadedExecutableDigest ?? TEST_EXECUTABLE_DIGEST;
-        const loadedRevision = options?.loadedRevision ?? TEST_REVISION;
-        options?.statusResponses?.push({ loadedRevision, loadedExecutableDigest });
-        deliver({
-          kind: "response",
-          id: request.id,
-          result: {
-            state: "running",
-            loadedRevision,
-            loadedExecutableDigest,
-            ...(options?.recovery === undefined ? {} : { recovery: options.recovery }),
-          },
-        });
-        return;
-      }
       sent.push(frame);
       drainFrames ||= request.kind === "stream-open";
+      if (options?.statusResult !== undefined && request.method === "status" && typeof request.id === "string") {
+        deliver({ kind: "response", id: request.id, result: { state: "running", ...options.statusResult } });
+        return;
+      }
       const response = queue.shift();
       if (response !== undefined) deliver(response);
     },
@@ -170,12 +150,12 @@ export function workflowFrames(
 }
 
 /** `main()` consumes one uuid for its operator session id before any RPC id is minted, so a
- * workflow's id sequence is: session, revision status, then `start` and `wait`. */
+ * workflow's id sequence is: session, then `start` and `wait`. */
 export const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
 
-/** Stubs the session/status/start/wait uuid sequence for a `run workflow` invocation. */
+/** Stubs the session/start/wait uuid sequence for a `run workflow` invocation. */
 export function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
-  return withFixedUuid([SESSION_UUID, SESSION_UUID, startId, waitId], fn);
+  return withFixedUuid([SESSION_UUID, startId, waitId], fn);
 }
 
 export const COMPLETED_WAIT_RESULT = {

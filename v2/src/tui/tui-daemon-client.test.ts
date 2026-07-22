@@ -8,7 +8,7 @@ import { connectIpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { STALE_EXECUTABLE_DIGEST, TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
+import { TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiDaemon } from "./tui-daemon-client.ts";
@@ -37,9 +37,6 @@ const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 const CURRENT_REVISION = "abc123";
-
-const matchingRevision = async (): Promise<string> => CURRENT_REVISION;
-const matchingDigest = async (): Promise<string> => TEST_EXECUTABLE_DIGEST;
 
 function statusFrame(
   id = STATUS_REQUEST_ID,
@@ -159,18 +156,15 @@ test("health then status reuse one connection without reconnecting", async () =>
 // Error frames map to RpcError uniformly across methods; representatives cover a plain RPC,
 // a steering RPC, and the revision-gated start path.
 test("daemon error replies reject as RpcError with code and message", async () => {
-  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, START_REQUEST_ID, START_REQUEST_ID], async () => {
+  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([
           { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
           { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
-          statusFrame(START_REQUEST_ID),
           { kind: "error", id: START_REQUEST_ID, code: "run_in_progress", message: "busy" },
         ]),
-      getCurrentRevision: matchingRevision,
-      getExecutableDigest: matchingDigest,
     });
 
     await expect(client.health()).rejects.toMatchObject({
@@ -341,83 +335,22 @@ test("rejects unreachable socket with RpcConnectionError and sends no RPCs", asy
 
 test("start sends one correlated IPC start request and returns runId", async () => {
   const sent: unknown[] = [];
-  await withFixedUuid([STATUS_REQUEST_ID, START_REQUEST_ID], async () => {
+  await withFixedUuid([START_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
-        makeGatedIpcClient([statusFrame(), { kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
+        makeGatedIpcClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
           sent,
         }),
-      getCurrentRevision: matchingRevision,
-      getExecutableDigest: matchingDigest,
     });
 
     await expect(client.start(START_INPUT)).resolves.toEqual({ runId: "run-999" });
     expect(sent).toEqual([
       {
         kind: "request",
-        id: STATUS_REQUEST_ID,
-        method: "status",
-        params: { currentRevision: CURRENT_REVISION, currentExecutableDigest: TEST_EXECUTABLE_DIGEST },
-      },
-      {
-        kind: "request",
         id: START_REQUEST_ID,
         method: "start",
         params: { input: START_INPUT },
-      },
-    ]);
-    client.close();
-  });
-});
-
-test("revision mismatch rejects start and human-decision resume before their mutating requests", async () => {
-  const sent: unknown[] = [];
-  await withFixedUuid([STATUS_REQUEST_ID, STATUS_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({
-      socketPath: "/tmp/test.sock",
-      connectIpcClient: async () =>
-        makeGatedIpcClient(
-          [
-            {
-              kind: "response",
-              id: STATUS_REQUEST_ID,
-              result: {
-                state: "running",
-                loadedRevision: "loaded-revision",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-              },
-            },
-            {
-              kind: "response",
-              id: STATUS_REQUEST_ID,
-              result: {
-                state: "running",
-                loadedRevision: "loaded-revision",
-                loadedExecutableDigest: STALE_EXECUTABLE_DIGEST,
-              },
-            },
-          ],
-          { sent },
-        ),
-      getCurrentRevision: async () => "current-revision",
-      getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
-    });
-
-    await expect(client.start(START_INPUT)).rejects.toThrow("loaded=loaded-revision current=current-revision");
-    await expect(client.resume("run-123")).rejects.toThrow("restart the daemon before starting or resuming work");
-    expect(sent).toEqual([
-      {
-        kind: "request",
-        id: STATUS_REQUEST_ID,
-        method: "status",
-        params: { currentRevision: "current-revision", currentExecutableDigest: TEST_EXECUTABLE_DIGEST },
-      },
-      {
-        kind: "request",
-        id: STATUS_REQUEST_ID,
-        method: "status",
-        params: { currentRevision: "current-revision", currentExecutableDigest: TEST_EXECUTABLE_DIGEST },
       },
     ]);
     client.close();
@@ -430,33 +363,15 @@ test.each([
   ["kill", KILL_REQUEST_ID] as const,
 ])("%s sends one correlated IPC request and returns ok", async (method, requestId) => {
   const sent: unknown[] = [];
-  const ids = method === "resume" ? [STATUS_REQUEST_ID, requestId] : [requestId];
-  const frames =
-    method === "resume"
-      ? [statusFrame(), { kind: "response", id: requestId, result: { ok: true } }]
-      : [{ kind: "response", id: requestId, result: { ok: true } }];
-  await withFixedUuid(ids, async () => {
+  await withFixedUuid([requestId], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
-      connectIpcClient: async () => makeGatedIpcClient(frames, { sent }),
-      getCurrentRevision: matchingRevision,
-      getExecutableDigest: matchingDigest,
+      connectIpcClient: async () =>
+        makeGatedIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
     });
 
     await expect(client[method]("run-123")).resolves.toEqual({ ok: true });
-    expect(sent).toEqual([
-      ...(method === "resume"
-        ? [
-            {
-              kind: "request",
-              id: STATUS_REQUEST_ID,
-              method: "status",
-              params: { currentRevision: CURRENT_REVISION, currentExecutableDigest: TEST_EXECUTABLE_DIGEST },
-            },
-          ]
-        : []),
-      { kind: "request", id: requestId, method, params: { runId: "run-123" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method, params: { runId: "run-123" } }]);
     client.close();
   });
 });

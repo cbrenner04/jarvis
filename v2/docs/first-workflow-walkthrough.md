@@ -36,27 +36,13 @@ Before starting:
 Have a spec with unchecked tasks ready. Paths below are relative to the worktree
 Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 
-## Start the daemon
-
-`jarvis run start` connects to the daemon over `~/.jarvis/daemon.sock`. Nothing
-auto-starts the daemon — start it first:
-
-```bash
-jarvis daemon start
-```
-
-On success stdout is compact JSON with the child PID and socket path, for example:
-
-```json
-{"pid":12345,"socketPath":"/Users/you/.jarvis/daemon.sock"}
-```
-
-Confirm with `jarvis daemon status` (`running` when healthy).
-
 ## Start a run
 
-Launch an ad-hoc write loop against your spec. Every flag below is required
-except `--max-iterations`:
+Launch an ad-hoc write loop against your spec. This mutating dispatch command
+automatically starts or reuses the daemon keyed by the invoking executable
+(identified by its content digest). The daemon is addressable over a keyed socket
+in `~/.jarvis/` and remains available for subsequent `jarvis` invocations from
+the same binary. Every flag below is required except `--max-iterations`:
 
 ```bash
 jarvis run start \
@@ -301,6 +287,37 @@ completed v2 spec under `v2/spec/completed/`, and prunes its ready-intent only
 when it byte-matches `intent.md`. Durable run history remains available; incomplete,
 open-PR, or worktree-owned specs remain in place with a refusal reason.
 
+## Optional daemon lifecycle control
+
+The daemon starts automatically on the first mutating dispatch invocation
+(e.g., `jarvis run start` or `jarvis run workflow implement`). Manual daemon
+control is optional and useful for lifecycle management only:
+
+```bash
+jarvis daemon start
+```
+
+On success stdout is compact JSON with the child PID and socket key:
+
+```json
+{"pid":12345,"socketKey":"...hash..."}
+```
+
+Confirm health with:
+
+```bash
+jarvis daemon status
+```
+
+Stop the daemon (or a specific instance by key):
+
+```bash
+jarvis daemon stop
+```
+
+Daemon shutdown is automatic on logout or machine shutdown; manual invocation is
+rarely needed.
+
 ## Split an intent seed
 
 The split-only preset (`intent`) accepts either a file seed or inline text and sends one
@@ -407,10 +424,10 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and
 The implement workflow preset launches a write loop against an `index.md` spec
 without the live `pause`, `resume`, or `kill` control available in direct
 `jarvis run start` mode. Review runs by default (one debate pass); pass
-`--review-passes 0` to skip it.
+`--review-passes 0` to skip it. Like `jarvis run start`, this command
+automatically starts or reuses the daemon keyed by the invoking executable.
 
 ```bash
-jarvis daemon start
 jarvis run workflow implement \
   --base main \
   --spec v2/spec/your-spec/index.md

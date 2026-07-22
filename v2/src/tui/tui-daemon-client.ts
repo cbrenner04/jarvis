@@ -1,10 +1,3 @@
-import {
-  dispatchRevisionMismatch,
-  type GetCurrentRevision,
-  type GetExecutableDigest,
-  getInvokingExecutableDigest,
-  getInvokingRevision,
-} from "../cli/dispatch-revision.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import {
   type DaemonListResult,
@@ -58,8 +51,6 @@ export type ConnectTuiDaemonOptions = {
   socketPath: string;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
-  getCurrentRevision?: GetCurrentRevision;
-  getExecutableDigest?: GetExecutableDigest;
 };
 
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
@@ -77,8 +68,6 @@ function parseOrThrow<T>(parsed: T | undefined, message: string): T {
 export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
   const socketPath = options.socketPath;
   const connectFn = options.connectIpcClient ?? connectIpcClient;
-  const getCurrentRevision = options.getCurrentRevision ?? getInvokingRevision;
-  const getExecutableDigest = options.getExecutableDigest ?? getInvokingExecutableDigest;
 
   let client: IpcClient;
   try {
@@ -94,17 +83,6 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
     );
-
-  const guard = async (): Promise<void> => {
-    const mismatch = await dispatchRevisionMismatch(
-      (params) => transport.request("status", params),
-      getCurrentRevision,
-      getExecutableDigest,
-    );
-    if (mismatch !== undefined) {
-      throw new RpcConnectionError(mismatch.trim());
-    }
-  };
 
   return {
     async health() {
@@ -123,7 +101,6 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
       return parseListRuns(await transport.request("list")) as DaemonListResult;
     },
     async start(input) {
-      await guard();
       return parseOrThrow(
         parseStartResult(await transport.request("start", { input })),
         "malformed RPC reply: invalid start result",
@@ -131,7 +108,6 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
     },
     pause: (runId) => okRunRpc("pause", runId),
     async resume(runId) {
-      await guard();
       return parseOrThrow(
         parseHealthResult(await transport.request("resume", { runId })),
         "malformed RPC reply: invalid resume result",

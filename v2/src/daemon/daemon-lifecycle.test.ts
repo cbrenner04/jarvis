@@ -15,7 +15,13 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
 }
 
 import type { Run } from "../persistence/state-store";
+import { openStateStore } from "../persistence/state-store.ts";
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
+import { startDaemonRuntime, listPeerDaemonSockets } from "./daemon.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   DaemonAlreadyRunningError,
   DaemonReadinessTimeoutError,
@@ -27,6 +33,21 @@ import {
   startDaemon,
   stopDaemon,
 } from "./daemon-lifecycle";
+
+function rpcFrame(id: string, method: string, params?: unknown) {
+  return { kind: "request" as const, id, method, params };
+}
+
+const rpcSignal = () => new AbortController().signal;
+
+function stubIpcServer(onHandlers?: (handlers: Record<string, RpcHandler>) => void) {
+  return async (_socketPath: string, handlers?: Record<string, RpcHandler>) => {
+    if (handlers) onHandlers?.(handlers);
+    return { close: async () => undefined } as IpcServer;
+  };
+}
+
+const noopProcessExit = (() => 0 as never) as (code: number) => never;
 
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
@@ -455,6 +476,584 @@ describe("daemon-lifecycle", () => {
           killTimeoutMs: 100,
         }),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("supersede (retiring daemon)", () => {
+    const { createWriteStep } = writeStepFixtures();
+
+    test("idle daemon exits promptly after supersede", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-idle-${Date.now()}.sqlite`);
+      let exitCalled = false;
+
+      try {
+        const store = openStateStore(dbPath);
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          startIpcServer: async (_socketPath, handlers) => {
+            await new Promise((r) => setImmediate(r));
+            await Promise.resolve(
+              (handlers as Record<string, RpcHandler>).supersede?.(rpcFrame("s1", "supersede"), rpcSignal()),
+            );
+            return { close: async () => undefined } as IpcServer;
+          },
+          processExit: (() => {
+            exitCalled = true;
+            return 0 as never;
+          }) as (code: number) => never,
+        });
+
+        await new Promise((r) => setTimeout(r, 300));
+        expect(exitCalled).toBe(true);
+        await runtime.close().catch(() => undefined);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("retiring daemon rejects new start requests with daemon_superseded", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-reject-start-${Date.now()}.sqlite`);
+      try {
+        const store = openStateStore(dbPath);
+        let startHandler: RpcHandler | undefined;
+        let supersedeHandler: RpcHandler | undefined;
+
+        const runtime = await startDaemonRuntime(
+          dbPath,
+          store,
+          undefined,
+          {
+            startIpcServer: stubIpcServer((handlers) => {
+              startHandler = handlers.start;
+              supersedeHandler = handlers.supersede;
+            }),
+          },
+        );
+
+        await new Promise((r) => setImmediate(r));
+
+        if (!supersedeHandler) throw new Error("supersede handler not registered");
+        await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
+
+        if (!startHandler) throw new Error("start handler not registered");
+        const response = await startHandler(
+          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
+          rpcSignal(),
+        );
+
+        expect(response).toMatchObject({ kind: "error", code: "daemon_superseded" });
+        expect(store.listRuns()).toEqual([]);
+
+        await runtime.close();
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("retiring daemon rejects resume requests with daemon_superseded", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-reject-resume-${Date.now()}.sqlite`);
+      try {
+        const store = openStateStore(dbPath);
+        const runId = store.createRun({
+          project: "test",
+          specRef: "main",
+          worktreePath: "/tmp/test-worktree",
+          branch: "test-branch",
+          specPath: "spec.md",
+          status: "paused",
+        });
+
+        let resumeHandler: RpcHandler | undefined;
+        let supersedeHandler: RpcHandler | undefined;
+
+        const runtime = await startDaemonRuntime(
+          dbPath,
+          store,
+          undefined,
+          {
+            startIpcServer: stubIpcServer((handlers) => {
+              resumeHandler = handlers.resume;
+              supersedeHandler = handlers.supersede;
+            }),
+          },
+        );
+
+        await new Promise((r) => setImmediate(r));
+
+        if (!supersedeHandler) throw new Error("supersede handler not registered");
+        await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
+
+        if (!resumeHandler) throw new Error("resume handler not registered");
+        const response = await resumeHandler(rpcFrame("resume1", "resume", { runId }), rpcSignal());
+
+        expect(response).toMatchObject({ kind: "error", code: "daemon_superseded" });
+        const run = store.loadRun(runId);
+        expect(run?.status).toBe("paused");
+
+        await runtime.close();
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("retiring daemon keeps health/list/wait working after supersede", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-keep-working-${Date.now()}.sqlite`);
+      try {
+        const store = openStateStore(dbPath);
+        const runId = store.createRun({
+          project: "test",
+          specRef: "main",
+          worktreePath: "/tmp/test-worktree",
+          branch: "test-branch",
+          specPath: "spec.md",
+          status: "completed",
+        });
+
+        let listHandler: RpcHandler | undefined;
+        let healthHandler: RpcHandler | undefined;
+        let statusHandler: RpcHandler | undefined;
+        let supersedeHandler: RpcHandler | undefined;
+
+        const runtime = await startDaemonRuntime(
+          dbPath,
+          store,
+          undefined,
+          {
+            startIpcServer: stubIpcServer((handlers) => {
+              listHandler = handlers.list;
+              healthHandler = handlers.health;
+              statusHandler = handlers.status;
+              supersedeHandler = handlers.supersede;
+            }),
+          },
+        );
+
+        await new Promise((r) => setImmediate(r));
+
+        if (!supersedeHandler) throw new Error("supersede handler not registered");
+        await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
+
+        if (!listHandler || !healthHandler || !statusHandler) throw new Error("handlers not registered");
+
+        const healthResponse = await healthHandler(rpcFrame("h1", "health"), rpcSignal());
+        expect(healthResponse).toMatchObject({ kind: "response", result: { ok: true } });
+
+        const statusResponse = await statusHandler(rpcFrame("st1", "status"), rpcSignal());
+        expect(statusResponse.kind).toBe("response");
+
+        const listResponse = await listHandler(rpcFrame("l1", "list"), rpcSignal());
+        expect(listResponse.kind).toBe("response");
+        if (listResponse.kind === "response") {
+          const result = listResponse.result as { runs?: unknown[] };
+          expect(Array.isArray(result?.runs)).toBe(true);
+          const runs = result?.runs || [];
+          expect(runs.some((r: unknown) => (r as { runId?: unknown }).runId === runId)).toBe(true);
+        }
+
+        await runtime.close();
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("superseded daemon stays up until owned run settles then exits", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-active-run-${Date.now()}.sqlite`);
+      const fakeExecutor = createFakeWriteLoopExecutor();
+      let exitCalled = false;
+      let handlers: Record<string, RpcHandler> | undefined;
+
+      try {
+        const store = openStateStore(dbPath);
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          writeLoopExecutor: fakeExecutor.executor,
+          hasMemoryHeadroom: () => true,
+          settleDelayMs: 0,
+          startIpcServer: stubIpcServer((h) => {
+            handlers = h;
+          }),
+          processExit: (() => {
+            exitCalled = true;
+            return 0 as never;
+          }) as (code: number) => never,
+        });
+
+        await flushBackgroundRuns();
+        if (!handlers?.start || !handlers.supersede || !handlers.pause) throw new Error("handlers not registered");
+
+        const startResponse = await handlers.start(
+          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
+          rpcSignal(),
+        );
+        expect(startResponse.kind).toBe("response");
+        const runId =
+          startResponse.kind === "response"
+            ? (startResponse.result as { runId?: string } | undefined)?.runId
+            : undefined;
+        if (!runId) throw new Error("start did not return runId");
+        expect(fakeExecutor.pendingCount()).toBe(1);
+        expect(exitCalled).toBe(false);
+
+        const supersedeResponse = await handlers.supersede(rpcFrame("s1", "supersede"), rpcSignal());
+        expect(supersedeResponse).toMatchObject({ kind: "response", result: { ok: true } });
+        expect(exitCalled).toBe(false);
+
+        const pauseResponse = await handlers.pause(rpcFrame("p1", "pause", { runId }), rpcSignal());
+        expect(pauseResponse).toMatchObject({ kind: "response", result: { ok: true } });
+        expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
+
+        const rejectedStart = await handlers.start(
+          rpcFrame("start2", "start", {
+            input: mockWriteLoopInput({ projectName: "other", branchName: "other" }),
+          }),
+          rpcSignal(),
+        );
+        expect(rejectedStart).toMatchObject({ kind: "error", code: "daemon_superseded" });
+        expect(store.listRuns()).toHaveLength(1);
+
+        fakeExecutor.settleAll();
+        await flushBackgroundRuns();
+        await new Promise((r) => setTimeout(r, 300));
+        expect(exitCalled).toBe(true);
+
+        await runtime.close().catch(() => undefined);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("retiring daemon rejects workflow start with daemon_superseded", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-reject-workflow-${Date.now()}.sqlite`);
+      try {
+        const store = openStateStore(dbPath);
+        let startHandler: RpcHandler | undefined;
+        let supersedeHandler: RpcHandler | undefined;
+
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          startIpcServer: stubIpcServer((handlers) => {
+            startHandler = handlers.start;
+            supersedeHandler = handlers.supersede;
+          }),
+        });
+
+        await flushBackgroundRuns();
+
+        if (!supersedeHandler) throw new Error("supersede handler not registered");
+        await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
+
+        if (!startHandler) throw new Error("start handler not registered");
+        const response = await startHandler(
+          rpcFrame("start1", "start", { steps: [createWriteStep("step-0", "workflow-branch")] }),
+          rpcSignal(),
+        );
+
+        expect(response).toMatchObject({ kind: "error", code: "daemon_superseded" });
+        expect(store.listRuns()).toEqual([]);
+
+        await runtime.close();
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("retiring daemon does not promote queued runs when an active run settles", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-no-promote-${Date.now()}.sqlite`);
+      const fakeExecutor = createFakeWriteLoopExecutor();
+
+      try {
+        const store = openStateStore(dbPath);
+        let handlers: Record<string, RpcHandler> | undefined;
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          writeLoopExecutor: fakeExecutor.executor,
+          hasMemoryHeadroom: () => true,
+          settleDelayMs: 0,
+          startIpcServer: stubIpcServer((h) => {
+            handlers = h;
+          }),
+          processExit: noopProcessExit,
+        });
+
+        await flushBackgroundRuns();
+        if (!handlers?.start || !handlers.supersede) throw new Error("handlers not registered");
+
+        await handlers.start(
+          rpcFrame("start1", "start", {
+            input: mockWriteLoopInput({
+              projectName: "active-project",
+              branchName: "active-branch",
+            }),
+          }),
+          rpcSignal(),
+        );
+        expect(fakeExecutor.pendingCount()).toBe(1);
+
+        await handlers.supersede(rpcFrame("s1", "supersede"), rpcSignal());
+
+        const queuedRunId = store.createRun({
+          project: "queued-project",
+          specRef: "main",
+          worktreePath: "/tmp/queued-project",
+          branch: "queued-branch",
+          specPath: "spec.md",
+          status: "queued",
+          queuedInput: mockWriteLoopInput({
+            projectName: "queued-project",
+            branchName: "queued-branch",
+          }),
+        });
+
+        fakeExecutor.settleAll();
+        await flushBackgroundRuns();
+
+        expect(store.loadRun(queuedRunId)?.status).toBe("queued");
+        expect(store.loadRun(queuedRunId)?.queuedInput).not.toBeNull();
+
+        await runtime.close().catch(() => undefined);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("supersede is idempotent", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-retire-idempotent-${Date.now()}.sqlite`);
+      try {
+        const store = openStateStore(dbPath);
+        let supersedeHandler: RpcHandler | undefined;
+
+        const runtime = await startDaemonRuntime(dbPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          startIpcServer: stubIpcServer((handlers) => {
+            supersedeHandler = handlers.supersede;
+          }),
+          processExit: noopProcessExit,
+        });
+
+        await flushBackgroundRuns();
+        if (!supersedeHandler) throw new Error("supersede handler not registered");
+
+        const first = await supersedeHandler(rpcFrame("s1", "supersede"), rpcSignal());
+        const second = await supersedeHandler(rpcFrame("s2", "supersede"), rpcSignal());
+
+        expect(first).toMatchObject({ kind: "response", result: { ok: true } });
+        expect(second).toMatchObject({ kind: "response", result: { ok: true } });
+
+        await runtime.close().catch(() => undefined);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+  });
+
+  describe("supersede peers at startup", () => {
+    const ownSocketPath = "/jarvis-home/daemon-cccccccccccccccc.sock";
+
+    test("sends supersede to every other digest-keyed socket and never to its own", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-peers-${Date.now()}.sqlite`);
+      const superseded: string[] = [];
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-peers-home-${Date.now()}`);
+      const previousHome = process.env.JARVIS_HOME;
+      process.env.JARVIS_HOME = tmpDir;
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock"), "");
+        writeFileSync(join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock"), "");
+        const ownSocket = join(tmpDir, "daemon-cccccccccccccccc.sock");
+
+        const store = openStateStore(dbPath);
+        await startDaemonRuntime(ownSocket, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          sendSupersede: async (socketPath) => {
+            superseded.push(socketPath);
+          },
+          startIpcServer: async () => ({ close: async () => undefined }) as IpcServer,
+        });
+
+        expect(superseded.sort()).toEqual(
+          [
+            join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock"),
+            join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock"),
+          ].sort(),
+        );
+        expect(superseded).not.toContain(ownSocket);
+      } finally {
+        if (previousHome === undefined) delete process.env.JARVIS_HOME;
+        else process.env.JARVIS_HOME = previousHome;
+        rmSync(tmpDir, { recursive: true, force: true });
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("listPeerDaemonSockets excludes own socket", () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-own-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const ownSocket = join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock");
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock"), "");
+        writeFileSync(ownSocket, "");
+
+        expect(listPeerDaemonSockets(tmpDir, ownSocket)).not.toContain(ownSocket);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("listPeerDaemonSockets ignores pid, log, and config files", () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-filter-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const peerSocket = join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock");
+        writeFileSync(peerSocket, "");
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.pid"), "1");
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.log"), "log");
+        writeFileSync(join(tmpDir, "config.json"), "{}");
+        writeFileSync(join(tmpDir, "daemon.sock"), "");
+        const ownSocket = join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock");
+
+        expect(listPeerDaemonSockets(tmpDir, ownSocket)).toEqual([peerSocket]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("startup never connects to pid, log, or config files in jarvis home", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-connect-filter-${Date.now()}`);
+      const previousHome = process.env.JARVIS_HOME;
+      process.env.JARVIS_HOME = tmpDir;
+      mkdirSync(tmpDir, { recursive: true });
+      const dbPath = join(tmpDir, "state.sqlite");
+
+      try {
+        const peerSocket = join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.sock");
+        writeFileSync(peerSocket, "");
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.pid"), "1");
+        writeFileSync(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.log"), "log");
+        writeFileSync(join(tmpDir, "config.json"), "{}");
+
+        const ownSocket = join(tmpDir, "daemon-bbbbbbbbbbbbbbbb.sock");
+        const connected: string[] = [];
+        const store = openStateStore(dbPath);
+        await startDaemonRuntime(ownSocket, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          sendSupersede: async (socketPath) => {
+            connected.push(socketPath);
+          },
+          startIpcServer: async () => ({ close: async () => undefined }) as IpcServer,
+        });
+
+        expect(connected).toEqual([peerSocket]);
+        expect(connected).not.toContain(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.pid"));
+        expect(connected).not.toContain(join(tmpDir, "daemon-aaaaaaaaaaaaaaaa.log"));
+        expect(connected).not.toContain(join(tmpDir, "config.json"));
+      } finally {
+        if (previousHome === undefined) delete process.env.JARVIS_HOME;
+        else process.env.JARVIS_HOME = previousHome;
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("a failing peer does not block other supersede sends or startup", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-fail-peer-${Date.now()}.sqlite`);
+      const superseded: string[] = [];
+      let startHandler: RpcHandler | undefined;
+
+      try {
+        const store = openStateStore(dbPath);
+        await startDaemonRuntime(ownSocketPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          hasMemoryHeadroom: () => true,
+          writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+          listPeerDaemonSockets: () => [
+            "/jarvis-home/daemon-dead.sock",
+            "/jarvis-home/daemon-live.sock",
+          ],
+          sendSupersede: async (socketPath) => {
+            superseded.push(socketPath);
+            if (socketPath.endsWith("dead.sock")) {
+              throw new Error("connect refused");
+            }
+          },
+          startIpcServer: stubIpcServer((handlers) => {
+            startHandler = handlers.start;
+          }),
+        });
+
+        expect(superseded.sort()).toEqual(
+          ["/jarvis-home/daemon-dead.sock", "/jarvis-home/daemon-live.sock"].sort(),
+        );
+
+        if (!startHandler) throw new Error("start handler not registered");
+        const response = await startHandler(
+          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
+          rpcSignal(),
+        );
+        expect(response.kind).toBe("response");
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("missing jarvis home leaves startup unaffected", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-missing-home-${Date.now()}.sqlite`);
+      const superseded: string[] = [];
+
+      try {
+        const store = openStateStore(dbPath);
+        await startDaemonRuntime(ownSocketPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          listPeerDaemonSockets: (home) => listPeerDaemonSockets(home, ownSocketPath),
+          sendSupersede: async (socketPath) => {
+            superseded.push(socketPath);
+          },
+          startIpcServer: async () => ({ close: async () => undefined }) as IpcServer,
+        });
+
+        expect(superseded).toEqual([]);
+        expect(listPeerDaemonSockets("/nonexistent-jarvis-home", ownSocketPath)).toEqual([]);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
+    });
+
+    test("supersede sends do not gate admission", async () => {
+      const dbPath = join(process.env.TMPDIR || "/tmp", `jarvis-supersede-no-gate-${Date.now()}.sqlite`);
+      let startHandler: RpcHandler | undefined;
+      let releaseSlowPeer: (() => void) | undefined;
+
+      try {
+        const store = openStateStore(dbPath);
+        const slowPeer = new Promise<void>((resolve) => {
+          releaseSlowPeer = resolve;
+        });
+
+        const runtime = await startDaemonRuntime(ownSocketPath, store, undefined, {
+          recoverReconciledRuns: async () => ({ resumed: 0 }),
+          hasMemoryHeadroom: () => true,
+          writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+          listPeerDaemonSockets: () => ["/jarvis-home/daemon-slow.sock"],
+          sendSupersede: async () => {
+            await slowPeer;
+          },
+          startIpcServer: stubIpcServer((handlers) => {
+            startHandler = handlers.start;
+          }),
+        });
+
+        if (!startHandler) throw new Error("start handler not registered");
+        const response = await startHandler(
+          rpcFrame("start1", "start", { input: mockWriteLoopInput() }),
+          rpcSignal(),
+        );
+        expect(response.kind).toBe("response");
+
+        releaseSlowPeer?.();
+        await runtime.close().catch(() => undefined);
+      } finally {
+        rmSync(dbPath, { force: true });
+      }
     });
   });
 

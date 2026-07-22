@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -18,6 +19,8 @@ import {
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
@@ -532,6 +535,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
   const waitAbortControllers = new Set<AbortController>();
+  let retiring = false;
+  const daemonSuperseded = {
+    kind: "error" as const,
+    code: "daemon_superseded" as const,
+    message: "Daemon is retiring and not accepting new work",
+  };
   /**
    * Live/terminal role progress for review steps, keyed by `invocationId` then
    * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
@@ -638,11 +647,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     })();
   };
 
-  const promoteQueuedRun = (bypassSettleDelay = false): void =>
+  const promoteQueuedRun = (bypassSettleDelay = false): void => {
+    if (retiring) {
+      return;
+    }
     promoteQueuedRunImpl(
       { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop },
       bypassSettleDelay,
     );
+  };
 
   /**
    * Demote one non-terminal workflow run to `failed` and record why. Both steps are
@@ -752,6 +765,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
   const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
+    if (retiring) return daemonSuperseded;
+
     if (steps.length === 0) {
       return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
     }
@@ -812,6 +827,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
+    if (retiring) return daemonSuperseded;
+
     const resolved = resolveWriteLoopBindings(rawInput);
     if (!resolved.ok) {
       return { kind: "error", code: "invalid_params", message: resolved.message };
@@ -1073,6 +1090,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   }
 
   const resumeHandler: RpcHandler = async (frame) => {
+    if (retiring) return daemonSuperseded;
+
     const params = frame.params as { runId?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
@@ -1189,6 +1208,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : waitForLogTerminalRecord(logReader, run, signal);
   };
 
+  const supersedeHandler: RpcHandler = () => {
+    retiring = true;
+    return { kind: "response", result: { ok: true } };
+  };
+
   return {
     start: startHandler,
     list: listHandler,
@@ -1196,6 +1220,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
+    supersede: supersedeHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
@@ -1205,6 +1230,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       waitAbortControllers.clear();
     },
+    shouldRetireExit: (): boolean => retiring && activeRuns.size === 0,
   };
 }
 
@@ -1273,12 +1299,51 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
   };
 }
 
+/** Digest-keyed daemon sockets under `home`, excluding `ownSocketPath`. */
+export function listPeerDaemonSockets(home: string, ownSocketPath: string): string[] {
+  if (!existsSync(home)) {
+    return [];
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(home);
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((name) => name.startsWith("daemon-") && name.endsWith(".sock"))
+    .map((name) => join(home, name))
+    .filter((socketPath) => socketPath !== ownSocketPath);
+}
+
+async function sendSupersedeToDaemonSocket(
+  socketPath: string,
+  connectFn: typeof connectIpcClient = connectIpcClient,
+): Promise<void> {
+  try {
+    const client = await connectFn(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      await transport.request("supersede", undefined, { timeoutMs: 5_000 });
+    } finally {
+      transport.close();
+    }
+  } catch {
+    // best-effort; dead or unreachable peers are expected after rebuild
+  }
+}
+
 export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
   recoverReconciledRuns?: typeof recoverReconciledRuns;
-};
+  processExit?: (code: number) => never;
+  listPeerDaemonSockets?: typeof listPeerDaemonSockets;
+  sendSupersede?: (socketPath: string) => Promise<void>;
+} & Partial<Pick<RunControlHandlerDeps, "writeLoopExecutor" | "hasMemoryHeadroom" | "settleDelayMs">>;
 
 export async function recoverReconciledRuns(
   runIds: readonly string[],
@@ -1345,20 +1410,22 @@ export async function startDaemonRuntime(
     loadedExecutableDigest = "unknown";
   }
 
-  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
-    const logSink = openLogSink(logsPath);
-    try {
-      await executeWriteLoop({
-        ...applyOperatorSessionId(input, operatorSessionId),
-        stateStore: store,
-        logSink,
-        signal,
-        pauseSignal,
-      });
-    } finally {
-      logSink.close();
-    }
-  };
+  const writeLoopExecutor =
+    startupDeps.writeLoopExecutor ??
+    (async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+      const logSink = openLogSink(logsPath);
+      try {
+        await executeWriteLoop({
+          ...applyOperatorSessionId(input, operatorSessionId),
+          stateStore: store,
+          logSink,
+          signal,
+          pauseSignal,
+        });
+      } finally {
+        logSink.close();
+      }
+    });
 
   const tailStreamHandler = createTailStreamHandler({ stateStore: store, logReader: logReaderInstance });
 
@@ -1379,9 +1446,11 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  const { hasMemoryHeadroom, settleDelayMs } = startupDeps;
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     close: _closeRunControlHandlers,
+    shouldRetireExit,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,
@@ -1390,6 +1459,8 @@ export async function startDaemonRuntime(
     operatorSessionId,
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
+    ...(hasMemoryHeadroom !== undefined ? { hasMemoryHeadroom } : {}),
+    ...(settleDelayMs !== undefined ? { settleDelayMs } : {}),
   });
 
   const handlers: Record<string, RpcHandler> = {
@@ -1406,6 +1477,12 @@ export async function startDaemonRuntime(
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
+  }
+
+  const listPeers = startupDeps.listPeerDaemonSockets ?? listPeerDaemonSockets;
+  const sendSupersede = startupDeps.sendSupersede ?? sendSupersedeToDaemonSocket;
+  for (const peerSocketPath of listPeers(jarvisHome(), socketPath)) {
+    void sendSupersede(peerSocketPath).catch(() => undefined);
   }
 
   const recoveryLogSink = createLogSink(logsPath);
@@ -1429,6 +1506,7 @@ export async function startDaemonRuntime(
   process.on("SIGINT", signalHandler);
 
   let closed = false;
+  const processExit = startupDeps.processExit ?? process.exit;
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
@@ -1447,14 +1525,14 @@ export async function startDaemonRuntime(
   };
 
   const checkShutdown = setInterval(() => {
-    if (shutdownRequested) {
+    if (shutdownRequested || shouldRetireExit()) {
       void close()
         .then(() => {
-          process.exit(0);
+          processExit(0);
         })
         .catch((err: unknown) => {
           console.error("Error during shutdown:", err);
-          process.exit(1);
+          processExit(1);
         });
     }
   }, 100);

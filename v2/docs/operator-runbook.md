@@ -162,6 +162,11 @@ jarvis daemon stop      # when intentionally shutting down
 Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 `jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
 
+After a rebuild, `jarvis daemon start` (or any mutating dispatch that auto-starts
+the keyed daemon) sends `supersede` to older digest-keyed sockets. The previous
+daemon stops taking new work and exits on its own once its in-flight runs finish —
+no `jarvis daemon stop` needed for the superseded process.
+
 ### Workflow presets (registered names)
 
 | Preset | Purpose |

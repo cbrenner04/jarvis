@@ -15,20 +15,20 @@ After `00` a daemon can retire, but nothing tells it to. Daemons are keyed by ex
 
 ## Task checklist
 
-- [ ] Enumerate other digest-keyed sockets in jarvis home and send `supersede` to each at startup, behind injectable seams.
-- [ ] Tolerate missing home directory, non-matching filenames, and unreachable sockets.
-- [ ] Tests in `v2/src/daemon/daemon-lifecycle.test.ts`: peers receive `supersede`, own socket is excluded, non-matching files are never connected to, a failing peer does not prevent the other send or startup.
+- [x] Enumerate other digest-keyed sockets in jarvis home and send `supersede` to each at startup, behind injectable seams.
+- [x] Tolerate missing home directory, non-matching filenames, and unreachable sockets.
+- [x] Tests in `v2/src/daemon/daemon-lifecycle.test.ts`: peers receive `supersede`, own socket is excluded, non-matching files are never connected to, a failing peer does not prevent the other send or startup.
 
 ## Acceptance criteria
 
-- [ ] Starting a daemon sends `supersede` to every other digest-keyed socket in jarvis home and never to its own.
-- [ ] Files in jarvis home that are not `daemon-<key>.sock` (including `daemon-<key>.pid`, `daemon-<key>.log`, `config.json`) are never connected to.
-- [ ] A peer that cannot be reached, or that errors on `supersede`, leaves the remaining peers superseded and the new daemon fully started and serving.
-- [ ] A missing jarvis home directory leaves startup unaffected.
-- [ ] The sends do not gate admission: the new daemon answers `start` without waiting for peers to exit.
-- [ ] New tests in `v2/src/daemon/daemon-lifecycle.test.ts` covering the above fail against the pre-fix code (startup contacts no other socket) and pass after the change.
-- [ ] Inverting each added guard (own-socket exclusion, socket-name filter, per-peer failure tolerance) makes at least one test fail; the exclusion and name-filter negative cases assert the excluded paths were never connected to.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Starting a daemon sends `supersede` to every other digest-keyed socket in jarvis home and never to its own.
+- [x] Files in jarvis home that are not `daemon-<key>.sock` (including `daemon-<key>.pid`, `daemon-<key>.log`, `config.json`) are never connected to.
+- [x] A peer that cannot be reached, or that errors on `supersede`, leaves the remaining peers superseded and the new daemon fully started and serving.
+- [x] A missing jarvis home directory leaves startup unaffected.
+- [x] The sends do not gate admission: the new daemon answers `start` without waiting for peers to exit.
+- [x] New tests in `v2/src/daemon/daemon-lifecycle.test.ts` covering the above fail against the pre-fix code (startup contacts no other socket) and pass after the change.
+- [x] Inverting each added guard (own-socket exclusion, socket-name filter, per-peer failure tolerance) makes at least one test fail; the exclusion and name-filter negative cases assert the excluded paths were never connected to.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

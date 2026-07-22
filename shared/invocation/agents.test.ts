@@ -230,6 +230,43 @@ describe("createResolvedAgentBinding", () => {
     expect(result.kind).toBe("quota");
   });
 
+  test("claude zero-exit normal output and text with quota phrases are not text-matched", async () => {
+    const normalOutput = fakeSpawn([
+      {
+        kind: "settle",
+        code: 0,
+        stdout: JSON.stringify({ type: "result", result: "normal response" }),
+      },
+    ]);
+    const textWithPhrase = fakeSpawn([
+      {
+        kind: "settle",
+        code: 0,
+        stdout: JSON.stringify({ type: "result", result: 'note: you\'ve hit your monthly spend limit on the free tier' }),
+      },
+    ]);
+
+    const result1 = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: normalOutput.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result1.kind).toBe("ok");
+    if (result1.kind === "ok") {
+      expect(result1.stdout).toBe("normal response");
+    }
+
+    const result2 = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: textWithPhrase.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result2.kind).toBe("ok");
+    if (result2.kind === "ok") {
+      expect(result2.stdout).toContain("you've hit your monthly spend limit");
+    }
+  });
+
   test("claude abort returns terminal error and kills the child", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     const controller = new AbortController();
@@ -434,6 +471,43 @@ describe("createResolvedAgentBinding", () => {
     ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
   });
 
+  test("codex binding classifies zero-exit quota patterns", async () => {
+    const quotaZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "You've hit your usage limit", stderr: "" },
+    ]);
+    const normalZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "completed successfully", stderr: "" },
+    ]);
+    const blockerZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run", stderr: "" },
+    ]);
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: quotaZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "You've hit your usage limit" });
+
+    const result2 = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: normalZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result2).toMatchObject({ kind: "ok", stdout: "completed successfully", stderr: "" });
+
+    const result3 = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: blockerZeroExit.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result3).toMatchObject({
+      kind: "ok",
+      stdout: "## Blocker\nthe environment rejected validation with its usage limit before the required v2 gates could run",
+      stderr: "",
+    });
+  });
+
   test("codex spawn failure returns terminal error", async () => {
     const fake = fakeSpawn([{ kind: "throw", error: new Error("ENOENT") }]);
 
@@ -553,13 +627,12 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.argv).toContain("custom-cursor-model");
   });
 
-  test("cursor binding classifies quota (ASCII and U+2019), model config, generic errors, and zero-exit ok", async () => {
+  test("cursor binding classifies quota (ASCII and U+2019), model config, and generic errors", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "monthly cursor usage limit reached" }]);
     const usageLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);
     const freeLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your free requests limit" }]);
     const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
     const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
-    const zeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "quota exceeded", stderr: "" }]);
 
     await expect(
       createResolvedAgentBinding(
@@ -591,12 +664,29 @@ describe("createResolvedAgentBinding", () => {
         { spawn: generic.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
+  });
+
+  test("cursor binding classifies zero-exit quota patterns", async () => {
+    const quotaZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "monthly cursor usage limit reached", stderr: "" },
+    ]);
+    const normalZeroExit = fakeSpawn([
+      { kind: "settle", code: 0, stdout: "completed successfully", stderr: "" },
+    ]);
+
     await expect(
       createResolvedAgentBinding(
         { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
-        { spawn: zeroExit.spawn },
+        { spawn: quotaZeroExit.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "ok", stdout: "quota exceeded", stderr: "" });
+    ).resolves.toEqual({ kind: "quota", stderr: "monthly cursor usage limit reached" });
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: normalZeroExit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "ok", stdout: "completed successfully", stderr: "" });
   });
 
   test("cursor spawn failure returns terminal error", async () => {

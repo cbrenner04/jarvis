@@ -258,9 +258,17 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     };
 
     const settleZeroExit = () => {
-      if (config.classifier === "claude" && isClaudeZeroExitQuotaEnvelope(outBuf)) {
-        settle({ kind: "quota", stderr: outBuf });
-        return;
+      if (config.classifier === "claude") {
+        if (isClaudeZeroExitQuotaEnvelope(outBuf)) {
+          settle({ kind: "quota", stderr: outBuf });
+          return;
+        }
+      } else {
+        const diagnostics = `${errBuf}${outBuf}`;
+        if (quotaPatternsFor(config.classifier).some((pattern) => pattern.test(diagnostics))) {
+          settle({ kind: "quota", stderr: diagnostics });
+          return;
+        }
       }
       settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
     };
@@ -641,11 +649,13 @@ const transientPatterns = [
   ...guardedStatusPatterns([502, 503, 504, 529]),
 ] as const;
 
+function quotaPatternsFor(name: AgentName) {
+  return name === "codex" ? codexQuotaPatterns : name === "cursor" ? cursorQuotaPatterns : claudeQuotaPatterns;
+}
+
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
-  const patterns =
-    name === "codex" ? codexQuotaPatterns : name === "cursor" ? cursorQuotaPatterns : claudeQuotaPatterns;
-  return patterns.some((pattern) => pattern.test(stderr));
+  return quotaPatternsFor(name).some((pattern) => pattern.test(stderr));
 }
 
 function isCredentialAuthSignal(name: AgentName, exitCode: number, stderr: string): boolean {

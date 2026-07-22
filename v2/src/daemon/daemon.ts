@@ -32,8 +32,8 @@ import {
 import {
   isTerminalRunStatus,
   openStateStore,
-  RunOwnershipConflictError,
   type Run,
+  RunOwnershipConflictError,
   type RunStatus,
   type StateStore,
   type WorkflowSnapshot,
@@ -695,6 +695,32 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     | { kind: "error"; code: string; message: string }
     | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
+  const persistWriteRun = (
+    input: WriteLoopInput,
+    key: OwnershipKey,
+    worktreePath: string,
+    status?: "queued",
+  ): string | { kind: "error"; code: string; message: string } => {
+    try {
+      return store.createRun({
+        project: key.project,
+        specRef: input.worktree.baseRef,
+        worktreePath,
+        branch: key.branch,
+        specPath: input.specPath,
+        ...(status === undefined ? {} : { status }),
+        ...(input.stepId === undefined ? {} : { stepId: input.stepId }),
+        ...(input.workflowSnapshot === undefined ? {} : { workflowSnapshot: input.workflowSnapshot }),
+        ...(status === undefined ? {} : { queuedInput: input }),
+      });
+    } catch (error) {
+      if (error instanceof RunOwnershipConflictError) {
+        return { kind: "error", code: "worktree_claimed", message: error.message };
+      }
+      throw error;
+    }
+  };
+
   const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
     if (steps.length === 0) {
       return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
@@ -784,48 +810,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const worktreePath = getExternalWorktreePath(input.worktree);
 
     if (!checkMemoryHeadroom()) {
-      let runId: string;
-      try {
-        runId = store.createRun({
-          project: key.project,
-          specRef: input.worktree.baseRef,
-          worktreePath,
-          branch: key.branch,
-          specPath: input.specPath,
-          status: "queued",
-          queuedInput: input,
-          ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
-          ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-        });
-      } catch (error) {
-        if (error instanceof RunOwnershipConflictError) {
-          return { kind: "error", code: "worktree_claimed", message: error.message };
-        }
-        throw error;
-      }
+      const runId = persistWriteRun(input, key, worktreePath, "queued");
+      if (typeof runId !== "string") return runId;
       // Memory may have recovered between the check above and this row being
       // persisted; recheck once immediately rather than waiting for a later exit.
       promoteQueuedRun(true);
       return { kind: "response", result: { runId } };
     }
 
-    let runId: string;
-    try {
-      runId = store.createRun({
-      project: key.project,
-      specRef: input.worktree.baseRef,
-      worktreePath,
-      branch: key.branch,
-      specPath: input.specPath,
-      ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
-      ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
-      });
-    } catch (error) {
-      if (error instanceof RunOwnershipConflictError) {
-        return { kind: "error", code: "worktree_claimed", message: error.message };
-      }
-      throw error;
-    }
+    const runId = persistWriteRun(input, key, worktreePath);
+    if (typeof runId !== "string") return runId;
 
     spawnWriteLoop(key, runId, worktreePath, input);
     promoteQueuedRun();

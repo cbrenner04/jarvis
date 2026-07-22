@@ -235,7 +235,10 @@ describe("matching-daemon dispatch", () => {
       }),
     );
     const waitCode = await withFixedUuid(WAIT_REQUEST_ID, () =>
-      main(["run", "wait", "run-123"], wait.io, { getExecutableDigest: async () => "selected", connectIpcClient: connect }),
+      main(["run", "wait", "run-123"], wait.io, {
+        getExecutableDigest: async () => "selected",
+        connectIpcClient: connect,
+      }),
     );
 
     expect(listCode).toBe(0);

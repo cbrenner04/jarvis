@@ -97,6 +97,47 @@ function setupLogFile(logPath: string, logCapBytes: number): number | undefined 
   }
 }
 
+async function acquireStartupLease(
+  socketPath: string,
+  pidPath: string | undefined,
+  socketProber: SocketProber,
+): Promise<boolean> {
+  if (await socketProber.probe(socketPath, 500)) {
+    throw new DaemonAlreadyRunningError(socketPath);
+  }
+  if (!pidPath) return false;
+
+  if (!existsSync(dirname(pidPath))) {
+    throw new Error(`PID file directory does not exist: ${dirname(pidPath)}`);
+  }
+  try {
+    const lease = openSync(pidPath, "wx");
+    closeSync(lease);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    throw new DaemonAlreadyRunningError(socketPath);
+  }
+}
+
+async function waitForDaemonReady(
+  pid: number,
+  socketPath: string,
+  timeoutMs: number,
+  processProber: ProcessProber,
+  socketProber: SocketProber,
+): Promise<void> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeoutMs) {
+    if (!processProber.isAlive(pid)) {
+      throw new Error(`Daemon process ${pid} died during startup`);
+    }
+    if (await socketProber.probe(socketPath, 100)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new DaemonReadinessTimeoutError(socketPath, timeoutMs);
+}
+
 export async function startDaemon(
   socketPath: string,
   options?: {
@@ -116,28 +157,9 @@ export async function startDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
-  const alreadyUp = await socketProber.probe(socketPath, 500);
-  if (alreadyUp) {
-    throw new DaemonAlreadyRunningError(socketPath);
-  }
-
   // The PID file is also the cross-process startup lease. It is acquired
   // before stale-socket cleanup, so a losing starter cannot unlink a winner.
-  let leaseAcquired = false;
-  if (options?.pidPath) {
-    const pidDir = dirname(options.pidPath);
-    if (!existsSync(pidDir)) {
-      throw new Error(`PID file directory does not exist: ${pidDir}`);
-    }
-    try {
-      const lease = openSync(options.pidPath, "wx");
-      closeSync(lease);
-      leaseAcquired = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      throw new DaemonAlreadyRunningError(socketPath);
-    }
-  }
+  const leaseAcquired = await acquireStartupLease(socketPath, options?.pidPath, socketProber);
 
   try {
     // A stale listener can only be removed by the lease holder. Re-probe after
@@ -152,26 +174,26 @@ export async function startDaemon(
     const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
 
     const proc = spawn("bun", [daemonScript], {
-    detached: true,
-    stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
-    env: {
-      ...process.env,
-      DAEMON_SOCKET_PATH: socketPath,
-      ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
-    },
-  });
+      detached: true,
+      stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
+      env: {
+        ...process.env,
+        DAEMON_SOCKET_PATH: socketPath,
+        ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
+      },
+    });
 
     // Close parent's copy of the log fd
     if (logFd !== undefined) {
-    try {
-      closeSync(logFd);
-    } catch {
-      // Ignore close errors
-    }
+      try {
+        closeSync(logFd);
+      } catch {
+        // Ignore close errors
+      }
     }
 
     if (proc.pid === undefined) {
-    throw new Error("Failed to spawn daemon process: pid is undefined");
+      throw new Error("Failed to spawn daemon process: pid is undefined");
     }
     const pid = proc.pid;
     options?.onSpawn?.(pid);
@@ -181,19 +203,8 @@ export async function startDaemon(
       writeFileSync(options.pidPath, String(pid));
     }
 
-    const startTime = Date.now();
-    while (Date.now() - startTime < readinessTimeoutMs) {
-    if (!processProber.isAlive(pid)) {
-      throw new Error(`Daemon process ${pid} died during startup`);
-    }
-    const up = await socketProber.probe(socketPath, 100);
-    if (up) {
-        return { pid, socketPath };
-    }
-    await new Promise((r) => setTimeout(r, 50));
-    }
-
-    throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
+    await waitForDaemonReady(pid, socketPath, readinessTimeoutMs, processProber, socketProber);
+    return { pid, socketPath };
   } catch (error) {
     if (leaseAcquired && options?.pidPath) rmSync(options.pidPath, { force: true });
     throw error;
@@ -236,9 +247,13 @@ function assertStopAllowed(
       store = openStateStore();
       ownsStore = true;
     }
-    const blockers = ownerPid === null || store.listActiveRunIdsByOwnerPid === undefined
-      ? store.listRuns().filter((run) => !isTerminalRunStatus(run.status)).map((run) => run.id)
-      : store.listActiveRunIdsByOwnerPid(ownerPid);
+    const blockers =
+      ownerPid === null || store.listActiveRunIdsByOwnerPid === undefined
+        ? store
+            .listRuns()
+            .filter((run) => !isTerminalRunStatus(run.status))
+            .map((run) => run.id)
+        : store.listActiveRunIdsByOwnerPid(ownerPid);
     if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
   } catch (error) {
     if (error instanceof DaemonStopRefusedError) throw error;

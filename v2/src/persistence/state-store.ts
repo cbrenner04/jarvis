@@ -22,7 +22,10 @@ export const RUN_STATUSES = [
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 export class RunOwnershipConflictError extends Error {
-  constructor(readonly project: string, readonly branch: string) {
+  constructor(
+    readonly project: string,
+    readonly branch: string,
+  ) {
     super(`Worktree already claimed for project=${project}, branch=${branch}`);
     this.name = "RunOwnershipConflictError";
   }
@@ -428,25 +431,25 @@ class StateStoreImpl implements StateStore {
           .run(args.project, args.branch, this.currentIdentity);
       }
       this.db
-      .prepare(`
+        .prepare(`
         INSERT INTO runs (
           id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, step_id, workflow_snapshot, queued_input, creation_title, owner_identity
         )
         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
         .run(
-        id,
-        args.project,
-        args.specRef,
-        Date.now(),
-        args.status ?? "in-progress",
-        args.worktreePath,
-        args.branch,
-        args.specPath,
-        args.stepId ?? null,
-        workflowSnapshotJson,
-        queuedInputJson,
-        args.creationTitle ?? null,
+          id,
+          args.project,
+          args.specRef,
+          Date.now(),
+          args.status ?? "in-progress",
+          args.worktreePath,
+          args.branch,
+          args.specPath,
+          args.stepId ?? null,
+          workflowSnapshotJson,
+          queuedInputJson,
+          args.creationTitle ?? null,
           this.currentIdentity,
         );
       this.releaseClaimIfSettled(id);
@@ -650,9 +653,10 @@ class StateStoreImpl implements StateStore {
   }
 
   private releaseClaimIfSettled(runId: string): void {
-    const run = this.db.prepare("SELECT project, branch FROM runs WHERE id = ?").get(runId) as
-      | { project: string; branch: string }
-      | null;
+    const run = this.db.prepare("SELECT project, branch FROM runs WHERE id = ?").get(runId) as {
+      project: string;
+      branch: string;
+    } | null;
     if (!run) return;
     const active = this.db
       .prepare(`SELECT 1 FROM runs WHERE project = ? AND branch = ? AND status IN (${ORPHAN_STATUSES}) LIMIT 1`)

@@ -15,7 +15,6 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
-  SESSION_UUID,
   withWorkflowUuids,
   workflowFrames,
   writeMachineConfig,

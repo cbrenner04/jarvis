@@ -497,6 +497,69 @@ async function retireEligibleWorktrees(
   );
 }
 
+type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
+
+function hasNothingToClean(
+  candidates: readonly CleanupCandidate[],
+  stranded: readonly StrandedArtifact[],
+  reaperResult: ReaperResult,
+): boolean {
+  return (
+    candidates.length === 0 &&
+    stranded.length === 0 &&
+    reaperResult.dead.length === 0 &&
+    reaperResult.preserved.length === 0
+  );
+}
+
+function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
+  if (reaperResult.dead.length > 0) {
+    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
+    for (const path of reaperResult.dead) {
+      io.stdout(`  remove: ${path}\n`);
+    }
+  }
+  if (reaperResult.preserved.length > 0) {
+    io.stdout(`Preserved ${reaperResult.preserved.length} daemon socket(s):\n`);
+    for (const item of reaperResult.preserved) {
+      io.stdout(`  ${item.path} — ${item.reason}\n`);
+    }
+  }
+}
+
+function removeDeadDaemonSockets(
+  paths: readonly string[],
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): number {
+  for (const path of paths) {
+    try {
+      rmSync(path, { force: true });
+      io.stdout(`Removed daemon socket: ${path}\n`);
+    } catch (err) {
+      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+async function retireStrandedArtifacts(
+  stranded: readonly StrandedArtifact[],
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void },
+): Promise<void> {
+  for (const spec of stranded) {
+    const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
+    if (hasStrandedOwner(spec, registry, current, jarvisRoot)) {
+      io.stdout(`Skipped stranded artifact: ${spec.source} — another materialized worktree owns this spec\n`);
+      continue;
+    }
+    reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
+  }
+}
+
 /**
  * Run the cleanup command: discover merged-PR worktrees, filter by eligibility,
  * optionally preview (--dry-run) or prompt for confirmation, then retire them.
@@ -537,12 +600,7 @@ export async function runCleanupCommand(
 
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
 
-  if (
-    candidates.length === 0 &&
-    stranded.length === 0 &&
-    reaperResult.dead.length === 0 &&
-    reaperResult.preserved.length === 0
-  ) {
+  if (hasNothingToClean(candidates, stranded, reaperResult)) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
     return 0;
   }
@@ -552,18 +610,7 @@ export async function runCleanupCommand(
     io.stdout(`Found ${stranded.length} eligible stranded artifact(s) for cleanup:\n`);
     for (const spec of stranded) previewArtifact(spec, io);
   }
-  if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
-    for (const path of reaperResult.dead) {
-      io.stdout(`  remove: ${path}\n`);
-    }
-  }
-  if (reaperResult.preserved.length > 0) {
-    io.stdout(`Preserved ${reaperResult.preserved.length} daemon socket(s):\n`);
-    for (const item of reaperResult.preserved) {
-      io.stdout(`  ${item.path} — ${item.reason}\n`);
-    }
-  }
+  previewReaperResult(reaperResult, io);
 
   if (options.dryRun) {
     io.stdout("(dry-run: no changes made)\n");
@@ -580,24 +627,10 @@ export async function runCleanupCommand(
   const stillEligible = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
   const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
 
-  for (const path of reaperResult.dead) {
-    try {
-      rmSync(path, { force: true });
-      io.stdout(`Removed daemon socket: ${path}\n`);
-    } catch (err) {
-      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
-      return 1;
-    }
-  }
+  const socketRemoval = removeDeadDaemonSockets(reaperResult.dead, io);
+  if (socketRemoval !== 0) return socketRemoval;
 
-  for (const spec of stranded) {
-    const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-    if (hasStrandedOwner(spec, registry, current, jarvisRoot)) {
-      io.stdout(`Skipped stranded artifact: ${spec.source} — another materialized worktree owns this spec\n`);
-      continue;
-    }
-    reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
-  }
+  await retireStrandedArtifacts(stranded, registry, jarvisRoot, runner, io);
   if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
   return result;
 }

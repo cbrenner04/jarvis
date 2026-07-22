@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
-import { DAEMON_SOCKET_PATH } from "../paths.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";

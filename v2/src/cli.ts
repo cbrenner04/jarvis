@@ -1,6 +1,7 @@
 import packageJson from "../../package.json";
 import type { CliDeps } from "./cli/deps.ts";
 import { createRuntimeDeps } from "./cli/deps.ts";
+import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
 import {
   CLEANUP_USAGE,
@@ -19,7 +20,6 @@ import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
 import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
-import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import { daemonPathsByDigest } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;

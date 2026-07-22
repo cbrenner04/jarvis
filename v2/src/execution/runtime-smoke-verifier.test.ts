@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import { runDaemonHandshake, type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 
 describe("runtime-smoke-verifier", () => {
   async function verifyMappedEntrypoint(
@@ -155,7 +155,7 @@ index 1234567..abcdefg 100644
     const result = await verifyMappedEntrypoint(
       "v2/src/daemon/daemon.ts",
       "v2/src/daemon-entrypoint.ts",
-      ["--help"],
+      ["daemon", "start/status/stop"],
       true,
     );
 
@@ -427,6 +427,127 @@ index 1234567..abcdefg 100644
     expect(result.kind).toBe("observed-clean");
   });
 
+  describe("daemon handshake lifecycle", () => {
+    type Invocation = { args: string[]; timeoutMs: number; home: string | undefined };
+
+    function lifecycleSeams(outcomes: readonly (string | Error)[], clock: readonly number[]) {
+      const invocations: Invocation[] = [];
+      const homes = new Set<string>();
+      let outcomeIndex = 0;
+      let clockIndex = 0;
+      let daemonAlive = false;
+      return {
+        invocations,
+        homes,
+        daemonAlive: () => daemonAlive,
+        seams: {
+          now: () => clock[clockIndex++] ?? clock.at(-1) ?? 0,
+          mkdtemp: async () => {
+            const home = "/isolated/runtime-home";
+            homes.add(home);
+            return home;
+          },
+          remove: async (home: string) => {
+            homes.delete(home);
+          },
+          runAsync: async (_cmd: string, args: string[], _cwd: string, options: { timeoutMs?: number; env?: NodeJS.ProcessEnv }) => {
+            invocations.push({ args, timeoutMs: options.timeoutMs ?? -1, home: options.env?.JARVIS_HOME });
+            const outcome = outcomes[outcomeIndex++];
+            if (outcome instanceof Error) throw outcome;
+            if (args.at(-1) === "start") daemonAlive = true;
+            if (args.includes("stop")) daemonAlive = false;
+            return outcome ?? "";
+          },
+          readPid: async () => daemonAlive ? 42 : null,
+          isProcessAlive: () => daemonAlive,
+          terminateProcess: () => { daemonAlive = false; },
+        },
+      };
+    }
+
+    it("shares the wall-clock bound across successful interactions and removes local state", async () => {
+      const fixture = lifecycleSeams(["started\n", "running loaded=a current=a\n", "stopped\n", "stopped\n"], [0, 0, 10, 20, 30]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({ success: true, output: "" });
+
+      expect(fixture.invocations.map(({ args }) => args.at(-1))).toEqual(["start", "status", "stop", "--force"]);
+      expect(fixture.invocations.map(({ timeoutMs }) => timeoutMs)).toEqual([50, 40, 30, 20]);
+      expect(fixture.invocations.every(({ home }) => home === "/isolated/runtime-home")).toBe(true);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+      expect(fixture.daemonAlive()).toBe(false);
+    });
+
+    it("fails an incompatible interaction, force-stops the daemon, and removes local state", async () => {
+      const fixture = lifecycleSeams(["started\n", "stopped\n", "stopped\n"], [0, 0, 10, 20]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({
+        success: false,
+        command: "bun run v2/src/cli.ts daemon status",
+        output: "daemon status was not compatible: stopped\n",
+      });
+
+      expect(fixture.invocations.map(({ args }) => args.at(-1))).toEqual(["start", "status", "--force"]);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+      expect(fixture.daemonAlive()).toBe(false);
+    });
+
+    it("does not start after setup exhausts the deadline", async () => {
+      const fixture = lifecycleSeams(["stopped\n"], [0, 50]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({
+        success: false,
+        command: "bun run v2/src/cli.ts daemon start",
+        output: "runtime smoke deadline expired before bun run v2/src/cli.ts daemon start",
+      });
+
+      expect(fixture.invocations).toEqual([]);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+      expect(fixture.daemonAlive()).toBe(false);
+    });
+
+    it("does not launch status after its deadline guard expires", async () => {
+      const fixture = lifecycleSeams(["started\n"], [0, 0, 50, 50]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toMatchObject({
+        success: false,
+        command: "bun run v2/src/cli.ts daemon status",
+      });
+
+      expect(fixture.invocations.map(({ args }) => args.at(-1))).toEqual(["start"]);
+      expect(fixture.invocations.every(({ timeoutMs }) => timeoutMs > 0)).toBe(true);
+      expect(fixture.daemonAlive()).toBe(false);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+    });
+
+    it("does not launch stop or forced cleanup after their deadline guards expire", async () => {
+      const fixture = lifecycleSeams(["started\n", "running loaded=a current=a\n"], [0, 0, 10, 50, 50]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toMatchObject({
+        success: false,
+        command: "bun run v2/src/cli.ts daemon stop",
+      });
+
+      expect(fixture.invocations.map(({ args }) => args.at(-1))).toEqual(["start", "status"]);
+      expect(fixture.invocations.every(({ timeoutMs }) => timeoutMs > 0)).toBe(true);
+      expect(fixture.daemonAlive()).toBe(false);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+    });
+
+    it("reaps the daemon before removing local state when forced cleanup fails", async () => {
+      const fixture = lifecycleSeams(["started\n", new Error("status failed"), new Error("forced stop failed")], [0, 0, 10, 20]);
+
+      await expect(runDaemonHandshake("/worktree", 50, fixture.seams)).resolves.toEqual({
+        success: false,
+        command: "bun run v2/src/cli.ts daemon status",
+        output: "status failed",
+      });
+
+      expect(fixture.invocations.map(({ args }) => args.at(-1))).toEqual(["start", "status", "--force"]);
+      expect(fixture.homes.has("/isolated/runtime-home")).toBe(false);
+      expect(fixture.daemonAlive()).toBe(false);
+    });
+  });
+
   describe("real defaultGitDiff/defaultExecuteEntrypoint (no seams)", () => {
     // Every test above injects both seams, so the real default implementations
     // (which actually spawn git/bun subprocesses) are never exercised — the exact
@@ -466,22 +587,69 @@ index 1234567..abcdefg 100644
       }
     });
 
-    it("observes clean through the real daemon probe without starting a daemon", async () => {
+    function copyRuntimeTree(dir: string): void {
+      cpSync(join(process.cwd(), "v2", "src"), join(dir, "v2", "src"), { recursive: true });
+      cpSync(join(process.cwd(), "shared"), join(dir, "shared"), { recursive: true });
+      cpSync(join(process.cwd(), "scripts"), join(dir, "scripts"), { recursive: true });
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", type: "module" }));
+    }
+
+    function runtimeFixture(): { dir: string; baseSha: string } {
       const dir = makeFixtureRepo();
+      copyRuntimeTree(dir);
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "runtime tree"], { cwd: dir });
+      return { dir, baseSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim() };
+    }
+
+    it("observes clean through the real CLI-daemon handshake and cleans its local home", async () => {
+      const { dir, baseSha } = runtimeFixture();
       try {
-        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
-        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
-        mkdirSync(join(dir, "v2", "src"), { recursive: true });
+        writeFileSync(join(dir, "v2", "src", "daemon-entrypoint.ts"), `${readFileSync(join(dir, "v2", "src", "daemon-entrypoint.ts"), "utf8")}\n// smoke change\n`);
+        execFileSync("git", ["add", "-A"], { cwd: dir });
+        execFileSync("git", ["commit", "-q", "-m", "change daemon entrypoint"], { cwd: dir });
+
+        const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
+        if (result.kind === "smoke-failure") throw new Error(`real handshake failed: ${result.command}: ${result.observation}`);
+        expect(result.kind).toBe("observed-clean");
+        expect(readdirSync(dir).filter((name) => name.startsWith(".runtime-smoke-")).length).toBe(0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("fails the real CLI-daemon handshake when executable trees disagree and cleans its local home", async () => {
+      const { dir, baseSha } = runtimeFixture();
+      try {
+        const driftMarker = join(dir, "daemon-drift-complete");
         writeFileSync(
           join(dir, "v2", "src", "daemon-entrypoint.ts"),
-          "if (process.argv[2] !== '--help') throw new Error('daemon started');\n",
+          `${readFileSync(join(process.cwd(), "v2", "src", "daemon-entrypoint.ts"), "utf8")}\n// smoke change\n`,
+        );
+        const daemonPath = join(dir, "v2", "src", "daemon", "daemon.ts");
+        const daemonSource = readFileSync(daemonPath, "utf8");
+        writeFileSync(
+          daemonPath,
+          `import { execFileSync } from "node:child_process";\nimport { appendFileSync, writeFileSync } from "node:fs";\n${daemonSource.replace(
+            "loadedExecutableDigest = await getExecutableTreeDigest(import.meta.dir, realAsyncSubprocessRunner);",
+            `loadedExecutableDigest = await getExecutableTreeDigest(import.meta.dir, realAsyncSubprocessRunner);\n    appendFileSync(${JSON.stringify(join(dir, "v2", "src", "daemon-entrypoint.ts"))}, "\\n// changed after daemon startup\\n");\n    execFileSync("git", ["add", "-A"]);\n    execFileSync("git", ["commit", "-q", "-m", "daemon drift"]);\n    writeFileSync(${JSON.stringify(driftMarker)}, "complete");`,
+          )}`,
         );
         execFileSync("git", ["add", "-A"], { cwd: dir });
-        execFileSync("git", ["commit", "-q", "-m", "add broken entrypoint"], { cwd: dir });
+        execFileSync("git", ["commit", "-q", "-m", "change daemon entrypoint"], { cwd: dir });
+
+        execFileSync("bun", ["run", "v2/src/daemon-entrypoint.ts", "--help"], { cwd: dir });
+        expect(() => readFileSync(driftMarker, "utf8")).toThrow();
 
         const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("observed-clean");
+        expect(result.kind).toBe("smoke-failure");
+        if (result.kind === "smoke-failure") {
+          expect(result.command).toBe("bun run v2/src/cli.ts daemon status");
+          expect(result.observation).toContain("daemon status");
+        }
+        expect(readFileSync(driftMarker, "utf8")).toBe("complete");
+        expect(readdirSync(dir).filter((name) => name.startsWith(".runtime-smoke-")).length).toBe(0);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

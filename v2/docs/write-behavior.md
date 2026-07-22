@@ -478,22 +478,25 @@ read from the checked-out source tree.
 
 **Observation and execution:** The verifier executes the discovered entrypoint
 with its bounded safe probe and observes its success or failure. The CLI runs
-`bun run v2/src/cli.ts help`; the daemon runs
-`bun run v2/src/daemon-entrypoint.ts --help`, which exits before socket or
-daemon setup. Execution is bounded by a wall-clock timeout (default 5 seconds).
-The verifier returns failure when execution fails, times out, or both success
-and failure channels are exhausted.
+`bun run v2/src/cli.ts help`. A daemon-owned change runs production CLI
+`daemon start`, `daemon status`, and `daemon stop` against one fresh,
+worktree-local `JARVIS_HOME`; status must report `running`. The lifecycle shares
+one 5-second wall-clock deadline. No lifecycle command starts after expiry.
+Cleanup confirms the isolated daemon is gone before removing its local IPC home
+on every outcome. The verifier returns failure when
+an interaction fails, status is stale or stopped, or the deadline expires.
 
-**Bound and non-destructiveness:** Smoke execution is bounded by a wall-clock
-limit (5000 milliseconds) and ends the smoke as a failure when exceeded.
-Both probes test a valid invocation without modifying filesystem or operator
-state.
+**Bound and non-destructiveness:** Smoke execution is bounded by a shared
+5000-millisecond wall-clock limit and ends the smoke as a failure when exceeded.
+The CLI-only probe is non-mutating; the daemon handshake mutates only its fresh
+worktree-local home. Neither probe uses the network or contacts the operator
+daemon.
 
 **Results:** The verifier returns one of three structured results:
 
 1. **`observed-clean`** (pass): The discovered entrypoint executed successfully
-   within the wall-clock bound, proving the changed behavior is wired and
-   reachable at runtime.
+   within the wall-clock bound. Daemon ownership additionally requires all
+   start/status/stop interactions to succeed, proving the CLI and daemon agree.
 
 2. **`not-runnable`** (pass): No runnable surface was discovered. The
    result records the inspected changed paths and the discovery reason

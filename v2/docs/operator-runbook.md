@@ -291,6 +291,12 @@ Mutation verification requires expectations independent of the mutated productio
 
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred.
 
+For daemon-owned changes, `observed-clean` additionally means production CLI
+start, compatible running status, and stop completed within one shared timeout.
+The verifier always reaps its isolated worktree-local daemon and IPC files; it
+does not use the network or the operator daemon. See the [runtime-smoke
+contract](write-behavior.md#runtime-smoke-verifier) for details.
+
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
 exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate

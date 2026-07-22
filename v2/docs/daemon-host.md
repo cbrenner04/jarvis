@@ -64,17 +64,19 @@ repo manifests, with a 16-hex-char leading slice to stay within the macOS
 `sun_path` limit (104 bytes). The keyed path format is `~/.jarvis/daemon-<key>.sock`,
 `~/.jarvis/daemon-<key>.pid`, and `~/.jarvis/daemon-<key>.log`. This allows
 multiple daemons keyed by different executable digests to coexist: each connects
-to its own socket, PID file, and process log, with no interference. Observation
-via `run list` and `run wait` is scoped to the daemon's own socket and does not
-see runs from differently keyed daemons.
+to its own socket, PID file, and process log, with no interference.
 
 Multiple daemons coexisting by keyed socket create a corresponding accumulation
-of sockets: one per executable digest ever run. `jarvis cleanup` removes dead
-sockets (those whose listeners have exited) via a connect-attempt probe: if the
-probe receives `ECONNREFUSED` or `ENOENT`, the socket is dead and removed; all
-other error states (timeout, permission error, unexpected error) preserve the
-socket and are reported. Live sockets — those a daemon is currently answering on,
-whether the invoking digest or a superseded keyed daemon — are never removed.
+of sockets: one per executable digest ever run. Under one shared `JARVIS_HOME`,
+durable run rows are shared across keyed daemons — a row created by one daemon is
+visible to all daemons querying the same state store. Liveness (`isLive`) and live
+controls (`pause`, `kill`) are scoped to the owning daemon only: a run launched by
+daemon A remains `isLive: true` only in A's responses until the loop settles. `jarvis cleanup` removes dead sockets (those whose listeners have exited) via a
+connect-attempt probe: if the probe receives `ECONNREFUSED` or `ENOENT`, the socket
+is dead and removed; all other error states (timeout, permission error, unexpected
+error) preserve the socket and are reported. Live sockets — those a daemon is
+currently answering on, whether the invoking digest or a superseded keyed daemon —
+are never removed.
 
 ## Framing
 

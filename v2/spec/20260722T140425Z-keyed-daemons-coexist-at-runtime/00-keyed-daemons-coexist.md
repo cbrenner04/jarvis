@@ -32,11 +32,11 @@ digest column, so durable rows are shared across daemons under one home.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/keyed-daemon-coexistence.sandbox-unrunnable.test.ts` starts two daemons under distinct executable digests and one shared temporary home, and asserts both exit `0`, both PID files hold distinct live PIDs, both sockets answer a `status` request, and socket, PID, and process-log paths are pairwise disjoint.
-- [ ] That test fails when digest keying is inverted — with `daemonPathsByDigest` returning the fixed `DAEMON_SOCKET_PATH` / `DAEMON_PID_PATH` / `DAEMON_LOG_PATH` values, the second start collides on the shared socket and PID and the test does not pass.
-- [ ] Neither daemon process survives the test file, on pass, failure, or per-test timeout.
-- [ ] `v2/docs/daemon-host.md` no longer claims `run list` / `run wait` observation is scoped by daemon, and states that durable run rows are shared across keyed daemons under one `JARVIS_HOME` while liveness and live controls are scoped to the owning daemon.
-- [ ] `bun run typecheck` and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/keyed-daemon-coexistence.sandbox-unrunnable.test.ts` starts two daemons under distinct executable digests and one shared temporary home, and asserts both exit `0`, both PID files hold distinct live PIDs, both sockets answer a `status` request, and socket, PID, and process-log paths are pairwise disjoint.
+- [x] That test fails when digest keying is inverted — with `daemonPathsByDigest` returning the fixed `DAEMON_SOCKET_PATH` / `DAEMON_PID_PATH` / `DAEMON_LOG_PATH` values, the second start collides on the shared socket and PID and the test does not pass.
+- [x] Neither daemon process survives the test file, on pass, failure, or per-test timeout.
+- [x] `v2/docs/daemon-host.md` no longer claims `run list` / `run wait` observation is scoped by daemon, and states that durable run rows are shared across keyed daemons under one `JARVIS_HOME` while liveness and live controls are scoped to the owning daemon.
+- [x] `bun run typecheck` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

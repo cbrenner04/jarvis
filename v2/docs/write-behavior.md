@@ -458,6 +458,24 @@ plus the same materialized draft context as the critic.
 Workflow dispatch for the `plan-reviewed-light` preset supplies the plan review profile on the
 loaded review step; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch).
 
+## Uncovered changed-line reporter
+
+The uncovered changed-line reporter identifies added production lines whose changed code a test suite did not execute, surfacing advisory coverage gaps early in the write step without blocking the run.
+
+**Working-tree diff scope:** The reporter diffs the working tree against the run base using `git diff <runBase>` plus untracked production files (via `git ls-files --others --exclude-standard`). This differs from the mutation verifier's committed-diff form, which is empty at the write step boundary because Jarvis commits after completion. The reporter inspects only added lines in changed production code files (matching `isCodePath`), excluding test files, specs, docs, and non-code artifacts.
+
+**Coverage collection:** The reporter invokes exactly one scoped `bun test --coverage --coverage-reporter=lcov` over the directories implied by classifying the changed paths. It skips per-file runs and full-repo scans, matching the scope strategy of `scripts/ci-test-scope.ts`. Coverage output is written to a temporary worktree-local `.scratch/` file and deleted after parsing.
+
+**Execution records:** An added line is reported as uncovered when:
+- The changed file has no lcov coverage record at all (never imported), or
+- The lcov record for that file has a hit count of 0 for that line number.
+
+Lines with hit count > 0 are not reported.
+
+**Fail-soft behavior:** Coverage run timeouts, non-zero exits, or unparseable lcov output yield no report and no thrown error, treating the advisory as best-effort. Unexpected errors are caught and silently return an empty report rather than failing the run.
+
+**Output shape:** The reporter returns both structured data (array of uncovered sites as `file:line` tuples) and rendered advisory text. When uncovered sites exist, the text names each site and includes a disclaimer that executed does not imply asserted and that the mutation verifier, not coverage, decides adequacy.
+
 ## Runtime smoke verifier
 
 The runtime smoke verifier proves a run's changed production behavior is wired

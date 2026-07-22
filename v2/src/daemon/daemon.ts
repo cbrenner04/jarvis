@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
@@ -19,9 +19,9 @@ import {
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
-import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
+import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
@@ -650,7 +650,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const promoteQueuedRun = (bypassSettleDelay = false): void =>
     promoteQueuedRunImpl(
-      { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop, isRetiring: getRetiring },
+      {
+        store,
+        registry: _registry,
+        checkMemoryHeadroom,
+        settleDelayMs,
+        settleState,
+        spawnWriteLoop,
+        isRetiring: getRetiring,
+      },
       bypassSettleDelay,
     );
 

@@ -1,6 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { RpcHandler } from "../ipc/server";
+import type { Run } from "../persistence/state-store";
+import { openStateStore } from "../persistence/state-store";
+import { makeIpcClient } from "../testing/cli-test-helpers.ts";
+import { startDaemonRuntime } from "./daemon";
+import {
+  DaemonAlreadyRunningError,
+  DaemonReadinessTimeoutError,
+  DaemonStopInspectionError,
+  DaemonStopRefusedError,
+  getDaemonStatus,
+  type ProcessProber,
+  type SocketProber,
+  startDaemon,
+  stopDaemon,
+} from "./daemon-lifecycle";
 
 async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 3_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
@@ -13,23 +29,6 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
   }
   return readFileSync(logPath, "utf-8");
 }
-
-import type { Run } from "../persistence/state-store";
-import { openStateStore } from "../persistence/state-store";
-import type { RpcHandler } from "../ipc/server";
-import { makeIpcClient } from "../testing/cli-test-helpers.ts";
-import {
-  DaemonAlreadyRunningError,
-  DaemonReadinessTimeoutError,
-  DaemonStopInspectionError,
-  DaemonStopRefusedError,
-  getDaemonStatus,
-  type ProcessProber,
-  type SocketProber,
-  startDaemon,
-  stopDaemon,
-} from "./daemon-lifecycle";
-import { startDaemonRuntime } from "./daemon";
 
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
@@ -694,10 +693,7 @@ describe("daemon supersede/retirement", () => {
           expect(superResp.kind).toBe("response");
 
           // Try observation commands
-          const listResp = await list(
-            { kind: "request", id: "l1", method: "list" },
-            new AbortController().signal,
-          );
+          const listResp = await list({ kind: "request", id: "l1", method: "list" }, new AbortController().signal);
           expect(listResp.kind).toBe("response");
 
           const statusResp = await status(
@@ -741,10 +737,7 @@ describe("daemon supersede/retirement", () => {
         const start = handlers?.start;
         if (supersede && start) {
           // Supersede first
-          await supersede(
-            { kind: "request", id: "sup1", method: "supersede" },
-            new AbortController().signal,
-          );
+          await supersede({ kind: "request", id: "sup1", method: "supersede" }, new AbortController().signal);
 
           // Then try start
           const startResp = await start(

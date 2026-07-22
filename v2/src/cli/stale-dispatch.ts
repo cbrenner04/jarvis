@@ -1,5 +1,5 @@
-import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
 import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
+import { parseListRuns, parseStatusResult } from "../daemon/daemon-wire.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";

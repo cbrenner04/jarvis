@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
-import type { CliDeps } from "./deps.ts";
-import { stripAutoBounceFlag, connectWithAutoStart } from "./stale-dispatch.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import type { CliDeps } from "./deps.ts";
+import { connectWithAutoStart, stripAutoBounceFlag } from "./stale-dispatch.ts";
 
 describe("stripAutoBounceFlag", () => {
   test("removes --no-auto-bounce flag and reports autoBounce=true when flag is absent", () => {

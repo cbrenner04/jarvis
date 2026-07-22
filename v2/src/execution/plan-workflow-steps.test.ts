@@ -50,12 +50,15 @@ const specGuidance = readFileSync(join(import.meta.dir, "..", "..", "..", "v1", 
 
 async function executeBuiltDraftStep(
   build: (deps: PlanWorkflowDeps) => Promise<PlanWorkflowResult>,
-): Promise<{ bindingInvoked: boolean; capturedPrompt: string; resultKind: string }> {
+  readyIntent = intent,
+  draftedSubspec = "## Acceptance criteria\n",
+): Promise<{ bindingInvoked: boolean; capturedPrompt: string; resultKind: string; writtenSubspec: string }> {
   const { jarvisRoot } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
   let bindingInvoked = false;
   let capturedPrompt = "";
-  const built = await build(builderDeps);
+  let writtenSubspec = "";
+  const built = await build({ ...builderDeps, readReadyIntent: () => readyIntent });
   expect(built.ok).toBe(true);
   if (!built.ok) throw new Error("build failed");
   const step = built.steps[0];
@@ -70,7 +73,9 @@ async function executeBuiltDraftStep(
         const specDir = join(cwd, draftStep.specPath);
         mkdirSync(specDir, { recursive: true });
         writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
-        writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
+        const subspecPath = join(specDir, "00-first.md");
+        writeFileSync(subspecPath, draftedSubspec, "utf8");
+        writtenSubspec = readFileSync(subspecPath, "utf8");
         return { kind: "ok", stdout: "done", stderr: "" };
       },
     },
@@ -88,7 +93,12 @@ async function executeBuiltDraftStep(
       ? { intentSeed: draftStep.intentSeed, intentBefore: draftStep.intentSeed }
       : {}),
   });
-  return { bindingInvoked, capturedPrompt, resultKind: result.result.kind };
+  return {
+    bindingInvoked,
+    capturedPrompt,
+    resultKind: result.result.kind,
+    writtenSubspec,
+  };
 }
 
 describe("plan preset draft write step", () => {
@@ -121,6 +131,58 @@ describe("plan preset draft write step", () => {
         consumeFrom: "worktree",
       },
     });
+  });
+
+  test("drives code-touching and docs-only ready intents through the production draft write step", async () => {
+    const codeIntent = {
+      ok: true as const,
+      name: "code-guards",
+      content: "---\nname: code-guards\n---\n\n## Prerequisites\n\n- none\n\nChange executable code.",
+    };
+    const docsIntent = {
+      ok: true as const,
+      name: "docs-only",
+      content: "---\nname: docs-only\n---\n\n## Prerequisites\n\n- none\n\nUpdate documentation only.",
+    };
+    const code = await executeBuiltDraftStep(
+      (deps) => buildPlanWorkflowSteps(input, deps),
+      codeIntent,
+      "## Acceptance criteria\n\n- [ ] Tests fail when each added or modified guard is inverted; the negative case proves the suppressed effect is absent.\n",
+    );
+    const docs = await executeBuiltDraftStep(
+      (deps) => buildPlanWorkflowSteps(input, deps),
+      docsIntent,
+      "## Acceptance criteria\n\n- [ ] The documentation is updated.\n",
+    );
+
+    expect(code.resultKind).toBe("complete");
+    expect(code.capturedPrompt).toContain(codeIntent.content);
+    expect(code.capturedPrompt).toContain("each added or modified guard is inverted");
+    expect(code.capturedPrompt).toContain("negative case must prove the suppressed effect is absent");
+    expect(code.writtenSubspec).toContain("each added or modified guard is inverted");
+    expect(code.writtenSubspec).toContain("suppressed effect is absent");
+    expect(docs.resultKind).toBe("complete");
+    expect(docs.capturedPrompt).toContain(docsIntent.content);
+    expect(docs.capturedPrompt).toContain("Documentation-only and spec-only subspecs are exempt");
+    expect(docs.writtenSubspec).not.toContain("guard is inverted");
+  });
+
+  test("drives a spec-only ready intent through the production draft write step without a guard criterion", async () => {
+    const specIntent = {
+      ok: true as const,
+      name: "spec-only",
+      content: "---\nname: spec-only\n---\n\n## Prerequisites\n\n- none\n\nUpdate spec prose only.",
+    };
+    const spec = await executeBuiltDraftStep(
+      (deps) => buildPlanWorkflowSteps(input, deps),
+      specIntent,
+      "## Acceptance criteria\n\n- [ ] The spec prose is updated.\n",
+    );
+
+    expect(spec.resultKind).toBe("complete");
+    expect(spec.capturedPrompt).toContain(specIntent.content);
+    expect(spec.capturedPrompt).toContain("Documentation-only and spec-only subspecs are exempt");
+    expect(spec.writtenSubspec).not.toContain("guard is inverted");
   });
 });
 

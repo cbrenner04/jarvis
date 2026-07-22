@@ -271,6 +271,8 @@ This is **refactor-only** and must not be read as "every AC cites a test." New-b
 
 Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change. This ensures every behavior change lands with a failing-test surface that motivates and validates the work. The test may be newly written or an existing test that was updated to expect new behavior; either way, the AC must name a test that would fail against the baseline and pass against the implementation. "Existing tests stay green" does not satisfy this requirement; that is a preservation criterion (cite it using the refactor AC pattern above), not evidence of new behavior. Docs-only and spec-only subspecs are exempt — only runtime-behavior changes require the failing-test AC.
 
+Every subspec whose tasks or acceptance criteria change executable code, including mixed code-and-docs work, must also require tests to fail when each added or modified guard is inverted. When a guard suppresses an effect, its negative case must prove that effect is absent. Documentation-only and spec-only subspecs are exempt.
+
 Good (new behavior):
 
 ```md

@@ -1,5 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, normalize, relative, resolve } from "node:path";
+import { dirname, normalize, relative, resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
@@ -41,24 +43,30 @@ type ExecuteEntrypoint = (
   entrypoint: string,
   args: readonly string[],
   timeoutMs: number,
+  env?: Record<string, string>,
 ) => Promise<{ success: boolean; output: string }>;
 
 type ReadSourceFile = (path: string) => Promise<string | null>;
+type ReadPidFile = (path: string) => Promise<number | null>;
+type GetCurrentTime = () => number;
 
 type VerifierSeams = {
   gitDiff?: GitDiff;
   executeEntrypoint?: ExecuteEntrypoint;
   readSourceFile?: ReadSourceFile;
+  readPidFile?: ReadPidFile;
+  getCurrentTime?: GetCurrentTime;
 };
 
 type RunnableSurface = {
   entrypoint: string;
   args: readonly string[];
+  handshakeType: "cli-help" | "daemon-lifecycle";
 };
 
 const RUNTIME_SURFACES: readonly RunnableSurface[] = [
-  { entrypoint: "v2/src/daemon-entrypoint.ts", args: ["--help"] },
-  { entrypoint: "v2/src/cli.ts", args: ["help"] },
+  { entrypoint: "v2/src/daemon-entrypoint.ts", args: [], handshakeType: "daemon-lifecycle" },
+  { entrypoint: "v2/src/cli.ts", args: ["help"], handshakeType: "cli-help" },
 ];
 
 async function defaultExecuteEntrypoint(
@@ -66,15 +74,37 @@ async function defaultExecuteEntrypoint(
   entrypoint: string,
   args: readonly string[],
   timeoutMs: number,
+  env?: Record<string, string>,
 ): Promise<{ success: boolean; output: string }> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
-    const output = await realAsyncSubprocessRunner.runAsync("bun", ["run", entrypoint, ...args], cwd, { timeoutMs });
+    const options: { timeoutMs: number; env?: NodeJS.ProcessEnv } = { timeoutMs };
+    if (env) {
+      options.env = Object.assign({}, process.env, env);
+    }
+    const output = await realAsyncSubprocessRunner.runAsync("bun", ["run", entrypoint, ...args], cwd, options);
     return { success: true, output };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     return { success: false, output: error };
   }
+}
+
+async function defaultReadPidFile(path: string): Promise<number | null> {
+  try {
+    const content = await readFile(path, "utf8");
+    const raw = content.trim();
+    if (raw.length === 0) return null;
+    const pid = Number.parseInt(raw, 10);
+    if (Number.isInteger(pid) && pid > 0) return pid;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultGetCurrentTime(): number {
+  return Date.now();
 }
 
 function parseDiffChangedFiles(diffOutput: string): string[] {
@@ -158,6 +188,76 @@ async function discoverChangedRunnableSurface(
   return null;
 }
 
+function smokeFailure(command: string, observation: string): SmokeFailure {
+  return { kind: "smoke-failure", command, observation };
+}
+
+async function verifyDaemonLifecycleHandshake(
+  cwd: string,
+  executeEntrypoint: ExecuteEntrypoint,
+  readPidFile: ReadPidFile,
+  getCurrentTime: GetCurrentTime,
+  timeoutMs: number,
+): Promise<SmokeFailure | SmokeObservedClean> {
+  const isolatedHome = mkdtempSync(join(tmpdir(), "smoke-daemon-"));
+  const env = { JARVIS_HOME: isolatedHome };
+  const pidPath = join(isolatedHome, "daemon.pid");
+  const deadline = getCurrentTime() + timeoutMs;
+
+  try {
+    const startResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "start"], deadline - getCurrentTime(), env);
+    if (!startResult.success) {
+      return smokeFailure("bun run v2/src/cli.ts daemon start", startResult.output);
+    }
+
+    let startData: { pid?: unknown; state?: string } = {};
+    try {
+      startData = JSON.parse(startResult.output);
+    } catch {
+      return smokeFailure("bun run v2/src/cli.ts daemon start", `invalid JSON response: ${startResult.output}`);
+    }
+
+    if (typeof startData.pid !== "number" || !Number.isInteger(startData.pid) || startData.pid <= 0) {
+      return smokeFailure("bun run v2/src/cli.ts daemon start", `invalid pid in response: ${startData.pid}`);
+    }
+
+    const statusResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "status"], deadline - getCurrentTime(), env);
+    if (!statusResult.success) {
+      return smokeFailure("bun run v2/src/cli.ts daemon status", statusResult.output);
+    }
+
+    if (!statusResult.output.includes("running")) {
+      return smokeFailure("bun run v2/src/cli.ts daemon status", `daemon not in running state: ${statusResult.output}`);
+    }
+
+    const stopResult = await executeEntrypoint(cwd, "v2/src/cli.ts", ["daemon", "stop"], deadline - getCurrentTime(), env);
+    if (!stopResult.success) {
+      return smokeFailure("bun run v2/src/cli.ts daemon stop", stopResult.output);
+    }
+
+    return { kind: "observed-clean" };
+  } finally {
+    // Unconditional cleanup: kill any remaining daemon process and remove isolated home
+    try {
+      const remainingPid = await readPidFile(pidPath);
+      if (remainingPid !== null && remainingPid > 0) {
+        try {
+          process.kill(remainingPid, "SIGKILL");
+        } catch {
+          // Process may already be dead
+        }
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+    try {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
 export async function verifyRuntimeSmoke(
   input: RuntimeSmokeVerifierInput,
   seams?: VerifierSeams,
@@ -165,6 +265,8 @@ export async function verifyRuntimeSmoke(
   const gitDiff = seams?.gitDiff ?? defaultGitDiff;
   const executeEntrypoint = seams?.executeEntrypoint ?? defaultExecuteEntrypoint;
   const readSourceFile = seams?.readSourceFile ?? defaultReadSourceFile;
+  const readPidFile = seams?.readPidFile ?? defaultReadPidFile;
+  const getCurrentTime = seams?.getCurrentTime ?? defaultGetCurrentTime;
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedFiles = parseDiffChangedFiles(diffOutput);
@@ -187,14 +289,22 @@ export async function verifyRuntimeSmoke(
     };
   }
 
-  const result = await executeEntrypoint(input.worktreePath, surface.entrypoint, surface.args, 5000);
+  const wallClockTimeoutMs = 10000;
+
+  if (surface.handshakeType === "daemon-lifecycle") {
+    return await verifyDaemonLifecycleHandshake(
+      input.worktreePath,
+      executeEntrypoint,
+      readPidFile,
+      getCurrentTime,
+      wallClockTimeoutMs,
+    );
+  }
+
+  const result = await executeEntrypoint(input.worktreePath, surface.entrypoint, surface.args, wallClockTimeoutMs);
 
   if (!result.success) {
-    return {
-      kind: "smoke-failure",
-      command: `bun run ${surface.entrypoint} ${surface.args.join(" ")}`,
-      observation: result.output,
-    };
+    return smokeFailure(`bun run ${surface.entrypoint} ${surface.args.join(" ")}`, result.output);
   }
 
   return {

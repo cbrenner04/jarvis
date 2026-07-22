@@ -151,14 +151,52 @@ index 1234567..abcdefg 100644
     }
   });
 
-  it("executes the daemon entrypoint for a daemon-only production diff", async () => {
-    const result = await verifyMappedEntrypoint(
-      "v2/src/daemon/daemon.ts",
-      "v2/src/daemon-entrypoint.ts",
-      ["--help"],
-      true,
+  it("executes daemon lifecycle handshake for a daemon-only production diff", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    let executedCommands: string[] = [];
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+      ["v2/src/cli.ts", 'import "./cli/deps.ts";'],
+      ["v2/src/cli/deps.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, entrypoint, args) => {
+          executedCommands.push(`${entrypoint} ${args.join(" ")}`);
+          if (args[0] === "daemon") {
+            if (args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+            }
+            if (args[1] === "status") {
+              return { success: true, output: "running loaded=abc current=def" };
+            }
+            if (args[1] === "stop") {
+              return { success: true, output: "stopped" };
+            }
+          }
+          return { success: false, output: "unexpected command" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
+      },
     );
 
+    expect(executedCommands).toContain("v2/src/cli.ts daemon start");
+    expect(executedCommands).toContain("v2/src/cli.ts daemon status");
+    expect(executedCommands).toContain("v2/src/cli.ts daemon stop");
     expect(result.kind).toBe("observed-clean");
   });
 
@@ -166,6 +204,278 @@ index 1234567..abcdefg 100644
     const result = await verifyMappedEntrypoint("v2/src/cli/deps.ts", "v2/src/cli.ts", ["help"], false);
 
     expect(result.kind).toBe("smoke-failure");
+  });
+
+  it("detects daemon start failure and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: false, output: "daemon failed to bind socket" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.command).toContain("daemon start");
+      expect(result.observation).toContain("failed to bind socket");
+    }
+  });
+
+  it("detects daemon status failure and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+          }
+          if (args[0] === "daemon" && args[1] === "status") {
+            return { success: false, output: "ipc connection failed" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => 12345,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.command).toContain("daemon status");
+    }
+  });
+
+  it("detects daemon stop failure and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+          }
+          if (args[0] === "daemon" && args[1] === "status") {
+            return { success: true, output: "running loaded=abc current=def" };
+          }
+          if (args[0] === "daemon" && args[1] === "stop") {
+            return { success: false, output: "failed to stop daemon" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => 12345,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.command).toContain("daemon stop");
+    }
+  });
+
+  it("detects invalid PID in start response and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: 0, state: "running" }) };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.observation).toContain("invalid pid");
+    }
+  });
+
+  it("detects negative PID in start response and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: -1, state: "running" }) };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.observation).toContain("invalid pid");
+    }
+  });
+
+  it("detects missing 'running' state in status output and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+          }
+          if (args[0] === "daemon" && args[1] === "status") {
+            return { success: true, output: "stopped loaded=abc current=def" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => 12345,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.observation).toContain("not in running state");
+    }
+  });
+
+  it("detects invalid JSON in start response and returns smoke-failure", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args) => {
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: "not valid json" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
+      },
+    );
+
+    expect(result.kind).toBe("smoke-failure");
+    if (result.kind === "smoke-failure") {
+      expect(result.observation).toContain("invalid JSON");
+    }
   });
 
   it("selects the CLI for daemon modules not loaded by the daemon entrypoint", async () => {
@@ -208,7 +518,58 @@ index 1234567..abcdefg 100644
     expect(result.kind).toBe("observed-clean");
   });
 
-  it("bounds smoke execution by wall-clock limit", async () => {
+  it("bounds daemon lifecycle by shared wall-clock deadline", async () => {
+    const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+    const sourceFiles = new Map<string, string>([
+      ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+      ["v2/src/daemon/daemon.ts", "export {};"],
+    ]);
+
+    let recordedTimeouts: number[] = [];
+    let timeNow = 1000;
+
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+        executeEntrypoint: async (_cwd, _entrypoint, args, timeoutMs) => {
+          recordedTimeouts.push(timeoutMs);
+          timeNow += 100; // Simulate command taking 100ms
+          if (args[0] === "daemon" && args[1] === "start") {
+            return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+          }
+          if (args[0] === "daemon" && args[1] === "status") {
+            return { success: true, output: "running loaded=abc current=def" };
+          }
+          if (args[0] === "daemon" && args[1] === "stop") {
+            return { success: true, output: "stopped" };
+          }
+          return { success: true, output: "" };
+        },
+        readPidFile: async () => null,
+        getCurrentTime: () => timeNow,
+      },
+    );
+
+    expect(result.kind).toBe("observed-clean");
+    // Each command gets a decreasing timeout as time advances
+    expect(recordedTimeouts.length).toBe(3);
+    expect(recordedTimeouts[0] ?? 0).toBeGreaterThan(recordedTimeouts[1] ?? 0);
+    expect(recordedTimeouts[1] ?? 0).toBeGreaterThan(recordedTimeouts[2] ?? 0);
+    // All timeouts should be positive and within the wall-clock budget
+    expect(recordedTimeouts.every((t) => t > 0)).toBe(true);
+  });
+
+  it("bounds smoke execution by wall-clock limit for CLI", async () => {
     const diff = `diff --git a/v2/src/cli.ts b/v2/src/cli.ts
 index 1234567..abcdefg 100644
 --- a/v2/src/cli.ts
@@ -368,7 +729,7 @@ index 1234567..abcdefg 100644
 +  return 1;
 `;
 
-    let executedEntrypoint = "";
+    let executedCommands: string[] = [];
 
     const result = await verifyRuntimeSmoke(
       {
@@ -377,14 +738,27 @@ index 1234567..abcdefg 100644
       },
       {
         gitDiff: async () => diff,
-        executeEntrypoint: async (_cwd, entrypoint, _timeoutMs) => {
-          executedEntrypoint = entrypoint;
+        executeEntrypoint: async (_cwd, entrypoint, args) => {
+          executedCommands.push(`${entrypoint} ${args.join(" ")}`);
+          if (args[0] === "daemon") {
+            if (args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+            }
+            if (args[1] === "status") {
+              return { success: true, output: "running loaded=abc current=def" };
+            }
+            if (args[1] === "stop") {
+              return { success: true, output: "stopped" };
+            }
+          }
           return { success: true, output: "" };
         },
+        readPidFile: async () => null,
+        getCurrentTime: () => 1000,
       },
     );
 
-    expect(executedEntrypoint).toBe("v2/src/daemon-entrypoint.ts");
+    expect(executedCommands).toContain("v2/src/cli.ts daemon start");
     expect(result.kind).toBe("observed-clean");
   });
 
@@ -427,6 +801,268 @@ index 1234567..abcdefg 100644
     expect(result.kind).toBe("observed-clean");
   });
 
+  describe("input validation guards", () => {
+
+    it("daemon lifecycle rejects zero PID from start response", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 0 }) };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => null,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("smoke-failure");
+    });
+
+    it("daemon lifecycle rejects missing PID field in start response", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ state: "running" }) };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => null,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("smoke-failure");
+    });
+
+    it("daemon lifecycle accepts valid positive PID in start response", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 1, state: "running" }) };
+            }
+            if (args[0] === "daemon" && args[1] === "status") {
+              return { success: true, output: "running loaded=abc current=def" };
+            }
+            if (args[0] === "daemon" && args[1] === "stop") {
+              return { success: true, output: "stopped" };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => null,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("observed-clean");
+    });
+
+    it("daemon lifecycle accepts large positive PID", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 999999, state: "running" }) };
+            }
+            if (args[0] === "daemon" && args[1] === "status") {
+              return { success: true, output: "running loaded=abc current=def" };
+            }
+            if (args[0] === "daemon" && args[1] === "stop") {
+              return { success: true, output: "stopped" };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => null,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("observed-clean");
+    });
+
+    it("daemon lifecycle rejects string PID in start response", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: "12345", state: "running" }) };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => null,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("smoke-failure");
+    });
+
+    it("daemon lifecycle rejects status without 'running' keyword", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 12345, state: "starting" }) };
+            }
+            if (args[0] === "daemon" && args[1] === "status") {
+              return { success: true, output: "starting loaded=abc current=def" };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => 12345,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("smoke-failure");
+    });
+
+    it("daemon lifecycle accepts status containing 'running' keyword", async () => {
+      const diff = `diff --git a/v2/src/daemon/daemon.ts b/v2/src/daemon/daemon.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/daemon/daemon.ts
++++ b/v2/src/daemon/daemon.ts
+@@ -1,3 +1,3 @@
+ export function daemon() {
+-  return 0;
++  return 1;
+`;
+      const sourceFiles = new Map<string, string>([
+        ["v2/src/daemon-entrypoint.ts", 'import "./daemon/daemon";'],
+        ["v2/src/daemon/daemon.ts", "export {};"],
+      ]);
+
+      const result = await verifyRuntimeSmoke(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          readSourceFile: async (path) => sourceFiles.get(path.replace("/test/path/", "")) ?? null,
+          executeEntrypoint: async (_cwd, _entrypoint, args) => {
+            if (args[0] === "daemon" && args[1] === "start") {
+              return { success: true, output: JSON.stringify({ pid: 12345, state: "running" }) };
+            }
+            if (args[0] === "daemon" && args[1] === "status") {
+              return { success: true, output: "running loaded=abc current=def" };
+            }
+            if (args[0] === "daemon" && args[1] === "stop") {
+              return { success: true, output: "stopped" };
+            }
+            return { success: true, output: "" };
+          },
+          readPidFile: async () => 12345,
+          getCurrentTime: () => 1000,
+        },
+      );
+
+      expect(result.kind).toBe("observed-clean");
+    });
+  });
+
   describe("real defaultGitDiff/defaultExecuteEntrypoint (no seams)", () => {
     // Every test above injects both seams, so the real default implementations
     // (which actually spawn git/bun subprocesses) are never exercised — the exact
@@ -466,22 +1102,23 @@ index 1234567..abcdefg 100644
       }
     });
 
-    it("observes clean through the real daemon probe without starting a daemon", async () => {
+    it("detects daemon start failure when executable tree mismatches", async () => {
       const dir = makeFixtureRepo();
       try {
         const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
         writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
         mkdirSync(join(dir, "v2", "src"), { recursive: true });
+        // Create a daemon-entrypoint that will fail when CLI tries to use it
         writeFileSync(
           join(dir, "v2", "src", "daemon-entrypoint.ts"),
-          "if (process.argv[2] !== '--help') throw new Error('daemon started');\n",
+          "throw new Error('incompatible daemon entrypoint');\n",
         );
         execFileSync("git", ["add", "-A"], { cwd: dir });
-        execFileSync("git", ["commit", "-q", "-m", "add broken entrypoint"], { cwd: dir });
+        execFileSync("git", ["commit", "-q", "-m", "add broken daemon"], { cwd: dir });
 
         const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("observed-clean");
+        expect(result.kind).toBe("smoke-failure");
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

@@ -2510,4 +2510,300 @@ describe("write loop", () => {
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
   });
+
+  describe("coverage advisory on implement write completion", () => {
+    function completingWriteStub(worktreePath: string): Awaited<ReturnType<typeof realExecuteWrite>> {
+      return {
+        worktreePath,
+        worktreeReused: false,
+        lock: { kind: "acquired" },
+        result: {
+          kind: "complete",
+          token: "done",
+          invocation: { attempts: [], final: null, telemetryFailures: [] },
+        },
+      };
+    }
+
+    test("runs advisory with uncovered sites and logs response before terminal boundary", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const logSink = new TestLogSink();
+
+      const advisoryResponses: string[] = [];
+      const advisoryCalls: string[] = [];
+      const stubResult = completingWriteStub(join(jarvisRoot, "worktrees", "demo", "advisory-run"));
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => stubResult,
+      }));
+
+      mock.module("./uncovered-changed-lines.ts", () => ({
+        reportUncoveredChangedLines: async () => {
+          advisoryCalls.push("coverage-reporter");
+          return {
+            uncoveredSites: [
+              { file: "v2/src/foo.ts", line: 10 },
+              { file: "v2/src/bar.ts", line: 20 },
+            ],
+            reportText: "Uncovered changed lines (execution count is zero):\nv2/src/bar.ts:20\nv2/src/foo.ts:10",
+          };
+        },
+      }));
+
+      mock.module("../../../shared/invocation/execute.ts", () => ({
+        executeWithQuotaFallback: async (input: {
+          prompt?: string;
+          cwd?: string;
+          bindings?: unknown;
+          signal?: AbortSignal;
+          idleOutputMs?: number;
+          telemetry?: unknown;
+          sessionLog?: unknown;
+        }) => {
+          advisoryResponses.push(input.prompt ?? "");
+          return {
+            attempts: [],
+            final: { result: { kind: "ok", stdout: "Coverage noted.\n" }, binding: { id: "b1", metadata: {} } },
+            telemetryFailures: [],
+          };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "advisory-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink,
+          promptId: "patch.prompt.body",
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(advisoryCalls).toHaveLength(1);
+        expect(advisoryResponses).toHaveLength(1);
+
+        const events = logSink.getEventsForRun(result.runId);
+        const advisoryEvent = events.find((e) => e.kind === "coverage_advisory");
+        expect(advisoryEvent).toBeDefined();
+        if (advisoryEvent?.kind === "coverage_advisory") {
+          expect(advisoryEvent.responseText).toBe("Coverage noted.");
+        }
+
+        const boundaryEvent = events.find((e) => e.kind === "boundary_committed");
+        expect(boundaryEvent).toBeDefined();
+
+        // Verify advisory comes before boundary
+        const advisoryIndex = events.findIndex((e) => e.kind === "coverage_advisory");
+        const boundaryIndex = events.findIndex((e) => e.kind === "boundary_committed");
+        expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+        expect(boundaryIndex).toBeGreaterThanOrEqual(0);
+        expect(advisoryIndex).toBeLessThan(boundaryIndex);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        mock.module("./uncovered-changed-lines.ts", () => ({}));
+        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+      }
+    });
+
+    test("does not increment iterationsConsumed when advisory runs", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+
+      const stubResult = completingWriteStub(join(jarvisRoot, "worktrees", "demo", "iter-count-run"));
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => stubResult,
+      }));
+
+      mock.module("./uncovered-changed-lines.ts", () => ({
+        reportUncoveredChangedLines: async () => ({
+          uncoveredSites: [{ file: "v2/src/foo.ts", line: 10 }],
+          reportText: "Uncovered: v2/src/foo.ts:10",
+        }),
+      }));
+
+      mock.module("../../../shared/invocation/execute.ts", () => ({
+        executeWithQuotaFallback: async () => ({
+          attempts: [],
+          final: { result: { kind: "ok", stdout: "Noted.\n" }, binding: { id: "b1", metadata: {} } },
+          telemetryFailures: [],
+        }),
+      }));
+
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "iter-count-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          promptId: "patch.prompt.body",
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(result.iterationsConsumed).toBe(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        mock.module("./uncovered-changed-lines.ts", () => ({}));
+        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+      }
+    });
+
+    test("skips advisory when no uncovered sites", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const logSink = new TestLogSink();
+
+      const advisoryInvoked = { called: false };
+
+      const stubResult = completingWriteStub(join(jarvisRoot, "worktrees", "demo", "no-uncovered-run"));
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => stubResult,
+      }));
+
+      mock.module("./uncovered-changed-lines.ts", () => ({
+        reportUncoveredChangedLines: async () => {
+          advisoryInvoked.called = true;
+          return { uncoveredSites: [], reportText: "" };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "no-uncovered-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink,
+          promptId: "patch.prompt.body",
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(advisoryInvoked.called).toBe(true);
+
+        const events = logSink.getEventsForRun(result.runId);
+        const advisoryEvent = events.find((e) => e.kind === "coverage_advisory");
+        expect(advisoryEvent).toBeUndefined();
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        mock.module("./uncovered-changed-lines.ts", () => ({}));
+      }
+    });
+
+    test("skips advisory for non-implement prompts", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const logSink = new TestLogSink();
+
+      const reporterCalled = { called: false };
+
+      const stubResult = completingWriteStub(join(jarvisRoot, "worktrees", "demo", "non-patch-run"));
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => stubResult,
+      }));
+
+      mock.module("./uncovered-changed-lines.ts", () => ({
+        reportUncoveredChangedLines: async () => {
+          reporterCalled.called = true;
+          return {
+            uncoveredSites: [{ file: "v2/src/foo.ts", line: 10 }],
+            reportText: "Uncovered: v2/src/foo.ts:10",
+          };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "non-patch-run",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink,
+          promptId: "write.execute",
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(reporterCalled.called).toBe(false);
+
+        const events = logSink.getEventsForRun(result.runId);
+        const advisoryEvent = events.find((e) => e.kind === "coverage_advisory");
+        expect(advisoryEvent).toBeUndefined();
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        mock.module("./uncovered-changed-lines.ts", () => ({}));
+      }
+    });
+
+    test("coverage-advisory prompt carries report text and states deliver-only", async () => {
+      const { loadPromptRegistry } = await import("../../../shared/prompts/registry.ts");
+      const { renderArtifactTemplate } = await import("../../../shared/prompts/render.ts");
+
+      const registry = loadPromptRegistry();
+      const artifact = registry.getById("write.coverage-advisory");
+
+      expect(artifact).toBeDefined();
+      expect(artifact.metadata.placeholders).toContainEqual({
+        name: "COVERAGE_REPORT",
+        type: "string",
+        required: true,
+      });
+
+      const testReport = "Uncovered changed lines (execution count is zero):\nv2/src/foo.ts:10\n\nNote: ...";
+      const rendered = renderArtifactTemplate(artifact, { COVERAGE_REPORT: testReport });
+
+      expect(rendered).toContain(testReport);
+      expect(rendered).toContain("deliver-only");
+    });
+  });
 });

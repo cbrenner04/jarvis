@@ -284,6 +284,34 @@ the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
 `blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
 `invalid_token_detail`.
 
+## Coverage advisory
+
+Implement write completion may issue one uncovered-changed-line advisory re-prompt before
+the terminal boundary. The advisory is **deliver-only**: it observes code coverage on
+changed lines, reports uncovered sites to the agent for awareness, does not change
+the completion outcome, and does not increment `iterationsConsumed`.
+
+**Ordering and scope:**
+
+The coverage advisory runs only when an implement write (`promptId: "patch.prompt.body"`)
+completes with `kind: "complete"`. After the step result is ready but before the
+completion boundary is committed, the write loop invokes `reportUncoveredChangedLines`
+against the worktree base. If uncovered sites are found, the loop runs the coverage
+advisory re-prompt (using the registered `write.coverage-advisory` artifact) through
+the same bindings, logs the response, then commits the terminal boundary. All store
+writes from the advisory (including invocation telemetry) occur before the attempt's
+terminal `boundary_committed` log event.
+
+**Fail-soft and skip conditions:**
+
+When no uncovered sites are found, the advisory is skipped entirely. Coverage collection,
+LCOV parsing, and advisory re-prompt invocation errors are fail-soft: errors do not
+fail the run or stop the write loop. The advisory response is logged but not parsed
+or acted upon — it is advisory feedback only, not contractual output.
+
+The terminal `runStatus` and `outcomeKind` remain whatever `complete` already committed,
+and no store writes occur after the step settles.
+
 ## Review cycle
 
 The standalone review cycle invokes the caller-supplied read-only `critic`,

@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { executeWithQuotaFallback, type InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -31,6 +32,11 @@ import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
+import {
+  reportUncoveredChangedLines as defaultReportUncoveredChangedLines,
+  type UncoveredChangedLinesReport,
+} from "./uncovered-changed-lines.ts";
+import { renderStepPrompt } from "./write-prompt.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
@@ -115,6 +121,9 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  reportUncoveredChangedLines?: (
+    input: { worktreePath: string; runBase: string },
+  ) => Promise<UncoveredChangedLinesReport>;
 };
 
 /**
@@ -346,6 +355,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
             : resolveSpecPath(worktreePath, args.specPath);
         appendBlockerToSpec(targetSpecPath, reason);
+      }
+
+      if (result.kind === "complete") {
+        await maybeDeliverCoverageAdvisory(args, runId, attemptId, worktreePath);
       }
 
       const terminal = terminalMapping(result);
@@ -725,6 +738,71 @@ function resolveAndPersistCreationTitle(
   return title;
 }
 
+function buildInvocationTelemetry(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+): Omit<InvocationTelemetryContext, "worktreePath"> | undefined {
+  const telemetry = args.telemetry;
+  if (
+    telemetry === undefined ||
+    telemetry.sinkPath === undefined ||
+    telemetry.workflow === undefined ||
+    telemetry.role === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    sink: buildJsonlSink(telemetry.sinkPath),
+    operatorSessionId: telemetry.operatorSessionId,
+    runId,
+    attemptId,
+    project: args.worktree.projectName,
+    workflow: telemetry.workflow,
+    stepId: args.stepId ?? null,
+    role: telemetry.role,
+    branch: args.worktree.branchName,
+    specRef: args.worktree.baseRef,
+    invocationIds: args.bindings.map(() => crypto.randomUUID()),
+  };
+}
+
+async function maybeDeliverCoverageAdvisory(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  worktreePath: string,
+): Promise<void> {
+  if (args.promptId !== "patch.prompt.body") return;
+
+  const reporter = args.reportUncoveredChangedLines ?? defaultReportUncoveredChangedLines;
+  const report = await reporter({
+    worktreePath,
+    runBase: args.worktree.baseRef,
+  });
+  if (report.uncoveredSites.length === 0) return;
+
+  const prompt = renderStepPrompt("write.coverage-advisory", {
+    COVERAGE_REPORT: report.reportText,
+  });
+  const invocationTelemetry = buildInvocationTelemetry(args, runId, attemptId);
+  const invocation = await executeWithQuotaFallback({
+    prompt,
+    cwd: worktreePath,
+    bindings: args.bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(invocationTelemetry !== undefined
+      ? { telemetry: { ...invocationTelemetry, worktreePath } }
+      : {}),
+  });
+  const responseText = invocation.final?.result.kind === "ok" ? invocation.final.result.stdout.trim() : "";
+  args.logSink?.append(runId, {
+    kind: "coverage_advisory_reprompt",
+    attemptId,
+    responseText: truncateLogText(responseText),
+  });
+}
+
 function buildWriteExecuteInput(
   args: WriteLoopInput,
   runId: string,
@@ -732,22 +810,7 @@ function buildWriteExecuteInput(
   signal: AbortSignal,
   sessionLog: SessionLog,
 ): WriteExecuteInput {
-  const telemetry = args.telemetry;
-  // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
-  // legitimate value that carries no invocation-emission context; only build the
-  // full invocationTelemetry record once all three are actually present.
-  const fullTelemetry =
-    telemetry !== undefined &&
-    telemetry.sinkPath !== undefined &&
-    telemetry.workflow !== undefined &&
-    telemetry.role !== undefined
-      ? {
-          sinkPath: telemetry.sinkPath,
-          operatorSessionId: telemetry.operatorSessionId,
-          workflow: telemetry.workflow,
-          role: telemetry.role,
-        }
-      : undefined;
+  const invocationTelemetry = buildInvocationTelemetry(args, runId, attemptId);
   return {
     worktree: args.worktree,
     specPath: args.specPath,
@@ -757,23 +820,7 @@ function buildWriteExecuteInput(
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),
-    ...(fullTelemetry !== undefined
-      ? {
-          invocationTelemetry: {
-            sink: buildJsonlSink(fullTelemetry.sinkPath),
-            operatorSessionId: fullTelemetry.operatorSessionId,
-            runId,
-            attemptId,
-            project: args.worktree.projectName,
-            workflow: fullTelemetry.workflow,
-            stepId: args.stepId ?? null,
-            role: fullTelemetry.role,
-            branch: args.worktree.branchName,
-            specRef: args.worktree.baseRef,
-            invocationIds: args.bindings.map(() => crypto.randomUUID()),
-          },
-        }
-      : {}),
+    ...(invocationTelemetry !== undefined ? { invocationTelemetry } : {}),
     signal,
     sessionLog,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),

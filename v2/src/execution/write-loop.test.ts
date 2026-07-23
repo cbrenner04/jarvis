@@ -63,6 +63,9 @@ async function runLoop(args: {
   store?: StateStore;
   logSink?: LogSink;
   telemetry?: WriteLoopInput["telemetry"];
+  promptId?: string;
+  publishCompletion?: boolean;
+  reportUncoveredChangedLines?: WriteLoopInput["reportUncoveredChangedLines"];
   completionCommitter?: WriteLoopInput["completionCommitter"];
   completionPublisher?: WriteLoopInput["completionPublisher"];
   readyFinalizer?: WriteLoopInput["readyFinalizer"];
@@ -89,6 +92,11 @@ async function runLoop(args: {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+    ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.publishCompletion !== undefined ? { publishCompletion: args.publishCompletion } : {}),
+    ...(args.reportUncoveredChangedLines !== undefined
+      ? { reportUncoveredChangedLines: args.reportUncoveredChangedLines }
+      : {}),
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
@@ -717,6 +725,166 @@ describe("write loop", () => {
     });
 
     expect(result.kind).toBe("complete");
+  });
+
+  describe("coverage advisory", () => {
+    const uncoveredReport = {
+      uncoveredSites: [{ file: "v2/src/execution/example.ts", line: 42 }],
+      reportText:
+        "Uncovered changed lines (execution count is zero):\nv2/src/execution/example.ts:42\n\nNote: A line executed by tests may still lack sufficient assertions. The mutation verifier, not coverage, determines whether changes are adequately tested.",
+    };
+    const coverageLoop = {
+      branchName: "coverage-advisory-run",
+      artifactPath: "subspec.md",
+      promptId: "patch.prompt.body",
+      publishCompletion: false,
+    } as const;
+
+    function seedImplementSubspec(jarvisRoot: string, branchName = coverageLoop.branchName): void {
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      writeFileSync(
+        join(worktreePath, "subspec.md"),
+        "# subspec\n\n## Acceptance criteria\n\n- [x] criterion\n",
+        "utf8",
+      );
+    }
+
+    test("delivers one advisory re-prompt before the terminal boundary with telemetry", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      seedImplementSubspec(jarvisRoot);
+      const sink = new TestLogSink();
+      const telemetryPath = join(jarvisRoot, "coverage-advisory-telemetry.jsonl");
+      let bindingInvocations = 0;
+      const bindings: InvocationBinding[] = [
+        {
+          id: "sim.1",
+          metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+          invoke: async ({ prompt }) => {
+            bindingInvocations += 1;
+            if (bindingInvocations === 2) {
+              expect(prompt).toContain("v2/src/execution/example.ts:42");
+              return { kind: "ok", stdout: "will add a test", stderr: "" };
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ];
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings,
+        logSink: sink,
+        telemetry: loopTelemetry(telemetryPath),
+        reportUncoveredChangedLines: async () => uncoveredReport,
+        ...coverageLoop,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      expect(bindingInvocations).toBe(2);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      const advisoryIndex = events.indexOf("coverage_advisory_reprompt");
+      const boundaryIndex = events.indexOf("boundary_committed");
+      expect(advisoryIndex).toBeGreaterThanOrEqual(0);
+      expect(boundaryIndex).toBeGreaterThan(advisoryIndex);
+      const advisory = sink
+        .getEventsForRun(result.runId)
+        .find((event) => event.kind === "coverage_advisory_reprompt");
+      expect(advisory).toMatchObject({ responseText: "will add a test" });
+      const telemetryRows = loadTelemetryRows(telemetryPath);
+      expect(telemetryRows).toHaveLength(2);
+      expect(telemetryRows[1]?.exit_kind).toBe("ok");
+    });
+
+    test("does not increment iterationsConsumed when the advisory fires", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      seedImplementSubspec(jarvisRoot);
+      let bindingInvocations = 0;
+      const bindings: InvocationBinding[] = [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            bindingInvocations += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ];
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings,
+        reportUncoveredChangedLines: async () => uncoveredReport,
+        ...coverageLoop,
+      });
+
+      expect(result.iterationsConsumed).toBe(1);
+      expect(bindingInvocations).toBe(2);
+    });
+
+    test("skips advisory when no uncovered changed lines", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      seedImplementSubspec(jarvisRoot);
+      const sink = new TestLogSink();
+      let reporterCalls = 0;
+      let bindingInvocations = 0;
+      const bindings: InvocationBinding[] = [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            bindingInvocations += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ];
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings,
+        logSink: sink,
+        reportUncoveredChangedLines: async () => {
+          reporterCalls += 1;
+          return { uncoveredSites: [], reportText: "" };
+        },
+        ...coverageLoop,
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(reporterCalls).toBe(1);
+      expect(bindingInvocations).toBe(1);
+      expect(sink.getEventsForRun(result.runId).some((event) => event.kind === "coverage_advisory_reprompt")).toBe(
+        false,
+      );
+    });
+
+    test("skips advisory on non-implement prompts even with uncovered sites", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      seedImplementSubspec(jarvisRoot);
+      const sink = new TestLogSink();
+      let reporterCalls = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "subspec.md", emitArtifact: false }),
+        logSink: sink,
+        reportUncoveredChangedLines: async () => {
+          reporterCalls += 1;
+          return uncoveredReport;
+        },
+        ...coverageLoop,
+        promptId: "write.execute",
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(reporterCalls).toBe(0);
+      expect(
+        sink.getEventsForRun(result.runId).some((event) => event.kind === "coverage_advisory_reprompt"),
+      ).toBe(false);
+    });
   });
 
   describe("work_boundary_recorded telemetry", () => {

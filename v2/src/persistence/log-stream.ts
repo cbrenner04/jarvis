@@ -85,6 +85,13 @@ export type BlockerRepromptEvent = {
   responseText: string;
 };
 
+/** Emitted when implement completion delivers an uncovered-changed-line advisory re-prompt. */
+export type CoverageAdvisoryRepromptEvent = {
+  kind: "coverage_advisory_reprompt";
+  attemptId: string;
+  responseText: string;
+};
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -111,6 +118,7 @@ export type LogEvent =
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent
+  | CoverageAdvisoryRepromptEvent
   | MissingBlockerDetailEvent
   | BlockerTextDetailEvent;
 

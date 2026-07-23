@@ -998,6 +998,23 @@ v2/src/execution/other.ts:5
 Note: A line executed by tests may still lack sufficient assertions. The mutation verifier, not coverage, determines whether changes are adequately tested.
 ```
 
+## Coverage advisory delivery
+
+On implement writes (`patch.prompt.body`) that classify `complete` after contracts pass,
+the write loop may issue exactly one uncovered-changed-line advisory re-prompt before
+committing that attempt's terminal boundary. The loop calls `reportUncoveredChangedLines`
+against the run-base diff; when the reporter returns uncovered sites, it renders
+`write.coverage-advisory` with the report text and invokes the agent once through the
+same bindings. The harness logs the reply as `coverage_advisory_reprompt` and does not
+re-run completion contracts, reclassify the step, or increment `iterationsConsumed`.
+Terminal `runStatus` and `outcomeKind` stay whatever `complete` already committed.
+
+The advisory is skipped when the prompt is not `patch.prompt.body`, when the step
+outcome is not `complete`, or when the reporter returns no uncovered sites. All advisory
+store writes (including invocation telemetry when configured) finish before
+`boundary_committed` for that attempt; callers may close the run store as soon as the
+loop returns without racing post-settle advisory work.
+
 ## Cleanup command
 
 `jarvis cleanup` removes stale worktrees and archived incomplete specs, and reaps dead

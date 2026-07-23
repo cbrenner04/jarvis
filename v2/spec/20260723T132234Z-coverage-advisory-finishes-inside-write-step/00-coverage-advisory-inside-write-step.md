@@ -35,24 +35,24 @@ close the store — `RangeError: Cannot use a closed database`, missing later-st
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (25/0 on `main`).
-- [ ] `v2/src/daemon/daemon-run-failure-capture.test.ts` stays green (11/0 on `main`).
-- [ ] A new case in `v2/src/execution/write-loop.test.ts` drives a completing implement write with
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (25/0 on `main`).
+- [x] `v2/src/daemon/daemon-run-failure-capture.test.ts` stays green (11/0 on `main`).
+- [x] A new case in `v2/src/execution/write-loop.test.ts` drives a completing implement write with
       injected uncovered sites, asserts exactly one advisory re-prompt, asserts all advisory store
       writes (including invocation telemetry) precede the attempt's terminal `boundary_committed`,
       and closing the store immediately after the loop returns causes no `Cannot use a closed database`;
       it fails when advisory runs after the terminal boundary (post-settle ordering).
-- [ ] A new case in `v2/src/execution/write-loop.test.ts` proves `iterationsConsumed` is unchanged
+- [x] A new case in `v2/src/execution/write-loop.test.ts` proves `iterationsConsumed` is unchanged
       when the advisory fires on an otherwise one-iteration `complete`; it fails when the advisory
       increments the iteration counter.
-- [ ] A new case in `v2/src/execution/write-loop.test.ts` proves a completing implement write with
+- [x] A new case in `v2/src/execution/write-loop.test.ts` proves a completing implement write with
       no uncovered changed lines issues no advisory re-prompt and does not call
       `reportUncoveredChangedLines`; it fails when either guard is inverted.
-- [ ] Tests fail when each added guard is inverted: the no-uncovered-lines skip guard must call the
+- [x] Tests fail when each added guard is inverted: the no-uncovered-lines skip guard must call the
       reporter when inverted; the implement-only scope guard must run advisory on a non-implement
       prompt when inverted; the pre-boundary ordering guard must place advisory store writes after
       `boundary_committed` when inverted.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

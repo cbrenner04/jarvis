@@ -32,6 +32,10 @@ operators also need an explicit row bound.
 - [ ] Invalid `--limit` exits `1` with `invalid_limit` and does not issue a `list` RPC.
 - [ ] `run-list-query-limit-cap.test.ts` asserts `--limit` and the default cap on a filtered query; it fails against baseline.
 - [ ] Tests fail when the `invalid_limit` guard is inverted: a garbage `--limit` value must not return rows.
+- [ ] The error *message* is asserted per flag: a bad `--limit` emits `invalid_limit`, a bad `--since`
+      emits `invalid_since`. Both messages are pinned, so flipping the flag comparison that selects
+      between them (`flag === "--since"`) fails a test. Asserting only exit code 1, or only one of the
+      two messages, does not distinguish the directions.
 - [ ] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

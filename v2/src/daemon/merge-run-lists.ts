@@ -1,8 +1,9 @@
 import type { DaemonListResult, DaemonListRunRow } from "./daemon-wire.ts";
 
-export function mergeRunLists<Owner>(
-  listResults: Array<[Owner, DaemonListResult | undefined]>,
-): { rows: DaemonListRunRow[]; owners: Map<string, Owner> } {
+export function mergeRunLists<Owner>(listResults: Array<[Owner, DaemonListResult | undefined]>): {
+  rows: DaemonListRunRow[];
+  owners: Map<string, Owner>;
+} {
   const deduped = new Map<string, DaemonListRunRow>();
   const owners = new Map<string, Owner>();
 

@@ -1,4 +1,4 @@
-import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";

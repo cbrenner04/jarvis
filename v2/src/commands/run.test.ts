@@ -476,7 +476,10 @@ describe("run list multi-daemon", () => {
   const INVOKING_SOCKET = "/jarvis/daemon-aaaa.sock";
   const OTHER_SOCKET = "/jarvis/daemon-bbbb.sock";
 
-  type RunsBySocket = Record<string, Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> | Error>;
+  type RunsBySocket = Record<
+    string,
+    Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> | Error
+  >;
 
   function listRow(runId: string, status: string, isLive: boolean) {
     return { runId, project: "demo", branch: "main", status, isLive };

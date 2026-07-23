@@ -99,6 +99,19 @@ export type BlockerTextDetailEvent = {
   blockerText: string;
 };
 
+/** Emitted when coverage advisory re-prompt is called and agent responds with a token or blocker. */
+export type CoverageAdvisoryRepromptEvent = {
+  kind: "coverage_advisory_reprompt";
+  attemptId: string;
+  responseText: string;
+};
+
+/** Emitted when coverage advisory re-prompt is called and agent responds with neither token nor blocker. */
+export type CoverageAdvisoryInvokedEvent = {
+  kind: "coverage_advisory_invoked";
+  attemptId: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -112,7 +125,9 @@ export type LogEvent =
   | TokenRepromptEvent
   | BlockerRepromptEvent
   | MissingBlockerDetailEvent
-  | BlockerTextDetailEvent;
+  | BlockerTextDetailEvent
+  | CoverageAdvisoryRepromptEvent
+  | CoverageAdvisoryInvokedEvent;
 
 /** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;

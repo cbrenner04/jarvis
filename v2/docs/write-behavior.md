@@ -34,6 +34,8 @@ prints a specific skip reason if the artifact stays at the root after retirement
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
 
+When a write step returns `done`, the loop runs a coverage advisory pass (see
+**Coverage advisory** below) before committing the SQLite completion boundary.
 On a successful standalone write, the terminal SQLite boundary is committed before
 the runner publishes completion to the external worktree. Publication is one
 retryable boundary comprising three operations in sequence: commit, then push+PR,
@@ -250,12 +252,13 @@ names fail the step as `model_config` before any binding runs.
 | Placeholder | Source |
 | --- | --- |
 | `SPEC_PATH` | Worktree-resolved `specPath` |
-| `STEP_RULES` | Step `stepRules` (`patch.prompt.body`, `patch.prompt.shrink`, `write.execute`) |
+| `STEP_RULES` | Step `stepRules` (`patch.prompt.body`, `patch.prompt.shrink`, `write.execute`, `write.coverage-advisory`) |
 | `PRINCIPLES` | `write.principles` registry body |
 | `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root (same as v1 `readRepoGuidance`) |
 | `ACTIVE_SUBSPEC_PATH` | Worktree-resolved `expectedArtifactPath`, with trailing newline when non-empty |
 | `ACTIVE_SUBSPEC_BODY` | File contents at `expectedArtifactPath` (empty when missing) |
 | `PATCH_RULES` | `patch.rules` registry body |
+| `COVERAGE_REPORT` | Formatted uncovered site list from coverage reporter (`write.coverage-advisory` only) |
 | `SIBLINGS_BLOCK`, `TIMEOUT_CHECKPOINT_CONTEXT` | Empty string (no v2 consumer yet) |
 
 Git-derived shrink placeholders (`ALLOWLIST`, `BRANCH_DIFF`, `RUN_SCOPED_DIFF`,
@@ -283,6 +286,22 @@ When a `blocked` token misses the blocker-text contract after one
 the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
 `blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
 `invalid_token_detail`.
+
+## Coverage advisory
+
+When a write step returns `done` (token-`done` or contract-satisfied `no-work`),
+the loop runs a coverage reporter to identify added production code lines with
+zero test execution count. If uncovered lines exist, the loop re-prompts the agent
+once via `write.coverage-advisory`, supplying the uncovered site list and noting
+that an executed line may still lack sufficient assertions. The advisory runs as
+a sub-invocation (consumes no iteration budget and cannot push past `maxIterations`)
+and its outcome does not affect the run result — the completion boundary commits
+as `complete` regardless of the advisory response (including `blocked` or
+invocation failure). Coverage data is collected by running the test suite on
+production code directories implied by changed files; failures or missing coverage
+output are silent no-ops. The write loop appends a `coverage_advisory_invoked` or
+`coverage_advisory_reprompt` event only when an advisory re-prompt executes; runs
+with no uncovered lines fire no reporter call and no advisory invocation.
 
 ## Review cycle
 

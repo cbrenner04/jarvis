@@ -13,6 +13,10 @@ These tests are the default because they are:
 - Sandbox-runnable (available in the coding agent's restricted execution context)
 - Fast (no real process overhead or sleep delays)
 
+## Coverage vs. assertion adequacy
+
+The write step's coverage advisory identifies added production code lines where the test suite records zero execution — a necessary but insufficient indicator of test completeness. Coverage is a pre-filter for never-executed code; the mutation verifier (not coverage) decides whether executed lines are adequately asserted. The advisory re-prompts the agent to consider coverage gaps but makes no guarantee that new assertions will be added and does not gate the run. An executed line with weak or missing assertions survives coverage but is caught by the mutation gate.
+
 ## Prompt changes
 
 When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`.

@@ -2510,4 +2510,175 @@ describe("write loop", () => {
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
   });
+
+  test("coverage advisory re-prompts agent when uncovered lines exist before boundary", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const executeWriteInvocations: string[] = [];
+
+    const stubCompleteResult: Awaited<ReturnType<typeof realExecuteWrite>> = {
+      worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-test"),
+      worktreeReused: false,
+      lock: { kind: "acquired" },
+      result: {
+        kind: "complete",
+        token: "done",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      },
+    };
+
+    const stubAdvisoryResult: Awaited<ReturnType<typeof realExecuteWrite>> = {
+      worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-test"),
+      worktreeReused: false,
+      lock: { kind: "acquired" },
+      result: {
+        kind: "complete",
+        token: "done",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      },
+    };
+
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => {
+        executeWriteInvocations.push(input.promptId ?? "default");
+        // First call is the main iteration, second is the coverage advisory
+        if (executeWriteInvocations.length === 1) {
+          return stubCompleteResult;
+        }
+        return stubAdvisoryResult;
+      },
+    }));
+
+    try {
+      const loopInput: WriteLoopInput = {
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "coverage-test",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        logSink: sink,
+        reporterSeams: {
+          gitDiff: async () =>
+            "diff --git a/src/file.ts b/src/file.ts\n" +
+            "index 1234567..abcdefg 100644\n" +
+            "--- a/src/file.ts\n" +
+            "+++ b/src/file.ts\n" +
+            "@@ -8,6 +8,8 @@\n" +
+            " old line\n" +
+            "+new line 1\n" +
+            "+new line 2\n" +
+            " other line\n",
+          runTests: async () => true,
+          readFile: async () =>
+            "SF:src/file.ts\nDA:8,1\nDA:9,0\nDA:10,0\nDA:11,1\nend_of_record\n",
+          untrackedFiles: async () => [],
+          deleteFile: async () => {},
+        },
+      };
+
+      const result = await executeWriteLoop(loopInput);
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+
+      const events = sink.getEventsForRun(result.runId).map((e) => e.kind);
+      expect(events).toContain("coverage_advisory_invoked");
+
+      // Advisory re-prompt should use the coverage-advisory prompt
+      expect(executeWriteInvocations).toHaveLength(2);
+      expect(executeWriteInvocations[1]).toBe("write.coverage-advisory");
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("no coverage advisory invocation when no uncovered lines", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const executeWriteInvocations: string[] = [];
+
+    const stubCompleteResult: Awaited<ReturnType<typeof realExecuteWrite>> = {
+      worktreePath: join(jarvisRoot, "worktrees", "demo", "coverage-test-no-uncovered"),
+      worktreeReused: false,
+      lock: { kind: "acquired" },
+      result: {
+        kind: "complete",
+        token: "done",
+        invocation: { attempts: [], final: null, telemetryFailures: [] },
+      },
+    };
+
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => {
+        executeWriteInvocations.push(input.promptId ?? "default");
+        return stubCompleteResult;
+      },
+    }));
+
+    try {
+      const loopInput: WriteLoopInput = {
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "coverage-test-no-uncovered",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        logSink: sink,
+        reporterSeams: {
+          gitDiff: async () =>
+            "diff --git a/src/file.ts b/src/file.ts\n" +
+            "index 1234567..abcdefg 100644\n" +
+            "--- a/src/file.ts\n" +
+            "+++ b/src/file.ts\n" +
+            "@@ -8,6 +8,8 @@\n" +
+            " old line\n" +
+            "+new line 1\n" +
+            "+new line 2\n" +
+            " other line\n",
+          runTests: async () => true,
+          readFile: async () =>
+            "SF:src/file.ts\nDA:8,1\nDA:9,1\nDA:10,1\nDA:11,1\nend_of_record\n",
+          untrackedFiles: async () => [],
+          deleteFile: async () => {},
+        },
+      };
+
+      const result = await executeWriteLoop(loopInput);
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+
+      const events = sink.getEventsForRun(result.runId).map((e) => e.kind);
+      expect(events).not.toContain("coverage_advisory_invoked");
+      expect(events).not.toContain("coverage_advisory_reprompt");
+
+      // Only main iteration, no advisory re-prompt
+      expect(executeWriteInvocations).toHaveLength(1);
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
 });

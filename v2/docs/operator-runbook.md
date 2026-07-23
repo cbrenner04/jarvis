@@ -322,6 +322,8 @@ A red ready gate is handed back to the agent for up to three bounded repair iter
 consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
 resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
 
+The write step's coverage advisory re-prompts the agent when added production code has zero test execution, before the completion boundary is committed and before publication. The advisory runs as a sub-invocation (consuming no iteration budget), delivers the list of uncovered sites, notes that executed lines may still lack assertions, and records that the mutation verifier (not coverage) decides adequacy. The advisory never gates the run — the completion boundary commits as `complete` regardless of the advisory response, and the run proceeds to publication and the ready gate. Coverage identifies never-executed lines; test adequacy remains the mutation gate's jurisdiction.
+
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.

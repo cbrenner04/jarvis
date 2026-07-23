@@ -55,6 +55,13 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("attemptId", event.attemptId);
       addText("responseText", event.responseText);
       break;
+    case "coverage_advisory_reprompt":
+      add("attemptId", event.attemptId);
+      addText("responseText", event.responseText);
+      break;
+    case "coverage_advisory_invoked":
+      add("attemptId", event.attemptId);
+      break;
   }
 
   return parts.join(" ");

@@ -23,7 +23,7 @@ type RunTests = (cwd: string, scope: string[]) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type DeleteFile = (path: string) => Promise<void>;
 
-type ReporterSeams = {
+export type ReporterSeams = {
   gitDiff?: GitDiff;
   untrackedFiles?: UntrackedFiles;
   runTests?: RunTests;
@@ -133,6 +133,8 @@ function computeUncoveredSites(
   return uncoveredSites;
 }
 
+const EMPTY_REPORT: UncoveredChangedLinesReport = { uncoveredSites: [], reportText: "" };
+
 export async function reportUncoveredChangedLines(
   input: UncoveredChangedLinesInput,
   seams?: ReporterSeams,
@@ -156,10 +158,7 @@ export async function reportUncoveredChangedLines(
   // Filter to code files only
   const changedCodePaths = Array.from(changedPaths).filter(isCodePath);
   if (changedCodePaths.length === 0) {
-    return {
-      uncoveredSites: [],
-      reportText: "",
-    };
+    return EMPTY_REPORT;
   }
 
   // Run coverage collection
@@ -184,10 +183,7 @@ export async function reportUncoveredChangedLines(
 
     if (!testsPassed) {
       // Coverage run failed — fail soft, return no report
-      return {
-        uncoveredSites: [],
-        reportText: "",
-      };
+      return EMPTY_REPORT;
     }
 
     // Read coverage output
@@ -196,10 +192,7 @@ export async function reportUncoveredChangedLines(
       lcovContent = await readFile(coverageFilePath);
     } catch {
       // Coverage file not found — fail soft
-      return {
-        uncoveredSites: [],
-        reportText: "",
-      };
+      return EMPTY_REPORT;
     }
 
     // Parse LCOV output and compute uncovered added lines in code files
@@ -219,10 +212,7 @@ export async function reportUncoveredChangedLines(
     };
   } catch {
     // Any error during coverage collection — fail soft
-    return {
-      uncoveredSites: [],
-      reportText: "",
-    };
+    return EMPTY_REPORT;
   } finally {
     // Clean up coverage output
     try {

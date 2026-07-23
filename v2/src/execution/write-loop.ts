@@ -13,6 +13,7 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
+import { reportUncoveredChangedLines, type ReporterSeams, type UncoveredChangedLinesInput } from "./uncovered-changed-lines.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -115,6 +116,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  /** Seams for reporter dependency injection (test-only). */
+  reporterSeams?: ReporterSeams;
 };
 
 /**
@@ -346,6 +349,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
             : resolveSpecPath(worktreePath, args.specPath);
         appendBlockerToSpec(targetSpecPath, reason);
+      }
+
+      // Run coverage advisory for complete outcomes before committing boundary
+      if (result.kind === "complete") {
+        await runCoverageAdvisory(args, store, runId, worktreePath, iterationsConsumed + 1);
       }
 
       const terminal = terminalMapping(result);
@@ -925,6 +933,68 @@ export function appendRuntimeSmokeOutcome(
 }
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+
+/** Advisory coverage pass: runs reporter and optional re-prompt for uncovered lines, consumes no iteration budget. */
+async function runCoverageAdvisory(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  iterationNumber: number,
+): Promise<void> {
+  try {
+    const report = await reportUncoveredChangedLines(
+      {
+        worktreePath,
+        runBase: args.worktree.baseRef,
+      },
+      args.reporterSeams,
+    );
+
+    // Skip advisory if no report or empty report
+    if (report.reportText.trim().length === 0) {
+      return;
+    }
+
+    // Run advisory re-prompt as a sub-invocation (no iteration budget consumed)
+    const attemptId = store.recordAttemptStart(runId);
+    args.logSink?.append(runId, { kind: "iteration_started", attemptId });
+    const clock = args.clock ?? (() => new Date());
+    const sessionLog = openSessionLog(runId, formatSessionLogTimestamp(clock()), {
+      ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+      clock,
+    });
+    sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationNumber} (coverage-advisory)`);
+
+    const advisoryArgs: WriteLoopInput = {
+      ...args,
+      promptId: "write.coverage-advisory",
+      promptPlaceholders: {
+        SPEC_PATH: args.specPath,
+        STEP_RULES: args.stepRules,
+        COVERAGE_REPORT: report.reportText,
+      },
+    };
+    const settled = await awaitIteration(advisoryArgs, runId, attemptId, sessionLog);
+    closeSessionLog(
+      sessionLog,
+      settled.kind === "settled" ? "completed" : settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+    );
+
+    if (settled.kind === "settled") {
+      const stepResult = settled.result.result;
+      const repromptText = stepResult.reprompt?.responseText ?? stepResult.blockerReprompt?.responseText;
+      args.logSink?.append(
+        runId,
+        repromptText !== undefined
+          ? { kind: "coverage_advisory_reprompt", attemptId, responseText: truncateLogText(repromptText) }
+          : { kind: "coverage_advisory_invoked", attemptId },
+      );
+    }
+  } catch {
+    // Fail soft on coverage reporter errors — don't block the run
+  }
+}
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
 type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";

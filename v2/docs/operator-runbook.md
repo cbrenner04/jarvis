@@ -329,6 +329,8 @@ resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing cov
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
+A `surviving_mutation_failed` outcome whose site is a timer callback in a determinism-guarded root (v2/src/daemon or v2/src/execution .test.ts) names both constraints: the natural kill test (which is forbidden by the determinism guard's real-timer prohibition) and the fix (extract the guard into a pure exported predicate and test both truth directions directly without a real-timer wait, then resume). Codify the extracted predicate directly in the guarded suite's test file and verify its coverage independently.
+
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's

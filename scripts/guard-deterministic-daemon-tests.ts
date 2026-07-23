@@ -8,7 +8,7 @@ function lineAt(source: string, index: number): number {
   return source.slice(0, index).split("\n").length;
 }
 
-function guarded(file: string): boolean {
+export function guarded(file: string): boolean {
   return (
     (file.startsWith("v2/src/daemon/") || file.startsWith("v2/src/execution/")) &&
     file.endsWith(".test.ts") &&

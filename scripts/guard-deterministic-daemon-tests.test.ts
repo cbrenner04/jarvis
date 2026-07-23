@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findDeterminismViolations } from "./guard-deterministic-daemon-tests.ts";
+import { findDeterminismViolations, guarded } from "./guard-deterministic-daemon-tests.ts";
 
 function violations(source: string, file = "v2/src/daemon/example.test.ts") {
   return findDeterminismViolations([{ file, source }]);
@@ -132,6 +132,39 @@ await new Promise((resolve) =>
 line 6`;
       const result = violations(source);
       expect(result[0]?.line).toBe(3);
+    });
+  });
+
+  describe("guarded predicate", () => {
+    test("guards v2/src/daemon test files", () => {
+      expect(guarded("v2/src/daemon/lifecycle.test.ts")).toBe(true);
+      expect(guarded("v2/src/daemon/subdir/example.test.ts")).toBe(true);
+    });
+
+    test("guards v2/src/execution test files", () => {
+      expect(guarded("v2/src/execution/write-loop.test.ts")).toBe(true);
+      expect(guarded("v2/src/execution/subdir/example.test.ts")).toBe(true);
+    });
+
+    test("excludes .sandbox-unrunnable.test.ts files", () => {
+      expect(guarded("v2/src/daemon/example.sandbox-unrunnable.test.ts")).toBe(false);
+      expect(guarded("v2/src/execution/example.sandbox-unrunnable.test.ts")).toBe(false);
+    });
+
+    test("excludes non-test files", () => {
+      expect(guarded("v2/src/daemon/lifecycle.ts")).toBe(false);
+      expect(guarded("v2/src/execution/write-loop.ts")).toBe(false);
+    });
+
+    test("excludes non-.test.ts test files", () => {
+      expect(guarded("v2/src/daemon/example.spec.ts")).toBe(false);
+      expect(guarded("v2/src/daemon/example.integration.ts")).toBe(false);
+    });
+
+    test("excludes test files outside daemon and execution", () => {
+      expect(guarded("v2/src/cli/usage.test.ts")).toBe(false);
+      expect(guarded("v1/src/daemon/example.test.ts")).toBe(false);
+      expect(guarded("shared/example.test.ts")).toBe(false);
     });
   });
 });

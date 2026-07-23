@@ -71,8 +71,14 @@ export class SurvivingMutationError extends Error {
     readonly mutation: string,
     readonly sourceSiteFile: string,
     readonly sourceSiteLine: number,
+    readonly dualConstraint?: true,
   ) {
-    super(`Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
+    let message = `Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`;
+    if (dualConstraint) {
+      message +=
+        "; the changed line sits inside a setTimeout/setInterval callback in a determinism-guarded suite (v2/src/daemon or v2/src/execution .test.ts), which forbids real-timer waits. Both constraints block the natural kill test: test the determinism guard's own condition as a pure exported predicate, then verify both truth directions directly without a real-timer wait.";
+    }
+    super(message);
     this.name = "SurvivingMutationError";
   }
 }

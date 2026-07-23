@@ -20,13 +20,13 @@ Daemon socket paths are keyed by executable digest (`daemonPathsByDigest`, `v2/s
 
 ## Acceptance criteria
 
-- [ ] Discovery returns exactly the digest-keyed sockets whose daemon answers `health`, in a stable sorted order.
-- [ ] A stale socket file that does not answer `health` is excluded from the result.
-- [ ] Files in jarvis home that do not match the digest-keyed socket name form (including `daemon.pid`, `daemon-<key>.pid`, `daemon-<key>.log`, `config.json`) are never probed or returned.
-- [ ] A missing jarvis home directory yields an empty result instead of an error.
-- [ ] New tests for the above fail against the pre-fix code (no discovery entry point exists) and pass after the change.
-- [ ] Inverting each added guard (liveness filter, name-form filter, missing-directory guard) makes at least one test fail; the liveness and name-form negative cases prove excluded paths are absent from the result, not merely reordered.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] Discovery returns exactly the digest-keyed sockets whose daemon answers `health`, in a stable sorted order.
+- [x] A stale socket file that does not answer `health` is excluded from the result.
+- [x] Files in jarvis home that do not match the digest-keyed socket name form (including `daemon.pid`, `daemon-<key>.pid`, `daemon-<key>.log`, `config.json`) are never probed or returned.
+- [x] A missing jarvis home directory yields an empty result instead of an error.
+- [x] New tests for the above fail against the pre-fix code (no discovery entry point exists) and pass after the change.
+- [x] Inverting each added guard (liveness filter, name-form filter, missing-directory guard) makes at least one test fail; the liveness and name-form negative cases prove excluded paths are absent from the result, not merely reordered.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

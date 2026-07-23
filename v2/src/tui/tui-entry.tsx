@@ -1,4 +1,5 @@
-import type { DaemonListResult } from "../daemon/daemon-wire.ts";
+import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
@@ -71,9 +72,10 @@ function steeringFeedbackFromError(error: unknown): string {
 export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
   const refreshScheduler = deps.refreshScheduler ?? createRefreshScheduler();
-  const connectOptions = { socketPath: deps.socketPath };
+  const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
 
-  let client: TuiDaemonClient | undefined;
+  const clients: Map<string, TuiDaemonClient> = new Map();
+  let runOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
   let currentState: TuiMonitorState = {
@@ -95,22 +97,41 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     void Promise.resolve(session?.update(currentState));
   };
 
-  const requireClient = (): TuiDaemonClient => {
-    if (client === undefined) throw new Error("tui daemon client not connected");
-    return client;
-  };
+  const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
 
   const setState = (state: TuiMonitorState): void => {
     currentState = state;
     syncMonitor();
   };
 
+  const mergeRunLists = (listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>): DaemonListRunRow[] => {
+    const deduped = new Map<string, DaemonListRunRow>();
+    const newOwners = new Map<string, TuiDaemonClient>();
+
+    for (const [client, result] of listResults) {
+      if (!result) continue;
+
+      for (const row of result.runs) {
+        const existing = deduped.get(row.runId);
+        if (!existing || (row.isLive && !existing.isLive)) {
+          deduped.set(row.runId, row);
+          newOwners.set(row.runId, client);
+        }
+      }
+    }
+
+    runOwners = newOwners;
+    return Array.from(deduped.values());
+  };
+
   const startWaitForRun = (runId: string): void => {
     const waitToken = activeWaitToken;
+    const owner = getOwner(runId);
+    if (!owner) return;
+
     void (async () => {
       try {
-        const result = await client?.wait(runId);
-        if (result === undefined) return;
+        const result = await owner.wait(runId);
         if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
         const readyState = { kind: "ready" as const, runId, result };
         lastReadyByRunId.set(runId, readyState);
@@ -142,16 +163,25 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     }
   };
 
-  const runAction = (perform: (runId: string) => Promise<unknown>, rewaitOnSuccess: boolean): void => {
+  const runAction = (
+    perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>,
+    rewaitOnSuccess: boolean,
+  ): void => {
     const runId = currentState.selectedRunId;
     if (runId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
       return;
     }
 
+    const owner = getOwner(runId);
+    if (!owner) {
+      setState({ ...currentState, steeringFeedback: "no run selected" });
+      return;
+    }
+
     void (async () => {
       try {
-        await perform(runId);
+        await perform(runId, owner);
         if (currentState.selectedRunId !== runId) return;
         if (rewaitOnSuccess) {
           activeWaitToken += 1;
@@ -176,7 +206,51 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   };
 
   const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
-    runAction((runId) => requireClient()[method](runId), rewaitOnSuccess);
+    runAction((runId, owner) => owner[method](runId), rewaitOnSuccess);
+
+  const updateConnections = async (): Promise<void> => {
+    const sockets = await discoverFn();
+    const allSockets = new Set(sockets);
+    allSockets.add(deps.socketPath);
+
+    // Close clients for sockets no longer live
+    const currentSockets = new Set(clients.keys());
+    let selectedRunOwnerDropped = false;
+    for (const socketPath of currentSockets) {
+      if (!allSockets.has(socketPath)) {
+        const client = clients.get(socketPath);
+        client?.close();
+        clients.delete(socketPath);
+
+        // Track if the dropped connection owned the selected run
+        if (currentState.selectedRunId !== null && getOwner(currentState.selectedRunId) === client) {
+          selectedRunOwnerDropped = true;
+        }
+      }
+    }
+
+    // Clear selection if the owning daemon was dropped
+    if (selectedRunOwnerDropped) {
+      activeWaitToken += 1;
+      setState({
+        ...currentState,
+        selectedRunId: null,
+        waitState: { kind: "none" },
+        steeringFeedback: null,
+      });
+    }
+
+    // Add clients for newly discovered sockets
+    for (const socketPath of allSockets) {
+      if (!clients.has(socketPath)) {
+        try {
+          clients.set(socketPath, await connectFn({ socketPath }));
+        } catch {
+          // Retry on next tick rather than blacklist; daemon mid-startup fails first probe.
+        }
+      }
+    }
+  };
 
   const refreshRuns = async (initial = false): Promise<void> => {
     if (refreshInFlight) {
@@ -188,19 +262,38 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     try {
       do {
         refreshQueued = false;
-        let list: DaemonListResult | undefined;
-        try {
-          list = await client?.list();
-        } catch (error) {
-          if (initial) throw error;
-          return;
+
+        // Rediscover live sockets and update connections
+        if (!initial) {
+          try {
+            await updateConnections();
+          } catch {
+            // Rediscovery failure leaves the current connection set intact for that tick.
+          }
         }
-        if (list === undefined) return;
+
+        const listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]> = [];
+        let allClientsFailed = true;
+        let firstError: unknown;
+        for (const client of clients.values()) {
+          try {
+            listResults.push([client, await client.list()]);
+            allClientsFailed = false;
+          } catch (error) {
+            // Skip clients that fail list calls.
+            listResults.push([client, undefined]);
+            if (!firstError) firstError = error;
+          }
+        }
+
+        if (initial && allClientsFailed) throw firstError;
+
+        const runs = mergeRunLists(listResults);
 
         if (initial) {
-          const runId = firstSelectableRunId(list.runs);
+          const runId = firstSelectableRunId(runs);
           currentState = {
-            runs: list.runs,
+            runs,
             selectedRunId: runId,
             waitState: buildWaitStateForSelection(runId),
             steeringFeedback: null,
@@ -209,15 +302,15 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (selectedRunId !== null && !orderSelectableRuns(list.runs).some((run) => run.runId === selectedRunId)) {
-          setState({ runs: list.runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
+        if (selectedRunId !== null && !orderSelectableRuns(runs).some((run) => run.runId === selectedRunId)) {
+          setState({ runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
           activeWaitToken += 1;
           continue;
         }
 
         setState({
           ...currentState,
-          runs: list.runs,
+          runs,
         });
       } while (refreshQueued);
     } finally {
@@ -226,18 +319,18 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   };
 
   try {
-    client = await connectFn(connectOptions);
-  } catch (error) {
-    if (error instanceof RpcConnectionError) {
+    await updateConnections();
+
+    if (clients.size === 0) {
       await presentFeedback({ kind: "unavailable" }, deps);
       return 1;
     }
-    throw error;
-  }
 
-  try {
-    await client.health();
-    await client.status();
+    // Prove liveness on all connected clients.
+    const healthChecks = Array.from(clients.values()).map((client) => client.health());
+    const statusChecks = Array.from(clients.values()).map((client) => client.status());
+    await Promise.all([...healthChecks, ...statusChecks]);
+
     await refreshRuns(true);
 
     if (currentState.selectedRunId !== null) {
@@ -297,6 +390,8 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   } finally {
     refreshHandle?.close();
     session?.close();
-    client?.close();
+    for (const client of clients.values()) {
+      client.close();
+    }
   }
 }

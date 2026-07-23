@@ -22,15 +22,15 @@ After `01`, the connection set is fixed at startup. A daemon started later (the 
 
 ## Acceptance criteria
 
-- [ ] A daemon that becomes live after the TUI started contributes its runs on a later refresh with no operator action.
-- [ ] Runs on the superseded and superseding daemons are visible together while both daemons remain live.
-- [ ] A daemon that exits has its connection closed and its exclusive runs removed; the monitor keeps rendering the remaining daemons and does not exit or stop refreshing.
-- [ ] When the daemon owning the selected run is dropped, selection clears and the monitor stays open and interactive.
-- [ ] Steering after supersession targets the daemon owning the selected run, not the daemon connected at startup.
-- [ ] A rediscovery that fails leaves the previously connected daemons rendered.
-- [ ] The regression test in `v2/src/commands/tui.test.ts` proving one running TUI shows runs from a newly discovered live daemon fails against the pre-fix code (fixed startup connection set) and passes after the change.
-- [ ] Inverting each added guard (drop-only-when-not-live, retry-on-connect-failure, owner-dropped selection clear, rediscovery-failure passthrough) makes at least one test fail; the drop and selection-clear negative cases prove the exited daemon's exclusive runs and the stale selection are absent.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon that becomes live after the TUI started contributes its runs on a later refresh with no operator action.
+- [x] Runs on the superseded and superseding daemons are visible together while both daemons remain live.
+- [x] A daemon that exits has its connection closed and its exclusive runs removed; the monitor keeps rendering the remaining daemons and does not exit or stop refreshing.
+- [x] When the daemon owning the selected run is dropped, selection clears and the monitor stays open and interactive.
+- [x] Steering after supersession targets the daemon owning the selected run, not the daemon connected at startup.
+- [x] A rediscovery that fails leaves the previously connected daemons rendered.
+- [x] The regression test in `v2/src/commands/tui.test.ts` proving one running TUI shows runs from a newly discovered live daemon fails against the pre-fix code (fixed startup connection set) and passes after the change.
+- [x] Inverting each added guard (drop-only-when-not-live, retry-on-connect-failure, owner-dropped selection clear, rediscovery-failure passthrough) makes at least one test fail; the drop and selection-clear negative cases prove the exited daemon's exclusive runs and the stale selection are absent.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

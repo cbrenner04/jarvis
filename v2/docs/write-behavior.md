@@ -573,9 +573,13 @@ removal/failure reporting).
 
 Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).
 
-Flow: connect → IPC `health` → IPC `status` → daemon `list` → interactive run
-monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
-`start` or log-stream frames.
+Flow: discover live daemon sockets → connect to each → IPC `health` → IPC `status` → aggregate daemon `list` results → interactive run monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send `start` or log-stream frames.
+
+Per-tick rediscovery: Every refresh tick (second), the monitor rediscovers live daemon sockets, connects to newly discovered daemons, and closes connections to daemons that are no longer live. Newly discovered sockets contribute their runs on the next refresh with no operator action. When a daemon exits, its connection is closed, its exclusive runs are removed from the view, and the monitor continues rendering remaining daemons. Superseded (old digest) and superseding (new digest) daemons are visible together while both remain live. If the selected run's daemon is closed, selection clears automatically. Rediscovery failure leaves the current connection set intact for that tick, ensuring transient discovery errors do not degrade the view. Steering commands target the daemon currently owning the selected run, dynamically updating as daemons are discovered or exit.
+
+The monitor aggregates every live daemon's run list into one view: each run ID appears once (deduped), the daemon reporting the run `isLive` is the owner and receives all steering commands (`pause`, `resume`, `kill`), and a connection that fails to list is skipped without aborting the monitor. When discovery returns no sockets, the monitor connects only to the invoking digest's socket and behaves as before.
+
+`jarvis run wait` and `jarvis run list` remain scoped to one daemon (the invoking socket), unchanged from today's single-daemon model.
 
 `jarvis run wait` renders a timed-out loop as `loopOutcomeKind:
 "iteration_timeout"` with failed run status; it is not rendered as
@@ -586,16 +590,16 @@ monitor. `jarvis tui` does not call `executeWriteLoop` locally and does not send
 | `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |
 | `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start`; mid-session tail failure: ink `daemon_error: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable, mid-session tail failure, or usage error |
 
-On entry with a non-empty daemon `list`, the monitor selects the first row
+On entry with a non-empty aggregated daemon `list`, the monitor selects the first row
 (daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
 one row per run with `runId`, `project`, `branch`, `status`, and liveness
 (`live` / `not-live`, matching `jarvis run list`). List-row `status` is the
 poll-time value from `list` only.
 
-On entry with an empty daemon `list`, the monitor shows an explicit empty state,
+On entry with an empty aggregated daemon `list`, the monitor shows an explicit empty state,
 keeps no selection, and sends no `wait`.
 
-The run list refreshes every second from daemon `list`, preserving selection by
+The run list refreshes every second from aggregated daemon `list`, preserving selection by
 `runId`. If the selected run disappears on a later poll, the monitor clears
 selection and abandons the prior `wait` client-side. Mid-session refresh and
 `wait` failures keep the last good monitor snapshot; operator quit still exits
@@ -611,7 +615,7 @@ resolve-time values from `wait`; the monitor does not infer them from list
 polls. When `wait` fails for the unchanged selected run, the panel reverts to the
 last ready snapshot when one exists, otherwise an explicit error state—not
 perpetual pending. Selection changes abandon the prior `wait` client-side, start
-a fresh `wait` for the newly selected run, and ignore any late reply from the
+a fresh `wait` for the newly selected run (on the owning daemon), and ignore any late reply from the
 abandoned request.
 
 Production ink selects the first selectable row on entry. Down/`j` and Up move
@@ -623,7 +627,7 @@ status from `list` only; single-step rows keep the prior layout. The outcome
 panel still comes from `wait`.
 
 The monitor exposes injectable `pauseSelected`, `resumeSelected`, and
-`killSelected`. Each maps 1:1 to daemon
+`killSelected`. Each maps 1:1 to the owning daemon's
 `pause`, `resume`, and `kill` on the selected `runId`; no selection → no-op with
 inline `no run selected`. No client pre-gate on liveness or terminal rows—daemon
 and transport failures surface inline as `<code>: <message>` or
@@ -633,8 +637,8 @@ feedback replaces on the next action and clears on selection change;
 abandons any prior ready snapshot; other successful actions keep the existing
 refresh/`wait` loop. Success-feedback layout is deferred.
 
-Operator quit on the run monitor (`jarvis tui`) is `q` or Ctrl-C. Quit closes the
-connected daemon RPC client and exits `0`.
+Operator quit on the run monitor (`jarvis tui`) is `q` or Ctrl-C. Quit closes all
+connected daemon RPC clients and exits `0`.
 
 `jarvis tui log <run-id>` opens an IPC tail stream on the production socket,
 replays persisted records, follows live appends, and stays open after replay

@@ -78,6 +78,16 @@ error) preserve the socket and are reported. Live sockets — those a daemon is
 currently answering on, whether the invoking digest or a superseded keyed daemon —
 are never removed.
 
+### Socket discovery
+
+Observers enumerate live coexisting daemons by discovering live sockets: enumerating
+`daemon-<key>.sock` entries under `~/.jarvis`, probing each for liveness via a
+`health` RPC call (which succeeds immediately if a daemon is running and listening),
+and collecting those that respond within a short timeout. Only sockets that answer
+`health` successfully are considered live; stale socket files that do not connect are
+excluded. Discovery returns results in lexicographic order for deterministic
+enumeration.
+
 ## Framing
 
 One connection carries length-prefixed UTF-8 JSON frames:

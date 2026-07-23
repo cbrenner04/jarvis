@@ -263,16 +263,19 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
-- **Shipped TUI (`jarvis tui`).** Connects over the production IPC socket
-  (`~/.jarvis/daemon.sock`), proves liveness via IPC `health` and IPC `status`
-  (`{ state: "running" }`), then enters a run monitor backed by daemon `list`,
-  `wait`, and steering RPCs (`pause` / `resume` / `kill` on the selected run);
-  optional workflow-step snapshots on `list` rows (see
-  [`daemon-host.md`](./daemon-host.md#list)); operator contract:
-  [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs (`status: "queued"`)
-  render under a separate "Queue" heading, oldest-queued-first, each showing a
-  fixed "waiting: memory headroom" descriptor in place of liveness; the
-  "Runs" section (non-queued) always renders. Queued runs are excluded from
+- **Shipped TUI (`jarvis tui`).** Discovers all live daemon sockets, connects to
+  each, proves liveness via IPC `health` and IPC `status` on all (`{ state: "running" }`),
+  then aggregates their daemon `list` results into one monitor: each run ID is deduped
+  (the daemon reporting `isLive` is the owner), and a connection that fails to list is
+  skipped without aborting the view. Steering RPCs (`pause` / `resume` / `kill`)
+  route to the owning daemon. When no sockets are discovered, the monitor connects
+  only to the invoking digest's socket and behaves as before (single-daemon view).
+  `jarvis run list` and `jarvis run wait` remain single-daemon. Optional workflow-step
+  snapshots on `list` rows (see [`daemon-host.md`](./daemon-host.md#list));
+  operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs
+  (`status: "queued"`) render under a separate "Queue" heading, oldest-queued-first,
+  each showing a fixed "waiting: memory headroom" descriptor in place of liveness;
+  the "Runs" section (non-queued) always renders. Queued runs are excluded from
   selection (`selectRun`, initial pick, navigation, and the selection-loss
   fallback) since they carry no steering RPCs. Down/`j` and Up move selection;
   `k` remains kill rather than an up binding, preserving the established

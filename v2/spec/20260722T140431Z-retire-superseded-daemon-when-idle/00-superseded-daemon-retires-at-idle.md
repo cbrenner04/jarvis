@@ -26,14 +26,14 @@
 
 ## Acceptance criteria
 
-- [ ] After `supersede`, `start` (write-loop and workflow forms) and `resume` are rejected `daemon_superseded`, and no durable run row, worktree claim, or materialized worktree is created for the rejected call.
-- [ ] After `supersede`, `health`, `status`, `list`, `wait`, log tail, `pause`, and `kill` still answer for runs the daemon owns.
-- [ ] A run in flight when `supersede` arrives reaches its normal outcome under the same daemon, with its worktree lock, agent process, and log sink unchanged.
-- [ ] A superseded daemon with no active run exits without any operator action; one with an active run exits only after that run settles.
-- [ ] Queued runs are not promoted after supersession and do not keep the daemon alive.
-- [ ] A regression test in `v2/src/daemon/daemon-lifecycle.test.ts` proves the superseded daemon retires only after its owned run settles, and fails against the pre-fix code (no `supersede` method exists).
-- [ ] Inverting each added guard (admission closure, queued-promotion suppression, idle-only exit) makes at least one test fail; the admission and promotion negative cases assert the rejected run row and the promotion are absent, not merely delayed.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] After `supersede`, `start` (write-loop and workflow forms) and `resume` are rejected `daemon_superseded`, and no durable run row, worktree claim, or materialized worktree is created for the rejected call.
+- [x] After `supersede`, `health`, `status`, `list`, `wait`, log tail, `pause`, and `kill` still answer for runs the daemon owns.
+- [x] A run in flight when `supersede` arrives reaches its normal outcome under the same daemon, with its worktree lock, agent process, and log sink unchanged.
+- [x] A superseded daemon with no active run exits without any operator action; one with an active run exits only after that run settles.
+- [x] Queued runs are not promoted after supersession and do not keep the daemon alive.
+- [x] A regression test in `v2/src/daemon/daemon-lifecycle.test.ts` proves the superseded daemon retires only after its owned run settles, and fails against the pre-fix code (no `supersede` method exists).
+- [x] Inverting each added guard (admission closure, queued-promotion suppression, idle-only exit) makes at least one test fail; the admission and promotion negative cases assert the rejected run row and the promotion are absent, not merely delayed.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

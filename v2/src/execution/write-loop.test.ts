@@ -2553,7 +2553,15 @@ describe("write loop", () => {
       }));
 
       mock.module("../../../shared/invocation/execute.ts", () => ({
-        executeWithQuotaFallback: async (input: any) => {
+        executeWithQuotaFallback: async (input: {
+          prompt?: string;
+          cwd?: string;
+          bindings?: unknown;
+          signal?: AbortSignal;
+          idleOutputMs?: number;
+          telemetry?: unknown;
+          sessionLog?: unknown;
+        }) => {
           advisoryResponses.push(input.prompt ?? "");
           return {
             attempts: [],
@@ -2785,7 +2793,11 @@ describe("write loop", () => {
       const artifact = registry.getById("write.coverage-advisory");
 
       expect(artifact).toBeDefined();
-      expect(artifact.metadata.placeholders).toContainEqual({ name: "COVERAGE_REPORT", type: "string", required: true });
+      expect(artifact.metadata.placeholders).toContainEqual({
+        name: "COVERAGE_REPORT",
+        type: "string",
+        required: true,
+      });
 
       const testReport = "Uncovered changed lines (execution count is zero):\nv2/src/foo.ts:10\n\nNote: ...";
       const rendered = renderArtifactTemplate(artifact, { COVERAGE_REPORT: testReport });

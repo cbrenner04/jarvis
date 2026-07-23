@@ -397,6 +397,10 @@ export type RunControlHandlerDeps = {
   settleDelayMs?: number;
   /** Test seam for pre-existing daemon-memory ownership. */
   registry?: WorktreeOwnershipRegistry;
+  /** Check if daemon is retiring; rejections on start and resume use this. */
+  isRetiring?: () => boolean;
+  /** Callback invoked when daemon becomes idle while retiring; triggers shutdown. */
+  onRetiredAndIdle?: () => void;
 };
 
 export type WaitRunCompletionResult = {
@@ -558,6 +562,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ? () => injectedSettleDelayMs
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
+  const isRetiring = deps.isRetiring ?? (() => false);
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
@@ -634,15 +639,22 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         activeRuns.delete(ks);
         _registry.release(key);
         promoteQueuedRun();
+        if (isRetiring() && activeRuns.size === 0) {
+          deps.onRetiredAndIdle?.();
+        }
       }
     })();
   };
 
-  const promoteQueuedRun = (bypassSettleDelay = false): void =>
+  const promoteQueuedRun = (bypassSettleDelay = false): void => {
+    if (isRetiring()) {
+      return;
+    }
     promoteQueuedRunImpl(
       { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop },
       bypassSettleDelay,
     );
+  };
 
   /**
    * Demote one non-terminal workflow run to `failed` and record why. Both steps are
@@ -874,6 +886,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const startHandler: RpcHandler = (frame) => {
+    if (isRetiring()) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+
     const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
     const hasInput = params?.input !== undefined;
     const hasSteps = params?.steps !== undefined;
@@ -1073,6 +1089,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   }
 
   const resumeHandler: RpcHandler = async (frame) => {
+    if (isRetiring()) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+
     const params = frame.params as { runId?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
@@ -1205,6 +1225,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       waitAbortControllers.clear();
     },
+    /** Check if daemon is currently idle (no active runs). */
+    getIsIdle: (): boolean => activeRuns.size === 0,
   };
 }
 
@@ -1278,6 +1300,8 @@ export type DaemonStartupDeps = {
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
   recoverReconciledRuns?: typeof recoverReconciledRuns;
+  /** Injectable exit function for testing; defaults to process.exit. */
+  exit?: (code: number) => void;
 };
 
 export async function recoverReconciledRuns(
@@ -1333,7 +1357,9 @@ export async function startDaemonRuntime(
     reconciliationLogSink.close();
   }
   let shutdownRequested = false;
+  let retiring = false;
   const operatorSessionId = crypto.randomUUID();
+  const injectedExit = startupDeps.exit ?? process.exit;
 
   let loadedRevision: string;
   let loadedExecutableDigest: string;
@@ -1382,6 +1408,7 @@ export async function startDaemonRuntime(
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     close: _closeRunControlHandlers,
+    getIsIdle,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,
@@ -1390,12 +1417,25 @@ export async function startDaemonRuntime(
     operatorSessionId,
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
+    isRetiring: () => retiring,
+    onRetiredAndIdle: () => {
+      shutdownRequested = true;
+    },
   });
+
+  const supersedeRuntimeHandler: RpcHandler = () => {
+    retiring = true;
+    if (getIsIdle()) {
+      shutdownRequested = true;
+    }
+    return { kind: "response", result: { ok: true } };
+  };
 
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
+    supersede: supersedeRuntimeHandler,
     ...runControlHandlers,
   };
 
@@ -1405,7 +1445,7 @@ export async function startDaemonRuntime(
     server = await (startupDeps.startIpcServer ?? startIpcServer)(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
-    process.exit(1);
+    injectedExit(1);
   }
 
   const recoveryLogSink = createLogSink(logsPath);
@@ -1450,11 +1490,11 @@ export async function startDaemonRuntime(
     if (shutdownRequested) {
       void close()
         .then(() => {
-          process.exit(0);
+          injectedExit(0);
         })
         .catch((err: unknown) => {
           console.error("Error during shutdown:", err);
-          process.exit(1);
+          injectedExit(1);
         });
     }
   }, 100);

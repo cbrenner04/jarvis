@@ -569,6 +569,18 @@ See [`daemon-host.md`](./daemon-host.md#jarvis-daemon-log---follow) for the
 replay/follow contract (lossless handoff, truncation/replacement resume,
 removal/failure reporting).
 
+### Daemon supersession and retirement
+
+When the daemon executable changes (detected via digest mismatch in `jarvis daemon status`), a new daemon can be started on the same socket path while the old daemon is still running runs. The CLI triggers supersession by calling the IPC `supersede` RPC on the retiring (old) daemon.
+
+**Operator-observable behavior after supersession:**
+
+- The retiring daemon **refuses new work:** `jarvis run start` and `jarvis run resume` reject immediately with `daemon_superseded`. No new runs are admitted, and no run rows are created.
+- The retiring daemon **continues serving existing runs:** `jarvis run list`, `jarvis run wait`, `jarvis tui`, `jarvis tui log <run-id>`, `jarvis run pause <run-id>`, and `jarvis run kill <run-id>` continue to work for runs the retiring daemon owns. Operators can monitor, pause, and kill in-flight runs unchanged.
+- Queued runs are not promoted from the retiring daemon. A queued run that was queued under the old daemon stays queued until the daemon exits; the new daemon will not admit it, so those queued runs are lost. (Mitigation: operators should wait for queued runs to complete or kill them before retirement.)
+- The retiring daemon **exits automatically** once all in-flight runs settle. No operator action is required; the process exits cleanly once it has no active runs.
+- **Multi-daemon view:** `jarvis tui` shows all live daemons (superseded and superseding) with their runs aggregated until the retiring daemon exits, then the retiring daemon's runs disappear and the view continues with the new daemon.
+
 ## TUI CLI
 
 Socket default: `~/.jarvis/daemon.sock` (same as daemon lifecycle commands).

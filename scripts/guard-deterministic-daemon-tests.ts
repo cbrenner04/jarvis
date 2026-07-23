@@ -14,9 +14,7 @@ export function isProductionPathInGuardedRoot(file: string): boolean {
 
 function guarded(file: string): boolean {
   return (
-    isProductionPathInGuardedRoot(file) &&
-    file.endsWith(".test.ts") &&
-    !file.endsWith(".sandbox-unrunnable.test.ts")
+    isProductionPathInGuardedRoot(file) && file.endsWith(".test.ts") && !file.endsWith(".sandbox-unrunnable.test.ts")
   );
 }
 

@@ -385,12 +385,7 @@ index 1234567..abcdefg 100644
 
 describe("SurvivingMutationError", () => {
   it("renders base message without dual-constraint clause for non-timer mutations", () => {
-    const error = new SurvivingMutationError(
-      "operator-flip: === → !==",
-      "v2/src/execution/runner.ts",
-      42,
-      false,
-    );
+    const error = new SurvivingMutationError("operator-flip: === → !==", "v2/src/execution/runner.ts", 42, false);
     expect(error.message).toBe("Surviving mutation in v2/src/execution/runner.ts:42: operator-flip: === → !==");
   });
 
@@ -400,12 +395,7 @@ describe("SurvivingMutationError", () => {
   });
 
   it("renders dual-constraint message for timer mutation in guarded root", () => {
-    const error = new SurvivingMutationError(
-      "guard-flip: !valid → valid",
-      "v2/src/execution/runner.ts",
-      24,
-      true,
-    );
+    const error = new SurvivingMutationError("guard-flip: !valid → valid", "v2/src/execution/runner.ts", 24, true);
     const message = error.message;
     expect(message).toContain("Surviving mutation in v2/src/execution/runner.ts:24: guard-flip: !valid → valid");
     expect(message).toContain("Mutation-test gate: kill the change on this line in both directions");

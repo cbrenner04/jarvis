@@ -4435,6 +4435,65 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("daemon resume retries landing failure without re-invoking write step", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "daemon-resume-landing-"));
+    stageReviewedIntent(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    const staged = "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n";
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    let actuatorCalls = 0;
+    const step: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/landing-retry",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-1",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async ({ cwd }) => {
+          if (agentId === "codex") {
+            actuatorCalls += 1;
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            writeFileSync(join(stage, "example.md"), staged, "utf8");
+          }
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+
+    const firstLogSink = new TestLogSink();
+    const resumeLogSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store, logSink: firstLogSink });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(actuatorCalls).toBe(1);
+
+      rmSync(join(durableDir, "example.md"));
+      const retried = await executeWorkflow({ steps: [step], stateStore: store, logSink: resumeLogSink });
+      expect(retried).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
+      expect(actuatorCalls).toBe(1);
+
+      const resumeEvents = resumeLogSink.getEventsForRun(retried.runId);
+      const iterationStartedEvents = resumeEvents.filter((e) => e.kind === "iteration_started");
+      expect(iterationStartedEvents).toHaveLength(1);
+    });
+  });
+
   test("aggregates missing critic and actuator bindings before durable state", async () => {
     const step: ReviewWorkflowStep = {
       behavior: "review",

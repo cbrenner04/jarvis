@@ -21,11 +21,11 @@ is committed and only publication failed.
 
 ## Acceptance criteria
 
-- [ ] A `failed` row with `error.reason: "landing_failed"`, `retryable: true`, and `nextAction: "resume"` is accepted by `jarvis run resume` and respawns from its persisted write snapshot.
-- [ ] `v2/src/daemon/daemon-resume.test.ts` has a regression that fails against the baseline with `terminal_run` and passes once `landing_failed` admission is wired; inverting the admission guard restores the refusal.
-- [ ] `v2/src/execution/workflow-runner.test.ts` has a regression that drives landing failure then daemon resume through succeeding publication, asserts publication completes without a new write-step agent invocation, and fails against the baseline `terminal_run` refusal.
-- [ ] `daemon-resume.test.ts` flip/settlement refusal cases stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A `failed` row with `error.reason: "landing_failed"`, `retryable: true`, and `nextAction: "resume"` is accepted by `jarvis run resume` and respawns from its persisted write snapshot.
+- [x] `v2/src/daemon/daemon-resume.test.ts` has a regression that fails against the baseline with `terminal_run` and passes once `landing_failed` admission is wired; inverting the admission guard restores the refusal.
+- [x] `v2/src/execution/workflow-runner.test.ts` has a regression that drives landing failure then daemon resume through succeeding publication, asserts publication completes without a new write-step agent invocation, and fails against the baseline `terminal_run` refusal.
+- [x] `daemon-resume.test.ts` flip/settlement refusal cases stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

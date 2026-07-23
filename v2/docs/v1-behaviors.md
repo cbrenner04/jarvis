@@ -692,8 +692,10 @@ resolution and the spec path. Explicit intent titles remain authoritative.
   land it transactionally after writing and review, before Git/GitHub completion
   or durable no-Git completion. Landing failures retain retryable staging;
   successful landing removes transient staging. `none` preserves non-publication
-  workflows. Sources: `v2/src/execution/publication-landing.ts`,
-  `v2/src/execution/workflow-runner.ts`.
+  workflows. Landing failures return resumable `invocation_failure` with
+  `failureKind: "landing"`; `jarvis run resume <run-id>` retries landing from the
+  persisted write snapshot without re-invoking the write-step agent. Sources: `v2/src/execution/publication-landing.ts`,
+  `v2/src/execution/workflow-runner.ts`, `v2/src/daemon/daemon.ts`.
 
 ## v2 Parity: Completion commit subject and idempotency
 

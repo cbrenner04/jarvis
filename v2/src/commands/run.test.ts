@@ -470,7 +470,136 @@ describe("run control", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "connect ENOENT /tmp/jarvis.sock\n" });
   });
+});
 
+describe("run list multi-daemon", () => {
+  const INVOKING_SOCKET = "/jarvis/daemon-aaaa.sock";
+  const OTHER_SOCKET = "/jarvis/daemon-bbbb.sock";
+
+  type RunsBySocket = Record<string, Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> | Error>;
+
+  function listRow(runId: string, status: string, isLive: boolean) {
+    return { runId, project: "demo", branch: "main", status, isLive };
+  }
+
+  function connectForList(requestId: string, runsBySocket: RunsBySocket, onConnect?: (socketPath: string) => void) {
+    return async (socketPath: string) => {
+      onConnect?.(socketPath);
+      const runs = runsBySocket[socketPath];
+      if (runs instanceof Error) throw runs;
+      if (runs === undefined) throw new Error("unexpected socket");
+      return makeIpcClient([{ kind: "response", id: requestId, result: { runs } }]);
+    };
+  }
+
+  async function runList(
+    requestId: string,
+    options: { runsBySocket: RunsBySocket; discovery?: string[]; onConnect?: (socketPath: string) => void },
+  ) {
+    const cap = captureIo();
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        connectIpcClient: connectForList(requestId, options.runsBySocket, options.onConnect),
+        socketDiscovery: async () => options.discovery ?? [OTHER_SOCKET],
+      }),
+    );
+    return { code, cap, lines: () => cap.read().stdout.trimEnd().split("\n") };
+  }
+
+  test("run list aggregates runs from multiple live daemons", async () => {
+    const connectAttempts: string[] = [];
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000020", {
+      runsBySocket: {
+        [INVOKING_SOCKET]: [listRow("invoking-run", "completed", false)],
+        [OTHER_SOCKET]: [listRow("other-run", "in-progress", true)],
+      },
+      onConnect: (socketPath) => connectAttempts.push(socketPath),
+    });
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(2);
+    expect(lines()[0]).toContain("invoking-run");
+    expect(lines()[1]).toContain("other-run");
+    expect(connectAttempts).toContain(INVOKING_SOCKET);
+    expect(connectAttempts).toContain(OTHER_SOCKET);
+  });
+
+  test("run list dedupes by runId, preferring isLive=true", async () => {
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000021", {
+      runsBySocket: {
+        [INVOKING_SOCKET]: [listRow("shared-run", "completed", false)],
+        [OTHER_SOCKET]: [listRow("shared-run", "in-progress", true)],
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toContain("shared-run");
+    expect(lines()[0]).toContain("live");
+  });
+
+  test("run list skips unreachable sockets and lists remaining runs", async () => {
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000022", {
+      runsBySocket: {
+        [INVOKING_SOCKET]: [listRow("invoking-run", "completed", false)],
+        [OTHER_SOCKET]: new Error("ECONNREFUSED"),
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toContain("invoking-run");
+  });
+
+  test("run list solo-daemon output unchanged when only invoking daemon is live", async () => {
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000023", {
+      runsBySocket: { [INVOKING_SOCKET]: [listRow("solo-run", "completed", false)] },
+      discovery: [],
+    });
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(1);
+    expect(lines()[0]).toContain("solo-run");
+  });
+
+  test("run list sorts by runId", async () => {
+    const { code, lines } = await runList("00000000-0000-4000-8000-000000000024", {
+      runsBySocket: {
+        [INVOKING_SOCKET]: [
+          listRow("run-z", "completed", false),
+          listRow("run-a", "completed", false),
+          listRow("run-m", "completed", false),
+        ],
+      },
+      discovery: [],
+    });
+
+    expect(code).toBe(0);
+    expect(lines()).toHaveLength(3);
+    expect(lines()[0]).toContain("run-a");
+    expect(lines()[1]).toContain("run-m");
+    expect(lines()[2]).toContain("run-z");
+  });
+
+  test("run list exits with first error when all sockets fail", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "list"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      connectIpcClient: async (socketPath) => {
+        if (socketPath === INVOKING_SOCKET) throw new Error("first error");
+        throw new Error("second error");
+      },
+      socketDiscovery: async () => [OTHER_SOCKET],
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("first error");
+  });
+});
+
+describe("run control", () => {
   test("run list renders surviving-mutation columns independently and omits them when absent", async () => {
     const cap = captureIo();
     const requestId = "00000000-0000-4000-8000-000000000011";

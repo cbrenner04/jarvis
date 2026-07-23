@@ -211,7 +211,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const updateConnections = async (): Promise<void> => {
     const sockets = await discoverFn();
     const allSockets = new Set(sockets);
-    allSockets.add(deps.socketPath);
+    // Include invoking socket when: discovery returns no sockets (solo fallback), already listed, or already connected
+    if (sockets.length === 0 || sockets.includes(deps.socketPath) || clients.has(deps.socketPath)) {
+      allSockets.add(deps.socketPath);
+    }
 
     // Close clients for sockets no longer live
     const currentSockets = new Set(clients.keys());
@@ -275,12 +278,16 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         const listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]> = [];
         let allClientsFailed = true;
         let firstError: unknown;
-        for (const client of clients.values()) {
+        for (const [socketPath, client] of clients.entries()) {
           try {
             listResults.push([client, await client.list()]);
             allClientsFailed = false;
           } catch (error) {
-            // Skip clients that fail list calls.
+            // Evict invoking-socket client on list failure; skip others for this tick
+            if (socketPath === deps.socketPath) {
+              client.close();
+              clients.delete(socketPath);
+            }
             listResults.push([client, undefined]);
             if (!firstError) firstError = error;
           }

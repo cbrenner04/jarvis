@@ -254,6 +254,8 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 **TUI cross-daemon observation:** `jarvis tui` is the primary observation surface for multiple daemon instances. When dispatch moves to a new digest (via recompiled executable), the TUI automatically discovers and displays runs from both the old (superseded) and new (superseding) daemons on its next refresh tick. No restart is required. Once the old daemon exits naturally, its runs are removed, and the monitor continues uninterrupted. In contrast, `jarvis run list` and `jarvis run wait` remain scoped to the daemon they were invoked against. This allows the TUI to track work across digest transitions while precise tools remain focused on a single daemon.
 
+The invoking-socket client (the socket TUI connects to by default via `deps.socketPath`) is no longer exempt from eviction. When that connection's `list()` RPC fails, the stale client is closed and removed, allowing a fresh connection on the next refresh tick. This ensures that if the invoking daemon dies and a new daemon binds the same socket path, the TUI automatically reconnects to the new daemon's runs.
+
 Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` on the same daemon.
 
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).

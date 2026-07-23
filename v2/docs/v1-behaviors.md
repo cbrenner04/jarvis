@@ -542,6 +542,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   timestamp); returned run IDs work with `run log` and `tui log` on the same
   daemon. Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/daemon/live-daemon-socket-discovery.ts`,
   `v2/docs/write-behavior.md`
+- [v2 additive] `jarvis run list --since <duration|timestamp> --limit <n>` caps filtered query results to the explicit limit or default 200 newest matching rows if omitted. Bare `--limit` without filters (no `--since`, etc.) is ignored and does not affect the unfiltered list's terminal retention policy. Filtered results are returned newest-first (by `created_at` descending). Sources: `v2/src/commands/run.ts`, `v2/src/daemon/daemon.ts`, `v2/docs/write-behavior.md`, `v2/docs/daemon-host.md`
 - [v2 additive] TUI follows daemon supersession without restart: on every refresh
   tick (one second), the running TUI rediscovers live daemon sockets and updates
   connections. Newly discovered daemons contribute their runs on the next refresh;

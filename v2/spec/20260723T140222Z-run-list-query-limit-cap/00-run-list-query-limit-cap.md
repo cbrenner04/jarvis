@@ -25,15 +25,15 @@ operators also need an explicit row bound.
 
 ## Acceptance criteria
 
-- [ ] `--limit` on a filtered query returns at most N newest matching rows.
-- [ ] A filtered query without `--limit` returns at most 200 newest matching rows.
-- [ ] `daemon-terminal-run-retention.test.ts` stays green.
-- [ ] Bare `jarvis run list --limit <n>` keeps today's `retainListedRuns` policy (not the filtered default cap).
-- [ ] Invalid `--limit` exits `1` with `invalid_limit` and does not issue a `list` RPC.
-- [ ] `run-list-query-limit-cap.test.ts` asserts `--limit` and the default cap on a filtered query; it fails against baseline.
-- [ ] Tests fail when the `invalid_limit` guard is inverted: a garbage `--limit` value must not return rows.
-- [ ] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `--limit` on a filtered query returns at most N newest matching rows.
+- [x] A filtered query without `--limit` returns at most 200 newest matching rows.
+- [x] `daemon-terminal-run-retention.test.ts` stays green.
+- [x] Bare `jarvis run list --limit <n>` keeps today's `retainListedRuns` policy (not the filtered default cap).
+- [x] Invalid `--limit` exits `1` with `invalid_limit` and does not issue a `list` RPC.
+- [x] `run-list-query-limit-cap.test.ts` asserts `--limit` and the default cap on a filtered query; it fails against baseline.
+- [x] Tests fail when the `invalid_limit` guard is inverted: a garbage `--limit` value must not return rows.
+- [x] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

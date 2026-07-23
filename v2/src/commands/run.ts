@@ -53,25 +53,60 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function parseListArgv(rest: readonly string[], io: Io, deps: CliDeps): { ok: true; sinceMs?: number } | { ok: false } {
-  if (rest.length === 2 && rest[0] === "--since") {
-    const value = rest[1];
-    if (value === undefined || value.startsWith("-")) {
-      io.stderr("invalid_since: invalid value\n");
+function parseListArgv(
+  rest: readonly string[],
+  io: Io,
+  deps: CliDeps,
+): { ok: true; sinceMs?: number; limit?: number } | { ok: false } {
+  let sinceMs: number | undefined;
+  let limit: number | undefined;
+  let remaining = rest;
+
+  while (remaining.length > 0) {
+    if (remaining[0] === "--since") {
+      if (sinceMs !== undefined || remaining.length < 2) {
+        io.stderr(RUN_LIST_USAGE);
+        return { ok: false };
+      }
+      const value = remaining[1];
+      if (value === undefined || value.startsWith("-")) {
+        io.stderr("invalid_since: invalid value\n");
+        return { ok: false };
+      }
+      const cutoff = parseSince(value, deps.now?.() ?? Date.now());
+      if (cutoff === undefined) {
+        io.stderr("invalid_since: invalid value\n");
+        return { ok: false };
+      }
+      sinceMs = cutoff;
+      remaining = remaining.slice(2);
+    } else if (remaining[0] === "--limit") {
+      if (limit !== undefined || remaining.length < 2) {
+        io.stderr(RUN_LIST_USAGE);
+        return { ok: false };
+      }
+      const value = remaining[1];
+      if (value === undefined || value.startsWith("-")) {
+        io.stderr("invalid_limit\n");
+        return { ok: false };
+      }
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        io.stderr("invalid_limit\n");
+        return { ok: false };
+      }
+      limit = parsed;
+      remaining = remaining.slice(2);
+    } else {
+      io.stderr(RUN_LIST_USAGE);
       return { ok: false };
     }
-    const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-    if (cutoff === undefined) {
-      io.stderr("invalid_since: invalid value\n");
-      return { ok: false };
-    }
-    return { ok: true, sinceMs: cutoff };
   }
-  if (rest.length !== 0) {
-    io.stderr(RUN_LIST_USAGE);
-    return { ok: false };
-  }
-  return { ok: true };
+
+  const result: { ok: true; sinceMs?: number; limit?: number } = { ok: true };
+  if (sinceMs !== undefined) result.sinceMs = sinceMs;
+  if (limit !== undefined) result.limit = limit;
+  return result;
 }
 
 async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -109,8 +144,9 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 
   return withRunClient(io, deps, async (client) => {
     let result: unknown;
+    const params = parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs, limit: parsed.limit };
     try {
-      result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      result = await request(client, "list", params);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));

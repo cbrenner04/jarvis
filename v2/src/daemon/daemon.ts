@@ -1243,16 +1243,20 @@ export type TailStreamHandlerDeps = {
   logReader: LogReader;
 };
 
-function parseTailStreamRunId(payload: unknown): string | undefined {
+function parseTailStreamParams(payload: unknown): { runId: string; afterSeq: number } | undefined {
   const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
   if (typeof params !== "object" || params === null) return undefined;
   const runId = (params as { runId?: unknown }).runId;
-  return typeof runId === "string" ? runId : undefined;
+  if (typeof runId !== "string") return undefined;
+  const afterSeq = (params as { afterSeq?: unknown }).afterSeq;
+  const parsedAfterSeq = typeof afterSeq === "number" && afterSeq >= 0 ? afterSeq : 0;
+  return { runId, afterSeq: parsedAfterSeq };
 }
 
 async function streamRunLogRecords(
   deps: TailStreamHandlerDeps,
   runId: string,
+  afterSeq: number,
   onData: (record: PersistedRecord) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -1260,14 +1264,16 @@ async function streamRunLogRecords(
   if (!run) return;
 
   const replay = deps.logReader.tail(runId);
+  let subscribeSeq = afterSeq;
   for (const record of replay) {
     if (signal.aborted) return;
+    if (record.seq <= afterSeq) continue;
     onData(record);
+    subscribeSeq = record.seq;
   }
 
   if (run.status !== "in-progress") return;
 
-  const subscribeSeq = replay.at(-1)?.seq ?? 0;
   for await (const record of deps.logReader.follow(runId, signal)) {
     if (signal.aborted) break;
     if (record.seq <= subscribeSeq) continue;
@@ -1284,14 +1290,14 @@ async function streamRunLogRecords(
  */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
   return async (_streamId, payload, onData, onClose, signal) => {
-    const runId = parseTailStreamRunId(payload);
-    if (!runId || !deps.stateStore.loadRun(runId)) {
+    const params = parseTailStreamParams(payload);
+    if (!params || !deps.stateStore.loadRun(params.runId)) {
       onClose();
       return;
     }
 
     try {
-      await streamRunLogRecords(deps, runId, onData, signal);
+      await streamRunLogRecords(deps, params.runId, params.afterSeq, onData, signal);
     } finally {
       onClose();
     }

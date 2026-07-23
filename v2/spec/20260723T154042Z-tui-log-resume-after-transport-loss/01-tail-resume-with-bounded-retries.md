@@ -20,13 +20,13 @@ even though another live daemon owns the run.
 
 ## Acceptance criteria
 
-- [ ] After a mid-stream transport loss the tail re-opens against a currently-live socket and continues appending without operator action; a test in `v2/src/tui/tui-log-follow-entry.test.tsx` fails against the current single-shot path.
-- [ ] Resume requests `afterSeq` equal to the last appended record's `seq`, and no record already shown is shown twice; asserted in `v2/src/tui/tui-log-follow-entry.test.tsx`.
-- [ ] Retries are bounded and exhaust: with every re-open failing, the loop stops after the configured attempt limit; inverting the retry-bound guard fails a test in `v2/src/tui/tui-log-follow-entry.test.tsx` (retries run past the limit).
-- [ ] On exhaustion `runTuiLogFollow` returns non-zero and `tail_resume_exhausted` appears in rendered ink output, asserted through the ink-capture render seam rather than view-host state.
-- [ ] Operator quit during a retry wait returns 0 and renders no `tail_resume_exhausted`; inverting the quit guard fails that test.
-- [ ] Existing `v2/src/tui/tui-log-follow-entry.test.tsx` unavailable-daemon and unexpected-consume-error tests stay green (initial-open and non-transport paths unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] After a mid-stream transport loss the tail re-opens against a currently-live socket and continues appending without operator action; a test in `v2/src/tui/tui-log-follow-entry.test.tsx` fails against the current single-shot path.
+- [x] Resume requests `afterSeq` equal to the last appended record's `seq`, and no record already shown is shown twice; asserted in `v2/src/tui/tui-log-follow-entry.test.tsx`.
+- [x] Retries are bounded and exhaust: with every re-open failing, the loop stops after the configured attempt limit; inverting the retry-bound guard fails a test in `v2/src/tui/tui-log-follow-entry.test.tsx` (retries run past the limit).
+- [x] On exhaustion `runTuiLogFollow` returns non-zero and `tail_resume_exhausted` appears in rendered ink output, asserted through the ink-capture render seam rather than view-host state.
+- [x] Operator quit during a retry wait returns 0 and renders no `tail_resume_exhausted`; inverting the quit guard fails that test.
+- [x] Existing `v2/src/tui/tui-log-follow-entry.test.tsx` unavailable-daemon and unexpected-consume-error tests stay green (initial-open and non-transport paths unchanged).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

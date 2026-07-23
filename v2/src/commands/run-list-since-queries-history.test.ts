@@ -175,7 +175,7 @@ test("run log stream-open and tui log tail-open accept since-listed runs beyond 
     });
     const iter = tail.records()[Symbol.asyncIterator]();
     await iter.next();
-    expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId } }]);
+    expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId, afterSeq: 0 } }]);
     tail.close();
   });
 
@@ -188,5 +188,5 @@ test("run log stream-open and tui log tail-open accept since-listed runs beyond 
   );
 
   expect(code).toBe(0);
-  expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId } }]);
+  expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId, afterSeq: 0 } }]);
 });

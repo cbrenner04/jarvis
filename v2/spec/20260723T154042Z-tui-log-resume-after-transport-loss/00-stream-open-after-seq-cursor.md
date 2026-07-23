@@ -15,11 +15,11 @@ no cursor a resuming client can pass.
 
 ## Acceptance criteria
 
-- [ ] `stream-open` with `afterSeq: N` emits only records with `seq > N` and then follows live appends; a test in `v2/src/daemon/daemon-tail-stream.test.ts` fails against the current full-replay path.
-- [ ] `stream-open` without `afterSeq` (or with a non-numeric value) replays from the first record; existing `v2/src/daemon/daemon-tail-stream.test.ts` replay tests stay green.
-- [ ] `connectTuiLogTail` puts the caller-supplied `afterSeq` in its `stream-open` payload and `0` when unset; a test in `v2/src/tui/tui-log-tail-client.test.ts` fails against the current `{ runId }`-only payload.
-- [ ] Inverting the `seq <= afterSeq` skip guard fails a test in `v2/src/daemon/daemon-tail-stream.test.ts`, and inverting the follow subscribe-seq guard fails a test asserting a live append past a fully-skipped replay is emitted exactly once.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `stream-open` with `afterSeq: N` emits only records with `seq > N` and then follows live appends; a test in `v2/src/daemon/daemon-tail-stream.test.ts` fails against the current full-replay path.
+- [x] `stream-open` without `afterSeq` (or with a non-numeric value) replays from the first record; existing `v2/src/daemon/daemon-tail-stream.test.ts` replay tests stay green.
+- [x] `connectTuiLogTail` puts the caller-supplied `afterSeq` in its `stream-open` payload and `0` when unset; a test in `v2/src/tui/tui-log-tail-client.test.ts` fails against the current `{ runId }`-only payload.
+- [x] Inverting the `seq <= afterSeq` skip guard fails a test in `v2/src/daemon/daemon-tail-stream.test.ts`, and inverting the follow subscribe-seq guard fails a test asserting a live append past a fully-skipped replay is emitted exactly once.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

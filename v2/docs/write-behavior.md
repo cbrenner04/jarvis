@@ -616,7 +616,7 @@ The monitor aggregates every live daemon's run list into one view: each run ID a
 | Command | Output | Exit |
 | --- | --- | --- |
 | `jarvis tui` | Interactive ink run monitor; entry-time guard/RPC failure: ink `<code>: <message>`; connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start` | `0` operator quit; `1` connect-time unavailable or entry-time guard/RPC failure before the monitor opens |
-| `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start`; mid-session tail failure: ink `daemon_error: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable, mid-session tail failure, or usage error |
+| `jarvis tui log <run-id>` | Interactive ink structured log follow over IPC tail; one line per record with `seq`, `kind`, and present per-kind fields (`attemptId`; `attemptId`/`outcomeKind`/`runStatus`; `loopOutcomeKind`/`iterationsConsumed`/`resumable`; kind only for `run_execution_failed`); connect-time unavailable: message naming `~/.jarvis/daemon.sock` and `jarvis daemon start`; mid-stream transport loss: automatic resume from last appended record sequence (no duplicate, no operator action); exhausted retries: ink `tail_resume_exhausted: <message>` | `0` operator quit or benign stream end; `1` connect-time unavailable or exhausted retry attempts; operator quit during retry wait exits `0` |
 
 On entry with a non-empty aggregated daemon `list`, the monitor selects the first row
 (daemon order is newest-first), issues daemon `wait` for that `runId`, and shows
@@ -676,6 +676,14 @@ server `stream-end`. It does not invoke run-control RPCs or the connect-scaffold
 `health`/`status` path. Operator quit is `q` or Ctrl-C; quit closes the tail stream
 client (sends `stream-end`) and exits `0`. When the run ID is absent on every live
 daemon, the command tails on the invoking socket (same behavior as the single-socket path).
+
+On mid-stream IPC transport loss (daemon restart, network error), the tail automatically
+reconnects to the live owner socket and resumes from the last appended record sequence
+(`afterSeq` cursor), avoiding duplicate output. Reconnection attempts are bounded (default:
+5 attempts, exponential backoff from 100 ms to 2 s). If all retries are exhausted, the
+session shows `tail_resume_exhausted` feedback and exits `1`. Operator quit during a retry
+wait exits `0` without feedback (no operator action is incomplete due to transport loss—
+the quit is clean termination of a transient recovery state).
 
 When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
 before retrying `jarvis tui` or `jarvis tui log <run-id>`.

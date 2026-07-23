@@ -330,6 +330,7 @@ describe("runTuiLogFollow", () => {
         openedTail = true;
         throw new RpcConnectionError("cannot connect");
       },
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(code).toBe(1);
@@ -374,6 +375,7 @@ describe("runTuiLogFollow", () => {
       socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => blocking.client,
+      tailRetry: { maxAttempts: 0 },
     });
     await view.waitUntilOpen();
     await waitForLines(view.lines, 1);
@@ -394,6 +396,7 @@ describe("runTuiLogFollow", () => {
       socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => blocking.client,
+      tailRetry: { maxAttempts: 0 },
     });
     await view.waitUntilOpen();
     await waitForLines(view.lines, 1);
@@ -417,6 +420,7 @@ describe("runTuiLogFollow", () => {
       socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => tail,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(code).toBe(0);
@@ -442,12 +446,13 @@ describe("runTuiLogFollow", () => {
       socketPath: "/tmp/test.sock",
       viewHost: view.host,
       connectTuiLogTail: async () => tail,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(code).toBe(1);
     expect(view.lines).toHaveLength(1);
     expect(view.feedbackStates).toEqual([
-      { kind: "rpc-error", code: "daemon_error", message: "tail stream failed: follow failed" },
+      { kind: "rpc-error", code: "tail_resume_exhausted", message: "tail stream failed: follow failed" },
     ]);
   });
 
@@ -469,12 +474,13 @@ describe("runTuiLogFollow", () => {
       socketPath: "/tmp/test.sock",
       connectTuiLogTail: async () => tail,
       inkRender: ink.inkRender,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(code).toBe(1);
     const text = ink.lastRenderText();
     expect(text).toContain("seq=1 kind=iteration_started attemptId=attempt-1");
-    expect(text).toContain("daemon_error: tail stream failed: follow failed");
+    expect(text).toContain("tail_resume_exhausted: tail stream failed: follow failed");
   });
 
   test("unexpected consume errors propagate instead of exiting 0", async () => {
@@ -496,6 +502,7 @@ describe("runTuiLogFollow", () => {
         socketPath: "/tmp/test.sock",
         viewHost: view.host,
         connectTuiLogTail: async () => tail,
+        tailRetry: { maxAttempts: 0 },
       }),
     ).rejects.toThrow("unexpected tail failure");
   });
@@ -511,6 +518,7 @@ describe("runTuiLogFollow", () => {
         seenPath = options.socketPath;
         return tail;
       },
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(seenPath).toBe("/tmp/injected.sock");
@@ -538,6 +546,7 @@ describe("runTuiLogFollow", () => {
       },
       socketDiscovery: async () => ["/tmp/other.sock"],
       connectTuiDaemon: connectDaemon,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(daemonListCalls).toContain("/tmp/other.sock");
@@ -572,6 +581,7 @@ describe("runTuiLogFollow", () => {
       },
       socketDiscovery: async () => ["/tmp/non-live.sock", "/tmp/live.sock"],
       connectTuiDaemon: connectDaemon,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(seenPath).toBe("/tmp/live.sock");
@@ -595,6 +605,7 @@ describe("runTuiLogFollow", () => {
       },
       socketDiscovery: async () => ["/tmp/other.sock"],
       connectTuiDaemon: connectDaemon,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(seenPath).toBe("/tmp/invoking.sock");
@@ -626,6 +637,7 @@ describe("runTuiLogFollow", () => {
       },
       socketDiscovery: async () => ["/tmp/failing.sock", "/tmp/other.sock"],
       connectTuiDaemon: connectDaemon,
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(queriedSockets).toContain("/tmp/failing.sock");
@@ -649,6 +661,7 @@ describe("runTuiLogFollow", () => {
       socketDiscovery: async () => {
         throw new Error("discovery failed");
       },
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(seenPath).toBe("/tmp/invoking.sock");
@@ -670,9 +683,237 @@ describe("runTuiLogFollow", () => {
       },
       socketDiscovery: async () => ["/tmp/other.sock"],
       connectTuiDaemon: async () => makeMockDaemon(async () => ({ runs: [runRow(false)] })),
+      tailRetry: { maxAttempts: 0 },
     });
 
     expect(seenPath).toBe("/tmp/other.sock");
     expect(code).toBe(0);
+  });
+
+  test("mid-stream transport loss triggers tail resume with live socket reconnection", async () => {
+    const view = createViewHost();
+    const initialRecords = [logRecord(1, "iteration_started"), logRecord(2, "boundary_committed")];
+    const resumeRecord = logRecord(3, "loop_finished");
+
+    let reconnectAttempt = 0;
+    const connectMock = async (_runId: string, options: { socketPath: string; afterSeq?: number }) => {
+      reconnectAttempt += 1;
+      if (reconnectAttempt === 1) {
+        // First connection: return initial records, then fail mid-stream.
+        return {
+          records() {
+            return {
+              async *[Symbol.asyncIterator]() {
+                for (const record of initialRecords) {
+                  yield record;
+                }
+                throw new RpcConnectionError("connection lost");
+              },
+            };
+          },
+          close() {},
+        } as TuiLogTailClient;
+      }
+      // Second connection (resume): return records after seq 2.
+      expect(options.afterSeq).toBe(2);
+      return immediateTail([resumeRecord]);
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      viewHost: view.host,
+      connectTuiLogTail: connectMock,
+      tailRetry: { maxAttempts: 2, initialDelayMs: 1 },
+    });
+
+    expect(code).toBe(0);
+    expect(reconnectAttempt).toBe(2);
+    expect(view.lines).toHaveLength(3);
+    expect(view.feedbackStates).toEqual([]);
+  });
+
+  test("resume passes afterSeq equal to last appended record seq, avoiding duplicates", async () => {
+    const view = createViewHost();
+    const initialRecords = [logRecord(1, "iteration_started"), logRecord(2, "boundary_committed")];
+    const newRecord = logRecord(3, "loop_finished");
+
+    const connectMock = async (_runId: string, options: { socketPath: string; afterSeq?: number }) => {
+      if (options.afterSeq === undefined || options.afterSeq === 0) {
+        return {
+          records() {
+            return {
+              async *[Symbol.asyncIterator]() {
+                for (const record of initialRecords) {
+                  yield record;
+                }
+                throw new RpcConnectionError("connection lost");
+              },
+            };
+          },
+          close() {},
+        } as TuiLogTailClient;
+      }
+      // Resume with afterSeq=2 should skip the duplicate and only get seq=3.
+      return immediateTail([newRecord]);
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      viewHost: view.host,
+      connectTuiLogTail: connectMock,
+      tailRetry: { maxAttempts: 2, initialDelayMs: 1 },
+    });
+
+    expect(code).toBe(0);
+    expect(view.lines).toHaveLength(3);
+    expect(view.lines[0]).toContain("seq=1");
+    expect(view.lines[1]).toContain("seq=2");
+    expect(view.lines[2]).toContain("seq=3");
+  });
+
+  test("retries are bounded and exhaust after configured attempt limit", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+
+    let connectAttempts = 0;
+    const connectMock = async () => {
+      connectAttempts += 1;
+      return {
+        records() {
+          return {
+            async *[Symbol.asyncIterator]() {
+              if (connectAttempts === 1) {
+                yield records[0];
+              }
+              throw new RpcConnectionError("connection lost");
+            },
+          };
+        },
+        close() {},
+      } as TuiLogTailClient;
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      viewHost: view.host,
+      connectTuiLogTail: connectMock,
+      tailRetry: { maxAttempts: 3, initialDelayMs: 1 },
+    });
+
+    expect(code).toBe(1);
+    expect(connectAttempts).toBe(4); // Initial + 3 retries
+    expect(view.feedbackStates).toHaveLength(1);
+    expect(view.feedbackStates[0]).toEqual({
+      kind: "rpc-error",
+      code: "tail_resume_exhausted",
+      message: "connection lost",
+    });
+  });
+
+  test("on exhaustion tail_resume_exhausted appears in rendered ink output", async () => {
+    const ink = createInkCapture();
+    const records = [logRecord(1, "iteration_started")];
+
+    const connectMock = async () => {
+      return {
+        records() {
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield records[0];
+              throw new RpcConnectionError("connection lost");
+            },
+          };
+        },
+        close() {},
+      } as TuiLogTailClient;
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      connectTuiLogTail: connectMock,
+      inkRender: ink.inkRender,
+      tailRetry: { maxAttempts: 2, initialDelayMs: 1 },
+    });
+
+    expect(code).toBe(1);
+    const text = ink.lastRenderText();
+    expect(text).toContain("tail_resume_exhausted");
+  });
+
+  test("operator quit during retry wait returns 0 with no tail_resume_exhausted message", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+
+    const connectMock = async () => {
+      return {
+        records() {
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield records[0];
+              throw new RpcConnectionError("connection lost");
+            },
+          };
+        },
+        close() {},
+      } as TuiLogTailClient;
+    };
+
+    const pending = runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      viewHost: view.host,
+      connectTuiLogTail: connectMock,
+      tailRetry: { maxAttempts: 5, initialDelayMs: 100 },
+    });
+    await view.waitUntilOpen();
+    await waitForLines(view.lines, 1);
+    view.quit();
+    const code = await pending;
+
+    expect(code).toBe(0);
+    expect(view.feedbackStates).toEqual([]);
+  });
+
+  test("existing unavailable-daemon path unchanged: initial-open failure records unavailable feedback", async () => {
+    const view = createViewHost();
+    let openedTail = false;
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/test.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async () => {
+        openedTail = true;
+        throw new RpcConnectionError("cannot connect");
+      },
+      tailRetry: { maxAttempts: 5, initialDelayMs: 1 },
+    });
+
+    expect(code).toBe(1);
+    expect(openedTail).toBe(true);
+    expect(view.feedbackStates).toEqual([{ kind: "unavailable" }]);
+    expect(view.lines).toEqual([]);
+  });
+
+  test("existing unexpected-consume-error path unchanged: non-RpcConnectionError still propagates", async () => {
+    const view = createViewHost();
+    const tail: TuiLogTailClient = {
+      records() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield logRecord(1, "iteration_started");
+            throw new Error("unexpected tail failure");
+          },
+        };
+      },
+      close() {},
+    };
+
+    await expect(
+      runTuiLogFollow("run-123", {
+        socketPath: "/tmp/test.sock",
+        viewHost: view.host,
+        connectTuiLogTail: async () => tail,
+        tailRetry: { maxAttempts: 5, initialDelayMs: 1 },
+      }),
+    ).rejects.toThrow("unexpected tail failure");
   });
 });

@@ -133,7 +133,7 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {
   return withRunClient(io, deps, async (client) => {
     const streamId = crypto.randomUUID();
-    client.send({ kind: "stream-open", streamId, payload: { runId } });
+    client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq: 0 } });
 
     while (true) {
       try {

@@ -41,6 +41,11 @@ The appended clause must name all three, in the operator's terms:
       path outside one, each asserted directly. Inverting the predicate's own condition fails a test —
       the mutation verifier flips guard tokens in that file, so a newly exported predicate that nothing
       asserts is uncovered.
+- [ ] Every condition in that predicate is asserted, not just the root check. Specifically, a
+      `.sandbox-unrunnable.test.ts` path under a guarded root is **not** guarded; inverting the
+      `!file.endsWith(".sandbox-unrunnable.test.ts")` exclusion fails a test. Exporting or
+      restructuring `guarded` puts its whole body in the run-base diff, so each clause is a mutation
+      site the verifier will flip.
 - [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts`, `v2/src/execution/ready-finalize.test.ts`, `v2/src/execution/write-loop.test.ts`, and `scripts/guard-deterministic-daemon-tests.test.ts` stay green.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

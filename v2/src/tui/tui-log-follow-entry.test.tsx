@@ -7,6 +7,8 @@ import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { TuiLogFollowControls, TuiLogFollowViewHost } from "./tui-log-follow-types.ts";
 import type { TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
+import type { TuiDaemonClient } from "./tui-daemon-client.ts";
+import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 
 function logRecord(
   seq: number,
@@ -71,6 +73,24 @@ function immediateTail(records: readonly PersistedRecord[] = []): TuiLogTailClie
       return closed;
     },
   };
+}
+
+function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient {
+  return {
+    health: async () => ({ ok: true }),
+    status: async () => ({ state: "running" }),
+    list,
+    start: async () => ({ runId: "" }),
+    pause: async () => ({ ok: true }),
+    resume: async () => ({ ok: true }),
+    kill: async () => ({ ok: true }),
+    wait: async () => ({ runStatus: "completed", loopOutcomeKind: "complete" as const }),
+    close() {},
+  };
+}
+
+function runRow(isLive: boolean): DaemonListResult["runs"][number] {
+  return { runId: "run-123", project: "test", branch: "main", status: "completed", isLive };
 }
 
 function createBlockingTail(initial: readonly PersistedRecord[] = []) {
@@ -494,5 +514,165 @@ describe("runTuiLogFollow", () => {
     });
 
     expect(seenPath).toBe("/tmp/injected.sock");
+  });
+
+  test("resolves run owned on a non-invoking live daemon and tails through owner socket", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+    const tail = immediateTail(records);
+    let seenPath: string | undefined;
+    const daemonListCalls: string[] = [];
+
+    const connectDaemon = async (options: { socketPath: string }): Promise<TuiDaemonClient> =>
+      makeMockDaemon(async () => {
+        daemonListCalls.push(options.socketPath);
+        return { runs: options.socketPath === "/tmp/other.sock" ? [runRow(true)] : [] };
+      });
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/other.sock"],
+      connectTuiDaemon: connectDaemon,
+    });
+
+    expect(daemonListCalls).toContain("/tmp/other.sock");
+    expect(seenPath).toBe("/tmp/other.sock");
+    expect(code).toBe(0);
+    expect(view.lines).toHaveLength(1);
+  });
+
+  test("prefers live daemon over non-live when resolving run ownership", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+    const tail = immediateTail(records);
+    let seenPath: string | undefined;
+
+    const daemonsBySocket: Record<string, TuiDaemonClient> = {
+      "/tmp/non-live.sock": makeMockDaemon(async () => ({ runs: [runRow(false)] })),
+      "/tmp/live.sock": makeMockDaemon(async () => ({ runs: [runRow(true)] })),
+    };
+
+    const connectDaemon = async (options: { socketPath: string }): Promise<TuiDaemonClient> => {
+      const daemon = daemonsBySocket[options.socketPath];
+      if (!daemon) throw new Error(`Unknown daemon: ${options.socketPath}`);
+      return daemon;
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/non-live.sock", "/tmp/live.sock"],
+      connectTuiDaemon: connectDaemon,
+    });
+
+    expect(seenPath).toBe("/tmp/live.sock");
+    expect(code).toBe(0);
+  });
+
+  test("falls back to invoking socket when run not found on any discovered daemon", async () => {
+    const view = createViewHost();
+    const tail = immediateTail();
+    let seenPath: string | undefined;
+
+    const connectDaemon = async (_options: { socketPath: string }): Promise<TuiDaemonClient> =>
+      makeMockDaemon(async () => ({ runs: [] }));
+
+    const code = await runTuiLogFollow("run-missing", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/other.sock"],
+      connectTuiDaemon: connectDaemon,
+    });
+
+    expect(seenPath).toBe("/tmp/invoking.sock");
+    expect(code).toBe(0);
+    expect(view.lines).toEqual([]);
+  });
+
+  test("skips daemon that fails during owner lookup", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+    const tail = immediateTail(records);
+    let seenPath: string | undefined;
+    const queriedSockets: string[] = [];
+
+    const connectDaemon = async (options: { socketPath: string }): Promise<TuiDaemonClient> => {
+      queriedSockets.push(options.socketPath);
+      if (options.socketPath === "/tmp/failing.sock") {
+        throw new Error("daemon unavailable");
+      }
+      return makeMockDaemon(async () => ({ runs: [runRow(true)] }));
+    };
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/failing.sock", "/tmp/other.sock"],
+      connectTuiDaemon: connectDaemon,
+    });
+
+    expect(queriedSockets).toContain("/tmp/failing.sock");
+    expect(queriedSockets).toContain("/tmp/other.sock");
+    expect(seenPath).toBe("/tmp/other.sock");
+    expect(code).toBe(0);
+  });
+
+  test("uses invoking socket when discovery fails", async () => {
+    const view = createViewHost();
+    const tail = immediateTail();
+    let seenPath: string | undefined;
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => {
+        throw new Error("discovery failed");
+      },
+    });
+
+    expect(seenPath).toBe("/tmp/invoking.sock");
+    expect(code).toBe(0);
+  });
+
+  test("guard inversion fails to resolve live daemon incorrectly", async () => {
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+    const tail = immediateTail(records);
+    let seenPath: string | undefined;
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/other.sock"],
+      connectTuiDaemon: async () => makeMockDaemon(async () => ({ runs: [runRow(false)] })),
+    });
+
+    expect(seenPath).toBe("/tmp/other.sock");
+    expect(code).toBe(0);
   });
 });

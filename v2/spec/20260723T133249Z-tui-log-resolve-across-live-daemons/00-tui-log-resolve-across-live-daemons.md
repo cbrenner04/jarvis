@@ -25,13 +25,13 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis tui log <run-id>` tails a run owned by a live daemon on a socket other than the invoking digest's; a test in `v2/src/tui/tui-log-follow-entry.test.tsx` fails against the current single-socket path.
-- [ ] `v2/src/tui/tui-log-follow-entry.test.tsx` "replays fixture records in arrival order with per-kind fields" stays green when only the invoking digest's daemon is live.
-- [ ] `v2/src/tui/tui-log-follow-entry.test.tsx` "unavailable daemon records unavailable feedback, exits 1, and does not open a tail stream" stays green.
-- [ ] When the run ID is on no live daemon, `jarvis tui log` surfaces the same outcome as today's single-socket path; `tui-log-follow-entry.test.tsx` "immediate benign stream-end yields zero event lines and exits 0" stays green for the absent-run case.
-- [ ] Inverting the owner-resolution guard fails a test in `v2/src/tui/tui-log-follow-entry.test.tsx`.
-- [ ] Cross-daemon coverage asserts rendered ink output, not just view-model state.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis tui log <run-id>` tails a run owned by a live daemon on a socket other than the invoking digest's; a test in `v2/src/tui/tui-log-follow-entry.test.tsx` fails against the current single-socket path.
+- [x] `v2/src/tui/tui-log-follow-entry.test.tsx` "replays fixture records in arrival order with per-kind fields" stays green when only the invoking digest's daemon is live.
+- [x] `v2/src/tui/tui-log-follow-entry.test.tsx` "unavailable daemon records unavailable feedback, exits 1, and does not open a tail stream" stays green.
+- [x] When the run ID is on no live daemon, `jarvis tui log` surfaces the same outcome as today's single-socket path; `tui-log-follow-entry.test.tsx` "immediate benign stream-end yields zero event lines and exits 0" stays green for the absent-run case.
+- [x] Inverting the owner-resolution guard fails a test in `v2/src/tui/tui-log-follow-entry.test.tsx`.
+- [x] Cross-daemon coverage asserts rendered ink output, not just view-model state.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

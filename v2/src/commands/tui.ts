@@ -16,7 +16,10 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       io.stderr(TUI_LOG_USAGE);
       return Promise.resolve(1);
     }
-    return deps.runTuiLogFollow(runId, { socketPath: deps.socketPath });
+    return deps.runTuiLogFollow(runId, {
+      socketPath: deps.socketPath,
+      socketDiscovery: discoverLiveDaemonSockets,
+    });
   }
   io.stderr(TUI_USAGE);
   return Promise.resolve(1);

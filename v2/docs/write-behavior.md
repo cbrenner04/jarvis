@@ -640,11 +640,14 @@ refresh/`wait` loop. Success-feedback layout is deferred.
 Operator quit on the run monitor (`jarvis tui`) is `q` or Ctrl-C. Quit closes all
 connected daemon RPC clients and exits `0`.
 
-`jarvis tui log <run-id>` opens an IPC tail stream on the production socket,
-replays persisted records, follows live appends, and stays open after replay
-until operator quit or benign server `stream-end`. It does not invoke run-control
-RPCs or the connect-scaffold `health`/`status` path. Operator quit is `q` or
-Ctrl-C; quit closes the tail stream client (sends `stream-end`) and exits `0`.
+`jarvis tui log <run-id>` discovers live daemon sockets and resolves the run's
+owning daemon across all live instances (preferring daemons where `isLive` is true),
+then opens an IPC tail stream on the owner's socket, replays persisted records,
+follows live appends, and stays open after replay until operator quit or benign
+server `stream-end`. It does not invoke run-control RPCs or the connect-scaffold
+`health`/`status` path. Operator quit is `q` or Ctrl-C; quit closes the tail stream
+client (sends `stream-end`) and exits `0`. When the run ID is absent on every live
+daemon, the command tails on the invoking socket (same behavior as the single-socket path).
 
 When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-cli)
 before retrying `jarvis tui` or `jarvis tui log <run-id>`.

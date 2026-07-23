@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
-import { defaultGitDiff, isProductionFile, parseDiff, changedPathsFromDiff, type ChangedLine } from "./diff-scan.ts";
+import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;

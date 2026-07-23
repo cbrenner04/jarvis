@@ -132,7 +132,7 @@ index 1234567..abcdefg 100644
  }
 `;
 
-    const result = await reportUncoveredChangedLines(
+    const _result = await reportUncoveredChangedLines(
       { worktreePath: "/test", runBase: "main" },
       {
         gitDiff: async () => simpleDiff,

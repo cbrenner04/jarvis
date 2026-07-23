@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { defaultGitDiff, isProductionFile, changedPathsFromDiff, parseDiff, type ChangedLine } from "./diff-scan.ts";
+import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type UncoveredChangedLinesInput = {
   worktreePath: string;
@@ -91,7 +91,7 @@ function parseLcov(lcovOutput: string): Map<string, Map<number, number>> {
       const parts = trimmed.slice(3).split(",");
       const lineNum = parseInt(parts[0] ?? "", 10);
       const executionCount = parseInt(parts[1] ?? "", 10);
-      if (!isNaN(lineNum) && !isNaN(executionCount)) {
+      if (!Number.isNaN(lineNum) && !Number.isNaN(executionCount)) {
         currentLines.set(lineNum, executionCount);
       }
     } else if (trimmed === "end_of_record") {
@@ -101,6 +101,36 @@ function parseLcov(lcovOutput: string): Map<string, Map<number, number>> {
   }
 
   return files;
+}
+
+/** Groups added code lines by file, then flags each as uncovered when coverage records zero (or no) executions. */
+function computeUncoveredSites(
+  changedLines: ChangedLine[],
+  coverageMap: Map<string, Map<number, number>>,
+): UncoveredSite[] {
+  const changedLinesByFile = new Map<string, ChangedLine[]>();
+  for (const line of changedLines) {
+    if (line.type === "add" && isCodePath(line.file)) {
+      const existing = changedLinesByFile.get(line.file);
+      if (existing) existing.push(line);
+      else changedLinesByFile.set(line.file, [line]);
+    }
+  }
+
+  const uncoveredSites: UncoveredSite[] = [];
+  for (const [file, fileChangedLines] of changedLinesByFile.entries()) {
+    const coverage = coverageMap.get(file);
+    for (const line of fileChangedLines) {
+      // No coverage record for the file, or a zero execution count, is uncovered.
+      const executionCount = coverage?.get(line.lineNumber);
+      if (executionCount === undefined || executionCount === 0) {
+        uncoveredSites.push({ file, line: line.lineNumber });
+      }
+    }
+  }
+
+  uncoveredSites.sort((a, b) => (a.file !== b.file ? a.file.localeCompare(b.file) : a.line - b.line));
+  return uncoveredSites;
 }
 
 export async function reportUncoveredChangedLines(
@@ -172,47 +202,9 @@ export async function reportUncoveredChangedLines(
       };
     }
 
-    // Parse LCOV output
+    // Parse LCOV output and compute uncovered added lines in code files
     const coverageMap = parseLcov(lcovContent);
-
-    // Identify uncovered added lines in code files
-    const uncoveredSites: UncoveredSite[] = [];
-    const changedLinesByFile = new Map<string, ChangedLine[]>();
-
-    for (const line of changedLines) {
-      if (line.type === "add" && isCodePath(line.file)) {
-        if (!changedLinesByFile.has(line.file)) {
-          changedLinesByFile.set(line.file, []);
-        }
-        changedLinesByFile.get(line.file)!.push(line);
-      }
-    }
-
-    // For each changed code file, check coverage
-    for (const [file, fileChangedLines] of changedLinesByFile.entries()) {
-      const coverage = coverageMap.get(file);
-
-      if (coverage === undefined) {
-        // File has no coverage record at all — report all added lines as uncovered
-        for (const line of fileChangedLines) {
-          uncoveredSites.push({ file, line: line.lineNumber });
-        }
-      } else {
-        // File has coverage — check each added line
-        for (const line of fileChangedLines) {
-          const executionCount = coverage.get(line.lineNumber);
-          if (executionCount === undefined || executionCount === 0) {
-            uncoveredSites.push({ file, line: line.lineNumber });
-          }
-        }
-      }
-    }
-
-    // Sort for consistent output
-    uncoveredSites.sort((a, b) => {
-      if (a.file !== b.file) return a.file.localeCompare(b.file);
-      return a.line - b.line;
-    });
+    const uncoveredSites = computeUncoveredSites(changedLines, coverageMap);
 
     // Render report text
     const reportLines = uncoveredSites.map((site) => `${site.file}:${site.line}`);

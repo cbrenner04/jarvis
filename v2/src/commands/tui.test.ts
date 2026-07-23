@@ -95,7 +95,7 @@ describe("tui command", () => {
 
     const code = await main(["tui"], captureIo().io, {
       socketPath: paths.socketPath,
-      runTuiEntry: async (deps) => {
+      runTuiEntry: async (_deps) => {
         const discovery = async () => {
           discoveryPhase += 1;
           return discoveryPhase === 1 ? [paths.socketPath] : [paths.socketPath, "/tmp/other-daemon.sock"];

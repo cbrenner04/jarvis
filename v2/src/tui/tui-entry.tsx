@@ -104,9 +104,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     syncMonitor();
   };
 
-  const mergeRunLists = (
-    listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>,
-  ): DaemonListRunRow[] => {
+  const mergeRunLists = (listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>): DaemonListRunRow[] => {
     const deduped = new Map<string, DaemonListRunRow>();
     const newOwners = new Map<string, TuiDaemonClient>();
 
@@ -165,7 +163,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     }
   };
 
-  const runAction = (perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>, rewaitOnSuccess: boolean): void => {
+  const runAction = (
+    perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>,
+    rewaitOnSuccess: boolean,
+  ): void => {
     const runId = currentState.selectedRunId;
     if (runId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });

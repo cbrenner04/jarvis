@@ -889,7 +889,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -910,12 +910,26 @@ describe("runTuiEntry", () => {
     const view = createViewHost();
     const client1Options: FakeClientOptions = {
       methods: [],
-      listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: false }, { ...RUN_BETA, isLive: false }] }],
+      listResponses: [
+        {
+          runs: [
+            { ...RUN_ALPHA, isLive: false },
+            { ...RUN_BETA, isLive: false },
+          ],
+        },
+      ],
       pauseError: new RpcError("run_not_active", "not active on daemon1"),
     };
     const client2Options: FakeClientOptions = {
       methods: [],
-      listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }, { ...RUN_BETA, isLive: false }] }],
+      listResponses: [
+        {
+          runs: [
+            { ...RUN_ALPHA, isLive: true },
+            { ...RUN_BETA, isLive: false },
+          ],
+        },
+      ],
     };
     const client3Options: FakeClientOptions = {
       methods: [],
@@ -931,7 +945,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -957,13 +971,24 @@ describe("runTuiEntry", () => {
     const client1Options: FakeClientOptions = {
       methods: [],
       listResponses: [
-        { runs: [{ ...RUN_ALPHA, isLive: true }, { ...RUN_BETA, isLive: false }] },
+        {
+          runs: [
+            { ...RUN_ALPHA, isLive: true },
+            { ...RUN_BETA, isLive: false },
+          ],
+        },
       ],
     };
     const client2Options: FakeClientOptions = {
       methods: [],
       listResponses: [
-        { runs: [{ ...RUN_ALPHA, isLive: false }, { ...RUN_BETA, isLive: false }, { ...RUN_GAMMA, isLive: true }] },
+        {
+          runs: [
+            { ...RUN_ALPHA, isLive: false },
+            { ...RUN_BETA, isLive: false },
+            { ...RUN_GAMMA, isLive: true },
+          ],
+        },
       ],
     };
     const client3Options: FakeClientOptions = {
@@ -980,7 +1005,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -1022,7 +1047,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -1091,7 +1116,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -1132,7 +1157,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -1174,7 +1199,7 @@ describe("runTuiEntry", () => {
         viewHost: view.host,
         connectTuiDaemon: async () => {
           const c = clients[clientIndex++];
-          return c!;
+          return c as TuiDaemonClient;
         },
         socketDiscovery: async () => ["/tmp/daemon1.sock", "/tmp/daemon2.sock"],
       },
@@ -1583,10 +1608,7 @@ describe("runTuiEntry", () => {
 
     const daemon1Options: FakeClientOptions = {
       methods: [],
-      listResponses: [
-        { runs: [{ ...RUN_ALPHA, isLive: false }] },
-        { runs: [{ ...RUN_ALPHA, isLive: false }] },
-      ],
+      listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: false }] }, { runs: [{ ...RUN_ALPHA, isLive: false }] }],
       pauseError: new RpcError("run_not_active", "not active on daemon1"),
     };
     const daemon2Options: FakeClientOptions = {

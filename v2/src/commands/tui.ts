@@ -1,7 +1,7 @@
-import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { TUI_LOG_USAGE, TUI_USAGE } from "../cli/usage.ts";
+import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 
 export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   if (argv.length === 0) {

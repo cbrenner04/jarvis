@@ -45,9 +45,7 @@ export async function discoverLiveDaemonSockets(
   }
 
   const socketPattern = /^daemon-[0-9a-f]{16}\.sock$/;
-  const candidatePaths = entries
-    .filter((entry) => socketPattern.test(entry))
-    .map((entry) => join(home, entry));
+  const candidatePaths = entries.filter((entry) => socketPattern.test(entry)).map((entry) => join(home, entry));
 
   const liveSockets: string[] = [];
   for (const socketPath of candidatePaths) {

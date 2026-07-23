@@ -1,6 +1,6 @@
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
-import { connectTuiDaemon, type ConnectTuiDaemonOptions, type TuiDaemonClient } from "./tui-daemon-client.ts";
+import { type ConnectTuiDaemonOptions, connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";

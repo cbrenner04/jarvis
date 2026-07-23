@@ -529,4 +529,50 @@ describe("daemon-lifecycle", () => {
       expect(status).toEqual({ state: "stopped" });
     });
   });
+
+  describe("supersede", () => {
+    test("enumerateOtherDaemonSockets returns daemon-*.sock files excluding own socket", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const ownSocket = join(tmpDir, "daemon-0123456789abcdef.sock");
+        const otherSocket1 = join(tmpDir, "daemon-123456789abcdef0.sock");
+        const otherSocket2 = join(tmpDir, "daemon-fedcba9876543210.sock");
+
+        // Create socket files
+        writeFileSync(ownSocket, "");
+        writeFileSync(otherSocket1, "");
+        writeFileSync(otherSocket2, "");
+
+        // Add non-matching files
+        writeFileSync(join(tmpDir, "daemon-short.sock"), "");
+        writeFileSync(join(tmpDir, "daemon-0123456789abcdef.pid"), "");
+        writeFileSync(join(tmpDir, "daemon-0123456789abcdef.log"), "");
+        writeFileSync(join(tmpDir, "config.json"), "");
+
+        const { enumerateOtherDaemonSockets } = await import("./daemon.ts");
+        const result = enumerateOtherDaemonSockets(tmpDir, ownSocket);
+
+        expect(result).toContain(otherSocket1);
+        expect(result).toContain(otherSocket2);
+        expect(result).not.toContain(ownSocket);
+        expect(result.length).toBe(2);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("enumerateOtherDaemonSockets returns empty array when jarvisHome is missing", async () => {
+      const { enumerateOtherDaemonSockets } = await import("./daemon.ts");
+      const result = enumerateOtherDaemonSockets("/nonexistent/dir", "/nonexistent/socket");
+      expect(result).toEqual([]);
+    });
+
+    test("supersedePeerDaemon silently ignores unreachable sockets", async () => {
+      const { supersedePeerDaemon } = await import("./daemon.ts");
+      // Should not throw or reject for unreachable sockets
+      await expect(supersedePeerDaemon("/nonexistent/socket")).resolves.toBeUndefined();
+    });
+  });
 });

@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - A starting daemon supersedes older live daemons](./00-starting-daemon-supersedes-older-daemons.md)
+- [x] [00 - A starting daemon supersedes older live daemons](./00-starting-daemon-supersedes-older-daemons.md)

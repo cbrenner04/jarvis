@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findDeterminismViolations } from "./guard-deterministic-daemon-tests.ts";
+import { findDeterminismViolations, isProductionFileUnderGuard } from "./guard-deterministic-daemon-tests.ts";
 
 function violations(source: string, file = "v2/src/daemon/example.test.ts") {
   return findDeterminismViolations([{ file, source }]);
@@ -132,6 +132,34 @@ await new Promise((resolve) =>
 line 6`;
       const result = violations(source);
       expect(result[0]?.line).toBe(3);
+    });
+  });
+
+  describe("Production file under guard predicate", () => {
+    test("returns true for files in v2/src/daemon/", () => {
+      expect(isProductionFileUnderGuard("v2/src/daemon/lifecycle.ts")).toBe(true);
+      expect(isProductionFileUnderGuard("v2/src/daemon/nested/file.ts")).toBe(true);
+    });
+
+    test("returns true for files in v2/src/execution/", () => {
+      expect(isProductionFileUnderGuard("v2/src/execution/ready-finalize.ts")).toBe(true);
+      expect(isProductionFileUnderGuard("v2/src/execution/nested/verifier.ts")).toBe(true);
+    });
+
+    test("returns false for test files in guarded roots", () => {
+      expect(isProductionFileUnderGuard("v2/src/daemon/lifecycle.test.ts")).toBe(false);
+      expect(isProductionFileUnderGuard("v2/src/execution/ready-finalize.test.ts")).toBe(false);
+    });
+
+    test("returns false for files outside guarded roots", () => {
+      expect(isProductionFileUnderGuard("v2/src/other/file.ts")).toBe(false);
+      expect(isProductionFileUnderGuard("v1/src/daemon/file.ts")).toBe(false);
+      expect(isProductionFileUnderGuard("shared/daemon.ts")).toBe(false);
+    });
+
+    test("returns false for sandbox-unrunnable test files in guarded roots", () => {
+      expect(isProductionFileUnderGuard("v2/src/daemon/example.sandbox-unrunnable.test.ts")).toBe(false);
+      expect(isProductionFileUnderGuard("v2/src/execution/example.sandbox-unrunnable.test.ts")).toBe(false);
     });
   });
 });

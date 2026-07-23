@@ -31,18 +31,18 @@ The appended clause must name all three, in the operator's terms:
 
 ## Acceptance criteria
 
-- [ ] A new test drives `verifyDiffDerivedMutations` to a surviving mutation on a changed line inside a `setTimeout` callback in a `v2/src/execution/**` production file and asserts the resulting `SurvivingMutationError` message names the both-direction kill test on that line, the determinism guard's prohibition on real-timer waits in that suite, and predicate extraction as the fix; it fails against the pre-fix code.
-- [ ] A surviving mutation on a changed line outside any timer callback renders exactly the current `Surviving mutation in <file>:<line>: <mutation>` message, with the dual-constraint clause absent.
-- [ ] A surviving mutation inside a timer callback in a file outside the determinism guard's roots renders the current single-constraint message, with the dual-constraint clause absent.
-- [ ] Inverting the timer-callback enclosure check or the determinism-guard-coverage check fails at least one test; the two negative cases above assert absence of the appended clause, so an always-on clause is caught.
-- [ ] The determinism guard still reports a violation for a real-timer wait in a guarded suite, and mutation verification still reports a surviving mutation for an uncovered timer-callback guard — neither gate is relaxed.
-- [ ] The predicate newly exported from `scripts/guard-deterministic-daemon-tests.ts` is covered in both
+- [x] A new test drives `verifyDiffDerivedMutations` to a surviving mutation on a changed line inside a `setTimeout` callback in a `v2/src/execution/**` production file and asserts the resulting `SurvivingMutationError` message names the both-direction kill test on that line, the determinism guard's prohibition on real-timer waits in that suite, and predicate extraction as the fix; it fails against the pre-fix code.
+- [x] A surviving mutation on a changed line outside any timer callback renders exactly the current `Surviving mutation in <file>:<line>: <mutation>` message, with the dual-constraint clause absent.
+- [x] A surviving mutation inside a timer callback in a file outside the determinism guard's roots renders the current single-constraint message, with the dual-constraint clause absent.
+- [x] Inverting the timer-callback enclosure check or the determinism-guard-coverage check fails at least one test; the two negative cases above assert absence of the appended clause, so an always-on clause is caught.
+- [x] The determinism guard still reports a violation for a real-timer wait in a guarded suite, and mutation verification still reports a surviving mutation for an uncovered timer-callback guard — neither gate is relaxed.
+- [x] The predicate newly exported from `scripts/guard-deterministic-daemon-tests.ts` is covered in both
       directions by `scripts/guard-deterministic-daemon-tests.test.ts`: a path under a guarded root and a
       path outside one, each asserted directly. Inverting the predicate's own condition fails a test —
       the mutation verifier flips guard tokens in that file, so a newly exported predicate that nothing
       asserts is uncovered.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts`, `v2/src/execution/ready-finalize.test.ts`, `v2/src/execution/write-loop.test.ts`, and `scripts/guard-deterministic-daemon-tests.test.ts` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts`, `v2/src/execution/ready-finalize.test.ts`, `v2/src/execution/write-loop.test.ts`, and `scripts/guard-deterministic-daemon-tests.test.ts` stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

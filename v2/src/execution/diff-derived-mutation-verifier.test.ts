@@ -1087,4 +1087,128 @@ index 1234567..abcdefg 100644
       ),
     ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
   });
+
+  describe("dual-constraint clause for timer callbacks in guarded files", () => {
+    it("includes dual-constraint clause for surviving mutation inside setTimeout in v2/src/execution/**", async () => {
+      const diffWithGuardInTimer = `diff --git a/v2/src/execution/verifier.ts b/v2/src/execution/verifier.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/verifier.ts
++++ b/v2/src/execution/verifier.ts
+@@ -1,6 +1,6 @@
+ function checkState() {
+   await new Promise((resolve) => setTimeout(() => {
+-    if (!valid) return;
++    if (!valid || false) return;
+     resolve();
+   }, 100));
+ }`;
+
+      const originalContent = `function checkState() {
+  await new Promise((resolve) => setTimeout(() => {
+    if (!valid || false) return;
+    resolve();
+  }, 100));
+}`;
+
+      const result = await verifyDiffDerivedMutations(
+        {
+          worktreePath: "/test/path",
+          runBase: "main",
+        },
+        {
+          gitDiff: async () => diffWithGuardInTimer,
+          untrackedFiles: async () => [],
+          readFile: async () => originalContent,
+          writeFile: async () => {},
+          runScopedTests: async () => true,
+        },
+      );
+
+      expect(result.kind).toBe("surviving-mutation");
+      if (result.kind === "surviving-mutation") {
+        expect(result.dualConstraintClause).toBeDefined();
+        expect(result.dualConstraintClause).toContain("timer callback");
+        expect(result.dualConstraintClause).toContain("determinism-guarded");
+        expect(result.dualConstraintClause).toContain("pure exported predicate");
+      }
+    });
+
+    it("omits dual-constraint clause for surviving mutation outside timer callback", async () => {
+      const diffWithoutTimer = `diff --git a/v2/src/execution/verifier.ts b/v2/src/execution/verifier.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/verifier.ts
++++ b/v2/src/execution/verifier.ts
+@@ -1,3 +1,3 @@
+ function checkState() {
+-  if (!valid) return;
++  if (!valid || false) return;
+   return true;
+ }`;
+
+      const originalContent = `function checkState() {
+  if (!valid || false) return;
+  return true;
+}`;
+
+      const result = await verifyDiffDerivedMutations(
+        {
+          worktreePath: "/test/path",
+          runBase: "main",
+        },
+        {
+          gitDiff: async () => diffWithoutTimer,
+          untrackedFiles: async () => [],
+          readFile: async () => originalContent,
+          writeFile: async () => {},
+          runScopedTests: async () => true,
+        },
+      );
+
+      expect(result.kind).toBe("surviving-mutation");
+      if (result.kind === "surviving-mutation") {
+        expect(result.dualConstraintClause).toBeUndefined();
+      }
+    });
+
+    it("omits dual-constraint clause for surviving mutation inside timer callback but outside guard roots", async () => {
+      const diffOutsideGuard = `diff --git a/v2/src/other/file.ts b/v2/src/other/file.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/other/file.ts
++++ b/v2/src/other/file.ts
+@@ -1,6 +1,6 @@
+ function checkState() {
+   await new Promise((resolve) => setTimeout(() => {
+-    if (!valid) return;
++    if (!valid || false) return;
+     resolve();
+   }, 100));
+ }`;
+
+      const originalContent = `function checkState() {
+  await new Promise((resolve) => setTimeout(() => {
+    if (!valid || false) return;
+    resolve();
+  }, 100));
+}`;
+
+      const result = await verifyDiffDerivedMutations(
+        {
+          worktreePath: "/test/path",
+          runBase: "main",
+        },
+        {
+          gitDiff: async () => diffOutsideGuard,
+          untrackedFiles: async () => [],
+          readFile: async () => originalContent,
+          writeFile: async () => {},
+          runScopedTests: async () => true,
+        },
+      );
+
+      expect(result.kind).toBe("surviving-mutation");
+      if (result.kind === "surviving-mutation") {
+        expect(result.dualConstraintClause).toBeUndefined();
+      }
+    });
+  });
 });

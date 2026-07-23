@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
+import { isProductionFileUnderGuard } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
@@ -21,6 +22,7 @@ export type SurvivingMutationResult = {
     file: string;
     line: number;
   };
+  dualConstraintClause?: string;
 };
 
 export type VerificationResult = PassResult | SurvivingMutationResult;
@@ -295,6 +297,41 @@ export function maskNonCodeSpans(line: string): string {
   return masked.join("");
 }
 
+function isLineInTimerCallback(fileContent: string, lineNumber: number): boolean {
+  const lines = fileContent.split("\n");
+  if (lineNumber < 1 || lineNumber > lines.length) return false;
+
+  let depth = 0;
+  const targetLineIndex = lineNumber - 1;
+
+  for (let i = targetLineIndex; i >= 0; i--) {
+    const line = lines[i];
+    if (line === undefined) continue;
+
+    const masked = maskNonCodeSpans(line);
+
+    for (let j = masked.length - 1; j >= 0; j--) {
+      const char = masked[j];
+
+      if (char === ")") {
+        depth++;
+      } else if (char === "(") {
+        depth--;
+        if (depth < 0) {
+          if (i === targetLineIndex) return false;
+          const beforeParen = masked.slice(0, j).trimEnd();
+          if (/\bsetTimeout\s*$/.test(beforeParen) || /\bsetInterval\s*$/.test(beforeParen)) {
+            return true;
+          }
+          return false;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
   const candidates: Candidate[] = [];
 
@@ -412,6 +449,13 @@ async function verifyPromptRenderCoverage(
   }
 }
 
+const DUAL_CONSTRAINT_CLAUSE =
+  "This site sits inside a timer callback in a determinism-guarded file. " +
+  "Both constraints apply: test that kills the mutation in both directions, " +
+  "and the determinism guard forbids real-timer waits in that suite. " +
+  "Extract the affected guard into a pure exported predicate and test that predicate directly " +
+  "without a real-timer wait.";
+
 async function testCandidate(
   candidate: Candidate,
   originalContent: string,
@@ -429,6 +473,10 @@ async function testCandidate(
     try {
       const testsPassed = await runScopedTests(input.worktreePath, scopeTests);
       if (testsPassed) {
+        const isTimerCallback = isLineInTimerCallback(originalContent, candidate.line);
+        const isGuarded = isProductionFileUnderGuard(candidate.file);
+        const dualConstraintClause = isTimerCallback && isGuarded ? DUAL_CONSTRAINT_CLAUSE : undefined;
+
         return {
           kind: "surviving-mutation",
           mutation: candidate.mutation,
@@ -436,6 +484,7 @@ async function testCandidate(
             file: candidate.file,
             line: candidate.line,
           },
+          ...(dualConstraintClause ? { dualConstraintClause } : {}),
         };
       }
     } finally {

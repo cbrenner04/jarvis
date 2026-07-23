@@ -71,8 +71,10 @@ export class SurvivingMutationError extends Error {
     readonly mutation: string,
     readonly sourceSiteFile: string,
     readonly sourceSiteLine: number,
+    readonly dualConstraintClause?: string,
   ) {
-    super(`Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
+    const message = `Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`;
+    super(dualConstraintClause ? `${message}. ${dualConstraintClause}` : message);
     this.name = "SurvivingMutationError";
   }
 }

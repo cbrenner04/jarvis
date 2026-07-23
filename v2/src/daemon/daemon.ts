@@ -32,6 +32,7 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import {
+  type Attempt,
   isTerminalRunStatus,
   openStateStore,
   type Run,
@@ -353,15 +354,27 @@ function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolea
   );
 }
 
-function resumeContextForRun(run: Run, loopOutcomeKind?: string): ResolvedWriteLoopInput | undefined {
+function hasLandingFailure(attempts: Attempt[] | undefined): boolean {
+  const lastAttempt = attempts?.at(-1);
+  return (
+    lastAttempt?.outcomeKind === "invocation_failure" &&
+    lastAttempt.invocationFailureDetail?.failureKind === "landing"
+  );
+}
+
+function resumeContextForRun(
+  run: Run & { attempts?: Attempt[] },
+  loopOutcomeKind?: string,
+): ResolvedWriteLoopInput | undefined {
   const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
   const publicationRetry =
     (run.status === "completed" || run.status === "failed") && isPublicationRetryEligible(loopOutcomeKind);
-  return resumableStatus || publicationRetry ? reconstructWriteResume(run) : undefined;
+  const landingRetry = run.status === "failed" && hasLandingFailure(run.attempts);
+  return resumableStatus || publicationRetry || landingRetry ? reconstructWriteResume(run) : undefined;
 }
 
 function resumeContextForTerminalRecord(
-  run: Run | undefined,
+  run: (Run & { attempts?: Attempt[] }) | undefined,
   terminalRecord: TerminalLogRecord | undefined,
 ): ResolvedWriteLoopInput | undefined {
   if (!run) return undefined;
@@ -1084,11 +1097,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       (run.status === "completed" || run.status === "failed") &&
       terminalRecord?.event.kind === "loop_finished" &&
       isPublicationRetryEligible(terminalRecord.event.loopOutcomeKind);
+    const landingFailureRetry = run.status === "failed" && hasLandingFailure(run.attempts);
 
-    // A completed durable boundary is idempotent, except a failed external publication.
+    // A completed durable boundary is idempotent, except a failed external publication or landing.
     if (
       (run.status === "completed" && !retryCompletionPublication) ||
-      (run.status === "failed" && !retryCompletionPublication) ||
+      (run.status === "failed" && !retryCompletionPublication && !landingFailureRetry) ||
       run.status === "blocked"
     ) {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };

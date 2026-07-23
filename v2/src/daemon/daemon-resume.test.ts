@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import type { LogReader } from "../persistence/log-stream.ts";
+import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -49,6 +49,20 @@ function createHandlers(logReader?: LogReader): Handlers {
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
+}
+
+function loopFinishedLogReader(runId: string, event: Omit<LoopFinishedEvent, "kind">): LogReader {
+  return {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: { kind: "loop_finished", ...event },
+      },
+    ],
+    async *follow() {},
+  };
 }
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
@@ -138,22 +152,11 @@ test("resume rejects terminal run status", async () => {
 test("resume retries a completed run after a resumable publication failure", async () => {
   const runId = createWorkflowRun({ invocationId: "publication-retry" });
   stateStore.setRunStatus(runId, "completed");
-  const logReader: LogReader = {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: {
-          kind: "loop_finished",
-          loopOutcomeKind: "completion_commit_failed",
-          iterationsConsumed: 1,
-          resumable: true,
-        },
-      },
-    ],
-    async *follow() {},
-  };
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
   const localHandlers = createHandlers(logReader);
 
   expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
@@ -163,25 +166,14 @@ test("resume retries a completed run after a resumable publication failure", asy
 test("resume retries a failed run after surviving mutation verification", async () => {
   const runId = createWorkflowRun({ invocationId: "surviving-mutation-retry" });
   stateStore.setRunStatus(runId, "failed");
-  const logReader: LogReader = {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: {
-          kind: "loop_finished",
-          loopOutcomeKind: "surviving_mutation_failed",
-          iterationsConsumed: 3,
-          resumable: true,
-          survivingMutation: "operator-flip: === → !==",
-          survivingMutationSourceFile: "src/guard.ts",
-          survivingMutationSourceLine: 17,
-        },
-      },
-    ],
-    async *follow() {},
-  };
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  });
   const localHandlers = createHandlers(logReader);
 
   expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
@@ -314,5 +306,50 @@ test("resume rejects worktree_claimed when the (project, branch) is already live
   expect(response.kind).toBe("error");
   if (response.kind === "error") {
     expect(response.code).toBe("worktree_claimed");
+  }
+});
+
+test("resume retries a failed run after a landing failure", async () => {
+  const runId = createWorkflowRun({ invocationId: "landing-failure-retry" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+  });
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+});
+
+test("resume rejects terminal run status without landing failure", async () => {
+  const runId = createWorkflowRun({ invocationId: "no-landing-failure" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "some error" },
+  });
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
   }
 });

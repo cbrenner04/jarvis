@@ -11,7 +11,7 @@ import {
   startRunDirect,
 } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, shouldShutdownNow } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -211,4 +211,15 @@ test("start after retiring is rejected before any worktree materialization", asy
 
   const runs = await listRunsDirect(handlers);
   expect(runs?.length ?? 0).toBe(0);
+});
+
+test("shouldShutdownNow: retiring daemon exits only once no run is active", () => {
+  // Retiring + active run → stays up (inverting the !hasActiveRuns guard would exit here).
+  expect(shouldShutdownNow(false, true, true)).toBe(false);
+  // Retiring + idle → exits.
+  expect(shouldShutdownNow(false, true, false)).toBe(true);
+  // Not retiring + idle → stays up (idle alone must not trigger shutdown).
+  expect(shouldShutdownNow(false, false, false)).toBe(false);
+  // Explicit stop always exits, regardless of retiring/active state.
+  expect(shouldShutdownNow(true, false, true)).toBe(true);
 });

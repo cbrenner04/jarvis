@@ -193,6 +193,15 @@ export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKe
 }
 
 /**
+ * The daemon shuts down when a stop was explicitly requested, or when it is
+ * retiring (superseded) and no run is still active. A retiring daemon with an
+ * active run stays up until that run settles.
+ */
+export function shouldShutdownNow(shutdownRequested: boolean, isRetiring: boolean, hasActiveRuns: boolean): boolean {
+  return shutdownRequested || (isRetiring && !hasActiveRuns);
+}
+
+/**
  * Returns a `worktree_claimed` error result when a live run already holds
  * `key`, or `undefined` when the worktree is free to claim.
  */
@@ -1538,8 +1547,10 @@ export async function startDaemonRuntime(
     }
   };
 
+  // Extracted so both directions of the retiring/active-runs guard are unit-testable
+  // without a real timer (the deterministic-daemon-test guard forbids one).
   const checkShutdown = setInterval(() => {
-    const shouldShutdown = shutdownRequested || (isRetiring() && !hasActiveRuns());
+    const shouldShutdown = shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns());
     if (shouldShutdown) {
       void close()
         .then(() => {

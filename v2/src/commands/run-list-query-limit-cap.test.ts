@@ -80,8 +80,8 @@ test("filtered query without --limit defaults to 200 newest runs", async () => {
   // Should be newest first
   const first = results[0];
   const last = results[199];
-  expect(first?.runId).toBe(runIds[0]!);
-  expect(last?.runId).toBe(runIds[199]!);
+  expect(first?.runId).toBe(runIds.at(0));
+  expect(last?.runId).toBe(runIds.at(199));
 });
 
 test("filtered query with explicit --limit returns at most N runs", async () => {
@@ -91,8 +91,8 @@ test("filtered query with explicit --limit returns at most N runs", async () => 
   expect(results.length).toBe(50);
   const first = results[0];
   const last = results[49];
-  expect(first?.runId).toBe(runIds[0]!);
-  expect(last?.runId).toBe(runIds[49]!);
+  expect(first?.runId).toBe(runIds.at(0));
+  expect(last?.runId).toBe(runIds.at(49));
 });
 
 test("filtered query with --limit larger than results returns all matching runs", async () => {
@@ -101,7 +101,7 @@ test("filtered query with --limit larger than results returns all matching runs"
   const results = (await listRunsDirect(handlers, { sinceMs: NOW_MS - 500_000, limit: 100 })) as DaemonListRunRow[];
   expect(results.length).toBe(30);
   const first = results[0];
-  expect(first?.runId).toBe(runIds[0]!);
+  expect(first?.runId).toBe(runIds.at(0));
 });
 
 test("filtered query results are newest-first", async () => {
@@ -111,7 +111,7 @@ test("filtered query results are newest-first", async () => {
   expect(results.length).toBe(5);
   for (let i = 0; i < 5; i++) {
     const row = results[i];
-    expect(row?.runId).toBe(runIds[i]!);
+    expect(row?.runId).toBe(runIds.at(i));
   }
 });
 
@@ -122,7 +122,7 @@ test("unfiltered query keeps retainListedRuns policy (no default cap applied)", 
   // Without filter, uses retainListedRuns which keeps 50 terminal runs
   expect(results.length).toBeLessThanOrEqual(100);
   // The first result should be one of the newest runs
-  expect(results.some((r) => r.runId === runIds[0]!)).toBe(true);
+  expect(results.some((r) => r.runId === runIds.at(0))).toBe(true);
 });
 
 test("bare --limit without filter does not apply default cap", async () => {

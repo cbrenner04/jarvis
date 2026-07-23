@@ -211,6 +211,27 @@ const ALLOWLIST = new Set([
 
 A static guard (`scripts/guard-test-double-production-calls.ts`) verifies this rule and runs as part of `bun run check`.
 
+## Coverage as a pre-filter; mutation verification for adequacy
+
+**Coverage** (execution count > 0) is a pre-filter that identifies changed lines never touched by tests. The
+coverage advisory pass in the write loop runs the uncovered-changed-lines reporter when a write step completes,
+delivering the advisory to the agent inside the write step (before the completion boundary) so test gaps
+are detected immediately.
+
+**Mutation verification** (run by the ready-gate finalizer) determines whether changed code is *adequately*
+tested. A line executed by tests may still lack sufficient assertions (e.g., an `if` branch that always takes
+one path even though both are possible). Only mutation verification can answer whether the changed code has
+enough assertions to catch a subtle defect.
+
+The two passes work in sequence:
+1. Coverage advisory identifies never-executed lines, giving the agent a chance to add tests before the write
+   completes.
+2. Mutation verification gates the PR, verifying that executed lines have sufficient assertions.
+
+An executed line may fail mutation verification (surviving mutations show uncaught defects); a never-executed
+line will always fail mutation verification (an unexecuted path has no assertions). Fixing either requires
+adding tests, but coverage signals the less-obvious gap: code the agent didn't write tests for at all.
+
 ## Out of scope
 
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

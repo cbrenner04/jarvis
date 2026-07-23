@@ -2510,4 +2510,157 @@ describe("write loop", () => {
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
   });
+
+  test("completing run with uncovered lines triggers advisory re-prompt before boundary commit", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    let invocations = 0;
+
+    const loopInput: WriteLoopInput = {
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "coverage-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            if (invocations === 1) {
+              // First invocation: return done
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            // Advisory re-prompt: also return done
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      coverageReporter: async () => ({
+        uncoveredSites: [
+          { file: "src/example.ts", line: 42 },
+          { file: "src/another.ts", line: 10 },
+        ],
+        reportText: "Uncovered changed lines (execution count is zero):\nsrc/example.ts:42\nsrc/another.ts:10\n\nNote: A line executed by tests may still lack sufficient assertions.",
+      }),
+    };
+
+    try {
+      const result = await executeWriteLoop(loopInput);
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("coverage_advisory");
+      const advisoryEvent = sink.getEventsForRun(result.runId).find((event) => event.kind === "coverage_advisory");
+      expect(advisoryEvent).toBeDefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("completing run with no uncovered lines skips advisory re-prompt", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+
+    const loopInput: WriteLoopInput = {
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "coverage-empty-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      coverageReporter: async () => ({
+        uncoveredSites: [],
+        reportText: "",
+      }),
+    };
+
+    try {
+      const result = await executeWriteLoop(loopInput);
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("coverage_advisory");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("advisory re-prompt response does not change completion outcome", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    let invocations = 0;
+
+    const loopInput: WriteLoopInput = {
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "coverage-blocked-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            if (invocations === 1) {
+              // First invocation: return done
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            // Advisory re-prompt: return blocked (should not change outcome)
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      coverageReporter: async () => ({
+        uncoveredSites: [{ file: "src/example.ts", line: 42 }],
+        reportText: "Uncovered changed lines (execution count is zero):\nsrc/example.ts:42",
+      }),
+    };
+
+    try {
+      const result = await executeWriteLoop(loopInput);
+
+      // Should still be complete despite advisory re-prompt returning blocked
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(1);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("coverage_advisory");
+    } finally {
+      store.close();
+    }
+  });
 });

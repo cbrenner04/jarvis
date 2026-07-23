@@ -324,6 +324,16 @@ resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing cov
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
+The coverage advisory pass runs when a write step completes, invoking the uncovered-changed-lines reporter
+and delivering a non-gate advisory to the agent if uncovered lines are discovered. This advisory fires
+inside the write step before the completion boundary, giving the agent an opportunity to add tests while still
+in the write loop. The advisory certifies *execution* (lines with coverage > 0), not *adequacy* — a line
+executed by tests may still lack sufficient assertions, and the mutation gate will later determine that.
+The coverage advisory never gates a run and never changes the completion outcome: even if the agent declines
+to add tests in response to the advisory, the run continues to completion, publication, and mutation
+verification. See [`write-behavior.md`](./write-behavior.md) § Coverage advisory pass and [`test-writing.md`](./test-writing.md)
+§ Coverage as a pre-filter for details.
+
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's

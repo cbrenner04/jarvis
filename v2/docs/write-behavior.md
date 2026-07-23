@@ -997,6 +997,29 @@ v2/src/execution/other.ts:5
 Note: A line executed by tests may still lack sufficient assertions. The mutation verifier, not coverage, determines whether changes are adequately tested.
 ```
 
+## Coverage advisory pass
+
+When a write step completes (returns `done` or `no-work`), the write loop runs the uncovered-changed-line reporter
+before committing the completion boundary. If the reporter finds uncovered lines with a non-empty report,
+the loop invokes the agent one more time with the `write.coverage-advisory` prompt, restating the report
+and offering the opportunity to add tests (optionally). This advisory re-prompt is a sub-invocation
+that consumes no iteration budget and cannot change the run's outcome.
+
+The advisory re-prompt is a write-step invocation identical to `write.token-reprompt` and `write.ready-repair`:
+it fires a new attempt row, runs the agent with the advisory prompt, records the boundary commitment,
+then proceeds to the completion boundary commit regardless of the advisory response (which may be
+`done`, `progress`, `blocked`, or any other write-step outcome). Non-`complete` outcomes
+(`progress`, `blocked`, invocation failure) also skip the advisory pass entirely.
+
+The advisory pass aims to deliver coverage intelligence to the agent inside the write step, before the
+completion boundary commits, so test gaps are detected immediately rather than downstream at the
+ready-gate or mutation-verification stage. Adding tests in response to the advisory is entirely
+optional; the run will complete and proceed to publication and verification regardless.
+
+If the reporter returns no uncovered lines (empty report text), the advisory re-prompt is skipped,
+avoiding a needless invocation. Reporter failures (timeouts, coverage subprocess failures) are
+fail-soft and do not trigger the advisory pass.
+
 ## Cleanup command
 
 `jarvis cleanup` removes stale worktrees and archived incomplete specs, and reaps dead

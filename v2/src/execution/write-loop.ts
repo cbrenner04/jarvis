@@ -17,6 +17,7 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import {
   createReadyFinalizer,
   type ReadyFinalizer,
@@ -115,6 +116,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  /** For testing: injectable coverage reporter. */
+  coverageReporter?: typeof reportUncoveredChangedLines;
 };
 
 /**
@@ -361,6 +364,34 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           : undefined;
       const completionAgent =
         result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
+
+      // Run coverage advisory if complete, before committing boundary
+      if (result.kind === "complete") {
+        try {
+          const reporter = args.coverageReporter ?? reportUncoveredChangedLines;
+          const coverageReport = await reporter({
+            worktreePath,
+            runBase: args.worktree.baseRef,
+          });
+          if (coverageReport.reportText.trim()) {
+            const advisoryOutcome = await runCoverageAdvisoryIteration(
+              args,
+              store,
+              runId,
+              coverageReport.reportText,
+            );
+            // Log advisory outcome but don't change the terminal outcome
+            args.logSink?.append(runId, {
+              kind: "coverage_advisory",
+              attemptId,
+              outcome: advisoryOutcome,
+            });
+          }
+        } catch {
+          // Coverage advisory failures are non-fatal; proceed with normal boundary commit
+        }
+      }
+
       store.commitCompletionBoundary({
         attemptId,
         runStatus: terminal.runStatus,
@@ -925,6 +956,59 @@ export function appendRuntimeSmokeOutcome(
 }
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+
+/** `unsettled` consumed no iteration; advisory iterations consume no budget. */
+type CoverageAdvisoryOutcome = "unsettled" | "continue";
+
+/** One advisory iteration: reprompt the agent with the coverage report, then record its boundary. */
+async function runCoverageAdvisoryIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  coverageReport: string,
+): Promise<CoverageAdvisoryOutcome> {
+  const attemptId = store.recordAttemptStart(runId);
+  args.logSink?.append(runId, { kind: "iteration_started", attemptId });
+  const clock = args.clock ?? (() => new Date());
+  const sessionLog = openSessionLog(runId, formatSessionLogTimestamp(clock()), {
+    ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+    clock,
+  });
+  sessionLog.append("harness", `run=${runId} spec=${args.specPath} coverage-advisory`);
+
+  const advisoryArgs: WriteLoopInput = {
+    ...args,
+    promptId: "write.coverage-advisory",
+    promptPlaceholders: {
+      COVERAGE_REPORT: coverageReport,
+    },
+  };
+  const settled = await awaitIteration(advisoryArgs, runId, attemptId, sessionLog);
+  if (settled.kind !== "settled") {
+    closeSessionLog(
+      sessionLog,
+      settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+    );
+    return "unsettled";
+  }
+  closeSessionLog(sessionLog, "completed");
+
+  const stepResult = settled.result.result;
+  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
+  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: boundary.runStatus,
+    outcomeKind: boundary.outcomeKind,
+  });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: boundary.outcomeKind,
+    runStatus: boundary.runStatus,
+  });
+  return "continue";
+}
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
 type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";

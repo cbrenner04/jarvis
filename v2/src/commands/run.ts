@@ -54,6 +54,45 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function validateValue(value: string | undefined, flag: string, io: Io): value is string {
+  if (!value || value.startsWith("-")) {
+    io.stderr(flag === "--since" ? "invalid_since: invalid value\n" : "invalid_limit: invalid value\n");
+    return false;
+  }
+  return true;
+}
+
+function parseSinceFlag(
+  value: string,
+  sinceMs: number | undefined,
+  io: Io,
+  deps: CliDeps,
+): { ok: true; sinceMs: number } | { ok: false } {
+  if (sinceMs !== undefined) {
+    io.stderr(RUN_LIST_USAGE);
+    return { ok: false };
+  }
+  const cutoff = parseSince(value, deps.now?.() ?? Date.now());
+  if (!cutoff) {
+    io.stderr("invalid_since: invalid value\n");
+    return { ok: false };
+  }
+  return { ok: true, sinceMs: cutoff };
+}
+
+function parseLimitFlag(value: string, limit: number | undefined, io: Io): { ok: true; limit: number } | { ok: false } {
+  if (limit !== undefined) {
+    io.stderr(RUN_LIST_USAGE);
+    return { ok: false };
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    io.stderr("invalid_limit: invalid value\n");
+    return { ok: false };
+  }
+  return { ok: true, limit: parsed };
+}
+
 function parseListArgv(
   rest: readonly string[],
   io: Io,
@@ -65,39 +104,22 @@ function parseListArgv(
 
   while (args.length > 0) {
     const flag = args.shift();
+    if (!flag?.startsWith("--")) {
+      io.stderr(RUN_LIST_USAGE);
+      return { ok: false };
+    }
+
+    const value = args.shift();
+    if (!validateValue(value, flag, io)) return { ok: false };
 
     if (flag === "--since") {
-      if (sinceMs !== undefined) {
-        io.stderr(RUN_LIST_USAGE);
-        return { ok: false };
-      }
-      const value = args.shift();
-      if (value === undefined || value.startsWith("-")) {
-        io.stderr("invalid_since: invalid value\n");
-        return { ok: false };
-      }
-      const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-      if (cutoff === undefined) {
-        io.stderr("invalid_since: invalid value\n");
-        return { ok: false };
-      }
-      sinceMs = cutoff;
+      const result = parseSinceFlag(value, sinceMs, io, deps);
+      if (!result.ok) return { ok: false };
+      sinceMs = result.sinceMs;
     } else if (flag === "--limit") {
-      if (limit !== undefined) {
-        io.stderr(RUN_LIST_USAGE);
-        return { ok: false };
-      }
-      const value = args.shift();
-      if (value === undefined || value.startsWith("-")) {
-        io.stderr("invalid_limit: invalid value\n");
-        return { ok: false };
-      }
-      const parsed = Number(value);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        io.stderr("invalid_limit: invalid value\n");
-        return { ok: false };
-      }
-      limit = parsed;
+      const result = parseLimitFlag(value, limit, io);
+      if (!result.ok) return { ok: false };
+      limit = result.limit;
     } else {
       io.stderr(RUN_LIST_USAGE);
       return { ok: false };

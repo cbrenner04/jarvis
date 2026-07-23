@@ -2,9 +2,9 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
-import { createRunControlHandlers } from "../daemon/daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -64,10 +64,11 @@ test("filtered query with --limit returns at most N newest matching rows", async
 
   const runs = await listRunsDirect(handlers, { sinceMs: 50, limit: 100 });
   expect(runs).toHaveLength(100);
-  const createdAts = runs?.map((r) => {
-    const run = stateStore.loadRun(r.runId);
-    return run?.createdAt ?? 0;
-  }) ?? [];
+  const createdAts =
+    runs?.map((r) => {
+      const run = stateStore.loadRun(r.runId);
+      return run?.createdAt ?? 0;
+    }) ?? [];
   const maxCreatedAt = Math.max(...createdAts);
   for (const createdAt of createdAts) {
     expect(createdAt).toBeGreaterThanOrEqual(maxCreatedAt - 99);
@@ -141,10 +142,11 @@ test("filtered query returns newest matching rows first", async () => {
   }
 
   const runs = await listRunsDirect(handlers, { sinceMs: 0, limit: 50 });
-  const createdAts = runs?.map((r) => {
-    const run = stateStore.loadRun(r.runId);
-    return run?.createdAt ?? 0;
-  }) ?? [];
+  const createdAts =
+    runs?.map((r) => {
+      const run = stateStore.loadRun(r.runId);
+      return run?.createdAt ?? 0;
+    }) ?? [];
   const sorted = [...createdAts].sort((a, b) => b - a);
   expect(createdAts).toEqual(sorted);
 });

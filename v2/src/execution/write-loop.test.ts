@@ -789,9 +789,7 @@ describe("write loop", () => {
       const boundaryIndex = events.indexOf("boundary_committed");
       expect(advisoryIndex).toBeGreaterThanOrEqual(0);
       expect(boundaryIndex).toBeGreaterThan(advisoryIndex);
-      const advisory = sink
-        .getEventsForRun(result.runId)
-        .find((event) => event.kind === "coverage_advisory_reprompt");
+      const advisory = sink.getEventsForRun(result.runId).find((event) => event.kind === "coverage_advisory_reprompt");
       expect(advisory).toMatchObject({ responseText: "will add a test" });
       const telemetryRows = loadTelemetryRows(telemetryPath);
       expect(telemetryRows).toHaveLength(2);
@@ -881,9 +879,9 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("complete");
       expect(reporterCalls).toBe(0);
-      expect(
-        sink.getEventsForRun(result.runId).some((event) => event.kind === "coverage_advisory_reprompt"),
-      ).toBe(false);
+      expect(sink.getEventsForRun(result.runId).some((event) => event.kind === "coverage_advisory_reprompt")).toBe(
+        false,
+      );
     });
   });
 

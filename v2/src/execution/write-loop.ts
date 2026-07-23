@@ -31,13 +31,13 @@ import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts"
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
-import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import {
   reportUncoveredChangedLines as defaultReportUncoveredChangedLines,
   type UncoveredChangedLinesReport,
 } from "./uncovered-changed-lines.ts";
-import { renderStepPrompt } from "./write-prompt.ts";
+import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
+import { renderStepPrompt } from "./write-prompt.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -121,9 +121,10 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
-  reportUncoveredChangedLines?: (
-    input: { worktreePath: string; runBase: string },
-  ) => Promise<UncoveredChangedLinesReport>;
+  reportUncoveredChangedLines?: (input: {
+    worktreePath: string;
+    runBase: string;
+  }) => Promise<UncoveredChangedLinesReport>;
 };
 
 /**
@@ -791,9 +792,7 @@ async function maybeDeliverCoverageAdvisory(
     cwd: worktreePath,
     bindings: args.bindings,
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(invocationTelemetry !== undefined
-      ? { telemetry: { ...invocationTelemetry, worktreePath } }
-      : {}),
+    ...(invocationTelemetry !== undefined ? { telemetry: { ...invocationTelemetry, worktreePath } } : {}),
   });
   const responseText = invocation.final?.result.kind === "ok" ? invocation.final.result.stdout.trim() : "";
   args.logSink?.append(runId, {

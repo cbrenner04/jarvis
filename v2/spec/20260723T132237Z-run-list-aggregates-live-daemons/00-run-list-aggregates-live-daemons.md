@@ -15,12 +15,24 @@
 - Skip a socket that fails to connect or whose `list` RPC fails; rules out one dead socket blanking the whole listing.
 - When only the invoking digest's daemon is live, list output stays byte-identical to today; rules out changing solo-daemon rendering.
 - `run wait`, `run log`, and other run subcommands stay on the single-socket path in this slice; rules out widening them here.
+- Discovery reaches `run list` through a new optional `socketDiscovery` field on `CliDeps`
+  (`v2/src/cli/deps.ts`), mirroring `RunTuiEntryDeps.socketDiscovery`; production defaults it to
+  `discoverLiveDaemonSockets`. Rules out calling the real discovery directly from `run.ts`, which
+  would leave the multi-socket path untestable.
+- **The test harness already supports this — do not report it as a blocker.** A prior attempt
+  claimed `withFixedUuid` + `makeIpcClient` cannot route responses across multiple concurrent
+  clients. That is false: each client owns its own frame queue and its own transport `pending` map,
+  so there is no cross-talk. `v2/src/commands/run.test.ts` (the `keyed socket` test that routes on
+  `socketPath` and records into separate `sent` arrays) is a working two-client precedent in the
+  file this spec edits. Prefer the single-string `withFixedUuid(ID, …)` form so every client's frame
+  carries the same id; the array form is order-sensitive and unnecessary here.
 
 ## Task checklist
 
+- [ ] Add optional `socketDiscovery` to `CliDeps`, defaulting to `discoverLiveDaemonSockets`.
 - [ ] Extract or share the TUI run-list merge helper (`isLive` owner preference) for CLI reuse.
 - [ ] Wire `run list` to discover live sockets, always include `deps.socketPath`, query each live daemon, merge, sort by `runId`, and render with `formatListRunRow`.
-- [ ] Tests in `v2/src/commands/run.test.ts`: two live daemons with a run on the non-invoking one; duplicate durable rows deduped to the `isLive` owner; one unreachable socket skipped; solo-daemon output unchanged; guard-inversion negative cases.
+- [ ] Tests in `v2/src/commands/run.test.ts`: two live daemons with a run on the non-invoking one; duplicate durable rows deduped to the `isLive` owner; one unreachable socket skipped; solo-daemon output unchanged; guard-inversion negative cases. Route per-socket fakes through `deps.connectIpcClient(socketPath)`, as the existing keyed-socket test does.
 - [ ] Update operator and architecture docs listed below.
 
 ## Acceptance criteria

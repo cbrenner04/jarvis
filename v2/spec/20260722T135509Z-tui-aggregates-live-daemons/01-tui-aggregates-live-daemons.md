@@ -24,15 +24,15 @@
 
 ## Acceptance criteria
 
-- [ ] With two live daemons whose `list` results overlap, the monitor renders each run ID exactly once.
-- [ ] A run reported `isLive` by one daemon is rendered from that daemon's row, and its `wait`, `pause`, `resume`, and `kill` calls reach that daemon and no other.
-- [ ] Runs live on different daemons are visible together in one monitor.
-- [ ] A connection whose `list` fails leaves the remaining daemons' runs rendered and the monitor open.
-- [ ] With discovery returning no sockets, the TUI still connects to the invoking digest's socket and behaves as before.
-- [ ] `run list` and `run wait` stay scoped to one daemon: the existing `v2/src/commands/run.test.ts` list and wait tests stay green.
-- [ ] New tests in `v2/src/tui/tui-entry.test.tsx` and `v2/src/commands/tui.test.ts` covering the above fail against the pre-fix single-connection entry and pass after the change.
-- [ ] Inverting each added guard (dedupe-by-run-ID, live-owner preference, per-connection failure skip, always-include invoking socket) makes at least one test fail; the dedupe and failure-skip negative cases prove the duplicate row and the aborted render are absent.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] With two live daemons whose `list` results overlap, the monitor renders each run ID exactly once.
+- [x] A run reported `isLive` by one daemon is rendered from that daemon's row, and its `wait`, `pause`, `resume`, and `kill` calls reach that daemon and no other.
+- [x] Runs live on different daemons are visible together in one monitor.
+- [x] A connection whose `list` fails leaves the remaining daemons' runs rendered and the monitor open.
+- [x] With discovery returning no sockets, the TUI still connects to the invoking digest's socket and behaves as before.
+- [x] `run list` and `run wait` stay scoped to one daemon: the existing `v2/src/commands/run.test.ts` list and wait tests stay green.
+- [x] New tests in `v2/src/tui/tui-entry.test.tsx` and `v2/src/commands/tui.test.ts` covering the above fail against the pre-fix single-connection entry and pass after the change.
+- [x] Inverting each added guard (dedupe-by-run-ID, live-owner preference, per-connection failure skip, always-include invoking socket) makes at least one test fail; the dedupe and failure-skip negative cases prove the duplicate row and the aborted render are absent.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -529,6 +529,26 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
   and quit with `q` or Ctrl-C. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`
+- [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
+  daemon sockets, connects to each, and aggregates their `list` results into one
+  monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);
+  connections that fail to list are skipped without aborting the view. Steering
+  RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
+  are discovered, the monitor connects only to the invoking digest's socket
+  (single-daemon fallback). `jarvis run list` and `jarvis run wait` remain
+  single-daemon. Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/daemon/live-daemon-socket-discovery.ts`,
+  `v2/docs/write-behavior.md`
+- [v2 additive] TUI follows daemon supersession without restart: on every refresh
+  tick (one second), the running TUI rediscovers live daemon sockets and updates
+  connections. Newly discovered daemons contribute their runs on the next refresh;
+  closed daemons are disconnected and their exclusive runs removed. Superseded
+  (old digest) and superseding (new digest) daemons render together while both
+  are live. Selection clears automatically if the owning daemon is closed. Steering
+  commands always target the daemon currently owning the selected run. Rediscovery
+  failure leaves the connection set intact for that tick. This allows the TUI to
+  remain open across daemon dispatch transitions (e.g., workflow rebuilds moving
+  to a new executable digest) without restart. Sources: `v2/src/tui/tui-entry.tsx`,
+  `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`
 - [v2 additive] TUI run-table ordering: non-queued rows render active statuses
   (`in-progress`, `awaiting-human`, `revising`, `paused`, `budget-soft-stopped`)
   before terminal statuses (`completed`, `failed`, `killed`, `blocked`), newest

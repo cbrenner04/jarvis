@@ -68,6 +68,9 @@ export type TuiRefreshScheduler = {
   start(onRefresh: () => void): { close(): void };
 };
 
+/** Discover live daemon sockets; injectable seam for testing. */
+export type SocketDiscovery = () => Promise<string[]>;
+
 /** Dependencies for {@link runTuiEntry}. */
 export type RunTuiEntryDeps = {
   /** Unix socket path; required. */
@@ -80,4 +83,6 @@ export type RunTuiEntryDeps = {
   viewHost?: TuiViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender;
+  /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
+  socketDiscovery?: SocketDiscovery;
 };

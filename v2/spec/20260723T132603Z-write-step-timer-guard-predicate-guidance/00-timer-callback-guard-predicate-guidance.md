@@ -33,18 +33,18 @@ neither constraint together and leave the guard inline.
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` asserts the rendered implement write-step prompt (`patch.prompt.body` via
+- [x] `write.test.ts` asserts the rendered implement write-step prompt (`patch.prompt.body` via
       `executeWrite`) instructs extracting a guard inside a `setTimeout` or `setInterval`
       callback into a pure exported predicate testable in both directions without a real timer;
       the test fails against the pre-fix prompt.
-- [ ] `v2/docs/test-writing.md` § Deterministic daemon and execution tests states that
+- [x] `v2/docs/test-writing.md` § Deterministic daemon and execution tests states that
       timer-callback guards must be extracted into pure predicates so mutation verification and
       the determinism guard are both satisfiable.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` passes against fixtures keyed at the bumped
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` passes against fixtures keyed at the bumped
       `patch.prompt.body` revision.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` stays green.
-- [ ] `scripts/guard-deterministic-daemon-tests.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` stays green.
+- [x] `scripts/guard-deterministic-daemon-tests.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

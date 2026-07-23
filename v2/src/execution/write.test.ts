@@ -285,6 +285,9 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expect(capturedPrompt).toContain(
+      "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
+    );
   });
 
   test("patch.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {

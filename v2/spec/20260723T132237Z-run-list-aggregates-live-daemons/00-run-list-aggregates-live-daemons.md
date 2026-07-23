@@ -43,6 +43,9 @@
 - [ ] When only the invoking digest's daemon is live, `run list` output is byte-identical to today.
 - [ ] `run.test.ts` `read-only run list reports the missing daemon instead of starting one` stays green.
 - [ ] Inverting each added guard (the liveness skip, the dedupe ownership rule) fails a test.
+- [ ] With **every** socket failing and two distinct errors, `run list` exits non-zero reporting the
+      **first** error, not a later one; inverting the first-error-wins guard (`if (!firstError)`)
+      fails that test. A single-failing-socket test does not distinguish the two directions.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

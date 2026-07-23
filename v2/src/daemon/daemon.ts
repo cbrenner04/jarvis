@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -18,6 +19,8 @@ import {
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import { connectIpcClient } from "../ipc/client";
+import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
@@ -1273,11 +1276,17 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
   };
 }
 
+export type EnumerateOtherDaemonSockets = (jarvisHomeDir: string, ownSocketPath: string) => string[];
+
+export type SupersedePeerDaemon = (socketPath: string) => Promise<void>;
+
 export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;
   recoverReconciledRuns?: typeof recoverReconciledRuns;
+  enumerateOtherDaemonSockets?: EnumerateOtherDaemonSockets;
+  supersedePeerDaemon?: SupersedePeerDaemon;
 };
 
 export async function recoverReconciledRuns(
@@ -1313,6 +1322,40 @@ export async function recoverReconciledRuns(
     }
   }
   return { resumed };
+}
+
+/**
+ * Default implementation: enumerate `daemon-*.sock` files in jarvisHome,
+ * excluding the daemon's own socket path.
+ */
+export function enumerateOtherDaemonSockets(jarvisHomeDir: string, ownSocketPath: string): string[] {
+  try {
+    const entries = readdirSync(jarvisHomeDir);
+    return entries
+      .filter((entry) => entry.match(/^daemon-[a-f0-9]{16}\.sock$/))
+      .map((entry) => join(jarvisHomeDir, entry))
+      .filter((path) => path !== ownSocketPath);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Default implementation: connect to a peer daemon socket and send `supersede`.
+ * Errors are ignored (socket unreachable, RPC error, etc.).
+ */
+export async function supersedePeerDaemon(socketPath: string): Promise<void> {
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      await transport.request("supersede", undefined, { timeoutMs: 1_000 });
+    } finally {
+      transport.close();
+    }
+  } catch {
+    // Ignore all errors: unreachable socket, RPC failure, timeout, etc.
+  }
 }
 
 export async function startDaemonRuntime(
@@ -1379,6 +1422,10 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  const supersedHandler: RpcHandler = () => {
+    return { kind: "response", result: { ok: true } };
+  };
+
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     close: _closeRunControlHandlers,
@@ -1396,6 +1443,7 @@ export async function startDaemonRuntime(
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
+    supersede: supersedHandler,
     ...runControlHandlers,
   };
 
@@ -1407,6 +1455,18 @@ export async function startDaemonRuntime(
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
   }
+
+  // Send supersede to peer daemons after our server is listening, best-effort and non-blocking.
+  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
+  (async () => {
+    const peerSockets = enumerateSockets(jarvisHome(), socketPath);
+    for (const peerSocket of peerSockets) {
+      await supersedePeer(peerSocket);
+    }
+  })().catch(() => {
+    // Ignore errors: the supersede pass is best-effort.
+  });
 
   const recoveryLogSink = createLogSink(logsPath);
   try {

@@ -16,10 +16,7 @@ import { createRunControlHandlers } from "./daemon.ts";
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 async function resumeDirect(h: Handlers, runId: string) {
-  return h.resume(
-    { kind: "request", id: "r1", method: "resume", params: { runId } },
-    new AbortController().signal,
-  );
+  return h.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, new AbortController().signal);
 }
 
 let stateStore: StateStore;

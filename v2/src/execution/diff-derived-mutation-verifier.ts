@@ -414,39 +414,52 @@ async function verifyPromptRenderCoverage(
   }
 }
 
+const TIMER_CALL_PATTERN = /\b(?:setTimeout|setInterval)\s*\(/g;
+
+function scanToClosingParen(lines: string[], startLine: number, startCol: number): { endLine: number } | null {
+  let parenDepth = 1;
+  let currentLine = startLine;
+  let currentCol = startCol;
+
+  while (currentLine < lines.length && parenDepth > 0) {
+    const scanLine = lines[currentLine];
+    if (scanLine === undefined) return null;
+
+    for (; currentCol < scanLine.length; currentCol++) {
+      const char = scanLine[currentCol];
+      if (char === "(") parenDepth++;
+      else if (char === ")") {
+        parenDepth--;
+        if (parenDepth === 0) return { endLine: currentLine };
+      }
+    }
+
+    currentLine++;
+    currentCol = 0;
+  }
+
+  return null;
+}
+
+function timerCallOnLineContainsTarget(lines: string[], lineIndex: number, targetLineNum: number): boolean {
+  const line = lines[lineIndex];
+  if (line === undefined) return false;
+
+  for (const match of line.matchAll(TIMER_CALL_PATTERN)) {
+    const startCol = (match.index ?? 0) + (match[0]?.length ?? 0);
+    const closed = scanToClosingParen(lines, lineIndex, startCol);
+    if (closed !== null && closed.endLine >= targetLineNum) return true;
+  }
+
+  return false;
+}
+
 function isInsideTimerCallback(content: string, lineNum: number): boolean {
   const lines = content.split("\n");
   if (lineNum < 1 || lineNum > lines.length) return false;
 
   for (let i = lineNum - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (line === undefined) continue;
-
-    for (const match of line.matchAll(/\b(?:setTimeout|setInterval)\s*\(/g)) {
-      let parenDepth = 1;
-      let currentLine = i;
-      let currentCol = (match.index ?? 0) + (match[0]?.length ?? 0);
-
-      while (currentLine < lines.length && parenDepth > 0) {
-        const scanLine = lines[currentLine];
-        if (scanLine === undefined) break;
-
-        for (; currentCol < scanLine.length; currentCol++) {
-          const char = scanLine[currentCol];
-          if (char === "(") parenDepth++;
-          else if (char === ")") {
-            parenDepth--;
-            if (parenDepth === 0) {
-              if (currentLine >= lineNum) return true;
-              break;
-            }
-          }
-        }
-
-        currentLine++;
-        currentCol = 0;
-      }
-    }
+    if (timerCallOnLineContainsTarget(lines, i, lineNum)) return true;
   }
 
   return false;

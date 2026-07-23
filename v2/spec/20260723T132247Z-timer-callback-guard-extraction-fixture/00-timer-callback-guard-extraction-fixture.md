@@ -34,14 +34,14 @@ guards inside `setInterval` callbacks.
 
 ## Acceptance criteria
 
-- [ ] `timer-callback-guard-fixture.test.ts` covers both truth directions of the exported
+- [x] `timer-callback-guard-fixture.test.ts` covers both truth directions of the exported
       predicate and fails against the pre-fix tree; inverting the predicate's comparison operator
       makes at least one test fail.
-- [ ] The fixture's tests pass `bun run check` and finish without waiting on a real timer.
-- [ ] `v2/src/daemon/daemon-retire-superseded.test.ts` stays green.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` stays green.
-- [ ] `scripts/guard-deterministic-daemon-tests.test.ts` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] The fixture's tests pass `bun run check` and finish without waiting on a real timer.
+- [x] `v2/src/daemon/daemon-retire-superseded.test.ts` stays green.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` stays green.
+- [x] `scripts/guard-deterministic-daemon-tests.test.ts` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

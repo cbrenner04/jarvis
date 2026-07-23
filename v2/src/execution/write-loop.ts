@@ -1,6 +1,9 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { executeWithQuotaFallback, type InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { type LogSink, truncateLogText } from "../persistence/log-stream.ts";
@@ -30,6 +33,7 @@ import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts"
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -130,7 +134,38 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
+const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
+
+/** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
+async function runCoverageAdvisory(
+  worktreePath: string,
+  bindings: readonly InvocationBinding[],
+  signal?: AbortSignal,
+): Promise<{ responseText: string } | null> {
+  try {
+    const report = await reportUncoveredChangedLines({ worktreePath, runBase: "HEAD" });
+    if (!report.reportText) {
+      return null;
+    }
+
+    const artifact = loadPromptRegistry().getById(COVERAGE_ADVISORY_PROMPT_ID);
+    const prompt = renderArtifactTemplate(artifact, { COVERAGE_REPORT: report.reportText });
+
+    const invocation = await executeWithQuotaFallback({
+      prompt,
+      cwd: worktreePath,
+      bindings,
+      ...(signal !== undefined ? { signal } : {}),
+    });
+
+    const responseText = invocation.final?.result?.kind === "ok" ? invocation.final.result.stdout.trim() : "";
+    return { responseText };
+  } catch {
+    // Coverage advisory is deliver-only; fail soft
+    return null;
+  }
+}
 
 /** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
 export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
@@ -346,6 +381,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
             : resolveSpecPath(worktreePath, args.specPath);
         appendBlockerToSpec(targetSpecPath, reason);
+      }
+
+      // Run coverage advisory for completing implement writes before terminal boundary
+      if (result.kind === "complete" && args.promptId === "patch.prompt.body") {
+        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal);
+        if (advisoryResult !== null) {
+          args.logSink?.append(runId, {
+            kind: "coverage_advisory",
+            attemptId,
+            responseText: truncateLogText(advisoryResult.responseText),
+          });
+        }
       }
 
       const terminal = terminalMapping(result);

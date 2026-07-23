@@ -99,6 +99,13 @@ export type BlockerTextDetailEvent = {
   blockerText: string;
 };
 
+/** Emitted when a completing implement write runs the coverage advisory re-prompt; deliver-only, no outcome change. */
+export type CoverageAdvisoryEvent = {
+  kind: "coverage_advisory";
+  attemptId: string;
+  responseText: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -112,7 +119,8 @@ export type LogEvent =
   | TokenRepromptEvent
   | BlockerRepromptEvent
   | MissingBlockerDetailEvent
-  | BlockerTextDetailEvent;
+  | BlockerTextDetailEvent
+  | CoverageAdvisoryEvent;
 
 /** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;

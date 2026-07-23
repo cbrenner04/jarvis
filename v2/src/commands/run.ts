@@ -120,7 +120,11 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
     let client: Awaited<ReturnType<typeof deps.connectIpcClient>> | undefined;
     try {
       client = await deps.connectIpcClient(socketPath);
-      const result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      const result = await request(
+        client,
+        "list",
+        parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs },
+      );
       const list = parseListRuns(result);
       listResults.push([socketPath, list?.runs]);
     } catch (error) {

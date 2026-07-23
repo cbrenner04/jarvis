@@ -538,7 +538,11 @@ describe("run control", () => {
                 {
                   kind: "response",
                   id: requestId,
-                  result: { runs: [{ runId: "run-invoking", project: "demo", branch: "main", status: "in-progress", isLive: true }] },
+                  result: {
+                    runs: [
+                      { runId: "run-invoking", project: "demo", branch: "main", status: "in-progress", isLive: true },
+                    ],
+                  },
                 },
               ],
               { sent },
@@ -550,7 +554,9 @@ describe("run control", () => {
                 {
                   kind: "response",
                   id: requestId,
-                  result: { runs: [{ runId: "run-other", project: "demo", branch: "main", status: "completed", isLive: false }] },
+                  result: {
+                    runs: [{ runId: "run-other", project: "demo", branch: "main", status: "completed", isLive: false }],
+                  },
                 },
               ],
               { sent },
@@ -562,10 +568,7 @@ describe("run control", () => {
     );
 
     await expect(code).resolves.toBe(0);
-    const rows = cap
-      .read()
-      .stdout.trimEnd()
-      .split("\n");
+    const rows = cap.read().stdout.trimEnd().split("\n");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain("run-invoking");
     expect(rows[1]).toContain("run-other");
@@ -614,10 +617,7 @@ describe("run control", () => {
     );
 
     await expect(code).resolves.toBe(0);
-    const rows = cap
-      .read()
-      .stdout.trimEnd()
-      .split("\n");
+    const rows = cap.read().stdout.trimEnd().split("\n");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain("run-durable");
     expect(rows[0]).toContain("live");
@@ -690,10 +690,7 @@ describe("run control", () => {
     );
 
     await expect(code).resolves.toBe(0);
-    const rows = cap
-      .read()
-      .stdout.trimEnd()
-      .split("\n");
+    const rows = cap.read().stdout.trimEnd().split("\n");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain("run-1");
     expect(rows[1]).toContain("run-2");
@@ -742,10 +739,7 @@ describe("run control", () => {
     );
 
     await expect(code).resolves.toBe(0);
-    const rows = cap
-      .read()
-      .stdout.trimEnd()
-      .split("\n");
+    const rows = cap.read().stdout.trimEnd().split("\n");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toContain("live");
   });

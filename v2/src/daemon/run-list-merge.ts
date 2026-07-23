@@ -1,9 +1,7 @@
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 
 /** Merge run lists from multiple daemon results, preferring isLive rows, optionally tracking owners. */
-export function mergeRunLists<T>(
-  results: Array<[T, DaemonListRunRow[] | undefined]>,
-): {
+export function mergeRunLists<T>(results: Array<[T, DaemonListRunRow[] | undefined]>): {
   runs: DaemonListRunRow[];
   owners: Map<string, T>;
 } {

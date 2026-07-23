@@ -669,6 +669,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * (e.g. in a review step or publication), and that failure must stay visible.
    */
   const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
+    // Test teardown may have closed the store; skip rather than throw on closed DB.
+    if (store.isClosed()) {
+      return;
+    }
     const run = store.loadRun(runId);
     if (!(run && isSettledRunStatus(run.status))) {
       try {

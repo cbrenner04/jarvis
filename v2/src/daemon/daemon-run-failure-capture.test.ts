@@ -267,7 +267,25 @@ function requestFrame(id: string, method: string, params?: unknown) {
 }
 
 function workflowStep(stepId: string, branch: string): WriteWorkflowStep {
-  return createWriteStep(stepId, branch, doneWithArtifactBindingFactory, { suppressShrink: true });
+  return createWriteStep(stepId, branch, doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+    reporterSeams: {
+      gitDiff: async () =>
+        "diff --git a/v2/test.ts b/v2/test.ts\n" +
+        "index 1234567..abcdefg 100644\n" +
+        "--- a/v2/test.ts\n" +
+        "+++ b/v2/test.ts\n" +
+        "@@ -1,6 +1,8 @@\n" +
+        " line 1\n" +
+        "+new line 1\n" +
+        "+new line 2\n" +
+        " line 2\n",
+      runTests: async () => true,
+      readFile: async () => "SF:v2/test.ts\nDA:1,1\nDA:2,0\nDA:3,0\nDA:4,1\nend_of_record\n",
+      untrackedFiles: async () => [],
+      deleteFile: async () => {},
+    },
+  });
 }
 
 function findStepRunId(store: StateStore, branch: string, stepId: string): string | undefined {
@@ -276,7 +294,7 @@ function findStepRunId(store: StateStore, branch: string, stepId: string): strin
 
 test("workflow async-path failure after step 0's row demotes durable status and appends a terminal record", async () => {
   const branch = "workflow-async-failure";
-  const failingStore = throwOnNthRecordAttemptStart(stateStore, 2);
+  const failingStore = throwOnNthRecordAttemptStart(stateStore, 3);
   const workflowHandlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -291,7 +309,7 @@ test("workflow async-path failure after step 0's row demotes durable status and 
   const response = await workflowHandlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   expect(response.kind).toBe("response");
 
-  await flushBackgroundRuns(5);
+  await flushBackgroundRuns(20);
 
   const failedRunId = findStepRunId(stateStore, branch, "step-2");
   expect(failedRunId).toBeTruthy();
@@ -326,7 +344,7 @@ test("workflow async-path failure after step 0's row demotes durable status and 
 
 test("a run already terminal at rejection time is not re-demoted but still records the failure", async () => {
   const branch = "workflow-killed";
-  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"), 2);
+  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"), 3);
   const workflowHandlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -341,7 +359,7 @@ test("a run already terminal at rejection time is not re-demoted but still recor
   const response = await workflowHandlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   expect(response.kind).toBe("response");
 
-  await flushBackgroundRuns(5);
+  await flushBackgroundRuns(20);
 
   const killedRunId = findStepRunId(stateStore, branch, "step-2");
   expect(killedRunId).toBeTruthy();

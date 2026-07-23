@@ -537,7 +537,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
   are discovered, the monitor connects only to the invoking digest's socket
   (single-daemon fallback). `jarvis run list` and `jarvis run wait` remain
-  single-daemon. Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/daemon/live-daemon-socket-discovery.ts`,
+  single-daemon. `jarvis run list --since` queries durable history past the
+  default fifty-terminal-run retention window (relative duration or absolute
+  timestamp); returned run IDs work with `run log` and `tui log` on the same
+  daemon. Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/daemon/live-daemon-socket-discovery.ts`,
   `v2/docs/write-behavior.md`
 - [v2 additive] TUI follows daemon supersession without restart: on every refresh
   tick (one second), the running TUI rediscovers live daemon sockets and updates

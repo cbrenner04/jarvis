@@ -28,13 +28,13 @@ the store but absent from default `jarvis run list`. Operators need run IDs for 
 
 ## Acceptance criteria
 
-- [ ] `jarvis run list --since 2d` returns runs created within the last two days, including terminal runs older than the fifty-newest window.
-- [ ] `daemon-terminal-run-retention.test.ts` stays green.
-- [ ] An invalid `--since` value exits `1` with `invalid_since` and does not issue a `list` RPC or return rows.
-- [ ] A run ID returned by `--since` beyond the fifty-newest window is accepted by `run log` stream-open and `tui log` tail-open on the same daemon (not `unknown_run`).
-- [ ] `run-list-since-queries-history.test.ts` drives `--since` past the terminal retention window; it fails against baseline.
-- [ ] Tests fail when the `invalid_since` guard is inverted: a garbage `--since` value must not return the unfiltered default list.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis run list --since 2d` returns runs created within the last two days, including terminal runs older than the fifty-newest window.
+- [x] `daemon-terminal-run-retention.test.ts` stays green.
+- [x] An invalid `--since` value exits `1` with `invalid_since` and does not issue a `list` RPC or return rows.
+- [x] A run ID returned by `--since` beyond the fifty-newest window is accepted by `run log` stream-open and `tui log` tail-open on the same daemon (not `unknown_run`).
+- [x] `run-list-since-queries-history.test.ts` drives `--since` past the terminal retention window; it fails against baseline.
+- [x] Tests fail when the `invalid_since` guard is inverted: a garbage `--since` value must not return the unfiltered default list.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

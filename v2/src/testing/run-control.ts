@@ -102,8 +102,11 @@ export async function startRunDirect(
   return response.kind === "response" ? (response.result as { runId?: string } | undefined)?.runId : undefined;
 }
 
-export async function listRunsDirect(handlers: RunControlHandlers): Promise<DaemonListRunRow[] | undefined> {
-  const response = await handlers.list(requestFrame("l1", "list"), new AbortController().signal);
+export async function listRunsDirect(
+  handlers: RunControlHandlers,
+  params?: { sinceMs?: number },
+): Promise<DaemonListRunRow[] | undefined> {
+  const response = await handlers.list(requestFrame("l1", "list", params), new AbortController().signal);
   expect(response.kind).toBe("response");
   return response.kind === "response" ? (response.result as ListRunsResult)?.runs : undefined;
 }

@@ -243,6 +243,7 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 | --- | --- |
 | `jarvis tui` | Run table, queue, outcome, kill (`k`) on live runs |
 | `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
+| `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
 | `jarvis run wait <run-id>` | Block until next boundary |
 | `jarvis run log <run-id>` | Structured run log (not daemon process log) |
 | `jarvis tui log <run-id>` | Interactive tail |
@@ -253,7 +254,7 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 **TUI cross-daemon observation:** `jarvis tui` is the primary observation surface for multiple daemon instances. When dispatch moves to a new digest (via recompiled executable), the TUI automatically discovers and displays runs from both the old (superseded) and new (superseding) daemons on its next refresh tick. No restart is required. Once the old daemon exits naturally, its runs are removed, and the monitor continues uninterrupted. In contrast, `jarvis run list` and `jarvis run wait` remain scoped to the daemon they were invoked against. This allows the TUI to track work across digest transitions while precise tools remain focused on a single daemon.
 
-Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
+Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` on the same daemon.
 
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
 

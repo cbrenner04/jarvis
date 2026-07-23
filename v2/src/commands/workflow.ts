@@ -15,7 +15,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { resetStaleWorkspace } from "./cleanup.ts";
+import { type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -137,6 +137,7 @@ async function maybeResetStaleWorkspace(
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
+  onDestroyed?: (destroyed: DestroyedArtifacts) => void,
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
   const writeStep = built.steps.find((step) => step.behavior === "write");
@@ -161,6 +162,7 @@ async function maybeResetStaleWorkspace(
     io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
+  if (resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
   if (resetResult.status === "refused") {
     io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
     return 1;
@@ -204,6 +206,15 @@ async function startWorkflowRun(
   return waitForRunCompletion(client, start.runId, io);
 }
 
+function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string {
+  const lines: string[] = ["Retirement destroyed artifacts:"];
+  if (destroyed.worktreePath) lines.push(`  worktree: ${destroyed.worktreePath}`);
+  if (destroyed.localBranch) lines.push(`  local branch: ${destroyed.localBranch}`);
+  if (destroyed.remoteBranch) lines.push(`  remote branch: ${destroyed.remoteBranch}`);
+  if (destroyed.closedPrNumber) lines.push(`  PR: #${destroyed.closedPrNumber}`);
+  return lines.join("\n");
+}
+
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
   if (resolved === undefined) {
@@ -223,9 +234,16 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!builderInputResult.ok) return 1;
   const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
   if (!prepared.ok) return 1;
-  return withConnectDispatch(io, deps, async (client) => {
-    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io);
+  let destroyedArtifacts: DestroyedArtifacts | undefined;
+  const exitCode = await withConnectDispatch(io, deps, async (client) => {
+    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io, (destroyed) => {
+      destroyedArtifacts = destroyed;
+    });
     if (resetExitCode !== undefined) return resetExitCode;
     return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
   });
+  if (exitCode !== 0 && destroyedArtifacts !== undefined && Object.keys(destroyedArtifacts).length > 0) {
+    io.stderr(`${formatDestroyedArtifactsSummary(destroyedArtifacts)}\n`);
+  }
+  return exitCode;
 }

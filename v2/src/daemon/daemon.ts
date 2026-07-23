@@ -193,6 +193,15 @@ export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKe
 }
 
 /**
+ * The daemon shuts down when a stop was explicitly requested, or when it is
+ * retiring (superseded) and no run is still active. A retiring daemon with an
+ * active run stays up until that run settles.
+ */
+export function shouldShutdownNow(shutdownRequested: boolean, isRetiring: boolean, hasActiveRuns: boolean): boolean {
+  return shutdownRequested || (isRetiring && !hasActiveRuns);
+}
+
+/**
  * Returns a `worktree_claimed` error result when a live run already holds
  * `key`, or `undefined` when the worktree is free to claim.
  */
@@ -535,6 +544,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
   const waitAbortControllers = new Set<AbortController>();
+  let retiring = false;
   /**
    * Live/terminal role progress for review steps, keyed by `invocationId` then
    * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
@@ -641,11 +651,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     })();
   };
 
-  const promoteQueuedRun = (bypassSettleDelay = false): void =>
+  const promoteQueuedRun = (bypassSettleDelay = false): void => {
+    if (retiring) {
+      return;
+    }
     promoteQueuedRunImpl(
       { store, registry: _registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop },
       bypassSettleDelay,
     );
+  };
 
   /**
    * Demote one non-terminal workflow run to `failed` and record why. Both steps are
@@ -877,6 +891,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const startHandler: RpcHandler = (frame) => {
+    if (retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
     const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
     const hasInput = params?.input !== undefined;
     const hasSteps = params?.steps !== undefined;
@@ -1076,6 +1093,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   }
 
   const resumeHandler: RpcHandler = async (frame) => {
+    if (retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
     const params = frame.params as { runId?: string } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
@@ -1192,6 +1212,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : waitForLogTerminalRecord(logReader, run, signal);
   };
 
+  const hasActiveRuns = (): boolean => activeRuns.size > 0;
+
+  const setRetiring = (): void => {
+    retiring = true;
+  };
+
+  const isRetiring = (): boolean => retiring;
+
   return {
     start: startHandler,
     list: listHandler,
@@ -1208,6 +1236,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
       waitAbortControllers.clear();
     },
+    /** Whether daemon has any active runs (write loops or workflows). */
+    hasActiveRuns,
+    /** Set the daemon to retiring state, rejecting new starts and resumes. */
+    setRetiring,
+    /** Whether daemon is currently retiring. */
+    isRetiring,
   };
 }
 
@@ -1287,6 +1321,8 @@ export type DaemonStartupDeps = {
   recoverReconciledRuns?: typeof recoverReconciledRuns;
   enumerateOtherDaemonSockets?: EnumerateOtherDaemonSockets;
   supersedePeerDaemon?: SupersedePeerDaemon;
+  /** Defaults to `process.exit`. */
+  processExit?: (code: number) => never;
 };
 
 export async function recoverReconciledRuns(
@@ -1368,6 +1404,7 @@ export async function startDaemonRuntime(
   const logsPath = startupDeps.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
   const logReaderInstance = logReader ?? openLogReader(logsPath);
   const createLogSink = startupDeps.openLogSink ?? openLogSink;
+  const processExit = startupDeps.processExit ?? process.exit;
   const reconciliationLogSink = createLogSink(logsPath);
   let reconciledRunIds: string[];
   try {
@@ -1422,13 +1459,12 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
-  const supersedHandler: RpcHandler = () => {
-    return { kind: "response", result: { ok: true } };
-  };
-
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     close: _closeRunControlHandlers,
+    setRetiring,
+    hasActiveRuns,
+    isRetiring,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,
@@ -1438,6 +1474,11 @@ export async function startDaemonRuntime(
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
   });
+
+  const supersedHandler: RpcHandler = () => {
+    setRetiring();
+    return { kind: "response", result: { ok: true } };
+  };
 
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
@@ -1506,15 +1547,18 @@ export async function startDaemonRuntime(
     }
   };
 
+  // Extracted so both directions of the retiring/active-runs guard are unit-testable
+  // without a real timer (the deterministic-daemon-test guard forbids one).
   const checkShutdown = setInterval(() => {
-    if (shutdownRequested) {
+    const shouldShutdown = shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns());
+    if (shouldShutdown) {
       void close()
         .then(() => {
-          process.exit(0);
+          processExit(0);
         })
         .catch((err: unknown) => {
           console.error("Error during shutdown:", err);
-          process.exit(1);
+          processExit(1);
         });
     }
   }, 100);

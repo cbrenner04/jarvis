@@ -42,9 +42,16 @@ export function workflowSnapshot(
 type ListRunsResult = { runs?: DaemonListRunRow[] } | undefined;
 type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
 
-/** Strips the non-RPC `reportReviewDebateProgress`/`close` methods before passing handlers to `startIpcServer`. */
+/** Strips the non-RPC methods before passing handlers to `startIpcServer`. */
 export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcHandler> {
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, close: _close, ...ipcHandlers } = handlers;
+  const {
+    reportReviewDebateProgress: _reportReviewDebateProgress,
+    close: _close,
+    hasActiveRuns: _hasActiveRuns,
+    setRetiring: _setRetiring,
+    isRetiring: _isRetiring,
+    ...ipcHandlers
+  } = handlers;
   return ipcHandlers;
 }
 

@@ -70,6 +70,29 @@ describe("tui command", () => {
     expect(seenSocketPath).toBe(paths.socketPath);
   });
 
+  test("jarvis tui log hands the follow entry the discovery seam alongside the invoking socket path", async () => {
+    const paths = tempPaths();
+    let seenRunId: string | undefined;
+    let seenSocketPath: string | undefined;
+    let seenSocketDiscovery: unknown;
+
+    const code = await main(["tui", "log", "run-abc"], captureIo().io, {
+      socketPath: paths.socketPath,
+      runTuiLogFollow: async (runId, deps) => {
+        seenRunId = runId;
+        seenSocketPath = deps?.socketPath;
+        seenSocketDiscovery = deps?.socketDiscovery;
+        return 0;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(seenRunId).toBe("run-abc");
+    expect(seenSocketPath).toBe(paths.socketPath);
+    expect(seenSocketDiscovery).toBeDefined();
+    expect(typeof seenSocketDiscovery).toBe("function");
+  });
+
   test("jarvis tui log with missing or extra arguments prints usage and exits 1", async () => {
     const cap = captureIo();
 

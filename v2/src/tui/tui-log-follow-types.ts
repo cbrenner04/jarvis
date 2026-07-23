@@ -1,3 +1,4 @@
+import type { ConnectTuiDaemonOptions, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { ConnectTuiLogTailOptions, TuiLogTailClient } from "./tui-log-tail-client.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
@@ -34,6 +35,9 @@ export type TuiLogFollowViewHost = {
   openLogFollow(controls: TuiLogFollowControls): Promise<TuiLogFollowSession>;
 };
 
+/** Discover live daemon sockets; injectable seam for testing. */
+export type SocketDiscovery = () => Promise<string[]>;
+
 /** Dependencies for {@link runTuiLogFollow}. */
 export type RunTuiLogFollowDeps = {
   /** Unix socket path; required. */
@@ -44,4 +48,8 @@ export type RunTuiLogFollowDeps = {
   viewHost?: TuiLogFollowViewHost;
   /** Injectable ink render; defaults to production `render`. */
   inkRender?: InkRender;
+  /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
+  socketDiscovery?: SocketDiscovery;
+  /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
+  connectTuiDaemon?: (options: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
 };

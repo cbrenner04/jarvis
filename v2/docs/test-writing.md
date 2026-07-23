@@ -147,6 +147,14 @@ expect(killed).toEqual([2000]);
 
 The behavior under test (capture descendants, kill survivors by PID+identity, prune gone/reused PIDs) is pure and does not depend on real OS scheduling. See [`v1/test/modes/patch/reap.test.ts`](../../../v1/test/modes/patch/reap.test.ts) for the full test suite.
 
+## Worked example: timer-callback guard extraction
+
+When a guard inside a `setInterval` callback changes, extract it into a pure exported predicate and test that predicate directly — no `Bun.sleep`, timer-backed `Promise`s, or waiting for the interval to fire (determinism guard), and both truth directions on the changed line (mutation verifier).
+
+**Production instance:** `shouldShutdownNow` in [`daemon.ts`](../src/daemon/daemon.ts), pinned by [`daemon-retire-superseded.test.ts`](../src/daemon/daemon-retire-superseded.test.ts).
+
+**Teaching fixture:** [`timer-callback-guard-fixture.ts`](../src/testing/timer-callback-guard-fixture.ts) — pure `shouldStopPolling` plus `registerStopPoll` for the `setInterval` wiring. Inverting `!hasPendingWork` to `hasPendingWork` fails the first predicate case; see [`timer-callback-guard-fixture.test.ts`](../src/testing/timer-callback-guard-fixture.test.ts).
+
 ## Test doubles must not call production behavior
 
 Test fixtures and mocks under `v2/src/testing/**` must never compute their responses by calling the production behavior they stand in for. Such calls turn the double into a self-referential assertion that checks implementation against itself rather than catching behavioral drift or misuse.

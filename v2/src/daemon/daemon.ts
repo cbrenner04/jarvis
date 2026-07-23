@@ -44,6 +44,7 @@ import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
+  isResumeAdmitted,
   type RunOperatorError,
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
@@ -346,30 +347,13 @@ const UNSUPPORTED_RESUME_ERROR = {
   nextAction: "stop",
 } as const;
 
-function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolean {
-  return (
-    loopOutcomeKind === "completion_commit_failed" ||
-    loopOutcomeKind === "ready_gate_failed" ||
-    loopOutcomeKind === "surviving_mutation_failed"
-  );
-}
-
-function hasLandingFailure(attempts: Attempt[] | undefined): boolean {
-  const lastAttempt = attempts?.at(-1);
-  return (
-    lastAttempt?.outcomeKind === "invocation_failure" && lastAttempt.invocationFailureDetail?.failureKind === "landing"
-  );
-}
-
 function resumeContextForRun(
   run: Run & { attempts?: Attempt[] },
-  loopOutcomeKind?: string,
+  terminalRecord?: TerminalLogRecord,
 ): ResolvedWriteLoopInput | undefined {
-  const resumableStatus = run.status === "paused" || run.status === "budget-soft-stopped" || run.status === "killed";
-  const publicationRetry =
-    (run.status === "completed" || run.status === "failed") && isPublicationRetryEligible(loopOutcomeKind);
-  const landingRetry = run.status === "failed" && hasLandingFailure(run.attempts);
-  return resumableStatus || publicationRetry || landingRetry ? reconstructWriteResume(run) : undefined;
+  // Admission is derived from the advertised row contract: if nextAction is
+  // "resume", snapshot reconstruction proceeds; otherwise undefined.
+  return isResumeAdmitted(run, terminalRecord) ? reconstructWriteResume(run) : undefined;
 }
 
 function resumeContextForTerminalRecord(
@@ -377,9 +361,7 @@ function resumeContextForTerminalRecord(
   terminalRecord: TerminalLogRecord | undefined,
 ): ResolvedWriteLoopInput | undefined {
   if (!run) return undefined;
-  const loopOutcomeKind =
-    terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined;
-  return resumeContextForRun(run, loopOutcomeKind);
+  return resumeContextForRun(run, terminalRecord);
 }
 
 function runListRowError(
@@ -586,9 +568,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
-    const resumeContext = run
-      ? resumeContextForRun(run, record?.event.kind === "loop_finished" ? record.event.loopOutcomeKind : undefined)
-      : undefined;
+    const resumeContext = run ? resumeContextForRun(run, record) : undefined;
     const error =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
@@ -1092,18 +1072,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     runId: string,
   ): { kind: "error"; code: string; message: string } | undefined {
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const retryCompletionPublication =
-      (run.status === "completed" || run.status === "failed") &&
-      terminalRecord?.event.kind === "loop_finished" &&
-      isPublicationRetryEligible(terminalRecord.event.loopOutcomeKind);
-    const landingFailureRetry = run.status === "failed" && hasLandingFailure(run.attempts);
-
-    // A completed durable boundary is idempotent, except a failed external publication or landing.
-    if (
-      (run.status === "completed" && !retryCompletionPublication) ||
-      (run.status === "failed" && !retryCompletionPublication && !landingFailureRetry) ||
-      run.status === "blocked"
-    ) {
+    // Admission is derived from advertised nextAction; if the row doesn't report
+    // nextAction: "resume", it is terminal and cannot be resumed.
+    if (!isResumeAdmitted(run, terminalRecord)) {
       return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
     }
     return undefined;

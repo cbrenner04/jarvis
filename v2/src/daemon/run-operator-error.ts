@@ -52,7 +52,7 @@ export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | R
 
 type RunWithAttempts = {
   status: RunStatus;
-  attempts: Attempt[];
+  attempts?: Attempt[];
 };
 
 const op = (
@@ -156,6 +156,14 @@ function mapFromLoopFinished(
   }
 }
 
+/** Check if a run's operator error (if any) advertises resumability. */
+export function isResumeAdmitted(
+  run: RunWithAttempts,
+  terminalRecord?: TerminalLogRecord,
+): boolean {
+  return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
+}
+
 /**
  * Compose operator error from durable run state and optional terminal log.
  * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
@@ -177,7 +185,7 @@ export function composeRunOperatorError(
     return undefined;
   }
 
-  const lastAttempt = lastCommittedAttempt(run.attempts);
+  const lastAttempt = lastCommittedAttempt(run.attempts ?? []);
   if (lastAttempt?.outcomeKind === "invalid_token") {
     return op("invalid_token", "resume", true);
   }

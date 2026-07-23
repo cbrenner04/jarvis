@@ -25,11 +25,11 @@ Derive admission from the advertised row instead, so every reason that reports
 
 ## Acceptance criteria
 
-- [ ] A `failed` row whose last committed attempt is `invalid_token`, and a `blocked` row whose last committed attempt is `missing_blocker`, are each accepted by `jarvis run resume`; both fail against the pre-fix code with `terminal_run`.
-- [ ] `v2/src/daemon/daemon-resume.test.ts` carries a guard covering every reason that `composeRunOperatorError` reports with `nextAction: "resume"` (derived from the shared eligibility helper, not a hand-copied list) and asserts no case returns `terminal_run`.
-- [ ] Inverting the derived admission predicate fails the guard; a row reporting `nextAction: "stop"` (`ready_flip_failed`) or `"inspect_spec"` (`agent_blocked`, `contract_miss` with no resume-advertised attempt) stays refused `terminal_run`, and inverting that refusal fails too.
-- [ ] `daemon-resume.test.ts` flip/settlement refusal cases and `run-operator-error.test.ts` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A `failed` row whose last committed attempt is `invalid_token`, and a `blocked` row whose last committed attempt is `missing_blocker`, are each accepted by `jarvis run resume`; both fail against the pre-fix code with `terminal_run`.
+- [x] `v2/src/daemon/daemon-resume.test.ts` carries a guard covering every reason that `composeRunOperatorError` reports with `nextAction: "resume"` (derived from the shared eligibility helper, not a hand-copied list) and asserts no case returns `terminal_run`.
+- [x] Inverting the derived admission predicate fails the guard; a row reporting `nextAction: "stop"` (`ready_flip_failed`) or `"inspect_spec"` (`agent_blocked`, `contract_miss` with no resume-advertised attempt) stays refused `terminal_run`, and inverting that refusal fails too.
+- [x] `daemon-resume.test.ts` flip/settlement refusal cases and `run-operator-error.test.ts` stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

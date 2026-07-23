@@ -986,8 +986,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     };
   };
 
-  const listHandler: RpcHandler = () => {
-    const durableRuns = retainListedRuns(store.listRuns());
+  const listHandler: RpcHandler = (frame) => {
+    const sinceMs = (frame.params as { sinceMs?: number } | undefined)?.sinceMs;
+    const durableRuns =
+      sinceMs === undefined
+        ? retainListedRuns(store.listRuns())
+        : store.listRuns().filter((run) => run.createdAt >= sinceMs);
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {

@@ -67,6 +67,8 @@ Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/
 
 - **Sleep-as-wait** (forbidden): a direct timer-backed wait like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(100)` used as a synchronization mechanism without a bounded condition. This makes tests depend on real-clock timing and scheduler load.
 
+- **Timer-callback guards**: extract guards inside `setTimeout` or `setInterval` callbacks into pure exported predicates testable in both directions without a real timer, so mutation verification and this determinism guard are both satisfiable.
+
 A static guard (`scripts/guard-deterministic-daemon-tests.ts`) verifies this rule and runs as part of `bun run check`. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
 
 ## Determinism smell checklist

@@ -602,3 +602,466 @@ describe("run control", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
   });
 });
+
+describe("multi-daemon run list", () => {
+  const DAEMON_A = "/keyed/daemon-a.sock";
+  const DAEMON_B = "/keyed/daemon-b.sock";
+
+  test("run list includes a run live on the non-invoking daemon", async () => {
+    const cap = captureIo();
+    const connectPaths: string[] = [];
+
+    // 3 UUIDs: one for operatorSessionId in cli.ts, then one for each RPC request
+    const code = await withFixedUuid(["operator", "daemon-a", "daemon-b"], () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          connectPaths.push(socketPath);
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([{ kind: "response", id: "daemon-a", result: { runs: [] } }]);
+          }
+          if (socketPath === DAEMON_B) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: "daemon-b",
+                result: {
+                  runs: [
+                    {
+                      runId: "run-on-b",
+                      project: "demo",
+                      branch: "main",
+                      status: "in-progress",
+                      isLive: true,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectPaths).toEqual([DAEMON_A, DAEMON_B]);
+    expect(cap.read().stdout).toContain("run-on-b");
+  });
+
+  test("run list dedupes duplicate rows and prefers isLive owner", async () => {
+    const cap = captureIo();
+    const uuids = ["op", "uuid0", "uuid1"];
+
+    const code = await withFixedUuid(uuids, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[1],
+                result: {
+                  runs: [
+                    {
+                      runId: "shared-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "completed",
+                      isLive: false,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          if (socketPath === DAEMON_B) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[2],
+                result: {
+                  runs: [
+                    {
+                      runId: "shared-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "completed",
+                      isLive: true,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    const output = cap.read().stdout;
+    const rows = output.trimEnd().split("\n");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("shared-run");
+    expect(rows[0]).toContain("live");
+  });
+
+  test("run list skips an unreachable socket and lists remaining daemons", async () => {
+    const cap = captureIo();
+    const connectAttempts: string[] = [];
+    const uuid = "00000000-0000-4000-8000-000000000021";
+
+    const code = await withFixedUuid(uuid, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          connectAttempts.push(socketPath);
+          if (socketPath === DAEMON_B) {
+            throw new Error("ECONNREFUSED");
+          }
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuid,
+                result: {
+                  runs: [
+                    {
+                      runId: "run-a",
+                      project: "demo",
+                      branch: "main",
+                      status: "in-progress",
+                      isLive: true,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectAttempts.toSorted()).toEqual([DAEMON_A, DAEMON_B]);
+    const output = cap.read().stdout;
+    expect(output).toContain("run-a");
+  });
+
+  test("run list output is byte-identical when only invoking daemon is live", async () => {
+    const cap = captureIo();
+    const uuid = "00000000-0000-4000-8000-000000000031";
+
+    const code = await withFixedUuid(uuid, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuid,
+                result: {
+                  runs: [
+                    {
+                      runId: "run-solo",
+                      project: "demo",
+                      branch: "main",
+                      status: "completed",
+                      isLive: false,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unexpected socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain("run-solo");
+  });
+
+  test("run list always includes invoking socket when discovery returns empty", async () => {
+    const cap = captureIo();
+    const connectPaths: string[] = [];
+    const uuid = "00000000-0000-4000-8000-000000000041";
+
+    const code = await withFixedUuid(uuid, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [],
+        connectIpcClient: async (socketPath) => {
+          connectPaths.push(socketPath);
+          return makeIpcClient([
+            {
+              kind: "response",
+              id: uuid,
+              result: { runs: [] },
+            },
+          ]);
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectPaths).toEqual([DAEMON_A]);
+  });
+
+  test("run list skips all sockets but reports first error when all fail", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000051", () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_A) {
+            throw new Error("ECONNREFUSED");
+          }
+          if (socketPath === DAEMON_B) {
+            throw new Error("timeout");
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("ECONNREFUSED\n");
+  });
+
+  test("read-only run list reports the missing daemon instead of starting one", async () => {
+    const cap = captureIo();
+    let started = 0;
+
+    const code = await withFixedUuid("00000000-0000-4000-8000-000000000061", () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [],
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+        startDaemon: async () => {
+          started += 1;
+          return { pid: 7, socketPath: DAEMON_A };
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(started).toBe(0);
+    expect(cap.read().stderr).toBe("ECONNREFUSED\n");
+  });
+
+  test("run list sorts results by runId for stable output", async () => {
+    const cap = captureIo();
+    const uuids = ["op", "id0", "id1"];
+
+    const code = await withFixedUuid(uuids, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[1],
+                result: {
+                  runs: [
+                    {
+                      runId: "a-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "in-progress",
+                      isLive: true,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          if (socketPath === DAEMON_B) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[2],
+                result: {
+                  runs: [
+                    {
+                      runId: "z-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "completed",
+                      isLive: false,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    const output = cap.read().stdout;
+    const rows = output.trimEnd().split("\n").filter((r) => r !== "");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain("a-run");
+    expect(rows[1]).toContain("z-run");
+  });
+
+  test("run list with --since filters across all daemons", async () => {
+    const cap = captureIo();
+    const uuids = ["00000000-0000-4000-8000-000000000081", "00000000-0000-4000-8000-000000000082"];
+    let requestsMadeToA = 0;
+    let requestsMadeToB = 0;
+
+    const code = await withFixedUuid(uuids, () =>
+      main(["run", "list", "--since", "1000"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_B) {
+            requestsMadeToB += 1;
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[0],
+                result: { runs: [] },
+              },
+            ]);
+          }
+          if (socketPath === DAEMON_A) {
+            requestsMadeToA += 1;
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[1],
+                result: { runs: [] },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(requestsMadeToA).toBe(1);
+    expect(requestsMadeToB).toBe(1);
+  });
+
+  test("guard: removing isLive preference fails the dedup test", async () => {
+    const cap = captureIo();
+    const uuids = ["op", "a", "b"];
+
+    const code = await withFixedUuid(uuids, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[1],
+                result: {
+                  runs: [
+                    {
+                      runId: "dup-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "completed",
+                      isLive: false,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          if (socketPath === DAEMON_B) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[2],
+                result: {
+                  runs: [
+                    {
+                      runId: "dup-run",
+                      project: "demo",
+                      branch: "main",
+                      status: "in-progress",
+                      isLive: true,
+                    },
+                  ],
+                },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    const output = cap.read().stdout;
+    const rows = output.trimEnd().split("\n");
+    expect(rows).toHaveLength(1);
+    const rowColumns = rows[0]?.split("\t");
+    if (rowColumns !== undefined) {
+      expect(rowColumns[4]).toBe("live");
+    }
+  });
+
+  test("guard: removing invoking socket inclusion fails when discovery returns only others", async () => {
+    const cap = captureIo();
+    const connectPaths: string[] = [];
+    const uuids = ["op", "a", "b"];
+
+    const code = await withFixedUuid(uuids, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: DAEMON_A,
+        socketDiscovery: async () => [DAEMON_B],
+        connectIpcClient: async (socketPath) => {
+          connectPaths.push(socketPath);
+          if (socketPath === DAEMON_A) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[1],
+                result: { runs: [] },
+              },
+            ]);
+          }
+          if (socketPath === DAEMON_B) {
+            return makeIpcClient([
+              {
+                kind: "response",
+                id: uuids[2],
+                result: { runs: [] },
+              },
+            ]);
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectPaths).toContain(DAEMON_A);
+    expect(connectPaths).toContain(DAEMON_B);
+  });
+});

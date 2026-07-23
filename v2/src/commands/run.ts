@@ -1,12 +1,14 @@
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
+import { formatConnectionError, formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { RUN_LIST_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
+import { mergeRunLists } from "../daemon/run-list-merge.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
 
@@ -107,27 +109,51 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   const parsed = parseListArgv(rest, io, deps);
   if (!parsed.ok) return 1;
 
-  return withRunClient(io, deps, async (client) => {
-    let result: unknown;
+  let sockets: string[];
+  try {
+    sockets = await (deps.socketDiscovery ?? (async () => []))();
+  } catch {
+    sockets = [];
+  }
+
+  const sortedSockets = Array.from(new Set(sockets).add(deps.socketPath)).sort();
+
+  const listResults: DaemonListRunRow[][] = [];
+  let firstError: unknown;
+
+  for (const socketPath of sortedSockets) {
+    let client;
     try {
-      result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      client = await deps.connectIpcClient(socketPath);
     } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
+      if (!firstError) firstError = error;
+      continue;
+    }
+
+    try {
+      const transport = createRpcTransport(client);
+      const result = await transport.request("list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      const list = parseListRuns(result);
+      if (list !== undefined) {
+        listResults.push(list.runs);
       }
-      throw error;
+    } catch (error) {
+      if (!firstError) firstError = error;
+    } finally {
+      client.close();
     }
+  }
 
-    const list = parseListRuns(result);
-    if (list === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
+  if (listResults.length === 0 && firstError) {
+    io.stderr(firstError instanceof RpcError ? formatRpcError(firstError) : formatConnectionError(firstError));
+    return 1;
+  }
 
-    for (const run of list.runs) io.stdout(formatListRunRow(run));
-    return 0;
-  });
+  const merged = mergeRunLists(listResults);
+  merged.sort((a, b) => a.runId.localeCompare(b.runId));
+
+  for (const run of merged) io.stdout(formatListRunRow(run));
+  return 0;
 }
 
 async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {

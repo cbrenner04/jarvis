@@ -4,6 +4,7 @@ import { readProjectRegistry, resolveMachineProfile } from "../config/machine-co
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "../daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "../daemon/daemon-process-log.ts";
+import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -40,6 +41,8 @@ export type CliDeps = {
   now?: () => number;
   /** Sleep for specified milliseconds; defaults to real setTimeout. Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. Injectable for tests. */
+  socketDiscovery?: () => Promise<string[]>;
   socketPath: string;
   pidPath: string;
   logPath: string;
@@ -67,6 +70,7 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     getExecutableDigest: getInvokingExecutableDigest,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    socketDiscovery: discoverLiveDaemonSockets,
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,

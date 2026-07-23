@@ -953,6 +953,50 @@ Verification is exercised through injected seams for git-diff, untracked-file di
 and scoped-test execution, enabling unit coverage of candidate derivation, mutation
 application, and failure classification without live subprocess or file I/O.
 
+## Uncovered changed-line reporter
+
+The uncovered-changed-line reporter identifies which lines added in a run's production diff
+have zero execution count in the coverage report. This advisory signal highlights code
+changes that no test executes, enabling earlier detection of test gaps before they reach
+the mutation verifier.
+
+**Scope and mechanics:**
+
+The reporter diffs the working tree against the run base using `git diff <runBase>`
+plus untracked production files (same diff scope as the mutation verifier). Changed
+lines are classified as production (non-test, non-spec, non-docs) and filtered to code files
+(`.ts`, `.js`, `.tsx`, `.jsx`, `.mts`, `.cjs`, `.mjs` extensions). For each changed code file,
+coverage is collected with exactly one scoped `bun test --coverage --coverage-reporter=lcov`
+invocation over the directories implied by the changed paths (e.g., `v2`, `shared`).
+
+Execution count is read from the LCOV output. A line added in the diff that is absent
+from the LCOV data or has execution count zero is reported as uncovered. Changed code
+files with no LCOV record at all have all added lines reported as uncovered.
+
+**Fail-soft behavior:**
+
+Coverage collection and LCOV parsing errors return an empty report rather than throwing.
+This ensures an advisory signal does not fail a run: a timeout, failed subprocess, or
+malformed LCOV output leaves the worktree unmodified and the run continues.
+
+**Output:**
+
+The reporter returns uncovered sites as file-and-line data plus rendered report text.
+The text names each site as `<file>:<line>`, one per line. It does not compute or emit
+any percentage, ratio, or threshold. It states that execution count zero does not imply
+inadequate testing (an executed line may still lack sufficient assertions) and that the
+mutation verifier, not coverage, makes the adequacy judgment.
+
+Example output:
+
+```
+Uncovered changed lines (execution count is zero):
+v2/src/execution/cleanup.ts:161
+v2/src/execution/other.ts:5
+
+Note: A line executed by tests may still lack sufficient assertions. The mutation verifier, not coverage, determines whether changes are adequately tested.
+```
+
 ## Cleanup command
 
 `jarvis cleanup` removes stale worktrees and archived incomplete specs, and reaps dead

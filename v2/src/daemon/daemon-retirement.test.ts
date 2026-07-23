@@ -80,7 +80,16 @@ test("start workflow rejects daemon_superseded when retiring", async () => {
       kind: "request",
       id: "s1",
       method: "start",
-      params: { steps: [{ stepId: "step-0", behavior: "write" as const, role: "implement" as const, worktree: { projectName: "test", branchName: "test", baseRef: "main", projectRoot: "/tmp" } }] },
+      params: {
+        steps: [
+          {
+            stepId: "step-0",
+            behavior: "write" as const,
+            role: "implement" as const,
+            worktree: { projectName: "test", branchName: "test", baseRef: "main", projectRoot: "/tmp" },
+          },
+        ],
+      },
     },
     new AbortController().signal,
   );
@@ -108,10 +117,7 @@ test("list still answers after retiring", async () => {
   await startRunDirect(handlers);
   retiring = true;
 
-  const response = await handlers.list(
-    { kind: "request", id: "l1", method: "list" },
-    new AbortController().signal,
-  );
+  const response = await handlers.list({ kind: "request", id: "l1", method: "list" }, new AbortController().signal);
   expect(response.kind).toBe("response");
 });
 

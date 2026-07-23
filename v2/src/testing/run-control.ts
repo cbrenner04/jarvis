@@ -44,7 +44,12 @@ type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
 
 /** Strips the non-RPC `reportReviewDebateProgress`/`close`/`getIsIdle` methods before passing handlers to `startIpcServer`. */
 export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcHandler> {
-  const { reportReviewDebateProgress: _reportReviewDebateProgress, close: _close, getIsIdle: _getIsIdle, ...ipcHandlers } = handlers;
+  const {
+    reportReviewDebateProgress: _reportReviewDebateProgress,
+    close: _close,
+    getIsIdle: _getIsIdle,
+    ...ipcHandlers
+  } = handlers;
   return ipcHandlers;
 }
 

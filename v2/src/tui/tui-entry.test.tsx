@@ -4,6 +4,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
+import { monitorTextLines } from "./tui-monitor-lines.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type {
   RunTuiEntryDeps,
@@ -1704,6 +1705,67 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     expect(view.monitorStates.at(-1)?.runs.map((r) => r.runId)).toEqual(["run-alpha"]);
+
+    view.quit();
+    await pending;
+  });
+
+  test("rediscovery: invoking socket list failure evicts stale client and reconnects", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+
+    const invokingClient1 = fakeClient({ listResponses: [{ runs: [RUN_ALPHA] }] });
+    let listCallCount = 0;
+    const succeedOnce = invokingClient1.list.bind(invokingClient1);
+    invokingClient1.list = async () => {
+      listCallCount += 1;
+      if (listCallCount === 1) return succeedOnce();
+      throw new Error("connection reset");
+    };
+
+    const invokingClient2 = fakeClient({ listResponses: [{ runs: [RUN_BETA] }] });
+
+    const clients: TuiDaemonClient[] = [invokingClient1, invokingClient2];
+    let clientIndex = 0;
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => {
+          const c = clients[clientIndex++];
+          if (!c) throw new Error(`no client at index ${clientIndex - 1}`);
+          return c;
+        },
+        socketDiscovery: async () => {
+          return [];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+    const initialLines = monitorTextLines(view.monitorStates.at(-1)!);
+    expect(initialLines.some((line) => line.includes("run-alpha"))).toBe(true);
+
+    // First refresh: invoking client list() fails, triggering eviction
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    const afterFailureState = view.monitorStates.at(-1);
+    expect(afterFailureState?.runs.length).toBe(0);
+
+    // Second refresh: new invoking client connects and succeeds
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    const finalLines = monitorTextLines(view.monitorStates.at(-1)!);
+    expect(finalLines.some((line) => line.includes("run-beta"))).toBe(true);
 
     view.quit();
     await pending;

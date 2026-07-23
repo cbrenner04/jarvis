@@ -22,14 +22,14 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` `"rediscovery: invoking socket list failure evicts stale client and reconnects"` fails against the pre-fix force-add path and passes after the change; the test drives a refresh where the invoking client's `list()` begins failing, then a replacement client succeeds, and asserts run-table line output via `monitorTextLines` (not only `view.monitorStates`).
-- [ ] `tui-entry.test.tsx` `"rediscovery: a daemon that exits removes its exclusive runs and keeps the monitor open"` stays green.
-- [ ] `tui-entry.test.tsx` `"multi-daemon: a connection whose list fails leaves the remaining daemons rendered and the monitor open"` stays green.
-- [ ] `tui-entry.test.tsx` `"multi-daemon: with discovery returning no sockets, the TUI still connects to the invoking digest socket and behaves as before"` stays green.
-- [ ] Inverting the invoking-socket `list()`-failure eviction guard makes `"rediscovery: invoking socket list failure evicts stale client and reconnects"` fail and proves the recovered runs are absent from run-table output.
-- [ ] Inverting the disappearance-only eviction guard makes `"rediscovery: a daemon that exits removes its exclusive runs and keeps the monitor open"` fail.
-- [ ] Inverting the non-invoking `list()` failure skip (evicting discovered sockets on `list()` error) makes `"multi-daemon: a connection whose list fails leaves the remaining daemons rendered and the monitor open"` fail.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-entry.test.tsx` `"rediscovery: invoking socket list failure evicts stale client and reconnects"` fails against the pre-fix force-add path and passes after the change; the test drives a refresh where the invoking client's `list()` begins failing, then a replacement client succeeds, and asserts run-table line output via `monitorTextLines` (not only `view.monitorStates`).
+- [x] `tui-entry.test.tsx` `"rediscovery: a daemon that exits removes its exclusive runs and keeps the monitor open"` stays green.
+- [x] `tui-entry.test.tsx` `"multi-daemon: a connection whose list fails leaves the remaining daemons rendered and the monitor open"` stays green.
+- [x] `tui-entry.test.tsx` `"multi-daemon: with discovery returning no sockets, the TUI still connects to the invoking digest socket and behaves as before"` stays green.
+- [x] Inverting the invoking-socket `list()`-failure eviction guard makes `"rediscovery: invoking socket list failure evicts stale client and reconnects"` fail and proves the recovered runs are absent from run-table output.
+- [x] Inverting the disappearance-only eviction guard makes `"rediscovery: a daemon that exits removes its exclusive runs and keeps the monitor open"` fail.
+- [x] Inverting the non-invoking `list()` failure skip (evicting discovered sockets on `list()` error) makes `"multi-daemon: a connection whose list fails leaves the remaining daemons rendered and the monitor open"` fail.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

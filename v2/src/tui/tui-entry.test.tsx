@@ -4,8 +4,8 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
-import { monitorTextLines } from "./tui-monitor-lines.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
+import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -1748,7 +1748,9 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
     await flush();
-    const initialLines = monitorTextLines(view.monitorStates.at(-1)!);
+    const initialState = view.monitorStates.at(-1);
+    if (!initialState) throw new Error("initialState is undefined");
+    const initialLines = monitorTextLines(initialState);
     expect(initialLines.some((line) => line.includes("run-alpha"))).toBe(true);
 
     // First refresh: invoking client list() fails, triggering eviction
@@ -1764,7 +1766,9 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     await flush();
-    const finalLines = monitorTextLines(view.monitorStates.at(-1)!);
+    const finalState = view.monitorStates.at(-1);
+    if (!finalState) throw new Error("finalState is undefined");
+    const finalLines = monitorTextLines(finalState);
     expect(finalLines.some((line) => line.includes("run-beta"))).toBe(true);
 
     view.quit();

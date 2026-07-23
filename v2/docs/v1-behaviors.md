@@ -555,6 +555,17 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   remain open across daemon dispatch transitions (e.g., workflow rebuilds moving
   to a new executable digest) without restart. Sources: `v2/src/tui/tui-entry.tsx`,
   `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`
+- [v2 additive] `jarvis tui log <run-id>` resumes after mid-stream transport loss
+  without duplicate records: on RPC connection error during tail consumption, the
+  command re-resolves the live owner socket (preferring live daemons) and re-opens
+  the tail stream with `afterSeq` = highest record sequence already appended to the
+  session. Reconnection retries are bounded (default: 5 attempts, exponential backoff
+  100 ms to 2 s); exhausted retries show `tail_resume_exhausted` and exit `1`. Operator
+  quit during retry wait exits `0` (no feedback, clean termination of transient
+  recovery). Initial open failure (daemon unreachable before stream-open) remains
+  single-shot unavailable. Non-transport errors still propagate. v1 behavior: single-shot
+  `daemon_error` exit on mid-stream RPC failure. Sources: `v2/src/tui/tui-log-follow-entry.tsx`,
+  `v2/src/tui/tui-log-follow-types.ts`, `v2/docs/write-behavior.md`, `v2/docs/operator-runbook.md`
 - [v2 additive] TUI run-table ordering: non-queued rows render active statuses
   (`in-progress`, `awaiting-human`, `revising`, `paused`, `budget-soft-stopped`)
   before terminal statuses (`completed`, `failed`, `killed`, `blocked`), newest

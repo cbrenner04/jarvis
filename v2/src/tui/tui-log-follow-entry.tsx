@@ -1,24 +1,10 @@
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { type ConnectTuiDaemonOptions, connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
-import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkLogFollow } from "./tui-ink-log-follow.tsx";
 import { formatLogFollowLine } from "./tui-log-follow-lines.ts";
 import type { RunTuiLogFollowDeps, TuiLogFollowSession } from "./tui-log-follow-types.ts";
 import { connectTuiLogTail } from "./tui-log-tail-client.ts";
-import type { TuiViewState } from "./tui-monitor-types.ts";
-
-function connectionErrorFeedback(error: RpcConnectionError): TuiViewState {
-  return { kind: "rpc-error", code: "daemon_error", message: error.message };
-}
-
-async function presentFeedback(state: TuiViewState, deps: RunTuiLogFollowDeps): Promise<void> {
-  if (deps.viewHost !== undefined) {
-    await Promise.resolve(deps.viewHost.show(state));
-    return;
-  }
-  await showTuiInkFeedback(state, deps.inkRender);
-}
 
 async function openLogFollowSession(deps: RunTuiLogFollowDeps, quit: () => void): Promise<TuiLogFollowSession> {
   if (deps.viewHost !== undefined) {
@@ -63,6 +49,10 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
   const connectFn = deps.connectTuiLogTail ?? connectTuiLogTail;
   const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
   const daemonConnectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
+  const retryConfig = deps.tailRetry;
+  const maxRetries = retryConfig?.maxAttempts ?? 5;
+  const initialDelay = retryConfig?.initialDelayMs ?? 100;
+  const maxDelay = retryConfig?.maxDelayMs ?? 2000;
 
   let socketPath = deps.socketPath;
   try {
@@ -76,12 +66,11 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
     // Discovery failure falls back to the invoking socket.
   }
 
-  const connectOptions = { socketPath };
-
-  let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
   let session: TuiLogFollowSession | undefined;
+  let tail: Awaited<ReturnType<typeof connectTuiLogTail>> | undefined;
   let quitting = false;
   let exitCode = 0;
+  let highestSeq = 0;
 
   let resolveQuit!: () => void;
   const quitPromise = new Promise<void>((resolve) => {
@@ -97,34 +86,81 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
   };
 
   try {
-    tail = await connectFn(runId, connectOptions);
-  } catch (error) {
-    if (error instanceof RpcConnectionError) {
-      await presentFeedback({ kind: "unavailable" }, deps);
-      return 1;
-    }
-    throw error;
-  }
-
-  try {
     session = await openLogFollowSession(deps, quit);
-    const activeTail = tail;
     const activeSession = session;
 
     const consume = (async (): Promise<void> => {
-      try {
-        for await (const record of activeTail.records()) {
-          await Promise.resolve(activeSession.appendLine(formatLogFollowLine(record)));
-        }
-      } catch (error) {
-        if (error instanceof RpcConnectionError) {
-          if (!quitting) {
-            await Promise.resolve(activeSession.showFeedback(connectionErrorFeedback(error)));
-            exitCode = 1;
+      let retryAttempt = 0;
+
+      while (true) {
+        try {
+          tail = await connectFn(runId, { socketPath, afterSeq: highestSeq });
+        } catch (error) {
+          if (error instanceof RpcConnectionError) {
+            if (retryAttempt === 0) {
+              // Initial open failure.
+              await Promise.resolve(activeSession.showFeedback({ kind: "unavailable" }));
+              exitCode = 1;
+              return;
+            }
+            // Mid-stream reconnect after exhausting retries.
+            if (retryAttempt >= maxRetries) {
+              if (!quitting) {
+                await Promise.resolve(
+                  activeSession.showFeedback({ kind: "rpc-error", code: "tail_resume_exhausted", message: error.message }),
+                );
+                exitCode = 1;
+              }
+              return;
+            }
+            // Retry with backoff.
+            const delayMs = Math.min(initialDelay * Math.pow(2, retryAttempt - 1), maxDelay);
+            if (quitting) {
+              return;
+            }
+            await delay(delayMs, quitPromise);
+            if (quitting) {
+              return;
+            }
+            retryAttempt += 1;
+            continue;
           }
-          return;
+          throw error;
         }
-        throw error;
+
+        const currentTail = tail;
+        try {
+          for await (const record of currentTail.records()) {
+            highestSeq = Math.max(highestSeq, record.seq);
+            await Promise.resolve(activeSession.appendLine(formatLogFollowLine(record)));
+          }
+          // Benign stream end.
+          currentTail.close();
+          return;
+        } catch (error) {
+          currentTail.close();
+          if (error instanceof RpcConnectionError) {
+            if (quitting) {
+              return;
+            }
+            if (retryAttempt >= maxRetries) {
+              await Promise.resolve(
+                activeSession.showFeedback({ kind: "rpc-error", code: "tail_resume_exhausted", message: error.message }),
+              );
+              exitCode = 1;
+              return;
+            }
+            // Retry with backoff.
+            const delayMs = Math.min(initialDelay * Math.pow(2, retryAttempt), maxDelay);
+            await delay(delayMs, quitPromise);
+            if (quitting) {
+              return;
+            }
+            retryAttempt += 1;
+            continue;
+          }
+          throw error;
+        }
       }
     })();
 
@@ -141,7 +177,6 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
     return exitCode;
   } finally {
     session?.close();
-    tail?.close();
   }
 }
 
@@ -151,4 +186,12 @@ function deferred<T>() {
     resolve = innerResolve;
   });
   return { promise, resolve };
+}
+
+async function delay(ms: number, quitSignal: Promise<void>): Promise<void> {
+  const delayPromise = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    quitSignal.finally(() => clearTimeout(timer));
+  });
+  await Promise.race([delayPromise, quitSignal]);
 }

@@ -77,7 +77,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
 
   expect(connectCalls).toBe(1);
   expect(sent).toEqual([
-    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123" } },
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
     { kind: "stream-end", streamId: STREAM_ID },
   ]);
 });
@@ -120,7 +120,7 @@ test("replays then follows records in server stream-data arrival order until ben
   client.push({ kind: "stream-end", streamId: STREAM_ID });
 
   await expect(pending).resolves.toEqual(records);
-  expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123" } }]);
+  expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } }]);
   tail.close();
 });
 
@@ -218,7 +218,7 @@ test("close sends stream-end for the opened stream id", async () => {
     await pending;
     tail.close();
     expect(sent).toEqual([
-      { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123" } },
+      { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
       { kind: "stream-end", streamId: STREAM_ID },
     ]);
   });
@@ -242,4 +242,61 @@ test("rejects unreachable socket with RpcConnectionError before stream-open", as
     connectTuiLogTail("run-123", { socketPath: UNREACHABLE_SOCKET_PATH, connectIpcClient: trackingConnect }),
   ).rejects.toBeInstanceOf(RpcConnectionError);
   expect(sent).toEqual([]);
+});
+
+test("stream-open includes afterSeq when provided", async () => {
+  const sent: unknown[] = [];
+  const records = [logRecord(2, "boundary_committed")];
+  const fakeConnect = async (): Promise<IpcClient> => {
+    return makeIpcClient(
+      [
+        { kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[0]) },
+        { kind: "stream-end", streamId: STREAM_ID },
+      ],
+      { sent },
+    );
+  };
+
+  await withFixedStreamId(async () => {
+    const tail = await connectTuiLogTail("run-123", {
+      socketPath: "/tmp/test.sock",
+      afterSeq: 1,
+      connectIpcClient: fakeConnect,
+    });
+    await collectRecords(tail);
+    tail.close();
+  });
+
+  expect(sent).toEqual([
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 1 } },
+    { kind: "stream-end", streamId: STREAM_ID },
+  ]);
+});
+
+test("stream-open includes afterSeq 0 when not provided", async () => {
+  const sent: unknown[] = [];
+  const records = [logRecord(1, "iteration_started")];
+  const fakeConnect = async (): Promise<IpcClient> => {
+    return makeIpcClient(
+      [
+        { kind: "stream-data", streamId: STREAM_ID, payload: JSON.stringify(records[0]) },
+        { kind: "stream-end", streamId: STREAM_ID },
+      ],
+      { sent },
+    );
+  };
+
+  await withFixedStreamId(async () => {
+    const tail = await connectTuiLogTail("run-123", {
+      socketPath: "/tmp/test.sock",
+      connectIpcClient: fakeConnect,
+    });
+    await collectRecords(tail);
+    tail.close();
+  });
+
+  expect(sent).toEqual([
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
+    { kind: "stream-end", streamId: STREAM_ID },
+  ]);
 });

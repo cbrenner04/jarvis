@@ -26,6 +26,8 @@ export type TuiLogTailClient = {
 export type ConnectTuiLogTailOptions = {
   /** Unix socket path; required. */
   socketPath: string;
+  /** Resume cursor: emit only records with seq > afterSeq; defaults to 0 (full replay). */
+  afterSeq?: number;
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
 };
@@ -84,12 +86,13 @@ async function readTailFrame(client: IpcClient): Promise<IpcFrame> {
  * Open a TUI log tail client on the provided socket.
  *
  * @param runId Run whose persisted log stream to open.
- * @param options Socket path is required; optional `connectIpcClient` seam.
+ * @param options Socket path is required; optional `afterSeq` cursor and `connectIpcClient` seam.
  * @returns A client exposing `records` and `close` on one connection.
  * @throws {RpcConnectionError} When the socket is unreachable before `stream-open`.
  */
 export async function connectTuiLogTail(runId: string, options: ConnectTuiLogTailOptions): Promise<TuiLogTailClient> {
   const socketPath = options.socketPath;
+  const afterSeq = options.afterSeq ?? 0;
   const connectFn = options.connectIpcClient ?? connectIpcClient;
 
   let client: IpcClient;
@@ -111,7 +114,7 @@ export async function connectTuiLogTail(runId: string, options: ConnectTuiLogTai
           }
 
           streamId = crypto.randomUUID();
-          client.send({ kind: "stream-open", streamId, payload: { runId } });
+          client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq } });
 
           while (true) {
             const frame = await readTailFrame(client);

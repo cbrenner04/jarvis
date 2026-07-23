@@ -417,11 +417,14 @@ concurrently across different `(project, branch)` keys.
 ## Streaming
 
 Streams multiplex on the same connection via `stream-open` / `stream-data` /
-`stream-end`. The `stream-open` payload carries `{ runId: string }` to identify
-the run. The server replays the run's persisted log records in `seq` order, then
-streams new appends as `stream-data` frames — one record per frame — until the
-client closes with `stream-end` or the connection drops. Each record is a
-`PersistedRecord` serialized as JSON in the `payload` field.
+`stream-end`. The `stream-open` payload carries `{ runId: string, afterSeq?: number }` to identify
+the run and optionally resume from a prior log position. The `afterSeq` field specifies a cursor:
+the server emits only persisted records with `seq > afterSeq`, then streams new appends. Absent,
+non-numeric, or negative `afterSeq` resolves to `0` (full replay). Follow subscribe uses
+`max(last replayed seq, afterSeq)` to dedupe appends past the replay. The server streams
+new appends as `stream-data` frames — one record per frame — until the client closes with
+`stream-end` or the connection drops. Each record is a `PersistedRecord` serialized as JSON in
+the `payload` field.
 
 RPC traffic on the same connection keeps `id` correlation while a stream is
 open.

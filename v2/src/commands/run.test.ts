@@ -405,7 +405,7 @@ describe("run control", () => {
     );
 
     expect(code).toBe(0);
-    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123" } }]);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
     expect(cap.read()).toEqual({
       stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n${JSON.stringify(records[3])}\n`,
       stderr: "",

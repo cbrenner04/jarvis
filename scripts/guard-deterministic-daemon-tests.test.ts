@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { findDeterminismViolations } from "./guard-deterministic-daemon-tests.ts";
+import { findDeterminismViolations, isProductionPathInGuardedRoot } from "./guard-deterministic-daemon-tests.ts";
 
 function violations(source: string, file = "v2/src/daemon/example.test.ts") {
   return findDeterminismViolations([{ file, source }]);
@@ -132,6 +132,30 @@ await new Promise((resolve) =>
 line 6`;
       const result = violations(source);
       expect(result[0]?.line).toBe(3);
+    });
+  });
+
+  describe("isProductionPathInGuardedRoot", () => {
+    test("identifies v2/src/daemon production files", () => {
+      expect(isProductionPathInGuardedRoot("v2/src/daemon/lifecycle.ts")).toBe(true);
+      expect(isProductionPathInGuardedRoot("v2/src/daemon/foo/bar.ts")).toBe(true);
+    });
+
+    test("identifies v2/src/execution production files", () => {
+      expect(isProductionPathInGuardedRoot("v2/src/execution/write-loop.ts")).toBe(true);
+      expect(isProductionPathInGuardedRoot("v2/src/execution/runner.ts")).toBe(true);
+    });
+
+    test("rejects files outside guarded roots", () => {
+      expect(isProductionPathInGuardedRoot("src/utils/runner.ts")).toBe(false);
+      expect(isProductionPathInGuardedRoot("v2/src/other/runner.ts")).toBe(false);
+      expect(isProductionPathInGuardedRoot("v1/src/daemon/runner.ts")).toBe(false);
+      expect(isProductionPathInGuardedRoot("shared/runner.ts")).toBe(false);
+    });
+
+    test("rejects test files", () => {
+      expect(isProductionPathInGuardedRoot("v2/src/daemon/lifecycle.test.ts")).toBe(true);
+      expect(isProductionPathInGuardedRoot("v2/src/execution/runner.test.ts")).toBe(true);
     });
   });
 });

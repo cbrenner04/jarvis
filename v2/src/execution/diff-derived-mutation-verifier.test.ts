@@ -1087,4 +1087,127 @@ index 1234567..abcdefg 100644
       ),
     ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
   });
+
+  it("detects surviving mutations inside setTimeout callback in v2/src/execution", async () => {
+    const diff = `diff --git a/v2/src/execution/runner.ts b/v2/src/execution/runner.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/runner.ts
++++ b/v2/src/execution/runner.ts
+@@ -1,5 +1,5 @@
+ export function setup() {
+   setTimeout(() => {
+-    if (!x) return null;
++    if (!x) return "safe";
+     doSomething();
+   }, 100);
+ }
+`;
+
+    const originalContent = `export function setup() {
+  setTimeout(() => {
+    if (!x) return "safe";
+    doSomething();
+  }, 100);
+}`;
+
+    let testRunCount = 0;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          testRunCount++;
+          return true;
+        },
+      },
+    );
+
+    expect(testRunCount).toBeGreaterThan(0);
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.isInsideTimerCallback).toBe(true);
+      expect(result.sourceSite.file).toBe("v2/src/execution/runner.ts");
+      expect(result.sourceSite.line).toBe(3);
+    }
+  });
+
+  it("detects surviving mutations outside timer callback have no timer flag", async () => {
+    const diff = `diff --git a/v2/src/execution/runner.ts b/v2/src/execution/runner.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/runner.ts
++++ b/v2/src/execution/runner.ts
+@@ -1,5 +1,5 @@
+ export function setup() {
+-  if (!x) return null;
++  if (!x) return "safe";
+   doSomething();
+   return true;
+ }
+`;
+
+    const originalContent = `export function setup() {
+  if (!x) return "safe";
+  doSomething();
+  return true;
+}`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.isInsideTimerCallback).toBeFalsy();
+    }
+  });
+
+  it("detects surviving mutations inside timer callback in file outside guarded root", async () => {
+    const diff = `diff --git a/src/utils/runner.ts b/src/utils/runner.ts
+index 1234567..abcdefg 100644
+--- a/src/utils/runner.ts
++++ b/src/utils/runner.ts
+@@ -1,5 +1,5 @@
+ export function setup() {
+   setTimeout(() => {
+-    if (!x) return null;
++    if (!x) return "safe";
+     doSomething();
+   }, 100);
+ }
+`;
+
+    const originalContent = `export function setup() {
+  setTimeout(() => {
+    if (!x) return "safe";
+    doSomething();
+  }, 100);
+}`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.isInsideTimerCallback).toBe(true);
+    }
+  });
 });

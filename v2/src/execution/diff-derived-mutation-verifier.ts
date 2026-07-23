@@ -21,6 +21,7 @@ export type SurvivingMutationResult = {
     file: string;
     line: number;
   };
+  isInsideTimerCallback?: boolean;
 };
 
 export type VerificationResult = PassResult | SurvivingMutationResult;
@@ -225,6 +226,51 @@ function deriveDestructiveMutations(
       mutation: `skip-destructive: ${original}`,
     });
   }
+}
+
+/** Finds the index of the `)` matching the `(` at `openParenPos`, or -1 if unterminated. */
+function findMatchingCloseParen(fileContent: string, openParenPos: number): number {
+  let depth = 1;
+  for (let charPos = openParenPos + 1; charPos < fileContent.length; charPos++) {
+    const char = fileContent[charPos];
+    if (char === "(") depth++;
+    else if (char === ")" && --depth === 0) return charPos;
+  }
+  return -1;
+}
+
+function isLineInsideTimerCallback(fileContent: string, targetLine: number): boolean {
+  const lines = fileContent.split("\n");
+  if (targetLine < 1 || targetLine > lines.length) return false;
+
+  const targetLineStr = lines[targetLine - 1];
+  if (!targetLineStr) return false;
+
+  const lineStarts: number[] = [];
+  let pos = 0;
+  for (const line of lines) {
+    lineStarts.push(pos);
+    pos += line.length + 1;
+  }
+
+  const targetLinePos = lineStarts[targetLine - 1] ?? 0;
+  const targetLineEndPos = targetLinePos + targetLineStr.length;
+
+  for (let i = targetLine - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    const timerMatch = line.match(/set(?:Timeout|Interval)\s*\(/);
+    if (!timerMatch || timerMatch.index === undefined) continue;
+
+    const parenPos = (lineStarts[i] ?? 0) + timerMatch.index + timerMatch[0].length - 1;
+    const closingParenPos = findMatchingCloseParen(fileContent, parenPos);
+
+    if (closingParenPos > 0 && targetLinePos >= parenPos && targetLineEndPos <= closingParenPos) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Masks from an opening delimiter at `i` through its matching `closeChar`, honoring backslash escapes. Returns the index past the close (or end of line if unterminated). */
@@ -436,6 +482,7 @@ async function testCandidate(
             file: candidate.file,
             line: candidate.line,
           },
+          isInsideTimerCallback: isLineInsideTimerCallback(originalContent, candidate.line),
         };
       }
     } finally {

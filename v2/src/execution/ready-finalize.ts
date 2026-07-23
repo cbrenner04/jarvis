@@ -1,4 +1,5 @@
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
+import { isProductionPathInGuardedRoot } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -71,8 +72,13 @@ export class SurvivingMutationError extends Error {
     readonly mutation: string,
     readonly sourceSiteFile: string,
     readonly sourceSiteLine: number,
+    readonly isInsideTimerCallback?: boolean,
   ) {
-    super(`Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
+    let baseMessage = `Surviving mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`;
+    if (isInsideTimerCallback && isProductionPathInGuardedRoot(sourceSiteFile)) {
+      baseMessage += `. Mutation-test gate: kill the change on this line in both directions. Determinism-guard gate: no real-timer waits in ${sourceSiteFile.replace(/\.ts$/, ".test.ts")}. Fix: extract a pure predicate and test the predicate directly without a real-timer wait.`;
+    }
+    super(baseMessage);
     this.name = "SurvivingMutationError";
   }
 }

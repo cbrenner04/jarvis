@@ -1059,6 +1059,7 @@ async function runReadyFinalizer(
             verificationResult.mutation,
             verificationResult.sourceSite.file,
             verificationResult.sourceSite.line,
+            verificationResult.isInsideTimerCallback,
           );
         }
       },

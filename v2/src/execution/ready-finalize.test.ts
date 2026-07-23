@@ -382,3 +382,41 @@ index 1234567..abcdefg 100644
     expect(integrationCalls).toBe(0);
   });
 });
+
+describe("SurvivingMutationError", () => {
+  it("renders base message without dual-constraint clause for non-timer mutations", () => {
+    const error = new SurvivingMutationError(
+      "operator-flip: === → !==",
+      "v2/src/execution/runner.ts",
+      42,
+      false,
+    );
+    expect(error.message).toBe("Surviving mutation in v2/src/execution/runner.ts:42: operator-flip: === → !==");
+  });
+
+  it("renders base message without dual-constraint clause for timer mutations outside guarded roots", () => {
+    const error = new SurvivingMutationError("guard-flip: !x → x", "src/utils/runner.ts", 10, true);
+    expect(error.message).toBe("Surviving mutation in src/utils/runner.ts:10: guard-flip: !x → x");
+  });
+
+  it("renders dual-constraint message for timer mutation in guarded root", () => {
+    const error = new SurvivingMutationError(
+      "guard-flip: !valid → valid",
+      "v2/src/execution/runner.ts",
+      24,
+      true,
+    );
+    const message = error.message;
+    expect(message).toContain("Surviving mutation in v2/src/execution/runner.ts:24: guard-flip: !valid → valid");
+    expect(message).toContain("Mutation-test gate: kill the change on this line in both directions");
+    expect(message).toContain("Determinism-guard gate: no real-timer waits in v2/src/execution/runner.test.ts");
+    expect(message).toContain("Fix: extract a pure predicate and test the predicate directly");
+  });
+
+  it("carries source site fields from constructor", () => {
+    const error = new SurvivingMutationError("operator-flip: === → !==", "v2/src/execution/runner.ts", 42, false);
+    expect(error.mutation).toBe("operator-flip: === → !==");
+    expect(error.sourceSiteFile).toBe("v2/src/execution/runner.ts");
+    expect(error.sourceSiteLine).toBe(42);
+  });
+});

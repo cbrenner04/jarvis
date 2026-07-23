@@ -53,6 +53,109 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function parseListArgv(rest: readonly string[], io: Io, deps: CliDeps): { ok: true; sinceMs?: number } | { ok: false } {
+  if (rest.length === 2 && rest[0] === "--since") {
+    const value = rest[1];
+    if (value === undefined || value.startsWith("-")) {
+      io.stderr("invalid_since: invalid value\n");
+      return { ok: false };
+    }
+    const cutoff = parseSince(value, deps.now?.() ?? Date.now());
+    if (cutoff === undefined) {
+      io.stderr("invalid_since: invalid value\n");
+      return { ok: false };
+    }
+    return { ok: true, sinceMs: cutoff };
+  }
+  if (rest.length !== 0) {
+    io.stderr(RUN_LIST_USAGE);
+    return { ok: false };
+  }
+  return { ok: true };
+}
+
+async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parseWriteCliInput(argv, deps);
+  if (!parsed.ok) {
+    if (parsed.message !== undefined) io.stderr(parsed.message);
+    io.stderr(WRITE_USAGE);
+    return 1;
+  }
+
+  return withConnectDispatch(io, deps, async (client) => {
+    let result: unknown;
+    try {
+      result = await request(client, "start", { input: parsed.input });
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
+    }
+    const start = parseStartResult(result);
+    if (start === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    io.stdout(`${start.runId}\n`);
+    return 0;
+  });
+}
+
+async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parseListArgv(rest, io, deps);
+  if (!parsed.ok) return 1;
+
+  return withRunClient(io, deps, async (client) => {
+    let result: unknown;
+    try {
+      result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
+    }
+
+    const list = parseListRuns(result);
+    if (list === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+
+    for (const run of list.runs) io.stdout(formatListRunRow(run));
+    return 0;
+  });
+}
+
+async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {
+  return withRunClient(io, deps, async (client) => {
+    const streamId = crypto.randomUUID();
+    client.send({ kind: "stream-open", streamId, payload: { runId } });
+
+    while (true) {
+      try {
+        const frame = await client.nextFrame();
+        if (frame.kind === "stream-data" && frame.streamId === streamId) {
+          const record = parseStreamPayload(frame.payload);
+          io.stdout(`${JSON.stringify(record)}\n`);
+          continue;
+        }
+        if (frame.kind === "stream-end" && frame.streamId === streamId) {
+          return 0;
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "connection closed") {
+          return 0;
+        }
+        throw error;
+      }
+    }
+  });
+}
+
 async function runActionCommand(
   subcommand: "pause" | "resume" | "kill",
   argv: readonly string[],
@@ -90,106 +193,17 @@ async function runActionCommand(
 export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
-  if (subcommand === "start") {
-    const parsed = parseWriteCliInput(argv.slice(1), deps);
-    if (!parsed.ok) {
-      if (parsed.message !== undefined) io.stderr(parsed.message);
-      io.stderr(WRITE_USAGE);
-      return 1;
-    }
-
-    return withConnectDispatch(io, deps, async (client) => {
-      let result: unknown;
-      try {
-        result = await request(client, "start", { input: parsed.input });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-      const start = parseStartResult(result);
-      if (start === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${start.runId}\n`);
-      return 0;
-    });
-  }
-
-  if (subcommand === "workflow") {
-    return runWorkflowCommand(argv.slice(1), io, deps);
-  }
-
-  if (subcommand === "list") {
-    const rest = argv.slice(1);
-    let sinceMs: number | undefined;
-    if (rest.length === 2 && rest[0] === "--since") {
-      const value = rest[1];
-      if (value === undefined || value.startsWith("-")) {
-        io.stderr("invalid_since: invalid value\n");
-        return 1;
-      }
-      const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-      if (cutoff === undefined) {
-        io.stderr("invalid_since: invalid value\n");
-        return 1;
-      }
-      sinceMs = cutoff;
-    } else if (rest.length !== 0) {
-      io.stderr(RUN_LIST_USAGE);
-      return 1;
-    }
-
-    return withRunClient(io, deps, async (client) => {
-      let result: unknown;
-      try {
-        result = await request(client, "list", sinceMs === undefined ? undefined : { sinceMs });
-      } catch (error) {
-        if (error instanceof RpcError) {
-          io.stderr(formatRpcError(error));
-          return 1;
-        }
-        throw error;
-      }
-
-      const list = parseListRuns(result);
-      if (list === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-
-      for (const run of list.runs) io.stdout(formatListRunRow(run));
-      return 0;
-    });
-  }
+  if (subcommand === "start") return runStartSubcommand(argv.slice(1), io, deps);
+  if (subcommand === "workflow") return runWorkflowCommand(argv.slice(1), io, deps);
+  if (subcommand === "list") return runListSubcommand(argv.slice(1), io, deps);
 
   if (subcommand === "log" && argv.length === 2) {
-    return withRunClient(io, deps, async (client) => {
-      const streamId = crypto.randomUUID();
-      client.send({ kind: "stream-open", streamId, payload: { runId: argv[1] } });
-
-      while (true) {
-        try {
-          const frame = await client.nextFrame();
-          if (frame.kind === "stream-data" && frame.streamId === streamId) {
-            const record = parseStreamPayload(frame.payload);
-            io.stdout(`${JSON.stringify(record)}\n`);
-            continue;
-          }
-          if (frame.kind === "stream-end" && frame.streamId === streamId) {
-            return 0;
-          }
-        } catch (error) {
-          if (error instanceof Error && error.message === "connection closed") {
-            return 0;
-          }
-          throw error;
-        }
-      }
-    });
+    const runId = argv[1];
+    if (runId === undefined) {
+      io.stderr(RUN_USAGE);
+      return 1;
+    }
+    return runLogSubcommand(runId, io, deps);
   }
 
   if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);
@@ -200,9 +214,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
       io.stderr(RUN_USAGE);
       return 1;
     }
-    return withRunClient(io, deps, async (client) => {
-      return waitForRunCompletion(client, runId, io);
-    });
+    return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io));
   }
 
   io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);

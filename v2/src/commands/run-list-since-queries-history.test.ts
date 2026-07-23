@@ -171,8 +171,7 @@ test("run log stream-open and tui log tail-open accept since-listed runs beyond 
     const sent: unknown[] = [];
     const tail = await connectTuiLogTail(historicalId, {
       socketPath: "/tmp/jarvis.sock",
-      connectIpcClient: async () =>
-        makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent }),
+      connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent }),
     });
     const iter = tail.records()[Symbol.asyncIterator]();
     await iter.next();
@@ -184,8 +183,7 @@ test("run log stream-open and tui log tail-open accept since-listed runs beyond 
   const sent: unknown[] = [];
   const code = await withFixedUuid(STREAM_ID, () =>
     main(["run", "log", historicalId], cap.io, {
-      connectIpcClient: async () =>
-        makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent }),
+      connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent }),
     }),
   );
 

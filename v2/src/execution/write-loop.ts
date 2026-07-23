@@ -13,7 +13,6 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
-import { reportUncoveredChangedLines, type ReporterSeams, type UncoveredChangedLinesInput } from "./uncovered-changed-lines.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -31,6 +30,7 @@ import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts"
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import { type ReporterSeams, reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -978,7 +978,13 @@ async function runCoverageAdvisory(
     const settled = await awaitIteration(advisoryArgs, runId, attemptId, sessionLog);
     closeSessionLog(
       sessionLog,
-      settled.kind === "settled" ? "completed" : settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+      settled.kind === "settled"
+        ? "completed"
+        : settled.kind === "timed_out"
+          ? "timeout"
+          : settled.kind === "aborted"
+            ? "abort"
+            : "error",
     );
 
     if (settled.kind === "settled") {

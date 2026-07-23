@@ -2580,8 +2580,7 @@ describe("write loop", () => {
             "+new line 2\n" +
             " other line\n",
           runTests: async () => true,
-          readFile: async () =>
-            "SF:src/file.ts\nDA:8,1\nDA:9,0\nDA:10,0\nDA:11,1\nend_of_record\n",
+          readFile: async () => "SF:src/file.ts\nDA:8,1\nDA:9,0\nDA:10,0\nDA:11,1\nend_of_record\n",
           untrackedFiles: async () => [],
           deleteFile: async () => {},
         },
@@ -2658,8 +2657,7 @@ describe("write loop", () => {
             "+new line 2\n" +
             " other line\n",
           runTests: async () => true,
-          readFile: async () =>
-            "SF:src/file.ts\nDA:8,1\nDA:9,1\nDA:10,1\nDA:11,1\nend_of_record\n",
+          readFile: async () => "SF:src/file.ts\nDA:8,1\nDA:9,1\nDA:10,1\nDA:11,1\nend_of_record\n",
           untrackedFiles: async () => [],
           deleteFile: async () => {},
         },

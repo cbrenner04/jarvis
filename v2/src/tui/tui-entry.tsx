@@ -1,5 +1,6 @@
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
+import { mergeRunLists } from "../daemon/run-list-merge.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
@@ -104,24 +105,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     syncMonitor();
   };
 
-  const mergeRunLists = (listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>): DaemonListRunRow[] => {
-    const deduped = new Map<string, DaemonListRunRow>();
-    const newOwners = new Map<string, TuiDaemonClient>();
-
-    for (const [client, result] of listResults) {
-      if (!result) continue;
-
-      for (const row of result.runs) {
-        const existing = deduped.get(row.runId);
-        if (!existing || (row.isLive && !existing.isLive)) {
-          deduped.set(row.runId, row);
-          newOwners.set(row.runId, client);
-        }
-      }
-    }
-
-    runOwners = newOwners;
-    return Array.from(deduped.values());
+  const mergeAndTrackOwners = (listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>): DaemonListRunRow[] => {
+    const { runs, owners } = mergeRunLists(listResults.map(([client, result]) => [client, result?.runs]));
+    runOwners = owners;
+    return runs;
   };
 
   const startWaitForRun = (runId: string): void => {
@@ -295,7 +282,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
         if (initial && allClientsFailed) throw firstError;
 
-        const runs = mergeRunLists(listResults);
+        const runs = mergeAndTrackOwners(listResults);
 
         if (initial) {
           const runId = firstSelectableRunId(runs);

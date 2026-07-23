@@ -520,6 +520,256 @@ describe("run control", () => {
     expect(plain?.[12]).toBe("-");
   });
 
+  test("run list aggregates runs from multiple live daemons", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const otherSocket = "/keyed/digest-b.sock";
+    const requestId = "00000000-0000-4000-8000-000000000012";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [otherSocket],
+        connectIpcClient: async (socketPath) => {
+          const sent: unknown[] = [];
+          if (socketPath === invokeSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ runId: "run-invoking", project: "demo", branch: "main", status: "in-progress", isLive: true }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          if (socketPath === otherSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ runId: "run-other", project: "demo", branch: "main", status: "completed", isLive: false }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    await expect(code).resolves.toBe(0);
+    const rows = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain("run-invoking");
+    expect(rows[1]).toContain("run-other");
+  });
+
+  test("run list dedupes duplicate durable rows, preferring the isLive owner", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const otherSocket = "/keyed/digest-b.sock";
+    const requestId = "00000000-0000-4000-8000-000000000013";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [otherSocket],
+        connectIpcClient: async (socketPath) => {
+          const sent: unknown[] = [];
+          const sharedRun = { runId: "run-durable", project: "demo", branch: "main", status: "in-progress" };
+          if (socketPath === invokeSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ ...sharedRun, isLive: false }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          if (socketPath === otherSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ ...sharedRun, isLive: true }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    await expect(code).resolves.toBe(0);
+    const rows = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("run-durable");
+    expect(rows[0]).toContain("live");
+  });
+
+  test("run list skips unreachable sockets and lists remaining daemons", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const otherSocket = "/keyed/digest-b.sock";
+    const unreachableSocket = "/keyed/digest-c.sock";
+    const requestId = "00000000-0000-4000-8000-000000000014";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [otherSocket, unreachableSocket],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === unreachableSocket) {
+            throw new Error("ECONNREFUSED");
+          }
+          const sent: unknown[] = [];
+          const digest = socketPath.split("-")[1]?.split(".")[0] ?? "unknown";
+          const run = { runId: `run-${digest}`, project: "demo", branch: "main", status: "in-progress", isLive: true };
+          return makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { runs: [run] },
+              },
+            ],
+            { sent },
+          );
+        },
+      }),
+    );
+
+    await expect(code).resolves.toBe(0);
+    const output = cap.read().stdout;
+    const rows = output.trimEnd().split("\n");
+    expect(rows).toHaveLength(2);
+    expect(output).toContain("run-a");
+    expect(output).toContain("run-b");
+    expect(cap.read().stderr).toContain("ECONNREFUSED");
+  });
+
+  test("run list with solo daemon renders output byte-identical to single-socket path", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const requestId = "00000000-0000-4000-8000-000000000015";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [],
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                runs: [
+                  { runId: "run-1", project: "demo", branch: "main", status: "in-progress", isLive: true },
+                  { runId: "run-2", project: "demo", branch: "main", status: "completed", isLive: false },
+                ],
+              },
+            },
+          ]),
+      }),
+    );
+
+    await expect(code).resolves.toBe(0);
+    const rows = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain("run-1");
+    expect(rows[1]).toContain("run-2");
+  });
+
+  test("run list prefers isLive rows even when listed later in discovery order", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const otherSocket = "/keyed/digest-b.sock";
+    const requestId = "00000000-0000-4000-8000-000000000016";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [otherSocket],
+        connectIpcClient: async (socketPath) => {
+          const sent: unknown[] = [];
+          const sharedRun = { runId: "run-shared", project: "demo", branch: "main", status: "in-progress" };
+          if (socketPath === otherSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ ...sharedRun, isLive: true }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          if (socketPath === invokeSocket) {
+            return makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: requestId,
+                  result: { runs: [{ ...sharedRun, isLive: false }] },
+                },
+              ],
+              { sent },
+            );
+          }
+          throw new Error("unknown socket");
+        },
+      }),
+    );
+
+    await expect(code).resolves.toBe(0);
+    const rows = cap
+      .read()
+      .stdout.trimEnd()
+      .split("\n");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain("live");
+  });
+
+  test("run list returns 1 when all sockets fail but otherwise partial results succeed", async () => {
+    const cap = captureIo();
+    const invokeSocket = "/keyed/digest-a.sock";
+    const otherSocket = "/keyed/digest-b.sock";
+    const requestId = "00000000-0000-4000-8000-000000000017";
+
+    const code = withFixedUuid(requestId, () =>
+      main(["run", "list"], cap.io, {
+        socketPath: invokeSocket,
+        socketDiscovery: async () => [otherSocket],
+        connectIpcClient: async () => {
+          throw new Error("ECONNREFUSED");
+        },
+      }),
+    );
+
+    await expect(code).resolves.toBe(1);
+    expect(cap.read().stderr).toContain("ECONNREFUSED");
+  });
+
   test("run wait missing run ID prints run-control usage and exits 1", async () => {
     const cap = captureIo();
 

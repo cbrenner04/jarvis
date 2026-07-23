@@ -6,6 +6,7 @@ import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { RUN_LIST_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
+import { mergeRunLists } from "../daemon/run-list-merge.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -107,27 +108,43 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   const parsed = parseListArgv(rest, io, deps);
   if (!parsed.ok) return 1;
 
-  return withRunClient(io, deps, async (client) => {
-    let result: unknown;
+  const discoverFn = deps.socketDiscovery ?? (async () => []);
+  const liveSocketsDiscovered = await discoverFn();
+  const allSockets = new Set(liveSocketsDiscovered);
+  allSockets.add(deps.socketPath);
+
+  const listResults: Array<[string, DaemonListRunRow[] | undefined]> = [];
+  let hasErrors = false;
+
+  for (const socketPath of Array.from(allSockets).sort()) {
+    let client: Awaited<ReturnType<typeof deps.connectIpcClient>> | undefined;
     try {
-      result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      client = await deps.connectIpcClient(socketPath);
+      const result = await request(client, "list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      const list = parseListRuns(result);
+      listResults.push([socketPath, list?.runs]);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
-        return 1;
+      } else if (error instanceof Error) {
+        io.stderr(`${error.message}\n`);
+      } else {
+        io.stderr("unknown error\n");
       }
-      throw error;
+      listResults.push([socketPath, undefined]);
+      hasErrors = true;
+    } finally {
+      client?.close();
     }
+  }
 
-    const list = parseListRuns(result);
-    if (list === undefined) {
-      io.stderr("invalid daemon response\n");
-      return 1;
-    }
+  if (hasErrors && listResults.every(([, runs]) => !runs)) {
+    return 1;
+  }
 
-    for (const run of list.runs) io.stdout(formatListRunRow(run));
-    return 0;
-  });
+  const { runs } = mergeRunLists(listResults);
+  for (const run of runs) io.stdout(formatListRunRow(run));
+  return 0;
 }
 
 async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {

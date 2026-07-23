@@ -270,7 +270,8 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a
   skipped without aborting the view. Steering RPCs (`pause` / `resume` / `kill`)
   route to the owning daemon. When no sockets are discovered, the monitor connects
   only to the invoking digest's socket and behaves as before (single-daemon view).
-  `jarvis run list` and `jarvis run wait` remain single-daemon. Optional workflow-step
+  `jarvis run list` aggregates runs from all live keyed daemons, deduping by run ID and
+  preferring `isLive` rows. `jarvis run wait` remains single-daemon. Optional workflow-step
   snapshots on `list` rows (see [`daemon-host.md`](./daemon-host.md#list));
   operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs
   (`status: "queued"`) render under a separate "Queue" heading, oldest-queued-first,

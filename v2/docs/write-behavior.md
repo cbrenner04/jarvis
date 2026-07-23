@@ -579,7 +579,9 @@ Per-tick rediscovery: Every refresh tick (second), the monitor rediscovers live 
 
 The monitor aggregates every live daemon's run list into one view: each run ID appears once (deduped), the daemon reporting the run `isLive` is the owner and receives all steering commands (`pause`, `resume`, `kill`). Non-invoking connections that fail to `list` are skipped without aborting the monitor. The invoking-socket connection is evicted (closed and removed) when its `list()` call fails, allowing a fresh connection to be established on the next tick (useful when the daemon has been replaced on the same socket path). When discovery returns no sockets, the monitor connects only to the invoking digest's socket and behaves as before.
 
-`jarvis run wait` and `jarvis run list` remain scoped to one daemon (the invoking socket), unchanged from today's single-daemon model.
+`jarvis run list` discovers and aggregates runs from all live keyed daemons under the same `JARVIS_HOME`, deduping by run ID and preferring rows reported `isLive` by any daemon. Each run ID appears once in the output. All daemons are queried in parallel; unreachable sockets are skipped without aborting the listing. The invoking digest's socket is always included in the query set even if discovery returns no sockets (solo-daemon fallback). Output is sorted by run ID for determinism. When only the invoking digest's daemon is live, output is byte-identical to the previous single-daemon behavior.
+
+`jarvis run wait` remains scoped to one daemon (the invoking socket), unchanged from today's single-daemon model.
 
 `jarvis run wait` renders a timed-out loop as `loopOutcomeKind:
 "iteration_timeout"` with failed run status; it is not rendered as

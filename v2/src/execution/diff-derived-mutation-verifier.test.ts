@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testFixtures } from "./diff-derived-mutation-verifier.fixtures.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   maskNonCodeSpans,
@@ -1090,25 +1091,8 @@ index 1234567..abcdefg 100644
 
   describe("dual-constraint clause for timer callbacks in guarded files", () => {
     it("includes dual-constraint clause for surviving mutation inside setTimeout in v2/src/execution/**", async () => {
-      const diffWithGuardInTimer = `diff --git a/v2/src/execution/verifier.ts b/v2/src/execution/verifier.ts
-index 1234567..abcdefg 100644
---- a/v2/src/execution/verifier.ts
-+++ b/v2/src/execution/verifier.ts
-@@ -1,6 +1,6 @@
- function checkState() {
-   await new Promise((resolve) => setTimeout(() => {
--    if (!valid) return;
-+    if (!valid || false) return;
-     resolve();
-   }, 100));
- }`;
-
-      const originalContent = `function checkState() {
-  await new Promise((resolve) => setTimeout(() => {
-    if (!valid || false) return;
-    resolve();
-  }, 100));
-}`;
+      const diffWithGuardInTimer = testFixtures.diffWithGuardInTimer;
+      const originalContent = testFixtures.originalContentWithGuardInTimer;
 
       const result = await verifyDiffDerivedMutations(
         {
@@ -1134,21 +1118,8 @@ index 1234567..abcdefg 100644
     });
 
     it("omits dual-constraint clause for surviving mutation outside timer callback", async () => {
-      const diffWithoutTimer = `diff --git a/v2/src/execution/verifier.ts b/v2/src/execution/verifier.ts
-index 1234567..abcdefg 100644
---- a/v2/src/execution/verifier.ts
-+++ b/v2/src/execution/verifier.ts
-@@ -1,3 +1,3 @@
- function checkState() {
--  if (!valid) return;
-+  if (!valid || false) return;
-   return true;
- }`;
-
-      const originalContent = `function checkState() {
-  if (!valid || false) return;
-  return true;
-}`;
+      const diffWithoutTimer = testFixtures.diffWithoutTimer;
+      const originalContent = testFixtures.originalContentWithoutTimer;
 
       const result = await verifyDiffDerivedMutations(
         {
@@ -1171,25 +1142,8 @@ index 1234567..abcdefg 100644
     });
 
     it("omits dual-constraint clause for surviving mutation inside timer callback but outside guard roots", async () => {
-      const diffOutsideGuard = `diff --git a/v2/src/other/file.ts b/v2/src/other/file.ts
-index 1234567..abcdefg 100644
---- a/v2/src/other/file.ts
-+++ b/v2/src/other/file.ts
-@@ -1,6 +1,6 @@
- function checkState() {
-   await new Promise((resolve) => setTimeout(() => {
--    if (!valid) return;
-+    if (!valid || false) return;
-     resolve();
-   }, 100));
- }`;
-
-      const originalContent = `function checkState() {
-  await new Promise((resolve) => setTimeout(() => {
-    if (!valid || false) return;
-    resolve();
-  }, 100));
-}`;
+      const diffOutsideGuard = testFixtures.diffOutsideGuard;
+      const originalContent = testFixtures.originalContentOutsideGuard;
 
       const result = await verifyDiffDerivedMutations(
         {

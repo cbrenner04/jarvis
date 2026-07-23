@@ -308,28 +308,43 @@ function isLineInTimerCallback(fileContent: string, lineNumber: number): boolean
     const line = lines[i];
     if (line === undefined) continue;
 
-    const masked = maskNonCodeSpans(line);
+    const result = checkLineForTimerCallback(line, depth, i, targetLineIndex);
+    if (result.found !== null) return result.found;
+    depth = result.depth;
+  }
 
-    for (let j = masked.length - 1; j >= 0; j--) {
-      const char = masked[j];
+  return false;
+}
 
-      if (char === ")") {
-        depth++;
-      } else if (char === "(") {
-        depth--;
-        if (depth < 0) {
-          if (i === targetLineIndex) return false;
-          const beforeParen = masked.slice(0, j).trimEnd();
-          if (/\bsetTimeout\s*$/.test(beforeParen) || /\bsetInterval\s*$/.test(beforeParen)) {
-            return true;
-          }
-          return false;
-        }
+function checkLineForTimerCallback(
+  line: string,
+  depth: number,
+  lineIndex: number,
+  targetLineIndex: number,
+): { found: boolean | null; depth: number } {
+  const masked = maskNonCodeSpans(line);
+  let d = depth;
+
+  for (let j = masked.length - 1; j >= 0; j--) {
+    const char = masked[j];
+
+    if (char === ")") {
+      d++;
+    } else if (char === "(") {
+      d--;
+      if (d < 0) {
+        if (lineIndex === targetLineIndex) return { found: false, depth: d };
+        const beforeParen = masked.slice(0, j).trimEnd();
+        return { found: isTimerCall(beforeParen), depth: d };
       }
     }
   }
 
-  return false;
+  return { found: null, depth: d };
+}
+
+function isTimerCall(beforeParen: string): boolean {
+  return /\bsetTimeout\s*$/.test(beforeParen) || /\bsetInterval\s*$/.test(beforeParen);
 }
 
 function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {

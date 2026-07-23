@@ -1243,16 +1243,13 @@ export type TailStreamHandlerDeps = {
   logReader: LogReader;
 };
 
-function parseTailStreamParams(
-  payload: unknown,
-): { runId: string; afterSeq: number } | undefined {
+function parseTailStreamParams(payload: unknown): { runId: string; afterSeq: number } | undefined {
   const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
   if (typeof params !== "object" || params === null) return undefined;
   const runId = (params as { runId?: unknown }).runId;
   if (typeof runId !== "string") return undefined;
   const afterSeq = (params as { afterSeq?: unknown }).afterSeq;
-  const parsedAfterSeq =
-    typeof afterSeq === "number" && afterSeq >= 0 ? afterSeq : 0;
+  const parsedAfterSeq = typeof afterSeq === "number" && afterSeq >= 0 ? afterSeq : 0;
   return { runId, afterSeq: parsedAfterSeq };
 }
 
@@ -1300,13 +1297,7 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
     }
 
     try {
-      await streamRunLogRecords(
-        deps,
-        params.runId,
-        params.afterSeq,
-        onData,
-        signal,
-      );
+      await streamRunLogRecords(deps, params.runId, params.afterSeq, onData, signal);
     } finally {
       onClose();
     }

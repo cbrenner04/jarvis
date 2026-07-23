@@ -107,14 +107,18 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
             if (retryAttempt >= maxRetries) {
               if (!quitting) {
                 await Promise.resolve(
-                  activeSession.showFeedback({ kind: "rpc-error", code: "tail_resume_exhausted", message: error.message }),
+                  activeSession.showFeedback({
+                    kind: "rpc-error",
+                    code: "tail_resume_exhausted",
+                    message: error.message,
+                  }),
                 );
                 exitCode = 1;
               }
               return;
             }
             // Retry with backoff.
-            const delayMs = Math.min(initialDelay * Math.pow(2, retryAttempt - 1), maxDelay);
+            const delayMs = Math.min(initialDelay * 2 ** (retryAttempt - 1), maxDelay);
             if (quitting) {
               return;
             }
@@ -145,13 +149,17 @@ export async function runTuiLogFollow(runId: string, deps: RunTuiLogFollowDeps):
             }
             if (retryAttempt >= maxRetries) {
               await Promise.resolve(
-                activeSession.showFeedback({ kind: "rpc-error", code: "tail_resume_exhausted", message: error.message }),
+                activeSession.showFeedback({
+                  kind: "rpc-error",
+                  code: "tail_resume_exhausted",
+                  message: error.message,
+                }),
               );
               exitCode = 1;
               return;
             }
             // Retry with backoff.
-            const delayMs = Math.min(initialDelay * Math.pow(2, retryAttempt), maxDelay);
+            const delayMs = Math.min(initialDelay * 2 ** retryAttempt, maxDelay);
             await delay(delayMs, quitPromise);
             if (quitting) {
               return;

@@ -216,11 +216,7 @@ test("tail stream with afterSeq 0 replays all records (default behavior)", async
 test("tail stream without afterSeq replays all records", async () => {
   const runId = createRunWithLogs();
   const controller = new AbortController();
-  const { onData, closes, handlerPromise } = callTailHandler(
-    "tail-no-after-seq",
-    { runId },
-    controller.signal,
-  );
+  const { onData, closes, handlerPromise } = callTailHandler("tail-no-after-seq", { runId }, controller.signal);
 
   await waitForRecords(onData, 2);
 
@@ -271,9 +267,9 @@ test("tail stream with negative afterSeq defaults to 0", async () => {
 });
 
 test("tail stream with afterSeq larger than last replay uses afterSeq for follow subscribe", async () => {
-  let followSignal: AbortSignal | undefined;
+  let _followSignal: AbortSignal | undefined;
   onFollow = (signal) => {
-    followSignal = signal;
+    _followSignal = signal;
   };
 
   const runId = seedRun();
@@ -288,7 +284,7 @@ test("tail stream with afterSeq larger than last replay uses afterSeq for follow
   logSink.close();
 
   const controller = new AbortController();
-  const { onData, closes, handlerPromise } = callTailHandler(
+  const { closes, handlerPromise } = callTailHandler(
     "tail-after-seq-large",
     { runId, afterSeq: 10 },
     controller.signal,

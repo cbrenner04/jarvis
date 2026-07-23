@@ -735,7 +735,6 @@ describe("runTuiLogFollow", () => {
   test("resume passes afterSeq equal to last appended record seq, avoiding duplicates", async () => {
     const view = createViewHost();
     const initialRecords = [logRecord(1, "iteration_started"), logRecord(2, "boundary_committed")];
-    const duplicate = logRecord(2, "boundary_committed");
     const newRecord = logRecord(3, "loop_finished");
 
     const connectMock = async (_runId: string, options: { socketPath: string; afterSeq?: number }) => {

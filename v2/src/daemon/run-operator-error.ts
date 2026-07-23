@@ -157,10 +157,7 @@ function mapFromLoopFinished(
 }
 
 /** Check if a run's operator error (if any) advertises resumability. */
-export function isResumeAdmitted(
-  run: RunWithAttempts,
-  terminalRecord?: TerminalLogRecord,
-): boolean {
+export function isResumeAdmitted(run: RunWithAttempts, terminalRecord?: TerminalLogRecord): boolean {
   return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
 }
 

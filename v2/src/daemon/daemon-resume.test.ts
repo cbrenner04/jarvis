@@ -9,8 +9,8 @@ import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts"
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { composeRunOperatorError } from "./run-operator-error.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+import { composeRunOperatorError, type TerminalLogRecord } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -360,77 +360,92 @@ test.each([
   { invocationId: "paused", status: "paused" as const, logOutcome: undefined },
   { invocationId: "budget-soft-stopped", status: "budget-soft-stopped" as const, logOutcome: undefined },
   { invocationId: "killed", status: "killed" as const, logOutcome: undefined },
-  { invocationId: "completion-commit-failed", status: "completed" as const, logOutcome: "completion_commit_failed" as const },
+  {
+    invocationId: "completion-commit-failed",
+    status: "completed" as const,
+    logOutcome: "completion_commit_failed" as const,
+  },
   { invocationId: "ready-gate-failed", status: "completed" as const, logOutcome: "ready_gate_failed" as const },
-  { invocationId: "surviving-mutation", status: "failed" as const, logOutcome: "surviving_mutation_failed" as const, withLog: true },
-  { invocationId: "landing-failed", status: "failed" as const, logOutcome: "invocation_failure" as const, withLanding: true },
+  {
+    invocationId: "surviving-mutation",
+    status: "failed" as const,
+    logOutcome: "surviving_mutation_failed" as const,
+    withLog: true,
+  },
+  {
+    invocationId: "landing-failed",
+    status: "failed" as const,
+    logOutcome: "invocation_failure" as const,
+    withLanding: true,
+  },
   { invocationId: "invalid-token", status: "failed" as const, logOutcome: undefined, withInvalidToken: true },
   { invocationId: "missing-blocker", status: "blocked" as const, logOutcome: undefined, withMissingBlocker: true },
-] as const)(
-  "resume admits $invocationId reason (composes nextAction: resume)",
-  async (config) => {
-    const runId = createWorkflowRun({ invocationId: config.invocationId });
-    stateStore.setRunStatus(runId, config.status);
+] as const)("resume admits $invocationId reason (composes nextAction: resume)", async (config) => {
+  const runId = createWorkflowRun({ invocationId: config.invocationId });
+  stateStore.setRunStatus(runId, config.status);
 
-    let logReader: LogReader | undefined;
-    if (config.withLanding) {
-      const attemptId = stateStore.recordAttemptStart(runId);
-      stateStore.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
-      });
-      logReader = loopFinishedLogReader(runId, {
-        loopOutcomeKind: "invocation_failure",
-        iterationsConsumed: 1,
-        resumable: true,
-      });
-    } else if (config.withInvalidToken) {
-      const attemptId = stateStore.recordAttemptStart(runId);
-      stateStore.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invalid_token",
-      });
-    } else if (config.withMissingBlocker) {
-      const attemptId = stateStore.recordAttemptStart(runId);
-      stateStore.commitCompletionBoundary({
-        attemptId,
-        runStatus: "blocked",
-        outcomeKind: "missing_blocker",
-      });
-    } else if (config.logOutcome !== undefined) {
-      const loopEvent: Omit<LoopFinishedEvent, "kind"> = {
-        loopOutcomeKind: config.logOutcome,
-        iterationsConsumed: 1,
-        resumable: true,
-      };
-      if (config.withLog && config.logOutcome === "surviving_mutation_failed") {
-        (loopEvent as any).survivingMutation = "op";
-        (loopEvent as any).survivingMutationSourceFile = "src/test.ts";
-        (loopEvent as any).survivingMutationSourceLine = 1;
-      }
-      logReader = loopFinishedLogReader(runId, loopEvent);
+  let logReader: LogReader | undefined;
+  if (config.withLanding) {
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+    });
+    logReader = loopFinishedLogReader(runId, {
+      loopOutcomeKind: "invocation_failure",
+      iterationsConsumed: 1,
+      resumable: true,
+    });
+  } else if (config.withInvalidToken) {
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invalid_token",
+    });
+  } else if (config.withMissingBlocker) {
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "blocked",
+      outcomeKind: "missing_blocker",
+    });
+  } else if (config.logOutcome !== undefined) {
+    const loopEvent: Omit<LoopFinishedEvent, "kind"> & {
+      survivingMutation?: string;
+      survivingMutationSourceFile?: string;
+      survivingMutationSourceLine?: number;
+    } = {
+      loopOutcomeKind: config.logOutcome,
+      iterationsConsumed: 1,
+      resumable: true,
+    };
+    if (config.withLog && config.logOutcome === "surviving_mutation_failed") {
+      loopEvent.survivingMutation = "op";
+      loopEvent.survivingMutationSourceFile = "src/test.ts";
+      loopEvent.survivingMutationSourceLine = 1;
     }
+    logReader = loopFinishedLogReader(runId, loopEvent as Omit<LoopFinishedEvent, "kind">);
+  }
 
-    const run = stateStore.loadRun(runId);
-    expect(run).toBeDefined();
-    if (run) {
-      // Verify that composeRunOperatorError produces nextAction: "resume"
-      const terminalRecord = logReader
-        ? logReader.tail(runId).find((r) => r.event.kind === "loop_finished" || r.event.kind === "run_execution_failed")
-        : undefined;
-      const error = composeRunOperatorError(run, terminalRecord as any);
-      expect(error?.nextAction).toBe("resume");
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (run) {
+    // Verify that composeRunOperatorError produces nextAction: "resume"
+    const terminalRecord = logReader
+      ? logReader.tail(runId).find((r) => r.event.kind === "loop_finished" || r.event.kind === "run_execution_failed")
+      : undefined;
+    const error = composeRunOperatorError(run, terminalRecord as TerminalLogRecord | undefined);
+    expect(error?.nextAction).toBe("resume");
 
-      // Verify that resume does not refuse terminal_run
-      const localHandlers = createHandlers(logReader);
-      const response = await resumeDirect(localHandlers, runId);
-      expect(response.kind).not.toBe("error");
-      if (response.kind === "error") {
-        expect(response.code).not.toBe("terminal_run");
-      }
+    // Verify that resume does not refuse terminal_run
+    const localHandlers = createHandlers(logReader);
+    const response = await resumeDirect(localHandlers, runId);
+    expect(response.kind).not.toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).not.toBe("terminal_run");
     }
-  },
-);
+  }
+});

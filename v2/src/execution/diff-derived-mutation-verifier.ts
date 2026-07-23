@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
+import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
@@ -21,6 +22,7 @@ export type SurvivingMutationResult = {
     file: string;
     line: number;
   };
+  dualConstraint?: true;
 };
 
 export type VerificationResult = PassResult | SurvivingMutationResult;
@@ -412,6 +414,44 @@ async function verifyPromptRenderCoverage(
   }
 }
 
+function isInsideTimerCallback(content: string, lineNum: number): boolean {
+  const lines = content.split("\n");
+  if (lineNum < 1 || lineNum > lines.length) return false;
+
+  for (let i = lineNum - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line === undefined) continue;
+
+    for (const match of line.matchAll(/\b(?:setTimeout|setInterval)\s*\(/g)) {
+      let parenDepth = 1;
+      let currentLine = i;
+      let currentCol = (match.index ?? 0) + (match[0]?.length ?? 0);
+
+      while (currentLine < lines.length && parenDepth > 0) {
+        const scanLine = lines[currentLine];
+        if (scanLine === undefined) break;
+
+        for (; currentCol < scanLine.length; currentCol++) {
+          const char = scanLine[currentCol];
+          if (char === "(") parenDepth++;
+          else if (char === ")") {
+            parenDepth--;
+            if (parenDepth === 0) {
+              if (currentLine >= lineNum) return true;
+              break;
+            }
+          }
+        }
+
+        currentLine++;
+        currentCol = 0;
+      }
+    }
+  }
+
+  return false;
+}
+
 async function testCandidate(
   candidate: Candidate,
   originalContent: string,
@@ -429,7 +469,7 @@ async function testCandidate(
     try {
       const testsPassed = await runScopedTests(input.worktreePath, scopeTests);
       if (testsPassed) {
-        return {
+        const result: SurvivingMutationResult = {
           kind: "surviving-mutation",
           mutation: candidate.mutation,
           sourceSite: {
@@ -437,6 +477,15 @@ async function testCandidate(
             line: candidate.line,
           },
         };
+
+        if (
+          isInsideTimerCallback(originalContent, candidate.line) &&
+          guarded(candidate.file.replace(/\.ts$/, ".test.ts"))
+        ) {
+          result.dualConstraint = true;
+        }
+
+        return result;
       }
     } finally {
       await writeFile(filePath, originalContent);

@@ -381,4 +381,16 @@ index 1234567..abcdefg 100644
 
     expect(integrationCalls).toBe(0);
   });
+
+  it("appends dual-constraint clause only when both timer callback and guarded root apply", () => {
+    const dual = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3, true);
+    expect(dual.message).toContain("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+    expect(dual.message).toContain("setTimeout/setInterval callback");
+    expect(dual.message).toContain("determinism-guarded");
+    expect(dual.message).toContain("pure exported predicate");
+    expect(dual.message).toContain("both truth directions");
+
+    const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3);
+    expect(single.message).toBe("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+  });
 });

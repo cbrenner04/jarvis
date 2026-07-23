@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Name both constraints in the surviving-mutation error](./00-name-both-constraints.md)
+- [x] [00 - Name both constraints in the surviving-mutation error](./00-name-both-constraints.md)

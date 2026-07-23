@@ -1087,4 +1087,89 @@ index 1234567..abcdefg 100644
       ),
     ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
   });
+
+  describe("dual-constraint detection", () => {
+    async function survivingMutation(diff: string, content: string) {
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async () => content,
+          writeFile: async () => {},
+          runScopedTests: async () => true,
+        },
+      );
+      expect(result.kind).toBe("surviving-mutation");
+      if (result.kind !== "surviving-mutation") throw new Error("expected surviving-mutation");
+      return result;
+    }
+
+    it("detects timer callback enclosure for a surviving mutation inside setTimeout", async () => {
+      const diff = `diff --git a/v2/src/execution/test.ts b/v2/src/execution/test.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/test.ts
++++ b/v2/src/execution/test.ts
+@@ -1,5 +1,5 @@
+ export function test() {
+   setTimeout(() => {
+-    if (!x) return null;
++    if (!x) return "test";
+     return x;
+   }, 100);
+ }`;
+      const content = `export function test() {
+  setTimeout(() => {
+    if (!x) return "test";
+    return x;
+  }, 100);
+}`;
+
+      const result = await survivingMutation(diff, content);
+      expect(result.dualConstraint).toBe(true);
+    });
+
+    it("reports surviving mutation without dual constraint when outside timer callback", async () => {
+      const diff = `diff --git a/v2/src/execution/test.ts b/v2/src/execution/test.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/execution/test.ts
++++ b/v2/src/execution/test.ts
+@@ -1,3 +1,3 @@
+ export function test() {
+-  if (!x) return null;
++  if (!x) return "test";
+   return x;`;
+      const content = `export function test() {
+  if (!x) return "test";
+  return x;
+}`;
+
+      const result = await survivingMutation(diff, content);
+      expect(result.dualConstraint).toBeUndefined();
+    });
+
+    it("reports surviving mutation without dual constraint when in timer callback but outside guarded root", async () => {
+      const diff = `diff --git a/src/test.ts b/src/test.ts
+index 1234567..abcdefg 100644
+--- a/src/test.ts
++++ b/src/test.ts
+@@ -1,5 +1,5 @@
+ export function test() {
+   setTimeout(() => {
+-    if (!x) return null;
++    if (!x) return "test";
+     return x;
+   }, 100);
+ }`;
+      const content = `export function test() {
+  setTimeout(() => {
+    if (!x) return "test";
+    return x;
+  }, 100);
+}`;
+
+      const result = await survivingMutation(diff, content);
+      expect(result.dualConstraint).toBeUndefined();
+    });
+  });
 });

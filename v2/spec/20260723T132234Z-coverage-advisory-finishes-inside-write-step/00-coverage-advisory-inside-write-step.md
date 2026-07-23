@@ -52,6 +52,10 @@ close the store — `RangeError: Cannot use a closed database`, missing later-st
       reporter when inverted; the implement-only scope guard must run advisory on a non-implement
       prompt when inverted; the pre-boundary ordering guard must place advisory store writes after
       `boundary_committed` when inverted.
+- [ ] A test asserts the rendered `write.coverage-advisory` body: it carries the reporter's report
+      text at the `COVERAGE_REPORT` placeholder and states the advisory is deliver-only. Mutating the
+      prompt artifact's content fails it — the mutation verifier flips registry artifacts, and a
+      prompt whose body nothing asserts is uncovered.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

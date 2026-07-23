@@ -30,6 +30,28 @@ the timestamped artifact identity from the retired run's recorded spec path, pre
 the retirement, archive destination, and proven intent prune under `--dry-run`, and
 prints a specific skip reason if the artifact stays at the root after retirement.
 
+## Run list queries and bounded filtering
+
+`jarvis run list` queries durable runs from the state store and reports them as JSON-ish rows.
+
+**Retention for non-filtered queries:** `jarvis run list` (with no filter flags) returns
+all non-terminal runs (e.g., `in-progress`, `paused`, `queued`) plus the 50 newest
+terminal runs (`completed`, `failed`, `blocked`, `killed`). This window is fixed and
+does not change with `--limit` alone; bare `--limit <n>` preserves the retention window
+and does not apply a filtered-query cap.
+
+**Filtering with `--since`:** `jarvis run list --since <duration|timestamp>` filters
+to runs with `created_at >= <timestamp>` and returns at most 200 newest matching rows
+by default. Invalid timestamps are rejected with `invalid_since` before any daemon RPC.
+
+**Explicit `--limit` with filters:** `jarvis run list --since <...> --limit <n>` returns
+at most N newest matching rows. The limit is applied after store filters and before
+per-row assembly.
+
+**Invalid `--limit` handling:** A non-positive integer, non-integer value, or missing value
+exits the CLI with code 1, emitting `invalid_limit`, and does not issue any daemon RPC.
+Duplicate `--since` or `--limit` flags are also rejected with `invalid_limit`.
+
 `jarvis write` runs a resumable write loop: repeatedly calls `executeWrite` until
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.

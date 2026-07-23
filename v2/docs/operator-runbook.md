@@ -242,11 +242,15 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 | Command | Use |
 | --- | --- |
 | `jarvis tui` | Run table, queue, outcome, kill (`k`) on live runs |
-| `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
-| `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
+| `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status`; returns all non-terminal runs plus up to 50 newest terminal runs |
+| `jarvis run list --since <duration\|timestamp>` | Filtered query: rows with `created_at >= <timestamp>`, returns at most 200 newest matching rows; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
+| `jarvis run list --since <...> --limit <n>` | Filtered query with explicit cap; returns at most N newest matching rows |
+| `jarvis run list --limit <n>` | Returns all non-terminal runs plus up to 50 newest terminal runs (does not apply filtered-query default cap) |
 | `jarvis run wait <run-id>` | Block until next boundary |
 | `jarvis run log <run-id>` | Structured run log (not daemon process log) |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
+
+Filtered queries (`--since`) bounded by default cap (200 rows) when `--limit` is omitted; bare `--limit` alone does not apply this cap, preserving the fifty-terminal-run window for non-filtered queries. Invalid `--limit` (non-positive, non-integer, or missing value) exits `1` with `invalid_limit` before any daemon RPC.
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait).
 

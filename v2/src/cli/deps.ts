@@ -4,6 +4,7 @@ import { readProjectRegistry, resolveMachineProfile } from "../config/machine-co
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus, startDaemon, stopDaemon } from "../daemon/daemon-lifecycle.ts";
 import { followDaemonProcessLog, readDaemonProcessLog } from "../daemon/daemon-process-log.ts";
+import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -12,7 +13,7 @@ import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PA
 import { runTuiEntry } from "../tui/tui-entry.tsx";
 import { runTuiLogFollow } from "../tui/tui-log-follow-entry.tsx";
 import type { RunTuiLogFollowDeps } from "../tui/tui-log-follow-types.ts";
-import type { RunTuiEntryDeps } from "../tui/tui-monitor-types.ts";
+import type { RunTuiEntryDeps, SocketDiscovery } from "../tui/tui-monitor-types.ts";
 import { getInvokingExecutableDigest } from "./dispatch-revision.ts";
 
 export type CliDeps = {
@@ -40,6 +41,8 @@ export type CliDeps = {
   now?: () => number;
   /** Sleep for specified milliseconds; defaults to real setTimeout. Injectable for tests. */
   sleep?: (ms: number) => Promise<void>;
+  /** Discover live daemon sockets; defaults to `discoverLiveDaemonSockets`. */
+  socketDiscovery?: SocketDiscovery;
   socketPath: string;
   pidPath: string;
   logPath: string;
@@ -67,6 +70,7 @@ export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
     getExecutableDigest: getInvokingExecutableDigest,
     now: () => Date.now(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    socketDiscovery: discoverLiveDaemonSockets,
     socketPath: DAEMON_SOCKET_PATH,
     pidPath: DAEMON_PID_PATH,
     logPath: DAEMON_LOG_PATH,

@@ -37,16 +37,16 @@
 
 ## Acceptance criteria
 
-- [ ] With two live keyed daemons under one home and a run live on the non-invoking one, `run list` includes that run; a test in `v2/src/commands/run.test.ts` fails against the current single-socket path.
-- [ ] `run list` reports no duplicate run IDs when several daemons return the same durable row, and the rendered row is the one whose daemon reports it `isLive`.
-- [ ] A socket present but unreachable is skipped and the remaining daemons' rows are still listed.
-- [ ] When only the invoking digest's daemon is live, `run list` output is byte-identical to today.
-- [ ] `run.test.ts` `read-only run list reports the missing daemon instead of starting one` stays green.
-- [ ] Inverting each added guard (the liveness skip, the dedupe ownership rule) fails a test.
-- [ ] With **every** socket failing and two distinct errors, `run list` exits non-zero reporting the
+- [x] With two live keyed daemons under one home and a run live on the non-invoking one, `run list` includes that run; a test in `v2/src/commands/run.test.ts` fails against the current single-socket path.
+- [x] `run list` reports no duplicate run IDs when several daemons return the same durable row, and the rendered row is the one whose daemon reports it `isLive`.
+- [x] A socket present but unreachable is skipped and the remaining daemons' rows are still listed.
+- [x] When only the invoking digest's daemon is live, `run list` output is byte-identical to today.
+- [x] `run.test.ts` `read-only run list reports the missing daemon instead of starting one` stays green.
+- [x] Inverting each added guard (the liveness skip, the dedupe ownership rule) fails a test.
+- [x] With **every** socket failing and two distinct errors, `run list` exits non-zero reporting the
       **first** error, not a later one; inverting the first-error-wins guard (`if (!firstError)`)
       fails that test. A single-failing-socket test does not distinguish the two directions.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

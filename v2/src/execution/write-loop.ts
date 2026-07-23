@@ -17,7 +17,6 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
-import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import {
   createReadyFinalizer,
   type ReadyFinalizer,
@@ -31,6 +30,7 @@ import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts"
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
+import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -374,12 +374,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             runBase: args.worktree.baseRef,
           });
           if (coverageReport.reportText.trim()) {
-            const advisoryOutcome = await runCoverageAdvisoryIteration(
-              args,
-              store,
-              runId,
-              coverageReport.reportText,
-            );
+            const advisoryOutcome = await runCoverageAdvisoryIteration(args, store, runId, coverageReport.reportText);
             // Log advisory outcome but don't change the terminal outcome
             args.logSink?.append(runId, {
               kind: "coverage_advisory",

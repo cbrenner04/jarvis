@@ -2552,7 +2552,8 @@ describe("write loop", () => {
           { file: "src/example.ts", line: 42 },
           { file: "src/another.ts", line: 10 },
         ],
-        reportText: "Uncovered changed lines (execution count is zero):\nsrc/example.ts:42\nsrc/another.ts:10\n\nNote: A line executed by tests may still lack sufficient assertions.",
+        reportText:
+          "Uncovered changed lines (execution count is zero):\nsrc/example.ts:42\nsrc/another.ts:10\n\nNote: A line executed by tests may still lack sufficient assertions.",
       }),
     };
 

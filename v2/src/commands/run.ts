@@ -122,7 +122,7 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   let firstError: unknown;
 
   for (const socketPath of sortedSockets) {
-    let client;
+    let client: Awaited<ReturnType<typeof deps.connectIpcClient>> | undefined;
     try {
       client = await deps.connectIpcClient(socketPath);
     } catch (error) {
@@ -132,7 +132,10 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 
     try {
       const transport = createRpcTransport(client);
-      const result = await transport.request("list", parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs });
+      const result = await transport.request(
+        "list",
+        parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs },
+      );
       const list = parseListRuns(result);
       if (list !== undefined) {
         listResults.push(list.runs);

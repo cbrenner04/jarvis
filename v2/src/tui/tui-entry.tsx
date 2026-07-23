@@ -105,7 +105,9 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     syncMonitor();
   };
 
-  const mergeRunListsAndUpdateOwners = (listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>): DaemonListRunRow[] => {
+  const mergeRunListsAndUpdateOwners = (
+    listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]>,
+  ): DaemonListRunRow[] => {
     const lists = listResults.map(([, result]) => result?.runs ?? []);
     const merged = mergeRunLists(lists);
     const newOwners = new Map<string, TuiDaemonClient>();

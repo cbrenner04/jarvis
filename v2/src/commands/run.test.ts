@@ -917,7 +917,10 @@ describe("multi-daemon run list", () => {
 
     expect(code).toBe(0);
     const output = cap.read().stdout;
-    const rows = output.trimEnd().split("\n").filter((r) => r !== "");
+    const rows = output
+      .trimEnd()
+      .split("\n")
+      .filter((r) => r !== "");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain("a-run");
     expect(rows[1]).toContain("z-run");

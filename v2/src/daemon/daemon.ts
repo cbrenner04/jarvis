@@ -357,8 +357,7 @@ function isPublicationRetryEligible(loopOutcomeKind: string | undefined): boolea
 function hasLandingFailure(attempts: Attempt[] | undefined): boolean {
   const lastAttempt = attempts?.at(-1);
   return (
-    lastAttempt?.outcomeKind === "invocation_failure" &&
-    lastAttempt.invocationFailureDetail?.failureKind === "landing"
+    lastAttempt?.outcomeKind === "invocation_failure" && lastAttempt.invocationFailureDetail?.failureKind === "landing"
   );
 }
 

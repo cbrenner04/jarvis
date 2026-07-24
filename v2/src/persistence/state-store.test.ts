@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeOrchestrationStore } from "./state-store-on-disk";
 import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
+import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
 

@@ -1,18 +1,11 @@
+import { describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-import {
-  copyOrchestrationStore,
-  orchestrationStorePaths,
-  removeOrchestrationStore,
-} from "./state-store-on-disk";
 import { openStateStore } from "./state-store";
+import { copyOrchestrationStore, orchestrationStorePaths, removeOrchestrationStore } from "./state-store-on-disk";
 
-function withTempPaths(
-  name: string,
-  run: (srcPath: string, destPath: string) => void,
-): void {
+function withTempPaths(name: string, run: (srcPath: string, destPath: string) => void): void {
   const stamp = `${name}-${Date.now()}`;
   const srcPath = join(tmpdir(), `jarvis-on-disk-src-${stamp}.sqlite`);
   const destPath = join(tmpdir(), `jarvis-on-disk-dest-${stamp}.sqlite`);

@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { removeOrchestrationStore } from "./state-store-on-disk";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS } from "./state-store";
+import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const tmpdir = () => process.env.TMPDIR || "/tmp";
 

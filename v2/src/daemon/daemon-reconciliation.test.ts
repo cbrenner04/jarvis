@@ -2,7 +2,6 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
@@ -11,6 +10,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemonRuntime } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);

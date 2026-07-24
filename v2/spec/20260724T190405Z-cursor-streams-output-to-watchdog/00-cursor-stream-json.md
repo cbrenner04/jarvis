@@ -43,24 +43,24 @@ reader). Cursor never got that fix.
 
 ## Acceptance criteria
 
-- [ ] Cursor argv contains `--output-format stream-json` and `--stream-partial-output` and does not
+- [x] Cursor argv contains `--output-format stream-json` and `--stream-partial-output` and does not
       contain `text`; a test in `shared/invocation/agents.test.ts` asserts it and fails against
       pre-fix code.
-- [ ] A cursor invocation emitting stream frames at intervals shorter than `idleOutputMs`, with no
+- [x] A cursor invocation emitting stream frames at intervals shorter than `idleOutputMs`, with no
       final text until exit, settles `ok` rather than `stall`; the test fails against pre-fix code
       only if frames are ignored for idle purposes.
-- [ ] A cursor `ok` result surfaces the terminal `result` event's text as `stdout` (not raw NDJSON);
+- [x] A cursor `ok` result surfaces the terminal `result` event's text as `stdout` (not raw NDJSON);
       a new test asserts it and fails against pre-fix code.
-- [ ] Unparseable or result-event-less cursor stdout surfaces verbatim rather than empty.
-- [ ] Existing cursor quota-classification tests in `shared/invocation/agents.test.ts` stay green
+- [x] Unparseable or result-event-less cursor stdout surfaces verbatim rather than empty.
+- [x] Existing cursor quota-classification tests in `shared/invocation/agents.test.ts` stay green
       (zero-exit and non-zero-exit paths), and a quota phrase arriving inside a stream-json frame
       still classifies `quota`.
-- [ ] An output-silent cursor invocation past `idleOutputMs` still settles `{ kind: "stall" }`
+- [x] An output-silent cursor invocation past `idleOutputMs` still settles `{ kind: "stall" }`
       (`shared/invocation/agents.test.ts` idle-expiry test stays green).
-- [ ] Inverting each added or modified guard in the reader and the classification path fails at least
+- [x] Inverting each added or modified guard in the reader and the classification path fails at least
       one test; for the guard that suppresses reader normalization on non-`ok` results, the negative
       case proves a non-`ok` cursor result is passed through unnormalized.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

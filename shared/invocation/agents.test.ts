@@ -606,7 +606,8 @@ describe("createResolvedAgentBinding", () => {
       "agent",
       "-p",
       "--output-format",
-      "text",
+      "stream-json",
+      "--stream-partial-output",
       "--model",
       "composer-2.5-fast",
       "--force",
@@ -743,6 +744,147 @@ describe("createResolvedAgentBinding", () => {
     expect(rows[0]?.agent).toBe("cursor");
     expect(rows[0]?.model).toBe("GPT-5.4");
     expect(rows[0]?.binding_id).toBe("cursor/GPT-5.4/priced-cursor");
+  });
+
+  test("cursor binding unwraps stream-json result event text as stdout", async () => {
+    const streamJson = JSON.stringify({ type: "result", result: "implementation complete\n" });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: streamJson, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: "implementation complete", stderr: "" });
+  });
+
+  test("cursor binding concatenates text-delta frames when no terminal result event", async () => {
+    const frames = [
+      JSON.stringify({ type: "text_delta", text: "part " }),
+      JSON.stringify({ type: "text_delta", text: "one\n" }),
+    ].join("\n");
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frames, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: "part one", stderr: "" });
+  });
+
+  test("cursor binding falls back to verbatim stdout when unparseable", async () => {
+    const unparseable = "not json at all\nand more text\n";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: unparseable, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "ok", stdout: unparseable, stderr: "" });
+  });
+
+  // The idle watchdog itself is agent-agnostic — it arms off generic stdout data — so this
+  // is a threading guard, not a regression guard for the stream-json flag: it proves the
+  // cursor wrapper still hands `idleOutputMs`/`setTimeout`/`clearTimeout` to `runAgent`,
+  // and that a stdout chunk re-arms the timer so the superseded expiry is inert.
+  test("cursor binding threads idleOutputMs through and re-arms the idle timer on stdout", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const armedDelays: (number | undefined)[] = [];
+    const expiries: (() => void)[] = [];
+    const cleared = new Set<() => void>();
+    const binding = createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: () => void, delayMs?: number) => {
+          armedDelays.push(delayMs);
+          // Honour cancellation the way a real timer does, so firing a superseded
+          // expiry only does something if production code failed to clear it.
+          const wrapped = () => {
+            if (!cleared.has(wrapped)) callback();
+          };
+          expiries.push(wrapped);
+          return wrapped as unknown as ReturnType<typeof setTimeout>;
+        }) as unknown as typeof setTimeout,
+        clearTimeout: ((timer) => {
+          cleared.add(timer as unknown as () => void);
+        }) as typeof clearTimeout,
+      },
+    );
+
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+
+    // Armed once at spawn, with the caller's budget — the wrapper threads it through.
+    expect(armedDelays).toEqual([100]);
+
+    fake.calls[0]?.child?.stdout.write(JSON.stringify({ type: "text_delta", text: "chunk" }));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The stdout chunk cleared the first timer and armed a fresh one for the same budget.
+    expect(armedDelays).toEqual([100, 100]);
+    expect(cleared.has(expiries[0] as () => void)).toBe(true);
+
+    // Firing the superseded expiry must not kill the child or settle the invocation.
+    expiries[0]?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
+
+    // The live timer still stalls when its budget really does elapse.
+    expiries[1]?.();
+    await expect(promise).resolves.toMatchObject({ kind: "stall" });
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("cursor binding classifies quota phrases in stream-json frames", async () => {
+    const frameWithQuota = JSON.stringify({ type: "text_delta", text: "you've hit your usage limit" });
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" },
+    ]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result.kind).toBe("quota");
+  });
+
+  test("cursor binding passes non-ok results through unnormalized", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({ kind: "error", exitCode: 1, stderr: "boom" });
+  });
+
+  test("cursor binding still stalls on output-silent invocation past idleOutputMs", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    let expiry: (() => void) | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          expiry = callback;
+          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: (() => {}) as typeof clearTimeout,
+      },
+    );
+
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+    expiry?.();
+
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
   test("cursor quota advances fallback but model config and generic error stop", async () => {

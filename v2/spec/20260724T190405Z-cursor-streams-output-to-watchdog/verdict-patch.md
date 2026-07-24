@@ -1,0 +1,20 @@
+## Verdict — changes required
+
+**1. Empty-but-present result text must not leak the raw NDJSON transcript.**
+The reader falls back to verbatim stdout whenever the rendered text is empty, so a cursor run whose terminal `result` event carries `""` (or whitespace) hands the entire NDJSON transcript downstream as the actuator's output. That contradicts the spec's stated precedence — verbatim stdout is the fallback only when there is *no* result event and *no* text frames, not when the model legitimately said nothing. Downstream consumers scan this text for control tokens (`CONTINUE`/`COMPLETE`) and forward it as the next role's input, so a transcript-shaped payload is a live correctness hazard.
+Outcome: fallback selection must be driven by whether a result event or frames were *found*, not by whether the rendered string is non-empty. Add a test with a multi-frame transcript plus an empty terminal `result` asserting the output is empty, not the transcript.
+
+**2. `coverage/lcov.info` must not be in the commit.**
+3013 lines of build artifact, unrelated to the spec, and `coverage/` is not gitignored. Remove it from the branch and add `coverage/` to `.gitignore`.
+
+**3. The operator-runbook paragraph must be factually accurate and must not overclaim.**
+Three problems: it attributes the observed stall to v1, but the spec explicitly leaves `v1/src/agents/cursor.ts` untouched — the stall was the v2 review actuator going through the shared invocation path. It sits directly after a paragraph stating v2 has no idle-output watchdog, with no qualifier that v2's watchdog covers review-role invocations while the write loop rides a wall-clock iteration timeout. And "cursor is now safe as an actuator" asserts more than this change demonstrates (see #4).
+Outcome: correct the attribution to the shared/v2 invocation path, state the scope of v2's idle watchdog explicitly so the two paragraphs are not contradictory, and replace the safety claim with what was actually changed.
+
+**4. The idle-timer test must not be presented as a regression guard for the flag change.**
+The idle timer arms off generic `stdout` data and is agent-agnostic; with an injected spawn fake the test passes identically against pre-fix code. It is a useful guard that the new cursor wrapper still threads `idleOutputMs`/`setTimeout` through, but that is what it should be named and asserted as (its current assertions are weak: the first expiry callback is a no-op after re-arm). Acceptance criterion #2's "fails against pre-fix code" claim is not satisfiable at this seam — reconcile the criterion text with what the test actually proves rather than leaving an overstated tick.
+
+**5. Record the unverified premise about frame vocabulary and timing.**
+Every frame-path test constructs frames from a guessed shape (top-level `text`/`delta` on `text_delta`/`assistant`), and nothing on this branch establishes that cursor emits frames during a *silent edit/tool-call* phase — which is the exact 90s window that stalled. If frames only accompany assistant prose, the fix is inert against the reported failure. Preferred outcome: capture one real `cursor agent -p --output-format stream-json --stream-partial-output` transcript from a trivial edit task, pin it as a test fixture, and confirm both the frame shape and mid-edit emission. If that run is not possible in this environment, say so explicitly in the subspec and in the docs note rather than implying the behavior is confirmed.
+
+**Not blocking, note only:** stream-json widens cursor's stdout, and the zero-exit quota classifier phrase-matches on raw stdout with patterns generic enough to false-positive on transcript content. Claude's zero-exit path deliberately uses a structured envelope check instead, for this reason. Consequence of a false positive is fallback advancement, not lost work — leave the behavior as is, but note the divergence so it can be tightened separately.

@@ -5,6 +5,7 @@ import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
+import { parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
 
 export type ResolvedAgentBinding = {
@@ -87,36 +88,16 @@ export function createResolvedAgentBinding(
       id,
       metadata,
       invoke: ({ prompt, cwd, signal, idleOutputMs }) =>
-        runAgent(
-          {
-            name: "cursor",
-            binary: "cursor",
-            cwd,
-            buildArgv: (promptText) => [
-              "agent",
-              "-p",
-              "--output-format",
-              "text",
-              "--model",
-              resolveCursorCliModel(adapterModel),
-              "--force",
-              "--workspace",
-              cwd,
-              promptText,
-            ],
-            stdio: ["ignore", "pipe", "pipe"],
-            streamErrorPrefix: "cursor:",
-            classifier: "cursor",
-            ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
-          },
+        runCursorBinding({
           prompt,
-          {
-            ...(signal !== undefined ? { signal } : {}),
-            ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-            ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
-            ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
-          },
-        ),
+          cwd,
+          adapterModel,
+          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        }),
     };
   }
 
@@ -454,6 +435,19 @@ function finalizeClaudeInvocationResult(result: InvocationResult): InvocationRes
   return output;
 }
 
+function finalizeCursorInvocationResult(result: InvocationResult): InvocationResult {
+  if (result.kind !== "ok") {
+    return result;
+  }
+
+  const parsed = parseCursorJsonOutput(result.stdout);
+  return {
+    kind: "ok",
+    stdout: parsed.displayText,
+    stderr: result.stderr,
+  };
+}
+
 async function runClaudeBinding(args: {
   prompt: string;
   cwd: string;
@@ -569,6 +563,50 @@ async function runCodexBinding(args: {
     };
   }
   return result;
+}
+
+async function runCursorBinding(args: {
+  prompt: string;
+  cwd: string;
+  adapterModel: string;
+  signal?: AbortSignal;
+  idleOutputMs?: number;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  spawn?: SpawnFn;
+}): Promise<InvocationResult> {
+  const result = await runAgent(
+    {
+      name: "cursor",
+      binary: "cursor",
+      cwd: args.cwd,
+      buildArgv: (promptText) => [
+        "agent",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--stream-partial-output",
+        "--model",
+        resolveCursorCliModel(args.adapterModel),
+        "--force",
+        "--workspace",
+        args.cwd,
+        promptText,
+      ],
+      stdio: ["ignore", "pipe", "pipe"],
+      streamErrorPrefix: "cursor:",
+      classifier: "cursor",
+      ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
+    },
+    args.prompt,
+    {
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
+      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
+    },
+  );
+  return finalizeCursorInvocationResult(result);
 }
 
 // Patterns below are ported from v1's quota.ts.

@@ -4,8 +4,8 @@
       "plan": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-4-8",
-            "priceKey": "claude-opus-4-8"
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           }
         ]
       },
@@ -28,8 +28,8 @@
       "adversary": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-4-8",
-            "priceKey": "claude-opus-4-8"
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           }
         ]
       },
@@ -39,24 +39,24 @@
       "advocate": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-4-8",
-            "priceKey": "claude-opus-4-8"
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           }
         ]
       },
       "adjudicator": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-4-8",
-            "priceKey": "claude-opus-4-8"
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           }
         ]
       },
       "actuator": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-4-8",
-            "priceKey": "claude-opus-4-8"
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           },
           {
             "adapterModel": "claude-sonnet-5",

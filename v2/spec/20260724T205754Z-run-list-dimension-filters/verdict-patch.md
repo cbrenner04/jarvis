@@ -1,0 +1,12 @@
+Verifying spec decisions and `daemon-host.md` alignment before issuing the verdict.
+## Verdict — required outcomes
+
+1. **Repeated `--status` must not be accepted via last-wins.** The subspec disallows repeat `--status` flags. Today `parseListArgv` overwrites prior values and exits `0`. A second (or later) `--status` on one invocation must exit `1` with a named error **before any `list` RPC**, consistent with other `invalid_*` list-flag failures. (Repeats of `--since` / `--limit` / other dimension flags are not spec-mandated unless you choose a single consistent rule; **`--status` repeat is mandatory.**)
+
+2. **CLI tests for empty `--project`, `--branch`, and `--spec`.** Decisions require exit `1` with `invalid_project`, `invalid_branch`, and `invalid_spec` respectively, with no `list` RPC, mirroring the existing `invalid_status` test. Automation currently only guards `invalid_status`; the other three decision-backed codes need equivalent coverage.
+
+3. **`v2/docs/daemon-host.md` must match the shipped `list` contract.** The `list` params row still documents only `sinceMs` and `limit`; filtered-path sections still say “today `sinceMs`” only. Update the IPC table and filtered-list prose so they describe `project`, `branch`, `specPath`, and `status` (conjunctive with `sinceMs` / `limit`, durable-column matching before assembly, dimension-only filtered path, default cap). `v1-behaviors.md` already cites this file for filtered `run list`; leaving it stale contradicts the three updated operator docs and the documentation standard for cross-file RPC contracts. While editing terminal-status lists in that area, include `interrupted` where retention/filter prose enumerates terminal statuses (pre-existing drift, same edit).
+
+**Rationale:** Acceptance criteria are largely met; the gaps above are spec **Decisions** and durable-doc consistency, not optional hardening. Core filtering, retention bypass, `invalid_status`, guard-inversion tests, and the three subspec-listed doc files are sufficient to ship once these outcomes are satisfied.
+
+**No action required** on: daemon-side RPC re-validation of `status`, guard-inversion test hooks, `intent.md` checkboxes, multi-daemon E2E log tests, invocation-sibling behavior on the filtered path (inherited from `--since`), or optional runbook/`write-behavior` polish unless you fold them into the `daemon-host.md` pass.

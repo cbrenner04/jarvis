@@ -8,6 +8,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { TERMINAL_RUN_STATUSES, type RunStatus } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -61,63 +62,98 @@ function parseLimitArgvValue(value: string): number | undefined {
   return parsed;
 }
 
-function listFlagMissingValueMessage(flag: "--since" | "--limit"): string {
-  return flag === "--since" ? "invalid_since: invalid value\n" : "invalid_limit: invalid value\n";
+const LIST_ARGV_FLAGS = [
+  "--since",
+  "--limit",
+  "--project",
+  "--branch",
+  "--spec",
+  "--status",
+] as const;
+type ListArgvFlag = (typeof LIST_ARGV_FLAGS)[number];
+
+const LIST_FLAG_MISSING_VALUE: Record<ListArgvFlag, string> = {
+  "--since": "invalid_since: invalid value\n",
+  "--limit": "invalid_limit: invalid value\n",
+  "--project": "invalid_project: invalid value\n",
+  "--branch": "invalid_branch: invalid value\n",
+  "--spec": "invalid_spec: invalid value\n",
+  "--status": "invalid_status: invalid value\n",
+};
+
+const STRING_LIST_FLAG_TO_PARAM: Record<"--project" | "--branch" | "--spec", keyof ListRpcParams> = {
+  "--project": "project",
+  "--branch": "branch",
+  "--spec": "specPath",
+};
+
+let invertInvalidStatusGuardForTest = false;
+
+export function setInvertInvalidStatusGuardForTest(value: boolean): void {
+  invertInvalidStatusGuardForTest = value;
 }
 
-function parseOneListArgvFlag(
-  flag: "--since" | "--limit",
-  value: string,
-  deps: CliDeps,
-): { ok: true; sinceMs?: number; limit?: number } | { ok: false; stderr: string } {
+type ParseListArgvPiece =
+  | { ok: true; fields: Partial<ListRpcParams> }
+  | { ok: false; stderr: string };
+
+function parseOneListArgvFlag(flag: ListArgvFlag, value: string, deps: CliDeps): ParseListArgvPiece {
   if (flag === "--since") {
     const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-    if (cutoff === undefined) {
-      return { ok: false, stderr: "invalid_since: invalid value\n" };
-    }
-    return { ok: true, sinceMs: cutoff };
+    if (cutoff === undefined) return { ok: false, stderr: "invalid_since: invalid value\n" };
+    return { ok: true, fields: { sinceMs: cutoff } };
   }
-  const parsedLimit = parseLimitArgvValue(value);
-  if (parsedLimit === undefined) {
-    return { ok: false, stderr: "invalid_limit: invalid value\n" };
+  if (flag === "--limit") {
+    const parsedLimit = parseLimitArgvValue(value);
+    if (parsedLimit === undefined) return { ok: false, stderr: "invalid_limit: invalid value\n" };
+    return { ok: true, fields: { limit: parsedLimit } };
   }
-  return { ok: true, limit: parsedLimit };
+  if (flag === "--project" || flag === "--branch" || flag === "--spec") {
+    if (value.length === 0) return { ok: false, stderr: LIST_FLAG_MISSING_VALUE[flag] };
+    const param = STRING_LIST_FLAG_TO_PARAM[flag];
+    return { ok: true, fields: { [param]: value } };
+  }
+  if (value.length === 0) return { ok: false, stderr: LIST_FLAG_MISSING_VALUE["--status"] };
+  if (invertInvalidStatusGuardForTest) return { ok: true, fields: { status: value as RunStatus } };
+  if (!TERMINAL_RUN_STATUSES.has(value as RunStatus)) {
+    return { ok: false, stderr: "invalid_status: invalid value\n" };
+  }
+  return { ok: true, fields: { status: value as RunStatus } };
 }
 
 function parseListArgv(
   rest: readonly string[],
   io: Io,
   deps: CliDeps,
-): { ok: true; sinceMs?: number; limit?: number } | { ok: false } {
-  let sinceMs: number | undefined;
-  let limit: number | undefined;
+): { ok: true; fields: ListRpcParams } | { ok: false } {
+  const fields: ListRpcParams = {};
+  const knownFlags = new Set<string>(LIST_ARGV_FLAGS);
 
   for (let index = 0; index < rest.length; ) {
     const flag = rest[index];
-    if (flag !== "--since" && flag !== "--limit") {
+    if (typeof flag !== "string" || !knownFlags.has(flag)) {
       io.stderr(RUN_LIST_USAGE);
       return { ok: false };
     }
     const value = rest[index + 1];
     if (value === undefined || value.startsWith("-")) {
-      io.stderr(listFlagMissingValueMessage(flag));
+      io.stderr(LIST_FLAG_MISSING_VALUE[flag as ListArgvFlag]);
       return { ok: false };
     }
-    const piece = parseOneListArgvFlag(flag, value, deps);
+    if (flag === "--status" && fields.status !== undefined) {
+      io.stderr("invalid_status: invalid value\n");
+      return { ok: false };
+    }
+    const piece = parseOneListArgvFlag(flag as ListArgvFlag, value, deps);
     if (!piece.ok) {
       io.stderr(piece.stderr);
       return { ok: false };
     }
-    if (piece.sinceMs !== undefined) sinceMs = piece.sinceMs;
-    if (piece.limit !== undefined) limit = piece.limit;
+    Object.assign(fields, piece.fields);
     index += 2;
   }
 
-  return {
-    ok: true,
-    ...(sinceMs !== undefined ? { sinceMs } : {}),
-    ...(limit !== undefined ? { limit } : {}),
-  };
+  return { ok: true, fields };
 }
 
 /** When true, `run log` / `run wait` skip cross-daemon owner resolution (guard-inversion tests). */
@@ -213,7 +249,7 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   const parsed = parseListArgv(rest, io, deps);
   if (!parsed.ok) return 1;
 
-  const listParams = resolveListRpcRequest(parsed);
+  const listParams = resolveListRpcRequest(parsed.fields);
   const { listResults, firstError } = await queryDaemonListsFromSockets(deps, listParams);
 
   if (listResults.every(([_, result]) => result === undefined)) {

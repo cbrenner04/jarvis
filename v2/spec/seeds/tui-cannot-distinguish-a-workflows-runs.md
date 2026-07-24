@@ -53,3 +53,6 @@ Observed 2026-07-20 on `20260721T005518Z-cleanup-stranded-owner-by-branch`.
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` § Observe — reading a multi-run workflow in the TUI.
+
+> Note: the role-label defect (1) is folded into spec `20260724T230804Z-tui-limits-terminal-rows-to-one-hour`
+> subspec 01. Defects (2) terminal `pending` step snapshot and (3) `attempts=0` remain open here.

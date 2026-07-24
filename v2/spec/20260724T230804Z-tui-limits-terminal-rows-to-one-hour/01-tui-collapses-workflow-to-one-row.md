@@ -7,8 +7,11 @@ one-hour terminal window filter on the same monitor seam.
 ## Prerequisites
 
 - Subspec [00 - TUI one-hour terminal window](./00-tui-one-hour-terminal-window.md) complete.
-- `tui-cannot-distinguish-a-workflows-runs` merged: expanded rows show workflow role labels,
-  terminal step snapshot matches outcome, and attempt counts reflect invocations.
+
+Role labels on expanded rows are delivered **by this subspec**, not inherited — the parent seed folds
+that part of `tui-cannot-distinguish-a-workflows-runs` in here. The seed's two other defects (a
+terminal run rendering a `pending` step snapshot, and `attempts=0` on rows that invoked an agent)
+stay open in `v2/spec/seeds/tui-cannot-distinguish-a-workflows-runs.md` and are out of scope here.
 
 ## Decisions
 

@@ -307,9 +307,14 @@ output for a configured idle budget (default 90_000 ms, v1 parity), settles
 `invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
 Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output;
 unlike `iteration_timeout` (write-loop timeout), it applies only to review-step
-role invocations. `role_timeout` is retryable/retry_later; `role_stalled` is non-retryable/stop.
+role invocations. `role_timeout` and post-commit `role_stalled` are both retryable/retry_later;
+recovery is re-dispatching the same workflow (see [Gate trust](#gate-trust)).
 
 ## Gate trust
+
+Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
+adjudicated verdict on disk; recovery is the same re-dispatch path as `role_timeout`, not
+`jarvis run resume`.
 
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2

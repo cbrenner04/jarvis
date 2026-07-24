@@ -6,4 +6,4 @@ A quiet review actuator after a committed implement write step currently settles
 non-resumable and non-retryable, stranding the completion commit and adjudicated verdict. Align post-commit
 `failureKind: "stall"` with the existing post-commit timeout recovery path.
 
-- [ ] [00 - Settle a stalled review step as retryable, preserving the commit and verdict](./00-stalled-review-settles-retryable.md)
+- [x] [00 - Settle a stalled review step as retryable, preserving the commit and verdict](./00-stalled-review-settles-retryable.md)

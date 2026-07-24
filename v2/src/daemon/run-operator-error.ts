@@ -75,7 +75,7 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   landing: op("landing_failed", "resume", true),
   error: op("invocation_error", "stop"),
   timeout: op("role_timeout", "retry_later", true),
-  stall: op("role_stalled", "stop"),
+  stall: op("role_stalled", "retry_later", true),
 };
 
 /** Chronologically last terminal event; `list` and `wait` share this selection. */

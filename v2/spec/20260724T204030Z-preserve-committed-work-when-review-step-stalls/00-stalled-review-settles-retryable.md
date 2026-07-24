@@ -27,22 +27,22 @@ the completion commit and adjudicated verdict remain on disk — the same failur
 
 ## Acceptance criteria
 
-- [ ] A new `workflow-runner.test.ts` case drives an actuator role stall after a committed implement write
+- [x] A new `workflow-runner.test.ts` case drives an actuator role stall after a committed implement write
       step against a real git fixture and asserts the completion commit is still `HEAD` and the adjudicated
       verdict file still holds its content; it fails against the pre-fix code.
-- [ ] A stalled review step reports `resumable: true`, and `run list` / `run wait` report
+- [x] A stalled review step reports `resumable: true`, and `run list` / `run wait` report
       `error.reason: "role_stalled"` with `retryable: true` and `nextAction: "retry_later"`.
-- [ ] Re-dispatching the same workflow after a stalled review reuses the completed write step's checkpoint
+- [x] Re-dispatching the same workflow after a stalled review reuses the completed write step's checkpoint
       and re-invokes no write-step agent.
-- [ ] A guard on the shared post-commit review retryability settle path asserts `timeout` and `stall` both
+- [x] A guard on the shared post-commit review retryability settle path asserts `timeout` and `stall` both
       yield `resumable: true` and operator errors with `retryable: true` and `nextAction: "retry_later"`;
       inverting the guard fails.
-- [ ] A review-role `invocation_failure` with `failureKind: "error"` still settles `invocation_error`,
+- [x] A review-role `invocation_failure` with `failureKind: "error"` still settles `invocation_error`,
       `retryable: false`, `nextAction: "stop"`, `resumable: false` (`run-operator-error.test.ts`
       failure-kind table).
-- [ ] `review-cycle.test.ts`, `review-debate.test.ts`, and existing `workflow-runner.test.ts` review cases
+- [x] `review-cycle.test.ts`, `review-debate.test.ts`, and existing `workflow-runner.test.ts` review cases
       stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

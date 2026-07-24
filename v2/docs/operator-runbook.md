@@ -588,6 +588,31 @@ partly on v1's idle watchdog infrastructure; v2 lacks that layer. Operator disci
 and CI guardrails replace it. Consider a future idle-output watchdog for v2 if
 claude primary stalls become a concern.
 
+**Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Scope note for
+the paragraph above: v2 has an idle-output watchdog on *review-role* invocations only
+(`v2/src/execution/review-role-invocation.ts` passes `idleOutputMs` into
+`shared/invocation/`); the write loop still rides wall-clock `iterationTimeoutMs`. Under
+`--output-format text` cursor emitted nothing until its final response, so a
+silently-editing review role produced zero stdout and settled `stall` at exactly the idle
+budget — observed 2026-07-24 at `dur=90003`, twice, with edits already on disk. This was
+the shared/v2 invocation path, not v1; `v1/src/agents/cursor.ts` is unchanged and still
+uses `text` mode.
+
+What changed: `shared/invocation/agents.ts` now spawns cursor with `--output-format
+stream-json --stream-partial-output`, and `shared/invocation/cursor-json.ts` renders the
+terminal `result` event (or concatenated text frames) back into result text. Any stdout
+chunk re-arms the idle timer, so a cursor run that emits frames mid-invocation no longer
+trips the watchdog.
+
+**Unverified premise — do not treat this as a confirmed fix.** No real cursor stream-json
+transcript was captured on this branch (the sandbox denies cursor's `~/.cursor` state dir).
+The frame shapes the reader accepts (`text_delta`/`assistant` with `text` or `delta`) are
+inferred, and it is *not* established that cursor emits frames during a silent
+edit/tool-call phase — the exact window that stalled. If frames only accompany assistant
+prose, this change is inert against the reported failure. Confirm by capturing one
+`cursor agent -p --output-format stream-json --stream-partial-output` transcript from a
+trivial edit task and pinning it as a fixture.
+
 ### v2 takes its agent order from a different config key than v1
 
 **v1** reads `modes.<mode>.agentOrder` (ordered `{agent, model}` objects, per mode). **v2** reads

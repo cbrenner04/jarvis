@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Spawn cursor with stream-json and parse its envelope](./00-cursor-stream-json.md)
+- [x] [00 - Spawn cursor with stream-json and parse its envelope](./00-cursor-stream-json.md)

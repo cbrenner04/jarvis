@@ -8,8 +8,8 @@ import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } fro
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
-import { renderAttribution } from "./pr-attribution.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
+import { renderAttribution } from "./pr-attribution.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
@@ -3190,9 +3190,7 @@ describe("write loop", () => {
 
       try {
         const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
-        const result = await executeWriteLoop(
-          iterLoopInput(jarvisRoot, branchName, store, { signal: abort.signal }),
-        );
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { signal: abort.signal }));
 
         expect(result).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 1 });
         expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 1);

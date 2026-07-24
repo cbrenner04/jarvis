@@ -192,10 +192,7 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
     err("ready_gate_failed", "resume", true),
   );
   expect(
-    composeRunOperatorError(
-      runWith("failed"),
-      loopFinished("iteration_commit_failed", { resumable: true }),
-    ),
+    composeRunOperatorError(runWith("failed"), loopFinished("iteration_commit_failed", { resumable: true })),
   ).toEqual(err("iteration_commit_failed", "resume", true));
   expect(
     composeRunOperatorError(

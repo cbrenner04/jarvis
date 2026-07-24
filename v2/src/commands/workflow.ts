@@ -51,10 +51,11 @@ function buildWorkflowBuilderInput(
   deps: CliDeps,
 ): { ok: true; input: WorkflowPresetBuilderInput } | { ok: false } {
   if (name === "implement") {
-    const { ok: _ok, resetDespiteDirty: _resetDespiteDirty, ...launchInput } = parsed as Extract<
-      ImplementWorkflowCliInput,
-      { ok: true }
-    >;
+    const {
+      ok: _ok,
+      resetDespiteDirty: _resetDespiteDirty,
+      ...launchInput
+    } = parsed as Extract<ImplementWorkflowCliInput, { ok: true }>;
     return {
       ok: true,
       input: {
@@ -66,10 +67,11 @@ function buildWorkflowBuilderInput(
     };
   }
   if (isPlanPreset) {
-    const { ok: _ok, resetDespiteDirty: _resetDespiteDirty, ...launchInput } = parsed as Extract<
-      PlanWorkflowCliInput,
-      { ok: true }
-    >;
+    const {
+      ok: _ok,
+      resetDespiteDirty: _resetDespiteDirty,
+      ...launchInput
+    } = parsed as Extract<PlanWorkflowCliInput, { ok: true }>;
     return {
       ok: true,
       input: { cwd: deps.cwd(), ...launchInput, configPath: deps.machineConfigPath } as WorkflowPresetBuilderInput,
@@ -249,9 +251,16 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!prepared.ok) return 1;
   let destroyedArtifacts: DestroyedArtifacts | undefined;
   const exitCode = await withConnectDispatch(io, deps, async (client) => {
-    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io, parsed, (destroyed) => {
-      destroyedArtifacts = destroyed;
-    });
+    const resetExitCode = await maybeResetStaleWorkspace(
+      canonicalName,
+      prepared.built,
+      deps,
+      io,
+      parsed,
+      (destroyed) => {
+        destroyedArtifacts = destroyed;
+      },
+    );
     if (resetExitCode !== undefined) return resetExitCode;
     return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
   });

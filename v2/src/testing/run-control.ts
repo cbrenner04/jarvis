@@ -104,7 +104,7 @@ export async function startRunDirect(
 
 export async function listRunsDirect(
   handlers: RunControlHandlers,
-  params?: { sinceMs?: number },
+  params?: { sinceMs?: number; limit?: number },
 ): Promise<DaemonListRunRow[] | undefined> {
   const response = await handlers.list(requestFrame("l1", "list", params), new AbortController().signal);
   expect(response.kind).toBe("response");

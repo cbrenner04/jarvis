@@ -244,6 +244,8 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 | `jarvis tui` | Run table, queue, outcome, kill (`k`) on live runs |
 | `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
 | `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
+| `jarvis run list --since … [--limit <n>]` | Filtered history query: optional `--limit` caps matching rows (default **200** newest when omitted); combine with `--since` (and future `--project` / `--branch` / `--spec` / `--status`) |
+| `jarvis run list --limit <n>` | Without a filter, the daemon does not use `limit` to reduce rows: row count and retention match plain `jarvis run list` (fifty-newest terminal policy). The CLI still passes `limit` on the RPC; the retention path ignores it |
 | `jarvis run wait <run-id>` | Block until next boundary |
 | `jarvis run log <run-id>` | Structured run log (not daemon process log) |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
@@ -258,7 +260,7 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 The invoking-socket client (the socket TUI connects to by default via `deps.socketPath`) is no longer exempt from eviction. When that connection's `list()` RPC fails, the stale client is closed and removed, allowing a fresh connection on the next refresh tick. This ensures that if the invoking daemon dies and a new daemon binds the same socket path, the TUI automatically reconnects to the new daemon's runs.
 
-Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` on the same daemon.
+Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` on the same daemon. Large filtered queries default to the **200** newest matches per keyed daemon `list` response before `jarvis run list` merges sockets; merged CLI output can exceed **200** when multiple live daemons each return matches. Pass `--limit 50` (for example) when you need fewer rows per daemon.
 
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
 

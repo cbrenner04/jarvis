@@ -8,6 +8,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
+import { resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
 
@@ -54,25 +55,69 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function parseListArgv(rest: readonly string[], io: Io, deps: CliDeps): { ok: true; sinceMs?: number } | { ok: false } {
-  if (rest.length === 2 && rest[0] === "--since") {
-    const value = rest[1];
-    if (value === undefined || value.startsWith("-")) {
-      io.stderr("invalid_since: invalid value\n");
-      return { ok: false };
-    }
+function parseLimitArgvValue(value: string): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function listFlagMissingValueMessage(flag: "--since" | "--limit"): string {
+  return flag === "--since" ? "invalid_since: invalid value\n" : "invalid_limit: invalid value\n";
+}
+
+function parseOneListArgvFlag(
+  flag: "--since" | "--limit",
+  value: string,
+  deps: CliDeps,
+): { ok: true; sinceMs?: number; limit?: number } | { ok: false; stderr: string } {
+  if (flag === "--since") {
     const cutoff = parseSince(value, deps.now?.() ?? Date.now());
     if (cutoff === undefined) {
-      io.stderr("invalid_since: invalid value\n");
-      return { ok: false };
+      return { ok: false, stderr: "invalid_since: invalid value\n" };
     }
     return { ok: true, sinceMs: cutoff };
   }
-  if (rest.length !== 0) {
-    io.stderr(RUN_LIST_USAGE);
-    return { ok: false };
+  const parsedLimit = parseLimitArgvValue(value);
+  if (parsedLimit === undefined) {
+    return { ok: false, stderr: "invalid_limit: invalid value\n" };
   }
-  return { ok: true };
+  return { ok: true, limit: parsedLimit };
+}
+
+function parseListArgv(
+  rest: readonly string[],
+  io: Io,
+  deps: CliDeps,
+): { ok: true; sinceMs?: number; limit?: number } | { ok: false } {
+  let sinceMs: number | undefined;
+  let limit: number | undefined;
+
+  for (let index = 0; index < rest.length; ) {
+    const flag = rest[index];
+    if (flag !== "--since" && flag !== "--limit") {
+      io.stderr(RUN_LIST_USAGE);
+      return { ok: false };
+    }
+    const value = rest[index + 1];
+    if (value === undefined || value.startsWith("-")) {
+      io.stderr(listFlagMissingValueMessage(flag));
+      return { ok: false };
+    }
+    const piece = parseOneListArgvFlag(flag, value, deps);
+    if (!piece.ok) {
+      io.stderr(piece.stderr);
+      return { ok: false };
+    }
+    if (piece.sinceMs !== undefined) sinceMs = piece.sinceMs;
+    if (piece.limit !== undefined) limit = piece.limit;
+    index += 2;
+  }
+
+  return {
+    ok: true,
+    ...(sinceMs !== undefined ? { sinceMs } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
 }
 
 async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -117,7 +162,7 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
     listResults.push([socketPath, undefined]);
     firstError ??= error;
   };
-  const listParams = parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs };
+  const listParams = resolveListRpcRequest(parsed);
 
   for (const socketPath of socketPaths) {
     try {

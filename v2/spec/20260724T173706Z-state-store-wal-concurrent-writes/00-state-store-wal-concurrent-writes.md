@@ -17,6 +17,15 @@ even a concurrent reader fails with `database is locked`. Overlapping workflows 
   mocking SQLite lock errors without real connections.
 - List-polling regression loops `StateStore.listRuns()` (same durable reads as daemon `list`) while
   a peer connection commits boundaries — rules out only exercising `loadRun` in isolation.
+- **SQLite serialises writers in every journal mode.** WAL buys reader-vs-writer concurrency; a
+  non-zero `busy_timeout` buys writer-vs-writer *waiting* instead of instant failure. A peer write
+  issued from inside another connection's open write transaction (e.g. a `beforeRunUpdate` hook) can
+  never complete — it burns the whole busy timeout and fails. That is a deadlock the test builds, not
+  contention it observes. Rules out any test asserting two simultaneously-open write transactions
+  both commit; a first attempt did exactly this and hung 30 s before failing.
+- The incident this fixes is many short, non-overlapping write transactions from **separate
+  connections** (seventeen live daemons on one file), which `busy_timeout` resolves. Rules out
+  framing the fix as concurrent-write support.
 - Out of scope: multi-machine or networked access to one store file — rules out NFS/remote locking
   design.
 
@@ -37,8 +46,10 @@ even a concurrent reader fails with `database is locked`. Overlapping workflows 
 - [ ] `state-store-wal-open.test.ts` asserts a new `openStateStore` database reports
       `journal_mode = wal` and a non-zero `busy_timeout` on the store connection; it fails against
       pre-fix defaults (`delete` / `0`).
-- [ ] `state-store-wal-concurrency.test.ts` drives two concurrent writers on one file and asserts
-      both commit without `database is locked`; it fails against pre-fix code.
+- [ ] `state-store-wal-concurrency.test.ts` drives a second writer on a separate connection whose
+      transaction does **not** nest inside the first writer's open transaction, and asserts it
+      commits without `database is locked`; it fails against pre-fix code (`busy_timeout=0` rejects
+      it immediately rather than waiting).
 - [ ] `state-store-wal-concurrency.test.ts` asserts a concurrent reader observes committed rows
       while a writer holds an uncommitted transaction; it fails against pre-fix code.
 - [ ] `state-store-wal-concurrency.test.ts` loops `listRuns` on a reader connection while a writer

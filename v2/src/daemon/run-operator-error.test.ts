@@ -8,7 +8,11 @@ import type {
   RunOperatorNextAction,
   TerminalLogRecord,
 } from "./run-operator-error.ts";
-import { composeRunOperatorError, findTerminalLogRecord, isPostBoundaryStateStoreLockTimeout } from "./run-operator-error.ts";
+import {
+  composeRunOperatorError,
+  findTerminalLogRecord,
+  isPostBoundaryStateStoreLockTimeout,
+} from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
   return { status, attempts };

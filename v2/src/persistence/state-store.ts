@@ -7,6 +7,9 @@ import type { InvocationFailureDetail } from "../execution/invocation-failure.ts
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
 
+/** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
+export const STATE_STORE_BUSY_TIMEOUT_MS = 5000;
+
 export const RUN_STATUSES = [
   "in-progress",
   "completed",
@@ -379,6 +382,8 @@ class StateStoreImpl implements StateStore {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.exec(SCHEMA);
+    this.db.exec(`PRAGMA busy_timeout=${STATE_STORE_BUSY_TIMEOUT_MS}`);
+    this.db.exec("PRAGMA journal_mode=WAL");
     applySchemaMigrations(this.db);
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;

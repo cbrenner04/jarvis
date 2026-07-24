@@ -616,6 +616,8 @@ workflows on one machine.
 Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 [Integration-merge-then-retest](../../v1/docs/operator-runbook.md#integration-merge-then-retest-pattern).
 
+**State store concurrency:** The durable run state store (`~/.jarvis/state/v2.sqlite`) opens with WAL journal mode and a 5-second busy timeout, enabling safe concurrent reader-vs-writer access on a single machine without additional coordination. Overlapping workflows and routine polling (daemon `list`, TUI status checks) against the store are safe and do not cause `database is locked` errors.
+
 ## Coding agents in sandbox
 
 - **Do not** start/stop/restart `jarvis1 log-server` — v1 concern; see v1 runbook.

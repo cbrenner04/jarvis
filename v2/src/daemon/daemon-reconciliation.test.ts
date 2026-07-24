@@ -24,6 +24,12 @@ const CURRENT_IDENTITY = "22222:2000000";
 
 let seedStore: StateStore;
 
+function removeDbFiles(path: string): void {
+  rmSync(path, { force: true });
+  rmSync(`${path}-wal`, { force: true });
+  rmSync(`${path}-shm`, { force: true });
+}
+
 function openSweepStore(isOwnerAlive: OwnerLivenessProbe): StateStore {
   return openStateStore(dbPath, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive });
 }
@@ -52,13 +58,13 @@ function createRun(store: StateStore, status: RunStatus): string {
 }
 
 beforeEach(() => {
-  rmSync(dbPath, { force: true });
+  removeDbFiles(dbPath);
   seedStore = openStateStore(dbPath, { currentIdentity: PRIOR_IDENTITY });
 });
 
 afterEach(() => {
   seedStore.close();
-  rmSync(dbPath, { force: true });
+  removeDbFiles(dbPath);
 });
 
 test("reconciles every orphaned status after a forced daemon stop, retaining durable run metadata", async () => {

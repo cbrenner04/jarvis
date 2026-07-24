@@ -49,10 +49,10 @@ even a concurrent reader fails with `database is locked`. Overlapping workflows 
 
 ## Acceptance criteria
 
-- [ ] `state-store-wal-open.test.ts` asserts a new `openStateStore` database reports
+- [x] `state-store-wal-open.test.ts` asserts a new `openStateStore` database reports
       `journal_mode = wal` and a non-zero `busy_timeout` on the store connection; it fails against
       pre-fix defaults (`delete` / `0`).
-- [ ] `state-store-wal-concurrency.test.ts` drives a second writer on a separate connection whose
+- [x] `state-store-wal-concurrency.test.ts` drives a second writer on a separate connection whose
       transaction does **not** nest inside the first writer's open transaction, and asserts it
       commits without `database is locked`; it fails against pre-fix code (`busy_timeout=0` rejects
       it immediately rather than waiting). The lock holder is a subprocess that commits on its own
@@ -60,17 +60,17 @@ even a concurrent reader fails with `database is locked`. Overlapping workflows 
       contended write and asserts it succeeded. The whole test completes in roughly the holder's
       hold time, not the busy timeout — a run that takes the full timeout means the holder never
       self-released and the test is wrong, not the code.
-- [ ] `state-store-wal-concurrency.test.ts` asserts a concurrent reader observes committed rows
+- [x] `state-store-wal-concurrency.test.ts` asserts a concurrent reader observes committed rows
       while a writer holds an uncommitted transaction; it fails against pre-fix code.
-- [ ] `state-store-wal-concurrency.test.ts` loops `listRuns` on a reader connection while a writer
+- [x] `state-store-wal-concurrency.test.ts` loops `listRuns` on a reader connection while a writer
       commits completion boundaries and asserts the writer never surfaces `database is locked`; it
       fails against pre-fix code.
-- [ ] `state-store-wal-open.test.ts` opens a pre-seeded `journal_mode=delete` file and asserts WAL
+- [x] `state-store-wal-open.test.ts` opens a pre-seeded `journal_mode=delete` file and asserts WAL
       mode afterward with all prior rows loadable; it fails against pre-fix code.
-- [ ] Inverting WAL journal setup or setting `busy_timeout` to `0` fails at least one test in
+- [x] Inverting WAL journal setup or setting `busy_timeout` to `0` fails at least one test in
       `state-store-wal-open.test.ts` or `state-store-wal-concurrency.test.ts`.
-- [ ] `state-store.test.ts` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `state-store.test.ts` stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

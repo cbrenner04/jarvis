@@ -131,12 +131,13 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
     }
     let follow = false;
     try {
-      follow = parseArgs({
-        args: argv.slice(1),
-        allowPositionals: false,
-        strict: true,
-        options: DAEMON_LOG_PARSE_ARG_OPTIONS,
-      }).values.follow === true;
+      follow =
+        parseArgs({
+          args: argv.slice(1),
+          allowPositionals: false,
+          strict: true,
+          options: DAEMON_LOG_PARSE_ARG_OPTIONS,
+        }).values.follow === true;
     } catch {
       io.stderr(DAEMON_LOG_USAGE);
       return 1;

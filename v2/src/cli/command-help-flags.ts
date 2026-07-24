@@ -32,9 +32,7 @@ export const CLEANUP_PARSE_ARG_OPTIONS = {
 type ParseArgOptionShape = { type: "boolean" | "string"; short?: string };
 
 /** Parser-accepted argv tokens for help parity (long flags and short aliases). */
-export function parityFlagsFromParseOptions(
-  options: Record<string, ParseArgOptionShape>,
-): readonly string[] {
+export function parityFlagsFromParseOptions(options: Record<string, ParseArgOptionShape>): readonly string[] {
   const flags: string[] = [];
   for (const key of Object.keys(options)) {
     flags.push(`--${key}`);
@@ -55,7 +53,11 @@ export const CLEANUP_HELP_FLAGS: readonly CommandFlag[] = [
     description: "Apply the retirement plan without interactive confirmation.",
   },
   { name: "-y", argumentShape: "", description: "Short alias for --yes." },
-  { name: "--abandon", argumentShape: "<name>", description: "Retire a named worktree without the normal completion gate." },
+  {
+    name: "--abandon",
+    argumentShape: "<name>",
+    description: "Retire a named worktree without the normal completion gate.",
+  },
 ];
 
 /** `parseArgs` options for `parseListArgv` / `jarvis run list`. */

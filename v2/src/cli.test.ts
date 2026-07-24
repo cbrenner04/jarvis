@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { CommandNode } from "./cli/command-tree.ts";
-import { commandTree, formatCommandFlagHelpLine, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
 import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
@@ -10,14 +8,16 @@ import {
   WORKFLOW_PLAN_HELP_FLAGS,
   WRITE_HELP_FLAGS,
 } from "./cli/command-help-flags.ts";
+import type { CommandNode } from "./cli/command-tree.ts";
+import { commandTree, formatCommandFlagHelpLine, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
 import {
   CLEANUP_USAGE,
   CONFIG_USAGE,
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
-  RUN_USAGE,
   RUN_LIST_USAGE,
+  RUN_USAGE,
   TUI_USAGE,
   WORKFLOW_IMPLEMENT_USAGE,
   WORKFLOW_INTENT_USAGE,
@@ -30,7 +30,10 @@ import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./tes
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
 
-function helpStdoutWithFlags(usage: string, flags: readonly { name: string; argumentShape: string; description: string }[]): string {
+function helpStdoutWithFlags(
+  usage: string,
+  flags: readonly { name: string; argumentShape: string; description: string }[],
+): string {
   let output = usage;
   for (const flag of flags) {
     output += `${formatCommandFlagHelpLine(flag)}\n`;

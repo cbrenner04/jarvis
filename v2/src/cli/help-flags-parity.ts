@@ -1,9 +1,8 @@
 import {
-  commandTree,
-  resolveHelpPath,
-  type CommandFlag,
-  type CommandNode,
-} from "./command-tree.ts";
+  IMPLEMENT_WORKFLOW_PARSE_OPTIONS,
+  INTENT_WORKFLOW_PARSE_OPTIONS,
+  PLAN_WORKFLOW_PARSE_OPTIONS,
+} from "../commands/workflow-args.ts";
 import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
@@ -11,11 +10,7 @@ import {
   RUN_LIST_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
-import {
-  IMPLEMENT_WORKFLOW_PARSE_OPTIONS,
-  INTENT_WORKFLOW_PARSE_OPTIONS,
-  PLAN_WORKFLOW_PARSE_OPTIONS,
-} from "../commands/workflow-args.ts";
+import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
 
 const PARITY_PATHS = [
   ["write"],

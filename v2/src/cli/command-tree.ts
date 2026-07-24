@@ -1,4 +1,13 @@
 import {
+  CLEANUP_HELP_FLAGS,
+  DAEMON_LOG_HELP_FLAGS,
+  RUN_LIST_HELP_FLAGS,
+  WORKFLOW_IMPLEMENT_HELP_FLAGS,
+  WORKFLOW_INTENT_HELP_FLAGS,
+  WORKFLOW_PLAN_HELP_FLAGS,
+  WRITE_HELP_FLAGS,
+} from "./command-help-flags.ts";
+import {
   CLEANUP_USAGE,
   CONFIG_USAGE,
   DAEMON_LOG_USAGE,
@@ -14,15 +23,6 @@ import {
   WORKFLOW_USAGE,
   WRITE_USAGE,
 } from "./usage.ts";
-import {
-  CLEANUP_HELP_FLAGS,
-  DAEMON_LOG_HELP_FLAGS,
-  RUN_LIST_HELP_FLAGS,
-  WORKFLOW_IMPLEMENT_HELP_FLAGS,
-  WORKFLOW_INTENT_HELP_FLAGS,
-  WORKFLOW_PLAN_HELP_FLAGS,
-  WRITE_HELP_FLAGS,
-} from "./command-help-flags.ts";
 
 export interface CommandFlag {
   name: string;

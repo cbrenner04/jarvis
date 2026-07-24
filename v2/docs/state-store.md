@@ -4,6 +4,18 @@ Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.s
 
 `openStateStore(path?)` creates or opens the file and bootstraps the schema idempotently before any operation; tests pass a path override and write nothing under `~/.jarvis`. Schema changes are forward-only: append migration statements when the first incompatible change lands — never ahead of consumers.
 
+## Concurrency & journal mode
+
+The store opens SQLite with **WAL (Write-Ahead Logging)** journal mode and a 5-second busy timeout, enabling concurrent reader-vs-writer access on a single machine:
+
+- **WAL mode** separates reads from writes: multiple readers can observe committed snapshots while a writer holds an uncommitted transaction (serialization points are commits, not transaction starts).
+- **busy_timeout** causes writers to wait up to 5 seconds if a reader holds a lock, rather than failing instantly; this accommodates routine polling (daemon `listRuns`, TUI status checks) during active runs.
+- **-wal** and **-shm** sidecar files: WAL requires two additional files alongside the main database (`-wal` for the write-ahead log, `-shm` for shared memory). These must reside on the same filesystem as the main database and be readable/writable by the process. Network filesystems (NFS, cloud drives) are unsupported; single-machine access is guaranteed only.
+
+A failed WAL setup (e.g., restricted filesystems, old SQLite, or sandboxed environments) silently falls back to the default rollback journal; the store remains functional but with reduced concurrency (readers block writers and vice versa).
+
+Overlapping workflows and routine TUI polling are safe against the store on one machine without additional locking or coordination.
+
 ## Schema
 
 - `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `paused` | `failed` | `interrupted` | `killed` | `queued`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`, `step_id` (nullable, opaque workflow step identifier for multi-step resume tracking), and nullable `workflow_snapshot` JSON (`{ invocationId, steps: [{ stepId, role }] }`) for workflow-backed runs.

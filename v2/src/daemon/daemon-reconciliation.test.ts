@@ -53,12 +53,16 @@ function createRun(store: StateStore, status: RunStatus): string {
 
 beforeEach(() => {
   rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
   seedStore = openStateStore(dbPath, { currentIdentity: PRIOR_IDENTITY });
 });
 
 afterEach(() => {
   seedStore.close();
   rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
 });
 
 test("reconciles every orphaned status after a forced daemon stop, retaining durable run metadata", async () => {

@@ -29,12 +29,16 @@ describe("StateStore", () => {
 
   beforeEach(() => {
     rmSync(TEST_DB_PATH, { force: true });
+    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
     rmSync(TEST_DB_PATH, { force: true });
+    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
   });
 
   test("creates a run with correct fields", () => {
@@ -415,12 +419,16 @@ describe("commitGuardedKill", () => {
 
   beforeEach(() => {
     rmSync(TEST_DB_PATH, { force: true });
+    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
     rmSync(TEST_DB_PATH, { force: true });
+    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
   });
 
   test("sets killed for non-boundary-terminal statuses", () => {

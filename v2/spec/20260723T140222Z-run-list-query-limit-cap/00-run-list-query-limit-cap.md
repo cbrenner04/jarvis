@@ -37,6 +37,11 @@ operators also need an explicit row bound.
       between them (`flag === "--since"`) fails a test. Asserting only exit code 1, or only one of the
       two messages, does not distinguish the directions.
 - [ ] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
+- [ ] The predicate deciding whether a `list` request carries filter params is a **pure exported
+      function**, unit-tested directly over all four input combinations — neither field set, only
+      `sinceMs`, only `limit`, both — asserting the exact params object each returns. Testing it only
+      through the CLI or daemon path does not satisfy this: eight prior attempts each restructured
+      this code and each left a newly-uncovered comparison inside it, so pin the function itself.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

@@ -55,6 +55,10 @@ describe("resolveCiTestScope", () => {
       "mixed v1/v2 docs+specs",
       ["v1/docs/run-loop.md", "v1/spec/some-spec/index.md", "v2/docs/architecture.md", "v2/spec/some-spec/index.md"],
     ],
+    [
+      "intent workflow staging",
+      [".jarvis-intent-review-verdict.md", ".jarvis-intent-stage/workflow-print-run-id-at-admission.md"],
+    ],
   ])("no-test-impact diff (%s) skips tests", (_label, paths) => {
     expect(resolveCiTestScope(paths, true)).toEqual([]);
   });

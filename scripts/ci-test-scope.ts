@@ -4,7 +4,15 @@ export type ScopedTests = "full" | string[];
 
 const ROOT_TOOLING_PATTERNS = [/^package\.json$/, /^tsconfig.*\.json$/, /^\.github\//, /^scripts\//];
 
-const NO_TEST_IMPACT_PATTERNS = [/^reports\//, /^v1\/docs\//, /^v1\/spec\//, /^v2\/docs\//, /^v2\/spec\//];
+const NO_TEST_IMPACT_PATTERNS = [
+  /^reports\//,
+  /^v1\/docs\//,
+  /^v1\/spec\//,
+  /^v2\/docs\//,
+  /^v2\/spec\//,
+  /^\.jarvis-intent-stage\//,
+  /^\.jarvis-intent-review-verdict\.md$/,
+];
 
 /** Classify already-resolved changed paths into the scripts CI needs to run. */
 export function classifyChangedPaths(paths: string[]): ScopedTests {

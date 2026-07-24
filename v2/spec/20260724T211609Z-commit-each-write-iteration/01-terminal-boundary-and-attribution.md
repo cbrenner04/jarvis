@@ -44,20 +44,20 @@ conflate same-branch kill recovery with implement re-run reset.
 
 ## Acceptance criteria
 
-- [ ] A new `write-loop.test.ts` case drives two changed `progress` iterations then `done`
+- [x] A new `write-loop.test.ts` case drives two changed `progress` iterations then `done`
       with a clean worktree and asserts branch history includes two iteration SHAs plus a
       third distinct terminal completion SHA, and `renderAttribution({ cwd: worktree, base })`
       footer bullets cover iteration commits and the completion commit per terminal SHA
       policy; it fails against the pre-fix code.
-- [ ] A new `write-loop.test.ts` case leaves the worktree dirty after iteration commits at
+- [x] A new `write-loop.test.ts` case leaves the worktree dirty after iteration commits at
       terminal `complete` with a no-op terminal committer and asserts
       `completion_commit_failed` naming the dirty paths; inverting the terminal dirty check
       yields `complete` and fails.
-- [ ] `pr-attribution.test.ts` "lists multiple distinct labels in first-appearance order,
+- [x] `pr-attribution.test.ts` "lists multiple distinct labels in first-appearance order,
       deduped" stays green.
-- [ ] `pr-body-refresh.test.ts` "composes header + preserved narrative + footer when markers
+- [x] `pr-body-refresh.test.ts` "composes header + preserved narrative + footer when markers
       and footer present" stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `test:integration:v2` pass.
 
 ## Documentation updates
 

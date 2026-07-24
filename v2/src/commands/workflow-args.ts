@@ -14,7 +14,8 @@ export const PLAN_WORKFLOW_PARSE_OPTIONS = {
   "target-dir": { type: "string" },
   "review-passes": { type: "string" },
   "review-behavior": { type: "string" },
-} as const satisfies Record<string, { type: "string" }>;
+  "reset-despite-dirty": { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
   branch: { type: "string" },
@@ -23,7 +24,8 @@ export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
   artifact: { type: "string" },
   "review-passes": { type: "string" },
   "review-behavior": { type: "string" },
-} as const satisfies Record<string, { type: "string" }>;
+  "reset-despite-dirty": { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
 
@@ -58,6 +60,7 @@ export type ImplementWorkflowCliInput =
       artifactPath?: string;
       reviewPasses?: number;
       reviewBehavior?: ImplementReviewBehavior;
+      resetDespiteDirty?: boolean;
     }
   | { ok: false };
 
@@ -85,6 +88,8 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
     return { ok: false };
   }
 
+  const resetDespiteDirty = values["reset-despite-dirty"] === true;
+
   return {
     ok: true,
     ...(branchName !== undefined ? { branchName } : {}),
@@ -92,6 +97,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
     specPath,
     ...(artifactPath !== undefined ? { artifactPath } : {}),
     ...review,
+    ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
   };
 }
 
@@ -138,7 +144,7 @@ export function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflow
 }
 
 export type PlanWorkflowCliInput =
-  | ({ ok: true; readyIntent: string; targetDir?: string } & ReviewCliInput)
+  | ({ ok: true; readyIntent: string; targetDir?: string; resetDespiteDirty?: boolean } & ReviewCliInput)
   | { ok: false };
 
 export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
@@ -163,11 +169,14 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
     return { ok: false };
   }
 
+  const resetDespiteDirty = values["reset-despite-dirty"] === true;
+
   return {
     ok: true,
     readyIntent,
     ...(targetDir !== undefined ? { targetDir } : {}),
     ...review,
+    ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
   };
 }
 

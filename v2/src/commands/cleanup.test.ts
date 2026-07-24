@@ -17,6 +17,7 @@ import {
   type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
   runCleanupCommand,
+  STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
 
@@ -2292,6 +2293,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     if (result.status !== "refused") throw new Error("expected refused");
     expect(result.reason).toContain("worktree has uncommitted changes");
     expect(result.reason).toContain(trackedRel);
+    expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
     expect(result.reason).toContain("jarvis cleanup --abandon");
     expect(teardownCalls).toEqual([]);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -2309,6 +2311,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     if (result.status !== "refused") throw new Error("expected refused");
     expect(result.reason).toContain("leftover.txt");
     expect(result.reason).toContain("discard local changes");
+    expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
@@ -2351,22 +2354,29 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     };
 
     const result = await callReset(branch, mockRunner);
-
     expect(result.status).toBe("refused");
     if (result.status !== "refused") throw new Error("expected refused");
     expect(result.reason).toContain("could not list worktree changes");
     expect(result.reason).toContain("git status unavailable");
+    expect(result.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+
+    const overrideResult = await callReset(branch, mockRunner, noLiveDaemon, silentIo, { skipDirtyWorktreeGate: true });
+    expect(overrideResult.status).toBe("refused");
+    if (overrideResult.status !== "refused") throw new Error("expected refused");
+    expect(overrideResult.reason).toContain("could not list worktree changes");
+    expect(overrideResult.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
   });
 
-  test("reset retires a dirty worktree when the dirty gate is disabled", async () => {
+  test("reset retires a dirty worktree when dirty gate override is set", async () => {
     const branch = "impl/dirty-gate-inversion";
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, "keep-me.txt"), "dirty\n");
 
     const result = await callReset(branch, ghPrListRunner([{ number: 803, isDraft: true }]), noLiveDaemon, silentIo, {
-      enforceDirtyWorktreeGate: false,
+      skipDirtyWorktreeGate: true,
     });
 
     expect(result.status).toBe("reset");
@@ -2374,13 +2384,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
-  test("staleResetDirtyWorktreeGateReason refuses when enabled and skips when disabled", () => {
+  test("staleResetDirtyWorktreeGateReason refuses dirty paths and skips dirty refusal only when overridden", () => {
     expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] })).toContain("a.txt");
     expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: [] })).toContain(
       "unparseable git status output",
     );
-    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] }, false)).toBeUndefined();
-    expect(staleResetDirtyWorktreeGateReason({ status: "error", message: "boom" }, false)).toBeUndefined();
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] }, true)).toBeUndefined();
+    const listingRefusal = staleResetDirtyWorktreeGateReason({ status: "error", message: "boom" }, true);
+    expect(listingRefusal).toContain("could not list worktree changes");
+    expect(listingRefusal).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
   });
 
   test("listDirtyWorktreePathsForStaleReset treats non-empty unparseable porcelain as dirty", async () => {

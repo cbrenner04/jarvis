@@ -38,26 +38,26 @@ down artifacts.
 
 ## Task checklist
 
-- [ ] Add the override switch to implement and plan `run workflow` flag parsing
+- [x] Add the override switch to implement and plan `run workflow` flag parsing
   and usage strings; pass a seam option that skips dirty refusal only (not
   listing-error refusal) into `maybeResetStaleWorkspace` / `resetStaleWorkspace`.
-- [ ] Update `staleResetDirtyRecovery` (or equivalent) so dirty refusal reasons
+- [x] Update `staleResetDirtyRecovery` (or equivalent) so dirty refusal reasons
   include the wired flag token.
-- [ ] Add `workflow.test.ts` `run workflow implement resets stale dirty worktree when override switch is set` (teardown baseline: `cleanup.test.ts` describe `resetStaleWorkspace: incomplete implement re-run reset`, test `reset removes stale worktree and draft PR before re-run`).
-- [ ] Add seam test: override enabled + listing `error` still refuses with no retirement (extend `reset refuses fail-closed when dirty listing fails` or equivalent).
-- [ ] Update operator runbook and `v1-behaviors.md` per documentation updates below.
+- [x] Add `workflow.test.ts` `run workflow implement resets stale dirty worktree when override switch is set` (teardown baseline: `cleanup.test.ts` describe `resetStaleWorkspace: incomplete implement re-run reset`, test `reset removes stale worktree and draft PR before re-run`).
+- [x] Add seam test: override enabled + listing `error` still refuses with no retirement (extend `reset refuses fail-closed when dirty listing fails` or equivalent).
+- [x] Update operator runbook and `v1-behaviors.md` per documentation updates below.
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` `run workflow implement resets stale dirty worktree when override switch is set` drives incomplete git-enabled implement re-run with a dirty managed worktree and the override switch set, asserting the same teardown outcomes as `cleanup.test.ts` `reset removes stale worktree and draft PR before re-run`; fails against the pre-fix code.
-- [ ] `workflow.test.ts` `run workflow implement refuses reset when the managed worktree is dirty` (no override): exit non-zero, no retirement side effects; assertions updated for extended recovery copy including the wired override token — refusal semantics unchanged, not zero test edits.
-- [ ] Guard inversion: dirty incomplete implement re-run without the override switch performs no retirement mutations (worktree, branch, draft PR survive); fails if teardown runs without the switch.
-- [ ] `cleanup.test.ts` `reset refuses when worktree has uncommitted tracked changes` stays green.
-- [ ] `cleanup.test.ts` `reset refuses when worktree has untracked paths` stays green.
-- [ ] With the override switch set, porcelain listing failure still refuses fail-closed with no retirement (test in `cleanup.test.ts` or seam unit coverage); fails if override clears listing-error refusal.
-- [ ] `workflow.test.ts` dirty refusal stderr `Cannot re-run incomplete spec: …` lists commit, discard, the wired override switch token, and `jarvis cleanup --abandon <branch>`.
-- [ ] `cleanup.test.ts` dirty refusal tests (tracked and untracked) assert `reason` / recovery copy includes the wired override flag token.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `workflow.test.ts` `run workflow implement resets stale dirty worktree when override switch is set` drives incomplete git-enabled implement re-run with a dirty managed worktree and the override switch set, asserting the same teardown outcomes as `cleanup.test.ts` `reset removes stale worktree and draft PR before re-run`; fails against the pre-fix code.
+- [x] `workflow.test.ts` `run workflow implement refuses reset when the managed worktree is dirty` (no override): exit non-zero, no retirement side effects; assertions updated for extended recovery copy including the wired override token — refusal semantics unchanged, not zero test edits.
+- [x] Guard inversion: dirty incomplete implement re-run without the override switch performs no retirement mutations (worktree, branch, draft PR survive); fails if teardown runs without the switch.
+- [x] `cleanup.test.ts` `reset refuses when worktree has uncommitted tracked changes` stays green.
+- [x] `cleanup.test.ts` `reset refuses when worktree has untracked paths` stays green.
+- [x] With the override switch set, porcelain listing failure still refuses fail-closed with no retirement (test in `cleanup.test.ts` or seam unit coverage); fails if override clears listing-error refusal.
+- [x] `workflow.test.ts` dirty refusal stderr `Cannot re-run incomplete spec: …` lists commit, discard, the wired override switch token, and `jarvis cleanup --abandon <branch>`.
+- [x] `cleanup.test.ts` dirty refusal tests (tracked and untracked) assert `reason` / recovery copy includes the wired override flag token.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

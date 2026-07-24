@@ -216,8 +216,10 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
   live-held, the matching PR is ready (non-draft), multiple open PRs match the
   branch, or the materialized worktree has uncommitted tracked or untracked paths;
   stderr names the blocking state (for a dirty worktree, paths and recovery:
-  commit, discard local changes, or `jarvis cleanup --abandon <branch>`). The
-  same dirty-worktree gate applies to incomplete git-enabled `jarvis run workflow
+  commit, discard local changes, pass `--reset-despite-dirty` on the incomplete
+  re-run to retire despite local edits (listing failure still refuses), or run
+  `jarvis cleanup --abandon <branch>` outside a re-run). The same dirty-worktree
+  gate applies to incomplete git-enabled `jarvis run workflow
   plan` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
   run or wait for its lock to clear; mark the PR draft again or merge it; close
   duplicate PRs until exactly one open draft remains; or clean the worktree as

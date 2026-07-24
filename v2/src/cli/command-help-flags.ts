@@ -82,6 +82,13 @@ export const DAEMON_LOG_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--follow", argumentShape: "", description: "Stream new log bytes after the retained snapshot." },
 ];
 
+const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
+  name: "--reset-despite-dirty",
+  argumentShape: "",
+  description:
+    "Retire a stale workspace on incomplete re-run even when the worktree is dirty; porcelain or listing errors still refuse.",
+};
+
 const WORKFLOW_REVIEW_FLAGS: readonly CommandFlag[] = [
   {
     name: "--review-passes",
@@ -106,6 +113,7 @@ export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--ready-intent", argumentShape: "<path>", description: "Path to a ready intent file." },
   { name: "--target-dir", argumentShape: "<dir>", description: "Directory for the new spec tree." },
   ...WORKFLOW_REVIEW_FLAGS,
+  WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
 ];
 
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
@@ -114,4 +122,5 @@ export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--spec", argumentShape: "<path>", description: "Spec path (file or index)." },
   { name: "--artifact", argumentShape: "<path>", description: "Completion artifact path for single-file specs." },
   ...WORKFLOW_REVIEW_FLAGS,
+  WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
 ];

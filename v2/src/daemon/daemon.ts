@@ -7,7 +7,8 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,
-  evaluateListRpcRequestIsFiltered,
+  listRpcRequestIsFiltered,
+  runMatchesListRpcParams,
 } from "../commands/run-list-rpc.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
@@ -986,16 +987,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const listHandler: RpcHandler = (frame) => {
     const listParams = frame.params as ListRpcParams | undefined;
     let durableRuns = store.listRuns();
-    if (evaluateListRpcRequestIsFiltered(listParams)) {
+    if (listRpcRequestIsFiltered(listParams)) {
       durableRuns = durableRuns
-        .filter((run) => {
-          if (listParams?.sinceMs !== undefined && run.createdAt < listParams.sinceMs) return false;
-          if (listParams?.project !== undefined && run.project !== listParams.project) return false;
-          if (listParams?.branch !== undefined && run.branch !== listParams.branch) return false;
-          if (listParams?.specPath !== undefined && run.specPath !== listParams.specPath) return false;
-          if (listParams?.status !== undefined && run.status !== listParams.status) return false;
-          return true;
-        })
+        .filter((run) => runMatchesListRpcParams(run, listParams))
         .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
     } else {
       durableRuns = retainListedRuns(durableRuns);

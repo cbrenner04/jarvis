@@ -10,7 +10,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { isRunStatus, TERMINAL_RUN_STATUSES, type RunStatus } from "../persistence/state-store.ts";
+import { isRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -64,39 +64,32 @@ function parseLimitArgvValue(value: string): number | undefined {
   return parsed;
 }
 
-function listFlagMissingValueMessage(
-  flag: "--since" | "--limit" | "--project" | "--branch" | "--spec" | "--status",
-): string {
-  switch (flag) {
-    case "--since":
-      return "invalid_since: invalid value\n";
-    case "--limit":
-      return "invalid_limit: invalid value\n";
-    case "--project":
-      return "invalid_project: invalid value\n";
-    case "--branch":
-      return "invalid_branch: invalid value\n";
-    case "--spec":
-      return "invalid_spec: invalid value\n";
-    case "--status":
-      return "invalid_status: invalid value\n";
-  }
-}
-
-const LIST_VALUE_FLAGS = [
-  "--since",
-  "--limit",
-  "--project",
-  "--branch",
-  "--spec",
-  "--status",
-] as const;
+const LIST_VALUE_FLAGS = ["--since", "--limit", "--project", "--branch", "--spec", "--status"] as const;
 
 type ListValueFlag = (typeof LIST_VALUE_FLAGS)[number];
 
-function parseNonEmptyDimensionValue(value: string): string | undefined {
-  return value.length > 0 ? value : undefined;
+const LIST_FLAG_INVALID_MESSAGE = {
+  "--since": "invalid_since: invalid value\n",
+  "--limit": "invalid_limit: invalid value\n",
+  "--project": "invalid_project: invalid value\n",
+  "--branch": "invalid_branch: invalid value\n",
+  "--spec": "invalid_spec: invalid value\n",
+  "--status": "invalid_status: invalid value\n",
+} as const satisfies Record<ListValueFlag, string>;
+
+function listFlagMissingValueMessage(flag: ListValueFlag): string {
+  return LIST_FLAG_INVALID_MESSAGE[flag];
 }
+
+const LIST_STRING_DIMENSIONS = [
+  { argvKey: "project", flag: "--project", paramKey: "project" },
+  { argvKey: "branch", flag: "--branch", paramKey: "branch" },
+  { argvKey: "spec", flag: "--spec", paramKey: "specPath" },
+] as const satisfies ReadonlyArray<{
+  argvKey: keyof typeof RUN_LIST_PARSE_ARG_OPTIONS;
+  flag: ListValueFlag;
+  paramKey: keyof ListRpcParams;
+}>;
 
 let invertListStatusValidationForTest = false;
 
@@ -136,20 +129,43 @@ function listFlagHasValue(rest: readonly string[], flag: ListValueFlag): boolean
   return value !== undefined && !value.startsWith("-");
 }
 
-type ParsedListArgv = {
-  sinceMs?: number;
-  limit?: number;
-  project?: string;
-  branch?: string;
-  specPath?: string;
-  status?: RunStatus;
-};
+function listArgvRepeatsFlag(rest: readonly string[], flag: ListValueFlag): boolean {
+  let count = 0;
+  for (const token of rest) {
+    if (token === flag) count += 1;
+  }
+  return count > 1;
+}
+
+/** Parse and apply one numeric list flag (`--since` / `--limit`); false on invalid value (stderr already written). */
+function applyNumericListFlag(
+  flag: "--since" | "--limit",
+  value: string | boolean | string[] | undefined,
+  params: ListRpcParams,
+  deps: CliDeps,
+  io: Io,
+): boolean {
+  if (typeof value !== "string") return true;
+  const piece = parseOneListArgvFlag(flag, value, deps);
+  if (!piece.ok) {
+    io.stderr(piece.stderr);
+    return false;
+  }
+  if (piece.sinceMs !== undefined) params.sinceMs = piece.sinceMs;
+  if (piece.limit !== undefined) params.limit = piece.limit;
+  return true;
+}
 
 function parseListArgv(
   rest: readonly string[],
   io: Io,
   deps: CliDeps,
-): { ok: true; params: ParsedListArgv } | { ok: false } {
+): { ok: true; params: ListRpcParams } | { ok: false } {
+  if (listArgvRepeatsFlag(rest, "--status")) {
+    io.stderr(listFlagMissingValueMessage("--status"));
+    return { ok: false };
+  }
+
   let values: Record<string, string | boolean | string[] | undefined>;
   try {
     values = parseArgs({
@@ -169,51 +185,18 @@ function parseListArgv(
     return { ok: false };
   }
 
-  const params: ParsedListArgv = {};
+  const params: ListRpcParams = {};
 
-  if (typeof values.since === "string") {
-    const piece = parseOneListArgvFlag("--since", values.since, deps);
-    if (!piece.ok) {
-      io.stderr(piece.stderr);
+  if (!applyNumericListFlag("--since", values.since, params, deps, io)) return { ok: false };
+  if (!applyNumericListFlag("--limit", values.limit, params, deps, io)) return { ok: false };
+  for (const { argvKey, flag, paramKey } of LIST_STRING_DIMENSIONS) {
+    const raw = values[argvKey];
+    if (typeof raw !== "string") continue;
+    if (raw.length === 0) {
+      io.stderr(listFlagMissingValueMessage(flag));
       return { ok: false };
     }
-    if (piece.sinceMs !== undefined) {
-      params.sinceMs = piece.sinceMs;
-    }
-  }
-  if (typeof values.limit === "string") {
-    const piece = parseOneListArgvFlag("--limit", values.limit, deps);
-    if (!piece.ok) {
-      io.stderr(piece.stderr);
-      return { ok: false };
-    }
-    if (piece.limit !== undefined) {
-      params.limit = piece.limit;
-    }
-  }
-  if (typeof values.project === "string") {
-    const project = parseNonEmptyDimensionValue(values.project);
-    if (project === undefined) {
-      io.stderr(listFlagMissingValueMessage("--project"));
-      return { ok: false };
-    }
-    params.project = project;
-  }
-  if (typeof values.branch === "string") {
-    const branch = parseNonEmptyDimensionValue(values.branch);
-    if (branch === undefined) {
-      io.stderr(listFlagMissingValueMessage("--branch"));
-      return { ok: false };
-    }
-    params.branch = branch;
-  }
-  if (typeof values.spec === "string") {
-    const specPath = parseNonEmptyDimensionValue(values.spec);
-    if (specPath === undefined) {
-      io.stderr(listFlagMissingValueMessage("--spec"));
-      return { ok: false };
-    }
-    params.specPath = specPath;
+    params[paramKey] = raw;
   }
   if (typeof values.status === "string") {
     const status = parseListStatusValue(values.status);

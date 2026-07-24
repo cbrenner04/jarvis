@@ -9,10 +9,8 @@ import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-h
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
 import { connectTuiLogTail } from "../tui/tui-log-tail-client.ts";
-import {
-  setInvertListRpcRequestIsFilteredForTest,
-} from "./run-list-rpc.ts";
 import { setInvertListStatusValidationForTest } from "./run.ts";
+import { setInvertListRpcRequestIsFilteredForTest } from "./run-list-rpc.ts";
 
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000020";
 const STREAM_ID = "00000000-0000-4000-8000-000000000021";
@@ -20,7 +18,6 @@ const RUN_LOG_OWNER_LIST_ID = "00000000-0000-4000-8000-000000000022";
 const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000023";
 
 const ONE_HOUR_MS = 3_600_000;
-const TWO_DAYS_MS = 2 * 24 * ONE_HOUR_MS;
 const NOW_MS = 10_000_000_000_000;
 
 let dbPath: string;
@@ -206,10 +203,10 @@ test("run list CLI passes dimension RPC params", async () => {
   ]);
 });
 
-test("invalid --status exits 1 with invalid_status and skips list RPC", async () => {
+async function expectListCliRejectsBeforeRpc(argv: string[], expectedStderr: string): Promise<void> {
   const cap = captureIo();
   const sent: unknown[] = [];
-  const code = await main(["run", "list", "--status", "in-progress"], cap.io, {
+  const code = await main(argv, cap.io, {
     connectIpcClient: async () =>
       makeIpcClient(
         [
@@ -225,9 +222,32 @@ test("invalid --status exits 1 with invalid_status and skips list RPC", async ()
       ),
   });
   expect(code).toBe(1);
-  expect(cap.read().stderr).toBe("invalid_status: invalid value\n");
+  expect(cap.read().stderr).toBe(expectedStderr);
   expect(cap.read().stdout).toBe("");
   expect(sent).toEqual([]);
+}
+
+test("invalid --status exits 1 with invalid_status and skips list RPC", async () => {
+  await expectListCliRejectsBeforeRpc(["run", "list", "--status", "in-progress"], "invalid_status: invalid value\n");
+});
+
+test("repeat --status exits 1 with invalid_status and skips list RPC", async () => {
+  await expectListCliRejectsBeforeRpc(
+    ["run", "list", "--status", "completed", "--status", "failed"],
+    "invalid_status: invalid value\n",
+  );
+});
+
+test("empty --project exits 1 with invalid_project and skips list RPC", async () => {
+  await expectListCliRejectsBeforeRpc(["run", "list", "--project", ""], "invalid_project: invalid value\n");
+});
+
+test("empty --branch exits 1 with invalid_branch and skips list RPC", async () => {
+  await expectListCliRejectsBeforeRpc(["run", "list", "--branch", ""], "invalid_branch: invalid value\n");
+});
+
+test("empty --spec exits 1 with invalid_spec and skips list RPC", async () => {
+  await expectListCliRejectsBeforeRpc(["run", "list", "--spec", ""], "invalid_spec: invalid value\n");
 });
 
 test("invalid_status guard inversion accepts non-terminal status", async () => {
@@ -241,9 +261,7 @@ test("invalid_status guard inversion accepts non-terminal status", async () => {
     }),
   );
   expect(code).toBe(0);
-  expect(sent).toEqual([
-    { kind: "request", id: LIST_REQUEST_ID, method: "list", params: { status: "in-progress" } },
-  ]);
+  expect(sent).toEqual([{ kind: "request", id: LIST_REQUEST_ID, method: "list", params: { status: "in-progress" } }]);
 });
 
 test("listRpcRequestIsFiltered guard inversion keeps retention on dimension-only queries", async () => {

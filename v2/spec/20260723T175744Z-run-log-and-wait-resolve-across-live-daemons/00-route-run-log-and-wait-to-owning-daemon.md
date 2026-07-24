@@ -22,13 +22,13 @@
 
 ## Acceptance criteria
 
-- [ ] `run log` streams a run owned by a non-invoking live daemon (owner reached via discovery); a new `run.test.ts` test asserts the streamed records and fails against the current single-socket path.
-- [ ] `run wait` resolves a run owned by a non-invoking live daemon; a new `run.test.ts` test asserts the completion payload/exit code and fails against the current single-socket path.
-- [ ] When only the invoking digest's daemon is live, existing `run.test.ts` `run log` and `run wait` tests stay green (solo output unchanged).
-- [ ] When no daemon is live at all, existing `run.test.ts` connection-error tests for `run log`/`run wait` stay green (errors unchanged).
-- [ ] When the run ID is on no queried daemon, the existing `run wait` `unknown_run` test (`"unknown_run: Run run-404 not found\n"`, exit 1) stays green and `run log` still exits 0.
-- [ ] Inverting the owner-resolution guard (always using `deps.socketPath` instead of the resolved owner) fails a `run log` test and a separate `run wait` test.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `run log` streams a run owned by a non-invoking live daemon (owner reached via discovery); a new `run.test.ts` test asserts the streamed records and fails against the current single-socket path.
+- [x] `run wait` resolves a run owned by a non-invoking live daemon; a new `run.test.ts` test asserts the completion payload/exit code and fails against the current single-socket path.
+- [x] When only the invoking digest's daemon is live, existing `run.test.ts` `run log` and `run wait` tests stay green (solo output unchanged).
+- [x] When no daemon is live at all, existing `run.test.ts` connection-error tests for `run log`/`run wait` stay green (errors unchanged).
+- [x] When the run ID is on no queried daemon, the existing `run wait` `unknown_run` test (`"unknown_run: Run run-404 not found\n"`, exit 1) stays green and `run log` still exits 0.
+- [x] Inverting the owner-resolution guard (always using `deps.socketPath` instead of the resolved owner) fails a `run log` test and a separate `run wait` test.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

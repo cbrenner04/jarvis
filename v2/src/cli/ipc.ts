@@ -47,10 +47,11 @@ export async function withRunClient(
   io: Io,
   deps: CliDeps,
   fn: (client: IpcClient) => Promise<number>,
+  socketPath: string = deps.socketPath,
 ): Promise<number> {
   let client: IpcClient | undefined;
   try {
-    client = await deps.connectIpcClient(deps.socketPath);
+    client = await deps.connectIpcClient(socketPath);
     return await fn(client);
   } catch (error) {
     io.stderr(formatConnectionError(error));

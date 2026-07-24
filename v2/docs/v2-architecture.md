@@ -270,7 +270,8 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a
   skipped without aborting the view. Steering RPCs (`pause` / `resume` / `kill`)
   route to the owning daemon. When no sockets are discovered, the monitor connects
   only to the invoking digest's socket and behaves as before (single-daemon view).
-  `jarvis run list` and `jarvis run wait` remain single-daemon. Optional workflow-step
+  `jarvis run list`, `jarvis run log`, and `jarvis run wait` resolve run owners
+  across live keyed daemons (same merge as `run list`). Optional workflow-step
   snapshots on `list` rows (see [`daemon-host.md`](./daemon-host.md#list));
   operator contract: [`write-behavior.md`](./write-behavior.md#tui-cli). Queued runs
   (`status: "queued"`) render under a separate "Queue" heading, oldest-queued-first,
@@ -337,8 +338,8 @@ Observability (log follow interface):
   `run_execution_failed` with a greater `seq`. Durable `runStatus` is re-read at
   resolve time. Already quiescent runs (`runStatus !== "in-progress"`) return
   immediately from durable state plus the last terminal log signal. Operator
-  CLI: `jarvis run wait <run-id>` invokes this RPC; see
-  [`write-behavior.md`](./write-behavior.md#wait-exit-codes).
+  CLI: `jarvis run wait <run-id>` invokes this RPC on the owning live daemon
+  (resolved like `run list`); see [`write-behavior.md`](./write-behavior.md#wait-exit-codes).
 - **Waiters are detached clients, not run owners.** Multiple waiters for the
   same run share one terminal fan-out and all receive the same payload at the
   terminal edge. Disconnecting one socket aborts only that waiter: the run and

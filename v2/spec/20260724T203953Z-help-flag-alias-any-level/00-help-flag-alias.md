@@ -26,24 +26,24 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis --help` and `jarvis -h` print the same stdout as `jarvis help` and exit 0.
-- [ ] `jarvis run workflow --help` prints the same stdout as `jarvis help run workflow` and exits 0,
+- [x] `jarvis --help` and `jarvis -h` print the same stdout as `jarvis help` and exit 0.
+- [x] `jarvis run workflow --help` prints the same stdout as `jarvis help run workflow` and exits 0,
       without any missing-flag validation error.
-- [ ] `jarvis tui log abc123 --help` prints the same stdout as `jarvis help tui log` and exits 0
+- [x] `jarvis tui log abc123 --help` prints the same stdout as `jarvis help tui log` and exits 0
       (positional after a command).
-- [ ] `jarvis run workflow intent-reviewed --help` renders the nearest ancestor's help
+- [x] `jarvis run workflow intent-reviewed --help` renders the nearest ancestor's help
       (`jarvis help run workflow`) and exits 0 rather than erroring (untreed alias).
-- [ ] `run workflow intent --seed-text "<prose containing --help>"` still runs the command; no help
+- [x] `run workflow intent --seed-text "<prose containing --help>"` still runs the command; no help
       is rendered.
-- [ ] `jarvis --version` alone still prints the version and exits 0 after the intercept is inserted.
-- [ ] `jarvis nope --help` prints the unknown-segment error to stderr, nothing to stdout, exit 1.
-- [ ] A new test in `v2/src/cli.test.ts` walks the nodes of `commandTree` and asserts the
+- [x] `jarvis --version` alone still prints the version and exits 0 after the intercept is inserted.
+- [x] `jarvis nope --help` prints the unknown-segment error to stderr, nothing to stdout, exit 1.
+- [x] A new test in `v2/src/cli.test.ts` walks the nodes of `commandTree` and asserts the
       `<path…> --help` and `<path…> -h` output equals the `help <path…>` output; it fails against
       the pre-fix code.
-- [ ] Inverting each guard this change adds fails at least one test: dropping the `--help`/`-h`
+- [x] Inverting each guard this change adds fails at least one test: dropping the `--help`/`-h`
       token detection, dropping the first-`-`-prefixed-token restriction, and dropping the
       longest-resolvable-prefix truncation each turn a test red.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

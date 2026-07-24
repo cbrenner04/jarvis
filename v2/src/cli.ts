@@ -70,6 +70,21 @@ function renderHelp(out: Io, path: readonly string[]): number {
   return 1;
 }
 
+export function resolveHelpFlagAlias(argv: readonly string[]): readonly string[] | undefined {
+  const dashIndex = argv.findIndex((token) => token.startsWith("-"));
+  if (dashIndex === -1) return undefined;
+
+  const flag = argv[dashIndex];
+  if (flag !== "--help" && flag !== "-h") return undefined;
+
+  const candidate = argv.slice(0, dashIndex).filter((token) => !token.startsWith("-"));
+  if (candidate.length === 0) return [];
+
+  const unknown = findUnknownSegment(commandTree, candidate);
+  if (unknown === undefined || unknown.pathSoFar.length === 0) return candidate;
+  return unknown.pathSoFar;
+}
+
 /** Composes a registry entry from its command-tree node plus its handler, so name, summary, and
  * usage have a single home. A registered name absent from the tree is a build-time error. */
 function commandEntry(name: string, handler: CommandHandler): CommandEntry {
@@ -116,6 +131,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   if (argv.length === 1 && command === "--version") {
     out.stdout(`${packageJson.version}\n`);
     return 0;
+  }
+
+  const helpAliasPath = resolveHelpFlagAlias(argv);
+  if (helpAliasPath !== undefined) {
+    return renderHelp(out, helpAliasPath);
   }
 
   if (command === undefined) {

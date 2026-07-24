@@ -1,17 +1,16 @@
 import packageJson from "../../package.json";
+import {
+  commandTree,
+  findUnknownSegment,
+  levenshteinDistance,
+  renderHelpNode,
+  renderUnknownSegmentError,
+} from "./cli/command-tree.ts";
 import type { CliDeps } from "./cli/deps.ts";
 import { createRuntimeDeps } from "./cli/deps.ts";
 import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
-import {
-  CLEANUP_USAGE,
-  CONFIG_USAGE,
-  DAEMON_USAGE,
-  HELP_USAGE,
-  RUN_USAGE,
-  TUI_USAGE,
-  WRITE_USAGE,
-} from "./cli/usage.ts";
+import { WRITE_USAGE } from "./cli/usage.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
@@ -57,39 +56,36 @@ async function runWriteCommand(
   return exitCodeForWriteResult(loopResult.kind);
 }
 
-function renderHelp(out: Io): number {
-  out.stdout(
-    `${enumerateCommands()
-      .map(({ name, summary }) => `${name}\t${summary}`)
-      .join("\n")}\n`,
-  );
-  return 0;
+function renderHelp(out: Io, path: readonly string[]): number {
+  const rendered = renderHelpNode(commandTree, path);
+  if (rendered !== undefined) {
+    out.stdout(rendered);
+    return 0;
+  }
+
+  const unknown = findUnknownSegment(commandTree, path);
+  if (unknown !== undefined) {
+    out.stderr(renderUnknownSegmentError(unknown.segment, unknown.pathSoFar, unknown.siblings));
+  }
+  return 1;
+}
+
+/** Composes a registry entry from its command-tree node plus its handler, so name, summary, and
+ * usage have a single home. A registered name absent from the tree is a build-time error. */
+function commandEntry(name: string, handler: CommandHandler): CommandEntry {
+  const node = commandTree.subcommands?.find((sub) => sub.name === name);
+  if (node?.usage === undefined) throw new Error(`command tree is missing a usage line for \`${name}\``);
+  return { name, summary: node.summary, usage: node.usage, handler };
 }
 
 const commandEntries: readonly CommandEntry[] = [
-  { name: "write", summary: "Run an in-process write loop.", usage: WRITE_USAGE, handler: runWriteCommand },
-  { name: "daemon", summary: "Manage the background daemon.", usage: DAEMON_USAGE, handler: runDaemonCommand },
-  { name: "config", summary: "Show or update machine configuration.", usage: CONFIG_USAGE, handler: runConfigCommand },
-  { name: "run", summary: "Manage daemon-backed runs.", usage: RUN_USAGE, handler: runRunCommand },
-  { name: "tui", summary: "Open the interactive run monitor.", usage: TUI_USAGE, handler: runTuiCommand },
-  {
-    name: "cleanup",
-    summary: "Retire completed worktrees and specs.",
-    usage: CLEANUP_USAGE,
-    handler: runCleanupCliCommand,
-  },
-  {
-    name: "help",
-    summary: "List top-level commands.",
-    usage: HELP_USAGE,
-    handler: (argv, io) => {
-      if (argv.length !== 0) {
-        io.stderr(HELP_USAGE);
-        return Promise.resolve(1);
-      }
-      return Promise.resolve(renderHelp(io));
-    },
-  },
+  commandEntry("write", runWriteCommand),
+  commandEntry("daemon", runDaemonCommand),
+  commandEntry("config", runConfigCommand),
+  commandEntry("run", runRunCommand),
+  commandEntry("tui", runTuiCommand),
+  commandEntry("cleanup", runCleanupCliCommand),
+  commandEntry("help", (argv, io) => Promise.resolve(renderHelp(io, argv))),
 ];
 
 /** The single source of truth for top-level command dispatch and discovery. */
@@ -99,28 +95,6 @@ export function enumerateCommands(): readonly CommandEntry[] {
 
 export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
-}
-
-function levenshteinDistance(left: string, right: string): number {
-  const leftCharacters = Array.from(left);
-  const rightCharacters = Array.from(right);
-  let previous = Array.from({ length: rightCharacters.length + 1 }, (_, index) => index);
-
-  for (let leftIndex = 1; leftIndex <= leftCharacters.length; leftIndex += 1) {
-    const current = [leftIndex];
-    for (let rightIndex = 1; rightIndex <= rightCharacters.length; rightIndex += 1) {
-      current.push(
-        Math.min(
-          (current[rightIndex - 1] ?? 0) + 1,
-          (previous[rightIndex] ?? 0) + 1,
-          (previous[rightIndex - 1] ?? 0) + Number(leftCharacters[leftIndex - 1] !== rightCharacters[rightIndex - 1]),
-        ),
-      );
-    }
-    previous = current;
-  }
-
-  return previous[rightCharacters.length] ?? 0;
 }
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {

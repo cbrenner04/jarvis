@@ -60,50 +60,50 @@ usage string per command and no subcommand structure.
 
 ## Acceptance criteria
 
-- [ ] `jarvis help run` prints `usage: jarvis run <start|list|log|pause|resume|kill|wait|workflow> [args]`
+- [x] `jarvis help run` prints `usage: jarvis run <start|list|log|pause|resume|kill|wait|workflow> [args]`
       followed by one `name<TAB>summary` line for each of `start`, `list`, `log`, `pause`,
       `resume`, `kill`, `wait`, `workflow`, and exits 0.
-- [ ] `jarvis help run workflow` lists `intent`, `plan`, and `implement` with summaries and exits 0.
-- [ ] `jarvis help daemon`, `jarvis help config`, and `jarvis help tui` each print their usage
+- [x] `jarvis help run workflow` lists `intent`, `plan`, and `implement` with summaries and exits 0.
+- [x] `jarvis help daemon`, `jarvis help config`, and `jarvis help tui` each print their usage
       line plus one line per tree child (`start|stop|status|log`, `show|path|set-agents`, `log`)
       and exit 0.
-- [ ] `jarvis help run pause` prints `RUN_USAGE` alone (ancestor fallback, no child lines) and
+- [x] `jarvis help run pause` prints `RUN_USAGE` alone (ancestor fallback, no child lines) and
       exits 0; `jarvis help run start` prints `WRITE_USAGE`; `jarvis help run workflow intent`
       prints `WORKFLOW_INTENT_USAGE`.
-- [ ] `jarvis help write` prints the `write` usage line with no subcommand lines and exits 0.
-- [ ] Top-level `jarvis help` keeps its current shape and command ordering — one
+- [x] `jarvis help write` prints the `write` usage line with no subcommand lines and exits 0.
+- [x] Top-level `jarvis help` keeps its current shape and command ordering — one
       `name<TAB>summary` line per registered command — with `help`'s summary updated to describe
       subcommand help.
-- [ ] `jarvis help nope`, `jarvis help run nope`, and `jarvis help write nope` (a segment past a
+- [x] `jarvis help nope`, `jarvis help run nope`, and `jarvis help write nope` (a segment past a
       leaf) write nothing to stdout, name the unknown input, and exit 1; `jarvis help nope` emits
       today's depth-0 trailer verbatim while `jarvis help run nope` emits
       ``run `jarvis help run` for available commands``.
-- [ ] `jarvis help ren` and `jarvis help run strt` each additionally emit the single
+- [x] `jarvis help ren` and `jarvis help run strt` each additionally emit the single
       `did you mean` line.
-- [ ] `jarvis help --version` no longer prints `usage: jarvis help`; it is an unknown segment —
+- [x] `jarvis help --version` no longer prints `usage: jarvis help`; it is an unknown segment —
       `unknown command: --version`, no suggestion, depth-0 trailer, exit 1.
-- [ ] The `cli.test.ts` cases `help %p prints help usage and exits non-zero` (`foo`, `--version`)
+- [x] The `cli.test.ts` cases `help %p prints help usage and exits non-zero` (`foo`, `--version`)
       are rewritten to the unknown-segment shape above, and its `unknownCommandError` helper
       takes a path argument for the depth-aware trailer.
-- [ ] New `v2/src/cli.test.ts` cases covering `help run`, `help run workflow`, `help run pause`,
+- [x] New `v2/src/cli.test.ts` cases covering `help run`, `help run workflow`, `help run pause`,
       and `help run nope` fail against pre-change code (which exits 1 with `usage: jarvis help`)
       and pass after.
-- [ ] A dispatch-coverage test drives every tree path through `main()` with stubbed `CliDeps`
+- [x] A dispatch-coverage test drives every tree path through `main()` with stubbed `CliDeps`
       and a minimally valid argument shape, asserting none produces its parent's
       unknown-subcommand usage-and-exit-1 output; it fails when a name is added to the tree
       that no dispatcher accepts.
-- [ ] `jarvis run workflow intent-reviewed|plan-reviewed|plan-reviewed-light` still dispatch —
+- [x] `jarvis run workflow intent-reviewed|plan-reviewed|plan-reviewed-light` still dispatch —
       `workflow.test.ts` legacy-alias cases stay green — while
       `jarvis help run workflow intent-reviewed` exits 1 as an unknown segment.
-- [ ] Bare `jarvis tui` still launches the run monitor and bare `jarvis run`/`daemon`/`config`
+- [x] Bare `jarvis tui` still launches the run monitor and bare `jarvis run`/`daemon`/`config`
       still exit 1 with usage: `tui.test.ts`, `run.test.ts`, `daemon.test.ts`, and
       `config.test.ts` stay green (no dispatcher behavior changed).
-- [ ] Inverting the did-you-mean guard (emit the suggestion when the close-match count is not
+- [x] Inverting the did-you-mean guard (emit the suggestion when the close-match count is not
       exactly one) fails a test that asserts no suggestion line for an input with zero or
       multiple close siblings.
-- [ ] Inverting the leaf-vs-parent render guard (print child lines for a leaf, or omit them for a
+- [x] Inverting the leaf-vs-parent render guard (print child lines for a leaf, or omit them for a
       parent) fails the `help write` and `help run` cases above.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

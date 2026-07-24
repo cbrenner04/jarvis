@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Command registry carries a subcommand tree that `jarvis help` walks](./00-help-walks-subcommand-tree.md)
+- [x] [00 - Command registry carries a subcommand tree that `jarvis help` walks](./00-help-walks-subcommand-tree.md)

@@ -20,6 +20,7 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
 
 let fx: CliRepoFixture;
 
@@ -44,11 +45,11 @@ const IMPLEMENT_ARGS = [
 ] as const;
 
 const IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty]\n";
 const INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
 const PLAN_USAGE =
-  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty]\n";
 
 const REJECT_BASE_ARGS = {
   implement: IMPLEMENT_ARGS,
@@ -891,10 +892,52 @@ describe("implement preflight stale workspace reset", () => {
     const { stderr } = cap.read();
     expect(stderr).toContain("Cannot re-run incomplete spec:");
     expect(stderr).toContain(dirtyFile);
+    expect(stderr).toContain("commit");
+    expect(stderr).toContain("discard");
+    expect(stderr).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
     expect(stderr).toContain("jarvis cleanup --abandon");
     expect(teardownCalls).toEqual([]);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow implement resets stale dirty worktree when override switch is set", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    writeFileSync(join(worktreePath, "agent-leftover.txt"), "uncommitted\n", "utf8");
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          STALE_RESET_OVERRIDE_CLI_FLAG,
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([55]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+    expect(sent).toHaveLength(2);
   });
 
   test("run workflow implement performs no reset teardown on a fresh run", async () => {

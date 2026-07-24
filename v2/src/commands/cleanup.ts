@@ -707,7 +707,10 @@ export type DirtyWorktreeListResult =
   | { status: "dirty"; paths: string[] }
   | { status: "error"; message: string };
 
-const staleResetDirtyRecovery = "commit, discard local changes, or run `jarvis cleanup --abandon <branch>`";
+export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
+
+const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
+const staleResetListingErrorRecovery = `commit, discard local changes, or run \`jarvis cleanup --abandon <branch>\``;
 
 export async function listDirtyWorktreePathsForStaleReset(
   worktreePath: string,
@@ -732,21 +735,21 @@ export async function listDirtyWorktreePathsForStaleReset(
 
 export function staleResetDirtyWorktreeGateReason(
   listResult: DirtyWorktreeListResult,
-  enabled = true,
+  skipDirtyWorktreeGate = false,
 ): string | undefined {
-  if (!enabled) return undefined;
   if (listResult.status === "dirty") {
+    if (skipDirtyWorktreeGate) return undefined;
     const pathDetail = listResult.paths.length > 0 ? listResult.paths.join(", ") : "unparseable git status output";
     return `worktree has uncommitted changes (${pathDetail}); ${staleResetDirtyRecovery} to retire the workspace, then re-run`;
   }
   if (listResult.status === "error") {
-    return `could not list worktree changes (${listResult.message}); ${staleResetDirtyRecovery} before re-running`;
+    return `could not list worktree changes (${listResult.message}); ${staleResetListingErrorRecovery} before re-running`;
   }
   return undefined;
 }
 
 export type ResetStaleWorkspaceOptions = {
-  enforceDirtyWorktreeGate?: boolean;
+  skipDirtyWorktreeGate?: boolean;
 };
 
 export async function resetStaleWorkspace(
@@ -772,7 +775,7 @@ export async function resetStaleWorkspace(
   if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
 
   const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
-  const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.enforceDirtyWorktreeGate !== false);
+  const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.skipDirtyWorktreeGate === true);
   if (dirtyReason !== undefined) return { status: "refused", reason: dirtyReason };
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);

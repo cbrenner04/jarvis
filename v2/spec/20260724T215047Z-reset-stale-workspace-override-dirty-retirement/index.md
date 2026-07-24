@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Dirty-worktree override on incomplete re-run stale reset](./00-dirty-worktree-override-on-incomplete-rerun.md)
+- [x] [00 - Dirty-worktree override on incomplete re-run stale reset](./00-dirty-worktree-override-on-incomplete-rerun.md)

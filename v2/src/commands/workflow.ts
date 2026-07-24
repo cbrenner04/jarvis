@@ -51,7 +51,10 @@ function buildWorkflowBuilderInput(
   deps: CliDeps,
 ): { ok: true; input: WorkflowPresetBuilderInput } | { ok: false } {
   if (name === "implement") {
-    const { ok: _ok, ...launchInput } = parsed as Extract<ImplementWorkflowCliInput, { ok: true }>;
+    const { ok: _ok, resetDespiteDirty: _resetDespiteDirty, ...launchInput } = parsed as Extract<
+      ImplementWorkflowCliInput,
+      { ok: true }
+    >;
     return {
       ok: true,
       input: {
@@ -62,17 +65,24 @@ function buildWorkflowBuilderInput(
       },
     };
   }
-  const parsedRecord = parsed as Record<string, unknown>;
-  if (isIntentPreset || isPlanPreset) {
+  if (isPlanPreset) {
+    const { ok: _ok, resetDespiteDirty: _resetDespiteDirty, ...launchInput } = parsed as Extract<
+      PlanWorkflowCliInput,
+      { ok: true }
+    >;
     return {
       ok: true,
-      input: { cwd: deps.cwd(), ...parsedRecord, configPath: deps.machineConfigPath } as WorkflowPresetBuilderInput,
+      input: { cwd: deps.cwd(), ...launchInput, configPath: deps.machineConfigPath } as WorkflowPresetBuilderInput,
     };
   }
-  return {
-    ok: true,
-    input: { cwd: deps.cwd(), ...parsedRecord } as WorkflowPresetBuilderInput,
-  };
+  if (isIntentPreset) {
+    const { ok: _ok, ...launchInput } = parsed as Extract<IntentWorkflowCliInput, { ok: true }>;
+    return {
+      ok: true,
+      input: { cwd: deps.cwd(), ...launchInput, configPath: deps.machineConfigPath } as WorkflowPresetBuilderInput,
+    };
+  }
+  return { ok: false };
 }
 
 type ResolvedWorkflowPreset = {
@@ -137,9 +147,11 @@ async function maybeResetStaleWorkspace(
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
+  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
   onDestroyed?: (destroyed: DestroyedArtifacts) => void,
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
+  const skipDirtyWorktreeGate = "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
@@ -157,6 +169,7 @@ async function maybeResetStaleWorkspace(
       deps.subprocessRunner ?? realAsyncSubprocessRunner,
       async () => [],
       io,
+      { skipDirtyWorktreeGate },
     );
   } catch (error) {
     io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -236,7 +249,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   if (!prepared.ok) return 1;
   let destroyedArtifacts: DestroyedArtifacts | undefined;
   const exitCode = await withConnectDispatch(io, deps, async (client) => {
-    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io, (destroyed) => {
+    const resetExitCode = await maybeResetStaleWorkspace(canonicalName, prepared.built, deps, io, parsed, (destroyed) => {
       destroyedArtifacts = destroyed;
     });
     if (resetExitCode !== undefined) return resetExitCode;

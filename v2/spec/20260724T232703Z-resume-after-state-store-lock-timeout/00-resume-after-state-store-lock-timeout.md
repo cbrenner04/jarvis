@@ -20,12 +20,12 @@ A store write that still throws `database is locked` (including after `busy_time
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` (or a sibling daemon regression beside the other post-completion failure cases) contends the store past `busy_timeout` after a committed write-loop boundary and asserts `list` / `wait` report `error.reason: "state_store_lock_timeout"`, `retryable: true`, and `nextAction: "resume"` instead of `harness_failure` / `stop`; it fails against the pre-fix code.
-- [ ] The same regression asserts the completion boundary and the git commit from the finished write step remain intact after the failure settles.
-- [ ] `v2/src/daemon/daemon-resume.test.ts` accepts the failed row via `resume` and continues without re-invoking the completed write step; it fails against the pre-fix code.
-- [ ] Inverting the lock-timeout classifier (or equivalent guard) on the contended post-boundary fixture restores `harness_failure` / `stop`; a non-lock `run_execution_failed` control stays `harness_failure` / `stop`, and inverting that refusal fails too.
-- [ ] `composeRunOperatorError` / resume-admission coverage includes `state_store_lock_timeout` with `nextAction: "resume"` so derived admission does not refuse `terminal_run`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` (or a sibling daemon regression beside the other post-completion failure cases) contends the store past `busy_timeout` after a committed write-loop boundary and asserts `list` / `wait` report `error.reason: "state_store_lock_timeout"`, `retryable: true`, and `nextAction: "resume"` instead of `harness_failure` / `stop`; it fails against the pre-fix code.
+- [x] The same regression asserts the completion boundary and the git commit from the finished write step remain intact after the failure settles.
+- [x] `v2/src/daemon/daemon-resume.test.ts` accepts the failed row via `resume` and continues without re-invoking the completed write step; it fails against the pre-fix code.
+- [x] Inverting the lock-timeout classifier (or equivalent guard) on the contended post-boundary fixture restores `harness_failure` / `stop`; a non-lock `run_execution_failed` control stays `harness_failure` / `stop`, and inverting that refusal fails too.
+- [x] `composeRunOperatorError` / resume-admission coverage includes `state_store_lock_timeout` with `nextAction: "resume"` so derived admission does not refuse `terminal_run`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

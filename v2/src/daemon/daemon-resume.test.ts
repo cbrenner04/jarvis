@@ -66,6 +66,20 @@ function loopFinishedLogReader(runId: string, event: Omit<LoopFinishedEvent, "ki
   };
 }
 
+function runExecutionFailedLogReader(runId: string, message: string): LogReader {
+  return {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: { kind: "run_execution_failed", message },
+      },
+    ],
+    async *follow() {},
+  };
+}
+
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   codex: {
     implement: {
@@ -355,6 +369,20 @@ test("resume rejects terminal run status without landing failure", async () => {
   }
 });
 
+test("resume after post-boundary store lock timeout keeps committed write boundary", async () => {
+  const runId = createWorkflowRun({ invocationId: "store-lock-resume" });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "completed", outcomeKind: "done" });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader = runExecutionFailedLogReader(runId, "database is locked");
+  const localHandlers = createHandlers(logReader);
+  expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+  expect(fakeExecutor.pendingCount()).toBe(1);
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  expect(stateStore.loadRun(runId)?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(true);
+});
+
 // Guard: every reason that composes nextAction: "resume" is admitted by resume.
 test.each([
   { invocationId: "paused", status: "paused" as const, logOutcome: undefined },
@@ -385,6 +413,12 @@ test.each([
   },
   { invocationId: "invalid-token", status: "failed" as const, logOutcome: undefined, withInvalidToken: true },
   { invocationId: "missing-blocker", status: "blocked" as const, logOutcome: undefined, withMissingBlocker: true },
+  {
+    invocationId: "store-lock-timeout",
+    status: "failed" as const,
+    logOutcome: undefined,
+    withStoreLockFailure: true,
+  },
 ] as const)("resume admits $invocationId reason (composes nextAction: resume)", async (config) => {
   const runId = createWorkflowRun({ invocationId: config.invocationId });
   stateStore.setRunStatus(runId, config.status);
@@ -417,6 +451,14 @@ test.each([
       runStatus: "blocked",
       outcomeKind: "missing_blocker",
     });
+  } else if ("withStoreLockFailure" in config && config.withStoreLockFailure) {
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+    });
+    logReader = runExecutionFailedLogReader(runId, "database is locked");
   } else if (config.logOutcome !== undefined) {
     const loopEvent: Omit<LoopFinishedEvent, "kind"> & {
       survivingMutation?: string;

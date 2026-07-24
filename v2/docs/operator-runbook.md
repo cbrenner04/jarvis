@@ -520,6 +520,13 @@ Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_fai
 `jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot before replaying
 publication without re-invoking the write-step agent; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
+**Store lock after a completed write step:** when `list` / `wait` report
+`error.reason: "state_store_lock_timeout"` (`retryable: true`, `nextAction: "resume"`)
+after the write loop already committed its `done` boundary, run
+`jarvis run resume <run-id>`. The finished write step is not re-run; resume continues
+from the persisted checkpoint. This differs from generic `harness_failure` on
+message-less `run_execution_failed` records.
+
 **`ready_flip_failed` is terminal** — do not resume. The flip error identifies the PR by number (`error.prNumber`); inspect and manually fix the PR draft → ready transition. The fix does not require a daemon restart or `jarvis run resume`. The PR number is also available via `jarvis run list <run-id>` as the `readyFlipPrNumber` field; use it to identify the PR to fix. After manual fix, verify `gh pr view <prNumber> --json isDraft` reports `false`, then proceed with the next workflow step or close the run.
 
 ### Intent-reviewed operator checkout

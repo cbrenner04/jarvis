@@ -8,7 +8,7 @@ import type {
   RunOperatorNextAction,
   TerminalLogRecord,
 } from "./run-operator-error.ts";
-import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
+import { composeRunOperatorError, findTerminalLogRecord, isPostBoundaryStateStoreLockTimeout } from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
   return { status, attempts };
@@ -38,12 +38,12 @@ function loopFinished(
   };
 }
 
-function runExecutionFailed(seq = 2): TerminalLogRecord {
+function runExecutionFailed(seq = 2, message?: string): TerminalLogRecord {
   return {
     runId: "run-1",
     seq,
     ts: "2026-01-01T00:00:00.000Z",
-    event: { kind: "run_execution_failed" },
+    event: { kind: "run_execution_failed", ...(message !== undefined ? { message } : {}) },
   };
 }
 
@@ -253,4 +253,44 @@ test("composeRunOperatorError returns harness_failure after budget-soft-stopped 
 
 test("composeRunOperatorError surfaces run_execution_failed trailing a completed run", () => {
   expect(composeRunOperatorError(runWith("completed"), runExecutionFailed())).toEqual(err("harness_failure", "stop"));
+});
+
+test("composeRunOperatorError maps post-boundary database lock to state_store_lock_timeout", () => {
+  const run = runWith("failed", [attempt("done")]);
+  const terminal = runExecutionFailed(2, "SQLiteError: database is locked");
+  expect(composeRunOperatorError(run, terminal)).toEqual(err("state_store_lock_timeout", "resume", true));
+  expect(composeRunOperatorError(runWith("completed", [attempt("done")]), terminal)).toEqual(
+    err("state_store_lock_timeout", "resume", true),
+  );
+});
+
+test("composeRunOperatorError keeps harness_failure for message-less run_execution_failed after committed done boundary", () => {
+  const terminal = runExecutionFailed(2);
+  const expected = err("harness_failure", "stop");
+  expect(composeRunOperatorError(runWith("failed", [attempt("done")]), terminal)).toEqual(expected);
+  expect(composeRunOperatorError(runWith("completed", [attempt("done")]), terminal)).toEqual(expected);
+});
+
+test("composeRunOperatorError keeps harness_failure for lock message without done boundary", () => {
+  const terminal = runExecutionFailed(2, "database is locked");
+  expect(composeRunOperatorError(runWith("failed"), terminal)).toEqual(err("harness_failure", "stop"));
+});
+
+test("post-boundary lock classifier guard inversion", () => {
+  const run = runWith("failed", [attempt("done")]);
+  const lockTerminal = runExecutionFailed(2, "database is locked");
+  const controlTerminal = runExecutionFailed(2, "recordAttemptStart boom");
+  const classify = (terminal: TerminalLogRecord) =>
+    isPostBoundaryStateStoreLockTimeout(terminal, run)
+      ? err("state_store_lock_timeout", "resume", true)
+      : err("harness_failure", "stop");
+  const inverted = (terminal: TerminalLogRecord) =>
+    !isPostBoundaryStateStoreLockTimeout(terminal, run)
+      ? err("state_store_lock_timeout", "resume", true)
+      : err("harness_failure", "stop");
+
+  expect(classify(lockTerminal)).toEqual(err("state_store_lock_timeout", "resume", true));
+  expect(classify(controlTerminal)).toEqual(err("harness_failure", "stop"));
+  expect(inverted(lockTerminal)).toEqual(err("harness_failure", "stop"));
+  expect(inverted(controlTerminal)).toEqual(err("state_store_lock_timeout", "resume", true));
 });

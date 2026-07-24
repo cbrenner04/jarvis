@@ -1,13 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import {
+  CLEANUP_HELP_FLAGS,
+  DAEMON_LOG_HELP_FLAGS,
+  RUN_LIST_HELP_FLAGS,
+  WORKFLOW_IMPLEMENT_HELP_FLAGS,
+  WORKFLOW_INTENT_HELP_FLAGS,
+  WORKFLOW_PLAN_HELP_FLAGS,
+  WRITE_HELP_FLAGS,
+} from "./cli/command-help-flags.ts";
 import type { CommandNode } from "./cli/command-tree.ts";
-import { commandTree, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
+import { commandTree, formatCommandFlagHelpLine, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
 import {
   CLEANUP_USAGE,
   CONFIG_USAGE,
+  DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
+  RUN_LIST_USAGE,
   RUN_USAGE,
   TUI_USAGE,
+  WORKFLOW_IMPLEMENT_USAGE,
+  WORKFLOW_INTENT_USAGE,
+  WORKFLOW_PLAN_USAGE,
   WORKFLOW_USAGE,
   WRITE_USAGE,
 } from "./cli/usage.ts";
@@ -15,6 +29,17 @@ import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
+
+function helpStdoutWithFlags(
+  usage: string,
+  flags: readonly { name: string; argumentShape: string; description: string }[],
+): string {
+  let output = usage;
+  for (const flag of flags) {
+    output += `${formatCommandFlagHelpLine(flag)}\n`;
+  }
+  return output;
+}
 
 function unknownCommandError(command: string, suggestion?: string, path?: readonly string[]): string {
   const trailer =
@@ -153,6 +178,62 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stdout).toContain("usage: jarvis run workflow intent");
   });
 
+  describe("command help lists registered flags", () => {
+    const cases = [
+      ["write", ["help", "write"], WRITE_USAGE, WRITE_HELP_FLAGS],
+      ["run start", ["help", "run", "start"], WRITE_USAGE, WRITE_HELP_FLAGS],
+      ["cleanup", ["help", "cleanup"], CLEANUP_USAGE, CLEANUP_HELP_FLAGS],
+      ["run list", ["help", "run", "list"], RUN_LIST_USAGE, RUN_LIST_HELP_FLAGS],
+      ["daemon log", ["help", "daemon", "log"], DAEMON_LOG_USAGE, DAEMON_LOG_HELP_FLAGS],
+    ] as const;
+
+    for (const [label, argv, usage, flags] of cases) {
+      test(`help ${label} lists every parser flag`, async () => {
+        const cap = captureIo();
+
+        const code = await main([...argv], cap.io);
+        const { stdout, stderr } = cap.read();
+
+        expect(code).toBe(0);
+        expect(stderr).toBe("");
+        expect(stdout).toBe(helpStdoutWithFlags(usage, flags));
+      });
+    }
+
+    test("help run start flag lines match help write", async () => {
+      const writeCap = captureIo();
+      await main(["help", "write"], writeCap.io);
+      const writeStdout = writeCap.read().stdout;
+
+      const startCap = captureIo();
+      await main(["help", "run", "start"], startCap.io);
+      const startStdout = startCap.read().stdout;
+
+      expect(startStdout.replace(WRITE_USAGE, "")).toBe(writeStdout.replace(WRITE_USAGE, ""));
+    });
+  });
+
+  describe("workflow preset help lists registered flags", () => {
+    const cases = [
+      ["intent", ["help", "run", "workflow", "intent"], WORKFLOW_INTENT_USAGE, WORKFLOW_INTENT_HELP_FLAGS],
+      ["plan", ["help", "run", "workflow", "plan"], WORKFLOW_PLAN_USAGE, WORKFLOW_PLAN_HELP_FLAGS],
+      ["implement", ["help", "run", "workflow", "implement"], WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_IMPLEMENT_HELP_FLAGS],
+    ] as const;
+
+    for (const [preset, argv, usage, flags] of cases) {
+      test(`help run workflow ${preset} lists every parser flag`, async () => {
+        const cap = captureIo();
+
+        const code = await main([...argv], cap.io);
+        const { stdout, stderr } = cap.read();
+
+        expect(code).toBe(0);
+        expect(stderr).toBe("");
+        expect(stdout).toBe(helpStdoutWithFlags(usage, flags));
+      });
+    }
+  });
+
   test("help daemon lists subcommands", async () => {
     const cap = captureIo();
 
@@ -198,17 +279,6 @@ describe("v2 cli dispatch", () => {
     const output = cap.read().stdout;
     expect(output).toContain("usage: jarvis tui");
     expect(output).toContain("log\tStream run logs in interactive view.");
-  });
-
-  test("help write prints usage with no subcommand lines", async () => {
-    const cap = captureIo();
-
-    const code = await main(["help", "write"], cap.io);
-
-    expect(code).toBe(0);
-    expect(cap.read().stdout).toBe(
-      "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n",
-    );
   });
 
   test("help nope is unknown at depth 0", async () => {
@@ -312,6 +382,14 @@ describe("v2 cli dispatch", () => {
     expect(renderHelpNode(synthetic, ["outer"])).toBe("usage: root\ninner\tInner node.\n");
     expect(renderHelpNode(synthetic, ["outer", "inner"])).toBe("usage: root\n");
     expect(renderHelpNode(synthetic, ["outer", "nope"])).toBeUndefined();
+
+    const withFlags: CommandNode = {
+      name: "leaf",
+      summary: "Leaf.",
+      usage: "usage: leaf\n",
+      flags: [{ name: "--foo", argumentShape: "<bar>", description: "Foo flag." }],
+    };
+    expect(renderHelpNode(withFlags, [])).toBe("usage: leaf\n--foo\t<bar>\tFoo flag.\n");
   });
 
   test("the command registry and the command tree agree on the top-level commands", () => {

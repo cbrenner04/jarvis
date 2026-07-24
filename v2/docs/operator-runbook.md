@@ -213,11 +213,16 @@ first failing step. First runs with no existing worktree skip this path.
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
 - **Pre-mutation refusal** — nothing was touched. Raised when the workspace is
-  live-held, the matching PR is ready (non-draft), or multiple open PRs match the
-  branch; stderr names the blocking state. Recovery: end the live run or wait for
-  its lock to clear; mark the PR draft again or merge it; or close duplicate PRs
-  until exactly one open draft remains, then re-run. Manual fallback: `jarvis
-  cleanup --abandon <branch>` when guards pass.
+  live-held, the matching PR is ready (non-draft), multiple open PRs match the
+  branch, or the materialized worktree has uncommitted tracked or untracked paths;
+  stderr names the blocking state (for a dirty worktree, paths and recovery:
+  commit, discard local changes, or `jarvis cleanup --abandon <branch>`). The
+  same dirty-worktree gate applies to incomplete git-enabled `jarvis run workflow
+  plan` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
+  run or wait for its lock to clear; mark the PR draft again or merge it; close
+  duplicate PRs until exactly one open draft remains; or clean the worktree as
+  named in the refusal, then re-run. Manual fallback: `jarvis cleanup --abandon
+  <branch>` when guards pass.
 - **Partial teardown** — stderr reads `retirement failed at <step>; <what
   remains>`. Local artifacts may already be gone. Finish the teardown by hand (see
   [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) for the per-step remnants
@@ -254,13 +259,13 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 **Overlapping daemons after rebuild:** When the executable is rebuilt, a new daemon with a different digest starts and automatically sends `supersede` to every other keyed daemon socket (best-effort, fire-and-forget after the new daemon's server is listening). A superseded daemon continues answering on its socket but stops admitting new `start` and `resume` requests (rejected with code `daemon_superseded`). Runs launched by a superseded daemon remain in-progress until settled; once settled, the daemon disappears on its own as callers switch to the new keyed socket. No manual stop command is needed.
 
-**TUI cross-daemon observation:** `jarvis tui` and `jarvis tui log` are the primary observation surfaces for multiple daemon instances. When dispatch moves to a new digest (via recompiled executable), the TUI automatically discovers and displays runs from both the old (superseded) and new (superseding) daemons on its next refresh tick. No restart is required. Once the old daemon exits naturally, its runs are removed, and the monitor continues uninterrupted. `jarvis tui log <run-id>` auto-discovers the run's owner daemon across all live instances; when invoked, it discovers live sockets, queries each daemon's run list to locate the owning daemon (preferring live runs), and tails from that owner. `jarvis run list` queries every live keyed daemon under `JARVIS_HOME` and merges their run lists, deduping by run ID and preferring rows marked `isLive` by the owning daemon. A merge no longer blinds `run list` after digest transitions. `jarvis run wait` remains scoped to the invoking daemon.
+**TUI cross-daemon observation:** `jarvis tui` and `jarvis tui log` are the primary observation surfaces for multiple daemon instances. When dispatch moves to a new digest (via recompiled executable), the TUI automatically discovers and displays runs from both the old (superseded) and new (superseding) daemons on its next refresh tick. No restart is required. Once the old daemon exits naturally, its runs are removed, and the monitor continues uninterrupted. `jarvis tui log <run-id>` auto-discovers the run's owner daemon across all live instances; when invoked, it discovers live sockets, queries each daemon's run list to locate the owning daemon (preferring live runs), and tails from that owner. `jarvis run list` queries every live keyed daemon under `JARVIS_HOME` and merges their run lists, deduping by run ID and preferring rows marked `isLive` by the owning daemon. A merge no longer blinds `run list`, `run log`, or `run wait` after digest transitions.
 
 **Transport loss recovery in `jarvis tui log`:** When a mid-stream transport loss occurs (daemon restart, network hiccup), the tail automatically re-opens against the live owner socket and resumes from the last appended record sequence, avoiding duplicate output. Recovery is transparent—no operator action is required and no records are lost or duplicated. If reconnection attempts are exhausted (default: 5 retries with exponential backoff, 100 ms to 2 s), the session shows `tail_resume_exhausted` error feedback and exits with code 1. Operator quit during a retry wait returns cleanly with exit code 0.
 
 The invoking-socket client (the socket TUI connects to by default via `deps.socketPath`) is no longer exempt from eviction. When that connection's `list()` RPC fails, the stale client is closed and removed, allowing a fresh connection on the next refresh tick. This ensures that if the invoking daemon dies and a new daemon binds the same socket path, the TUI automatically reconnects to the new daemon's runs.
 
-Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` on the same daemon. Large filtered queries default to the **200** newest matches per keyed daemon `list` response before `jarvis run list` merges sockets; merged CLI output can exceed **200** when multiple live daemons each return matches. Pass `--limit 50` (for example) when you need fewer rows per daemon.
+Use `jarvis tui` for the live window. For terminal runs older than the default `run list` retention window, query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.); returned run IDs work with `run log` and `tui log` across live keyed daemons (each resolves the owner). Large filtered queries default to the **200** newest matches per keyed daemon `list` response before `jarvis run list` merges sockets; merged CLI output can exceed **200** when multiple live daemons each return matches. Pass `--limit 50` (for example) when you need fewer rows per daemon.
 
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
 

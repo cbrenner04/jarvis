@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
@@ -11,6 +11,7 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { setInvertRunOwnerResolutionForTest } from "./run.ts";
 
 let fx: CliRepoFixture;
 
@@ -23,6 +24,31 @@ afterAll(() => {
 });
 
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
+const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000002";
+const SOLO_LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
+
+afterEach(() => {
+  setInvertRunOwnerResolutionForTest(false);
+});
+
+function soloDaemonListRow(runId: string) {
+  return { runId, project: "demo", branch: "main", status: "completed", isLive: true };
+}
+
+function connectAfterSoloOwnerList(
+  listRequestId: string,
+  runs: Array<ReturnType<typeof soloDaemonListRow>>,
+  after: () => ReturnType<typeof makeIpcClient>,
+) {
+  let connectCount = 0;
+  return async () => {
+    connectCount += 1;
+    if (connectCount === 1) {
+      return makeIpcClient([{ kind: "response", id: listRequestId, result: { runs } }]);
+    }
+    return after();
+  };
+}
 
 function waitResponse(result: unknown): unknown {
   return { kind: "response", id: WAIT_REQUEST_ID, result };
@@ -37,10 +63,13 @@ async function runWait(
   runId: string,
   frames: unknown[],
   sent: unknown[] = [],
+  listRuns?: Array<ReturnType<typeof soloDaemonListRow>>,
 ): Promise<number> {
-  return withFixedUuid(WAIT_REQUEST_ID, () =>
+  const runs = listRuns ?? [soloDaemonListRow(runId)];
+  return withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, WAIT_REQUEST_ID], () =>
     main(["run", "wait", runId], cap.io, {
-      connectIpcClient: async () => makeIpcClient(frames, { sent }),
+      socketDiscovery: async () => [],
+      connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, runs, () => makeIpcClient(frames, { sent })),
     }),
   );
 }
@@ -388,9 +417,10 @@ describe("run control", () => {
       },
     ];
 
-    const code = await withFixedUuid(streamId, () =>
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
       main(["run", "log", "run-123"], cap.io, {
-        connectIpcClient: async () =>
+        socketDiscovery: async () => [],
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
           makeIpcClient(
             [
               { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
@@ -401,6 +431,7 @@ describe("run control", () => {
             ],
             { sent },
           ),
+        ),
       }),
     );
 
@@ -600,6 +631,247 @@ describe("run list multi-daemon", () => {
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("first error");
   });
+
+  const LIST_REQUEST_INVOKING = "00000000-0000-4000-8000-000000000030";
+  const LIST_REQUEST_OTHER = "00000000-0000-4000-8000-000000000031";
+  const STREAM_REQUEST_ID = "00000000-0000-4000-8000-000000000032";
+  const LIST_IDS: [string, string] = [LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER];
+
+  function runsForRemoteOwner(runId: string): RunsBySocket {
+    return {
+      [INVOKING_SOCKET]: [],
+      [OTHER_SOCKET]: [listRow(runId, "in-progress", true)],
+    };
+  }
+
+  function connectForTwoListsThen(
+    listIds: [string, string],
+    runsBySocket: RunsBySocket,
+    connectSockets: string[],
+    then: (socketPath: string) => ReturnType<typeof makeIpcClient> | Promise<ReturnType<typeof makeIpcClient>>,
+  ) {
+    let connectCount = 0;
+    return async (socketPath: string) => {
+      connectCount += 1;
+      connectSockets.push(socketPath);
+      const runs = runsBySocket[socketPath];
+      if (runs instanceof Error) throw runs;
+      if (runs === undefined) throw new Error(`unexpected socket: ${socketPath}`);
+      if (connectCount <= 2) {
+        const id = connectCount === 1 ? listIds[0] : listIds[1];
+        return makeIpcClient([{ kind: "response", id, result: { runs } }]);
+      }
+      return then(socketPath);
+    };
+  }
+
+  test("run log streams a run owned by a non-invoking live daemon", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectSockets: string[] = [];
+    const record = logRecord(1, "iteration_started");
+    record.runId = "remote-run";
+
+    const code = await withFixedUuid(
+      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
+      () =>
+        main(["run", "log", "remote-run"], cap.io, {
+          socketPath: INVOKING_SOCKET,
+          socketDiscovery: async () => [OTHER_SOCKET],
+          connectIpcClient: connectForTwoListsThen(
+            LIST_IDS,
+            runsForRemoteOwner("remote-run"),
+            connectSockets,
+            (socketPath) => {
+              if (socketPath !== OTHER_SOCKET) {
+                throw new Error(`stream must use owner socket, got ${socketPath}`);
+              }
+              return makeIpcClient(
+                [
+                  { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+                  { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+                ],
+                { sent },
+              );
+            },
+          ),
+        }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, OTHER_SOCKET]);
+    expect(sent).toEqual([
+      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "remote-run", afterSeq: 0 } },
+    ]);
+    expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
+  });
+
+  test("run log falls back to invoking socket when run is absent everywhere", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectSockets: string[] = [];
+    const emptyEverywhere: RunsBySocket = {
+      [INVOKING_SOCKET]: [],
+      [OTHER_SOCKET]: [],
+    };
+
+    const code = await withFixedUuid(
+      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
+      () =>
+        main(["run", "log", "run-404"], cap.io, {
+          socketPath: INVOKING_SOCKET,
+          socketDiscovery: async () => [OTHER_SOCKET],
+          connectIpcClient: connectForTwoListsThen(LIST_IDS, emptyEverywhere, connectSockets, (socketPath) => {
+            if (socketPath !== INVOKING_SOCKET) {
+              throw new Error(`stream must use invoking socket, got ${socketPath}`);
+            }
+            return makeIpcClient([{ kind: "stream-end", streamId: STREAM_REQUEST_ID }], { sent });
+          }),
+        }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, INVOKING_SOCKET]);
+    expect(sent).toEqual([
+      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "run-404", afterSeq: 0 } },
+    ]);
+    expect(cap.read().stdout).toBe("");
+  });
+
+  test("run wait resolves a run owned by a non-invoking live daemon", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const connectSockets: string[] = [];
+
+    const code = await withFixedUuid(
+      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, WAIT_REQUEST_ID],
+      () =>
+        main(["run", "wait", "remote-run"], cap.io, {
+          socketPath: INVOKING_SOCKET,
+          socketDiscovery: async () => [OTHER_SOCKET],
+          connectIpcClient: connectForTwoListsThen(
+            LIST_IDS,
+            runsForRemoteOwner("remote-run"),
+            connectSockets,
+            (socketPath) => {
+              if (socketPath !== OTHER_SOCKET) {
+                throw new Error(`wait must use owner socket, got ${socketPath}`);
+              }
+              return makeIpcClient(
+                [
+                  waitResponse({
+                    runStatus: "completed",
+                    loopOutcomeKind: "complete",
+                    iterationsConsumed: 1,
+                    resumable: false,
+                  }),
+                ],
+                { sent },
+              );
+            },
+          ),
+        }),
+    );
+
+    expect(code).toBe(0);
+    expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, OTHER_SOCKET]);
+    expect(sent).toEqual([{ kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "remote-run" } }]);
+    expect(cap.read().stdout).toBe(
+      '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
+    );
+  });
+
+  test("run log guard inversion fails when owner resolution is bypassed", async () => {
+    setInvertRunOwnerResolutionForTest(true);
+    const cap = captureIo();
+    const record = logRecord(1, "iteration_started");
+    record.runId = "remote-run";
+    let connectCount = 0;
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, STREAM_REQUEST_ID], () =>
+      main(["run", "log", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        socketDiscovery: async () => [OTHER_SOCKET],
+        connectIpcClient: async (socketPath) => {
+          connectCount += 1;
+          if (socketPath === OTHER_SOCKET) {
+            return makeIpcClient([
+              { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+              { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+            ]);
+          }
+          throw new Error("stream unavailable on invoking socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("stream unavailable on invoking socket");
+    expect(connectCount).toBe(1);
+  });
+
+  test("run wait guard inversion fails when owner resolution is bypassed", async () => {
+    setInvertRunOwnerResolutionForTest(true);
+    const cap = captureIo();
+    let connectCount = 0;
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
+      main(["run", "wait", "remote-run"], cap.io, {
+        socketPath: INVOKING_SOCKET,
+        socketDiscovery: async () => [OTHER_SOCKET],
+        connectIpcClient: async (socketPath) => {
+          connectCount += 1;
+          if (socketPath === OTHER_SOCKET) {
+            return makeIpcClient([
+              waitResponse({
+                runStatus: "completed",
+                loopOutcomeKind: "complete",
+                iterationsConsumed: 1,
+                resumable: false,
+              }),
+            ]);
+          }
+          throw new Error("wait unavailable on invoking socket");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("wait unavailable on invoking socket");
+    expect(connectCount).toBe(1);
+  });
+
+  const UNREACHABLE_DAEMON_ERROR = "connect ENOENT /tmp/jarvis.sock";
+
+  test("run log prints terse connection errors when no daemon is reachable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "log", "run-123"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [OTHER_SOCKET],
+      connectIpcClient: async () => {
+        throw new Error(UNREACHABLE_DAEMON_ERROR);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `${UNREACHABLE_DAEMON_ERROR}\n` });
+  });
+
+  test("run wait prints terse connection errors when no daemon is reachable", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "wait", "run-123"], cap.io, {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [OTHER_SOCKET],
+      connectIpcClient: async () => {
+        throw new Error(UNREACHABLE_DAEMON_ERROR);
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `${UNREACHABLE_DAEMON_ERROR}\n` });
+  });
 });
 
 describe("run control", () => {
@@ -728,7 +1000,7 @@ describe("run control", () => {
   test("run wait passes through unknown_run errors", async () => {
     const cap = captureIo();
 
-    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")]);
+    const code = await runWait(cap, "run-404", [waitError("unknown_run", "Run run-404 not found")], [], []);
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });

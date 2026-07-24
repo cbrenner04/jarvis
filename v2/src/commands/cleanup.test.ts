@@ -12,9 +12,12 @@ import {
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
+  listDirtyWorktreePathsForStaleReset,
   performWorktreeRemovals,
+  type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
   runCleanupCommand,
+  staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
 
 describe("cleanup: end-to-end via runCleanupCommand", () => {
@@ -2027,8 +2030,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
     daemonClient: DaemonClient = noLiveDaemon,
     io: { stdout: (s: string) => void; stderr: (s: string) => void } = silentIo,
+    options?: ResetStaleWorkspaceOptions,
   ) {
-    return resetStaleWorkspace("project", branch, projectRoot, jarvisRoot, runner, daemonClient, io);
+    return resetStaleWorkspace("project", branch, projectRoot, jarvisRoot, runner, daemonClient, io, options);
   }
 
   function ghPrListRunner(prs: OpenPr[]): AsyncSubprocessRunner {
@@ -2264,5 +2268,139 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     expect(result.status).toBe("reset");
     expect(closedPrs).toEqual([791]);
+  });
+
+  test("reset refuses when worktree has uncommitted tracked changes", async () => {
+    const branch = "impl/dirty-tracked";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const trackedRel = `file-${branch.replace(/\//g, "-")}.txt`;
+    writeFileSync(join(worktreePath, trackedRel), "edited\n");
+
+    const teardownCalls: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused") throw new Error("expected refused");
+    expect(result.reason).toContain("worktree has uncommitted changes");
+    expect(result.reason).toContain(trackedRel);
+    expect(result.reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree has untracked paths", async () => {
+    const branch = "impl/dirty-untracked";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, "leftover.txt"), "agent output\n");
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 802, isDraft: true }]));
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused") throw new Error("expected refused");
+    expect(result.reason).toContain("leftover.txt");
+    expect(result.reason).toContain("discard local changes");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses when porcelain is non-empty but paths are unparseable", async () => {
+    const branch = "impl/unparseable-porcelain";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") return "??\n";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused") throw new Error("expected refused");
+    expect(result.reason).toContain("worktree has uncommitted changes");
+    expect(result.reason).toContain("unparseable git status output");
+    expect(result.reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset refuses fail-closed when dirty listing fails", async () => {
+    const branch = "impl/dirty-list-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") throw new Error("git status unavailable");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused") throw new Error("expected refused");
+    expect(result.reason).toContain("could not list worktree changes");
+    expect(result.reason).toContain("git status unavailable");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset retires a dirty worktree when the dirty gate is disabled", async () => {
+    const branch = "impl/dirty-gate-inversion";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, "keep-me.txt"), "dirty\n");
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 803, isDraft: true }]), noLiveDaemon, silentIo, {
+      enforceDirtyWorktreeGate: false,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("staleResetDirtyWorktreeGateReason refuses when enabled and skips when disabled", () => {
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] })).toContain("a.txt");
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: [] })).toContain(
+      "unparseable git status output",
+    );
+    expect(staleResetDirtyWorktreeGateReason({ status: "dirty", paths: ["a.txt"] }, false)).toBeUndefined();
+    expect(staleResetDirtyWorktreeGateReason({ status: "error", message: "boom" }, false)).toBeUndefined();
+  });
+
+  test("listDirtyWorktreePathsForStaleReset treats non-empty unparseable porcelain as dirty", async () => {
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async () => "??\n",
+    };
+    const listed = await listDirtyWorktreePathsForStaleReset("/unused", runner);
+    expect(listed).toEqual({ status: "dirty", paths: [] });
+  });
+
+  test("listDirtyWorktreePathsForStaleReset reports porcelain paths", async () => {
+    const branch = "impl/dirty-list-unit";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const tracked = `file-${branch.replace(/\//g, "-")}.txt`;
+    writeFileSync(join(worktreePath, tracked), "edited\n");
+    writeFileSync(join(worktreePath, "new.txt"), "x\n");
+
+    const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(listed.status).toBe("dirty");
+    if (listed.status !== "dirty") throw new Error("expected dirty");
+    expect(listed.paths).toEqual(expect.arrayContaining([tracked, "new.txt"]));
   });
 });

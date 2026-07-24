@@ -4,6 +4,7 @@ import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { FILTERED_LIST_DEFAULT_LIMIT, type ListRpcParams, listRpcRequestIsFiltered } from "../commands/run-list-rpc.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
@@ -979,11 +980,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const listHandler: RpcHandler = (frame) => {
-    const sinceMs = (frame.params as { sinceMs?: number } | undefined)?.sinceMs;
-    const durableRuns =
-      sinceMs === undefined
-        ? retainListedRuns(store.listRuns())
-        : store.listRuns().filter((run) => run.createdAt >= sinceMs);
+    const listParams = frame.params as ListRpcParams | undefined;
+    let durableRuns = store.listRuns();
+    if (listRpcRequestIsFiltered(listParams)) {
+      durableRuns = durableRuns
+        .filter((run) => run.createdAt >= listParams.sinceMs)
+        .slice(0, listParams.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
+    } else {
+      durableRuns = retainListedRuns(durableRuns);
+    }
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {

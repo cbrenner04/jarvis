@@ -12,6 +12,8 @@ import { connectTuiLogTail } from "../tui/tui-log-tail-client.ts";
 
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000020";
 const STREAM_ID = "00000000-0000-4000-8000-000000000021";
+const RUN_LOG_OWNER_LIST_ID = "00000000-0000-4000-8000-000000000022";
+const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000023";
 
 const ONE_HOUR_MS = 3_600_000;
 const TWO_DAYS_MS = 2 * 24 * ONE_HOUR_MS;
@@ -181,9 +183,33 @@ test("run log stream-open and tui log tail-open accept since-listed runs beyond 
 
   const cap = captureIo();
   const sent: unknown[] = [];
-  const code = await withFixedUuid(STREAM_ID, () =>
+  let connectCount = 0;
+  const code = await withFixedUuid([OPERATOR_SESSION_ID, RUN_LOG_OWNER_LIST_ID, STREAM_ID], () =>
     main(["run", "log", historicalId], cap.io, {
-      connectIpcClient: async () => makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent }),
+      socketDiscovery: async () => [],
+      connectIpcClient: async () => {
+        connectCount += 1;
+        if (connectCount === 1) {
+          return makeIpcClient([
+            {
+              kind: "response",
+              id: RUN_LOG_OWNER_LIST_ID,
+              result: {
+                runs: [
+                  {
+                    runId: historicalId,
+                    project: "proj",
+                    branch: "br",
+                    status: "completed",
+                    isLive: false,
+                  },
+                ],
+              },
+            },
+          ]);
+        }
+        return makeIpcClient([{ kind: "stream-end", streamId: STREAM_ID }], { sent });
+      },
     }),
   );
 

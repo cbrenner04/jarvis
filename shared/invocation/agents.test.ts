@@ -842,9 +842,7 @@ describe("createResolvedAgentBinding", () => {
 
   test("cursor binding classifies quota phrases in stream-json frames", async () => {
     const frameWithQuota = JSON.stringify({ type: "text_delta", text: "you've hit your usage limit" });
-    const fake = fakeSpawn([
-      { kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" },
-    ]);
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" }]);
 
     const result = await createResolvedAgentBinding(
       { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },

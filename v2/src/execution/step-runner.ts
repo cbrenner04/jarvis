@@ -104,9 +104,7 @@ function sharedInvocationExtras(args: StepRunInput) {
   return {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
-    ...(args.onInvocationOutputProgress !== undefined
-      ? { onOutputProgress: args.onInvocationOutputProgress }
-      : {}),
+    ...(args.onInvocationOutputProgress !== undefined ? { onOutputProgress: args.onInvocationOutputProgress } : {}),
   };
 }
 

@@ -137,9 +137,7 @@ async function prepareWorkflowSteps(
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return { ok: false };
   }
-  const steps = built.steps.map((step) =>
-    step.behavior === "write" ? { ...step, ...bounds } : step,
-  );
+  const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, ...bounds } : step));
   return { ok: true, steps, built };
 }
 

@@ -2293,7 +2293,7 @@ describe("write loop", () => {
           const start = Date.now();
           while (Date.now() - start < runMs) {
             input.onInvocationOutputProgress?.();
-            await Bun.sleep(8);
+            await new Promise<void>((resolve) => setTimeout(resolve, 8));
             if (input.signal?.aborted) {
               throw new Error("aborted");
             }
@@ -2350,7 +2350,7 @@ describe("write loop", () => {
       executeWrite: async (input: WriteExecuteInput) => {
         while (!input.signal?.aborted) {
           input.onInvocationOutputProgress?.();
-          await Bun.sleep(5);
+          await new Promise<void>((resolve) => setTimeout(resolve, 5));
         }
         throw new Error("aborted");
       },

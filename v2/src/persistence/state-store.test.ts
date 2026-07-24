@@ -1,17 +1,11 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
+import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
-
-function removeDbFiles(dbPath: string): void {
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
-}
 
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
@@ -34,13 +28,13 @@ describe("StateStore", () => {
   let store: StateStore;
 
   beforeEach(() => {
-    removeDbFiles(TEST_DB_PATH);
+    removeOrchestrationStore(TEST_DB_PATH);
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
-    removeDbFiles(TEST_DB_PATH);
+    removeOrchestrationStore(TEST_DB_PATH);
   });
 
   test("creates a run with correct fields", () => {
@@ -303,7 +297,7 @@ describe("StateStore", () => {
 
   test("migration adds owner_identity to a pre-migration database without backfilling existing rows", () => {
     const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-migration.sqlite");
-    rmSync(legacyDbPath, { force: true });
+    removeOrchestrationStore(legacyDbPath);
     try {
       const raw = new Database(legacyDbPath);
       raw.exec(`
@@ -371,7 +365,7 @@ describe("StateStore", () => {
       verify.close();
       migrated.close();
     } finally {
-      rmSync(legacyDbPath, { force: true });
+      removeOrchestrationStore(legacyDbPath);
     }
   });
 
@@ -420,13 +414,13 @@ describe("commitGuardedKill", () => {
   let store: StateStore;
 
   beforeEach(() => {
-    removeDbFiles(TEST_DB_PATH);
+    removeOrchestrationStore(TEST_DB_PATH);
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
-    removeDbFiles(TEST_DB_PATH);
+    removeOrchestrationStore(TEST_DB_PATH);
   });
 
   test("sets killed for non-boundary-terminal statuses", () => {

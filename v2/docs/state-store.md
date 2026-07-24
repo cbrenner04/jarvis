@@ -10,11 +10,15 @@ The store opens SQLite with **WAL (Write-Ahead Logging)** journal mode and a 5-s
 
 - **WAL mode** separates reads from writes: multiple readers can observe committed snapshots while a writer holds an uncommitted transaction (serialization points are commits, not transaction starts).
 - **busy_timeout** causes writers to wait up to 5 seconds if a reader holds a lock, rather than failing instantly; this accommodates routine polling (daemon `listRuns`, TUI status checks) during active runs.
-- **-wal** and **-shm** sidecar files: WAL requires two additional files alongside the main database (`-wal` for the write-ahead log, `-shm` for shared memory). These must reside on the same filesystem as the main database and be readable/writable by the process. Network filesystems (NFS, cloud drives) are unsupported; single-machine access is guaranteed only.
+- **-wal** and **-shm** sidecar files: WAL requires two additional files alongside the main database (`-wal` for the write-ahead log, `-shm` for shared memory). These must reside on the same filesystem as the main database and be readable/writable by the process. Network filesystems (NFS, cloud drives) are unsupported; single-machine access is guaranteed only. See [On-disk maintenance](#on-disk-maintenance) for backup, purge, and hand-copy.
 
 A failed WAL setup (e.g., restricted filesystems, old SQLite, or sandboxed environments) silently falls back to the default rollback journal; the store remains functional but with reduced concurrency (readers block writers and vice versa).
 
 Overlapping workflows and routine TUI polling are safe against the store on one machine without additional locking or coordination.
+
+## On-disk maintenance
+
+Backup, purge, or hand-copy of the orchestration store must move or delete `v2.sqlite`, `v2.sqlite-wal`, and `v2.sqlite-shm` under `~/.jarvis/state/` together. Copying or removing only the main file can strand committed rows or leave a torn store. In-repo helpers `copyOrchestrationStore` and `removeOrchestrationStore` in [`state-store-on-disk.ts`](../src/persistence/state-store-on-disk.ts) apply the same rule for tests and tooling.
 
 ## Schema
 

@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS } from "./state-store";
+import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const tmpdir = () => process.env.TMPDIR || "/tmp";
 
@@ -11,9 +11,7 @@ function withTempDb(name: string, run: (testPath: string) => void): void {
   try {
     run(testPath);
   } finally {
-    rmSync(testPath, { force: true });
-    rmSync(`${testPath}-wal`, { force: true });
-    rmSync(`${testPath}-shm`, { force: true });
+    removeOrchestrationStore(testPath);
   }
 }
 

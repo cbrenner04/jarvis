@@ -7,20 +7,33 @@ import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS } from "./state-store";
 
 const tmpdir = () => process.env.TMPDIR || "/tmp";
 
+async function withTempDb(name: string, run: (testPath: string) => void | Promise<void>): Promise<void> {
+  const testPath = join(tmpdir(), `jarvis-test-${name}-${Date.now()}.sqlite`);
+  try {
+    await run(testPath);
+  } finally {
+    rmSync(testPath, { force: true });
+    rmSync(`${testPath}-wal`, { force: true });
+    rmSync(`${testPath}-shm`, { force: true });
+  }
+}
+
+const testRunFields = (overrides: Partial<Parameters<ReturnType<typeof openStateStore>["createRun"]>[0]> = {}) => ({
+  project: "test-proj",
+  specRef: "main",
+  worktreePath: "/tmp/wt",
+  branch: "branch1",
+  specPath: "spec.md",
+  ...overrides,
+});
+
 describe("StateStore WAL concurrency", () => {
-  test("concurrent reader observes committed rows while writer holds uncommitted transaction", () => {
-    const testPath = join(tmpdir(), `jarvis-test-reader-${Date.now()}.sqlite`);
-    try {
+  test("concurrent reader observes committed rows while writer holds uncommitted transaction", async () => {
+    await withTempDb("reader", (testPath) => {
       const store = openStateStore(testPath);
 
       // Create initial run
-      const initialRunId = store.createRun({
-        project: "test-proj",
-        specRef: "main",
-        worktreePath: "/tmp/wt",
-        branch: "branch1",
-        specPath: "spec.md",
-      });
+      const initialRunId = store.createRun(testRunFields());
 
       store.close();
 
@@ -56,16 +69,11 @@ describe("StateStore WAL concurrency", () => {
       const finalIds = finalRuns.map((r) => r.id);
       expect(finalIds).toContain("uncommitted-id");
       finalStore.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 
   test("second writer on separate connection commits without database is locked", async () => {
-    const testPath = join(tmpdir(), `jarvis-test-dual-writer-${Date.now()}.sqlite`);
-    try {
+    await withTempDb("dual-writer", async (testPath) => {
       const store = openStateStore(testPath);
       store.close();
 
@@ -79,13 +87,9 @@ describe("StateStore WAL concurrency", () => {
 
       // Now try to write from this process
       const store2 = openStateStore(testPath);
-      const id = store2.createRun({
-        project: "test-writer-2",
-        specRef: "main",
-        worktreePath: "/tmp/wt2",
-        branch: "branch2",
-        specPath: "spec.md",
-      });
+      const id = store2.createRun(
+        testRunFields({ project: "test-writer-2", worktreePath: "/tmp/wt2", branch: "branch2" }),
+      );
 
       const elapsed = Date.now() - startTime;
 
@@ -101,26 +105,15 @@ describe("StateStore WAL concurrency", () => {
 
       // Wait for subprocess to exit
       await new Promise((resolve) => subprocess.on("close", resolve));
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 
-  test("listRuns polling vs concurrent completion boundary commits doesn't error", () => {
-    const testPath = join(tmpdir(), `jarvis-test-polling-${Date.now()}.sqlite`);
-    try {
+  test("listRuns polling vs concurrent completion boundary commits doesn't error", async () => {
+    await withTempDb("polling", (testPath) => {
       const store1 = openStateStore(testPath);
 
       // Create initial run
-      const runId = store1.createRun({
-        project: "test-proj",
-        specRef: "main",
-        worktreePath: "/tmp/wt",
-        branch: "branch1",
-        specPath: "spec.md",
-      });
+      const runId = store1.createRun(testRunFields());
 
       store1.close();
 
@@ -147,26 +140,15 @@ describe("StateStore WAL concurrency", () => {
 
       writerStore.close();
       pollStore.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 
-  test("multiple concurrent stores don't deadlock with completion boundary commits", () => {
-    const testPath = join(tmpdir(), `jarvis-test-boundary-${Date.now()}.sqlite`);
-    try {
+  test("multiple concurrent stores don't deadlock with completion boundary commits", async () => {
+    await withTempDb("boundary", (testPath) => {
       const store1 = openStateStore(testPath);
 
       // Create a run
-      const runId = store1.createRun({
-        project: "test-proj",
-        specRef: "main",
-        worktreePath: "/tmp/wt",
-        branch: "branch1",
-        specPath: "spec.md",
-      });
+      const runId = store1.createRun(testRunFields());
 
       const attemptId = store1.recordAttemptStart(runId);
 
@@ -191,11 +173,7 @@ describe("StateStore WAL concurrency", () => {
 
       store1.close();
       store2.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 });
 

@@ -7,6 +7,12 @@ import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
 
+function removeDbFiles(dbPath: string): void {
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+}
+
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
     project: "test-project",
@@ -28,17 +34,13 @@ describe("StateStore", () => {
   let store: StateStore;
 
   beforeEach(() => {
-    rmSync(TEST_DB_PATH, { force: true });
-    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
+    removeDbFiles(TEST_DB_PATH);
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
-    rmSync(TEST_DB_PATH, { force: true });
-    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
+    removeDbFiles(TEST_DB_PATH);
   });
 
   test("creates a run with correct fields", () => {
@@ -418,17 +420,13 @@ describe("commitGuardedKill", () => {
   let store: StateStore;
 
   beforeEach(() => {
-    rmSync(TEST_DB_PATH, { force: true });
-    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
+    removeDbFiles(TEST_DB_PATH);
     store = openStateStore(TEST_DB_PATH);
   });
 
   afterEach(() => {
     store.close();
-    rmSync(TEST_DB_PATH, { force: true });
-    rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-    rmSync(`${TEST_DB_PATH}-shm`, { force: true });
+    removeDbFiles(TEST_DB_PATH);
   });
 
   test("sets killed for non-boundary-terminal statuses", () => {

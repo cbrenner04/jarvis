@@ -6,21 +6,27 @@ import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS } from "./state-store";
 
 const tmpdir = () => process.env.TMPDIR || "/tmp";
 
+function withTempDb(name: string, run: (testPath: string) => void): void {
+  const testPath = join(tmpdir(), `jarvis-test-${name}-${Date.now()}.sqlite`);
+  try {
+    run(testPath);
+  } finally {
+    rmSync(testPath, { force: true });
+    rmSync(`${testPath}-wal`, { force: true });
+    rmSync(`${testPath}-shm`, { force: true });
+  }
+}
+
 describe("StateStore WAL open settings", () => {
   test("new openStateStore database reports journal_mode = wal", () => {
-    const testPath = join(tmpdir(), `jarvis-test-journal-mode-${Date.now()}.sqlite`);
-    try {
+    withTempDb("journal-mode", (testPath) => {
       const store = openStateStore(testPath);
       const db = new Database(testPath);
       const result = db.prepare("PRAGMA journal_mode").get() as Record<string, unknown>;
       expect(String(result.journal_mode)).toBe("wal");
       db.close();
       store.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 
   test("STATE_STORE_BUSY_TIMEOUT_MS is set to a non-zero value", () => {
@@ -28,8 +34,7 @@ describe("StateStore WAL open settings", () => {
   });
 
   test("opening pre-seeded delete-mode database migrates to WAL with rows intact", () => {
-    const testPath = join(tmpdir(), `jarvis-test-migration-${Date.now()}.sqlite`);
-    try {
+    withTempDb("migration", (testPath) => {
       // Create database in delete journal mode and seed with data
       const oldDb = new Database(testPath);
       oldDb.exec("PRAGMA journal_mode=DELETE");
@@ -77,16 +82,11 @@ describe("StateStore WAL open settings", () => {
 
       afterDb.close();
       store.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 
   test("state store can be reopened and reads existing data", () => {
-    const testPath = join(tmpdir(), `jarvis-test-reopen-${Date.now()}.sqlite`);
-    try {
+    withTempDb("reopen", (testPath) => {
       // Create run with first store
       const store1 = openStateStore(testPath);
       const runId = store1.createRun({
@@ -104,10 +104,6 @@ describe("StateStore WAL open settings", () => {
       expect(run?.id).toBe(runId);
       expect(run?.project).toBe("test-proj");
       store2.close();
-    } finally {
-      rmSync(testPath, { force: true });
-      rmSync(`${testPath}-wal`, { force: true });
-      rmSync(`${testPath}-shm`, { force: true });
-    }
+    });
   });
 });

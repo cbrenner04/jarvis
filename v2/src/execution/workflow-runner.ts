@@ -80,6 +80,10 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
 
+export function isPostCommitReviewRetryableFailureKind(failureKind: InvocationFailureKind): boolean {
+  return failureKind === "timeout" || failureKind === "stall";
+}
+
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
 export class LinkedIndexReadError extends Error {
@@ -1526,13 +1530,14 @@ async function runReviewDebateStep(
     });
   }
 
-  const isTimeout = kind === "invocation_failure" && failureKind === "timeout";
+  const retryableFailure =
+    kind === "invocation_failure" && failureKind !== undefined && isPostCommitReviewRetryableFailureKind(failureKind);
 
   return {
     kind,
     runId,
     iterationsConsumed: result.cycles.length,
-    resumable: isTimeout,
+    resumable: retryableFailure,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }
@@ -1874,7 +1879,7 @@ function standardReviewRoleFailureOutcome(
     kind: "invocation_failure",
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: result.failureKind === "timeout",
+    resumable: isPostCommitReviewRetryableFailureKind(result.failureKind),
     ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
   };
 }
@@ -2001,13 +2006,14 @@ async function runProfileReviewStep(
     }
   }
 
-  const isTimeout = result.kind === "invocation_failure" && result.failureKind === "timeout";
+  const retryableFailure =
+    result.kind === "invocation_failure" && isPostCommitReviewRetryableFailureKind(result.failureKind);
 
   return {
     kind,
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: isTimeout,
+    resumable: retryableFailure,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }

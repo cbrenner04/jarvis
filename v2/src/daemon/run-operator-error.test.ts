@@ -111,10 +111,11 @@ test.each([
   ["landing", "landing_failed", "resume"],
   ["error", "invocation_error", "stop"],
   ["timeout", "role_timeout", "retry_later"],
-  ["stall", "role_stalled", "stop"],
+  ["stall", "role_stalled", "retry_later"],
 ] as const)("composeRunOperatorError maps failureKind %s from log and store-only failed paths", (failureKind, reason, nextAction) => {
   const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [] })]);
-  const expected = err(reason, nextAction, failureKind === "landing" || failureKind === "timeout");
+  const retryable = failureKind === "landing" || failureKind === "timeout" || failureKind === "stall";
+  const expected = err(reason, nextAction, retryable);
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);
@@ -142,14 +143,6 @@ test("composeRunOperatorError returns missing_blocker from log and store-only la
 test("composeRunOperatorError returns invocation_error for legacy detail-free binding-chain invocation_failure", () => {
   const storeRun = runWith("failed", [attempt("invocation_failure", null)]);
   const expected = err("invocation_error", "stop");
-
-  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
-  expect(composeRunOperatorError(storeRun)).toEqual(expected);
-});
-
-test("composeRunOperatorError maps stall failureKind to role_stalled with retryable false and nextAction stop", () => {
-  const storeRun = runWith("failed", [attempt("invocation_failure", { failureKind: "stall", bindingAttempts: [] })]);
-  const expected = err("role_stalled", "stop");
 
   expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
   expect(composeRunOperatorError(storeRun)).toEqual(expected);

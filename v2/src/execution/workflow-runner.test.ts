@@ -29,12 +29,12 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
+import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { landPublication } from "./publication-landing.ts";
 import { ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import {

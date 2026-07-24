@@ -5,7 +5,7 @@ import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
-import { readIterationTimeoutMs } from "../config/machine-config-loader.ts";
+import { resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import type {
   WorkflowPresetBuilder,
@@ -130,14 +130,16 @@ async function prepareWorkflowSteps(
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
     return { ok: false };
   }
-  let iterationTimeoutMs: number;
+  let bounds: ReturnType<typeof resolveWritePathIterationBounds>;
   try {
-    iterationTimeoutMs = readIterationTimeoutMs(machineConfigPath);
+    bounds = resolveWritePathIterationBounds(machineConfigPath);
   } catch (error) {
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return { ok: false };
   }
-  const steps = built.steps.map((step) => (step.behavior === "write" ? { ...step, iterationTimeoutMs } : step));
+  const steps = built.steps.map((step) =>
+    step.behavior === "write" ? { ...step, ...bounds } : step,
+  );
   return { ok: true, steps, built };
 }
 

@@ -42,7 +42,13 @@ export type InvocationResult = InvocationOk | InvocationQuota | InvocationStall 
 
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
-  invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal; idleOutputMs?: number }) => Promise<T>;
+  invoke: (args: {
+    prompt: string;
+    cwd: string;
+    signal?: AbortSignal;
+    idleOutputMs?: number;
+    onOutputProgress?: () => void;
+  }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
   metadata?: { agent: string; model: string };
 };
@@ -130,6 +136,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
   idleOutputMs?: number;
+  onOutputProgress?: () => void;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
 }): Promise<InvocationExecution<T>> {
@@ -156,6 +163,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     });
     if (result.kind === "ok") {
       logAppend("inbound_stdout", result.stdout);

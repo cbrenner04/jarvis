@@ -27,11 +27,11 @@ load-time error.
 
 ## Acceptance criteria
 
-- [ ] `machine-config-loader.test.ts` rejects `idleOutputTimeoutMs` above `iterationTimeoutMs` with a message that includes both keys and both numeric values; inverting the comparison passes load.
-- [ ] `machine-config-loader.test.ts` rejects `iterationTimeoutMs` above `iterationCeilingMs` with a message that includes both keys and both numeric values; inverting the comparison passes load.
-- [ ] `write.test.ts` surfaces the same ordering failure when `jarvis write` resolves machine config before starting the loop; a valid ordering reaches `executeWriteLoop` with resolved `iterationTimeoutMs` and `iterationCeilingMs`.
-- [ ] `workflow-runner.test.ts` (or focused workflow CLI test) preserves resolved `iterationCeilingMs` on write steps through snapshot resume/revise reconstruction.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `machine-config-loader.test.ts` rejects `idleOutputTimeoutMs` above `iterationTimeoutMs` with a message that includes both keys and both numeric values; inverting the comparison passes load.
+- [x] `machine-config-loader.test.ts` rejects `iterationTimeoutMs` above `iterationCeilingMs` with a message that includes both keys and both numeric values; inverting the comparison passes load.
+- [x] `write.test.ts` surfaces the same ordering failure when `jarvis write` resolves machine config before starting the loop; a valid ordering reaches `executeWriteLoop` with resolved `iterationTimeoutMs` and `iterationCeilingMs`.
+- [x] `workflow-runner.test.ts` (or focused workflow CLI test) preserves resolved `iterationCeilingMs` on write steps through snapshot resume/revise reconstruction.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

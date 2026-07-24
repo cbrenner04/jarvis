@@ -1062,6 +1062,51 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("resume and freshDispatch revise keep iterationCeilingMs on workflow snapshot steps", async () => {
+    const stateDbPath = ":memory:";
+    const bounds = { iterationTimeoutMs: 111, iterationCeilingMs: 222 };
+    const implementStep = () =>
+      createStep({
+        stepId: "step-1",
+        role: "implement",
+        branchName: "bounds-resume",
+        ...bounds,
+      });
+
+    let store = openStateStore(stateDbPath);
+    try {
+      await executeWorkflow({ steps: [implementStep()], stateStore: store });
+      const runFirst = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "bounds-resume",
+        stepId: "step-1",
+      });
+      expect(runFirst?.workflowSnapshot?.steps[0]).toMatchObject(bounds);
+
+      store.close();
+      store = openStateStore(stateDbPath);
+
+      await executeWorkflow({ steps: [implementStep()], stateStore: store });
+      const runResume = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "bounds-resume",
+        stepId: "step-1",
+      });
+      expect(runResume?.workflowSnapshot?.steps[0]).toMatchObject(bounds);
+
+      await executeWorkflow({ steps: [implementStep()], stateStore: store, freshDispatch: true });
+      const runRevise = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "bounds-resume",
+        stepId: "step-1",
+      });
+      expect(runRevise?.workflowSnapshot?.steps[0]).toMatchObject(bounds);
+      expect(runRevise?.workflowSnapshot?.invocationId).not.toBe(runResume?.workflowSnapshot?.invocationId);
+    } finally {
+      store.close();
+    }
+  });
+
   test("runs one hidden shrink pass after an implement step completes", async () => {
     const calls: string[] = [];
     const step = createStep({

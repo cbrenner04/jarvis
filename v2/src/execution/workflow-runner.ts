@@ -1005,6 +1005,7 @@ function buildWorkflowSnapshot(
           agents: step.agents,
           agentModelConfig: step.agentModelConfig,
           iterationTimeoutMs: step.iterationTimeoutMs,
+          iterationCeilingMs: step.iterationCeilingMs,
         }
       : {}),
   }));
@@ -1209,6 +1210,7 @@ function prepareWorkflowStep(
         agentModelConfig,
       },
       ...(step.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: step.iterationTimeoutMs } : {}),
+      ...(step.iterationCeilingMs !== undefined ? { iterationCeilingMs: step.iterationCeilingMs } : {}),
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),
       ...(telemetry !== undefined

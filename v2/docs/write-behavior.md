@@ -73,6 +73,20 @@ prints a specific skip reason if the artifact stays at the root after retirement
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
 
+Each iteration arms a **wall segment** (`iterationTimeoutMs`, default 10 minutes)
+from `iteration_started`. Stdout/stderr progress during the `executeWrite`
+invocation re-arms that segment so slow-but-emitting agents are not cut off at a
+single flat budget. A **hard ceiling** (`iterationCeilingMs`, default 30 minutes
+after machine-config resolution) counts elapsed time since `iteration_started`
+without reset; continuous output cannot extend past it. Direct `jarvis write` and
+workflow write steps always run under wall + ceiling once bounds are resolved at
+dispatch or resume; optional `iterationCeilingMs` on `WriteLoopInput` is for
+direct/test injection, not an unbounded production iteration. Silent stalls (no
+stdout/stderr progress) still terminate when the wall segment elapses.
+Wall-segment expiry and ceiling overrun both commit `iteration_timeout` with
+failed run status. Idle-output bounds on the write path are separate (see the
+write-path idle-watchdog intent).
+
 On a successful standalone write, the terminal SQLite boundary is committed before
 the runner publishes completion to the external worktree. Publication is one
 retryable boundary comprising three operations in sequence: commit, then push+PR,

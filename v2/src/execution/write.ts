@@ -130,6 +130,7 @@ export type WriteExecuteInput = {
   intentBefore?: string;
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
   sessionLog?: SessionLog;
+  onInvocationOutputProgress?: () => void;
 };
 
 type WriteExecuteResult = {
@@ -139,37 +140,34 @@ type WriteExecuteResult = {
   result: StepRunResult;
 };
 
-type WriteStepContext = {
-  worktreePath: string;
-  bindings: readonly InvocationBinding[];
-  signal?: AbortSignal;
-  invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
-  sessionLog?: SessionLog;
-};
-
 function runWriteStep(
-  args: WriteStepContext & {
+  write: WriteExecuteInput,
+  worktreePath: string,
+  step: {
     prompt: string;
     contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }>;
     blockerTextContract?: BlockerTextContract;
   },
 ): Promise<StepRunResult> {
   return runStep({
-    prompt: args.prompt,
-    cwd: args.worktreePath,
-    bindings: args.bindings,
-    contracts: args.contracts,
-    ...(args.blockerTextContract !== undefined ? { blockerTextContract: args.blockerTextContract } : {}),
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.invocationTelemetry !== undefined
+    prompt: step.prompt,
+    cwd: worktreePath,
+    bindings: write.bindings,
+    contracts: step.contracts,
+    ...(step.blockerTextContract !== undefined ? { blockerTextContract: step.blockerTextContract } : {}),
+    ...(write.signal !== undefined ? { signal: write.signal } : {}),
+    ...(write.invocationTelemetry !== undefined
       ? {
           telemetry: {
-            ...args.invocationTelemetry,
-            worktreePath: args.worktreePath,
+            ...write.invocationTelemetry,
+            worktreePath,
           },
         }
       : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+    ...(write.sessionLog !== undefined ? { sessionLog: write.sessionLog } : {}),
+    ...(write.onInvocationOutputProgress !== undefined
+      ? { onInvocationOutputProgress: write.onInvocationOutputProgress }
+      : {}),
   });
 }
 
@@ -233,15 +231,7 @@ async function executePlanDraftWrite(
     check: () => validator(specDir).valid || validator(resolveInWorktree(worktreePath, args.specPath)).valid,
   });
 
-  const result = await runWriteStep({
-    worktreePath,
-    bindings: args.bindings,
-    prompt,
-    contracts,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
-  });
+  const result = await runWriteStep(args, worktreePath, { prompt, contracts });
   const durable = resolveInWorktree(worktreePath, args.specPath);
   if (result.kind === "complete" && !validator(specDir).valid && validator(durable).valid) {
     for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
@@ -272,9 +262,7 @@ async function executeIntentSplitWrite(
     stepRules: args.stepRules,
   });
 
-  return runWriteStep({
-    worktreePath,
-    bindings: args.bindings,
+  return runWriteStep(args, worktreePath, {
     prompt,
     contracts: [
       {
@@ -282,9 +270,6 @@ async function executeIntentSplitWrite(
         check: () => listIntentStageMarkdownFiles(expectedArtifactPath).length > 0,
       },
     ],
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -370,15 +355,10 @@ async function executeDefaultWrite(
         }
       : undefined;
 
-  return runWriteStep({
-    worktreePath,
-    bindings: args.bindings,
+  return runWriteStep(args, worktreePath, {
     prompt,
     contracts,
     ...(blockerTextContract !== undefined ? { blockerTextContract } : {}),
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 

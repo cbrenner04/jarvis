@@ -41,6 +41,7 @@ type StepRunInput = {
   signal?: AbortSignal;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
+  onInvocationOutputProgress?: () => void;
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -98,6 +99,17 @@ export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
   return last === undefined ? null : (last as StepOutcomeToken);
 }
 
+/** signal/sessionLog/onOutputProgress extras shared by every `executeWithQuotaFallback` call site. */
+function sharedInvocationExtras(args: StepRunInput) {
+  return {
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
+    ...(args.onInvocationOutputProgress !== undefined
+      ? { onOutputProgress: args.onInvocationOutputProgress }
+      : {}),
+  };
+}
+
 function buildTokenRepromptPrompt(responseText: string): string {
   const artifact = loadPromptRegistry().getById(TOKEN_REPROMPT_PROMPT_ID);
   const text = responseText.length > 0 ? responseText : "(the previous response was empty)";
@@ -109,11 +121,10 @@ function requestTokenReprompt(args: StepRunInput, responseText: string): Promise
     prompt: buildTokenRepromptPrompt(responseText),
     cwd: args.cwd,
     bindings: args.bindings,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...sharedInvocationExtras(args),
     ...(args.telemetry !== undefined
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -126,11 +137,10 @@ function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution
     prompt: buildBlockerRepromptPrompt(),
     cwd: args.cwd,
     bindings: args.bindings,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...sharedInvocationExtras(args),
     ...(args.telemetry !== undefined
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 }
 
@@ -246,9 +256,8 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     prompt: args.prompt,
     cwd: args.cwd,
     bindings: args.bindings,
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...sharedInvocationExtras(args),
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
-    ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
   });
 
   const final = invocation.final;

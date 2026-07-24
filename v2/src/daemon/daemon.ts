@@ -11,7 +11,7 @@ import {
   runMatchesListRpcParams,
 } from "../commands/run-list-rpc.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
-import { resolveMachineProfile } from "../config/machine-config-loader.ts";
+import { readIterationCeilingMs, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
   getExternalWorktreePath,
   withExternalWorktree as realWithExternalWorktree,
@@ -326,6 +326,7 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
     stepId,
     workflowSnapshot: snapshot,
     ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
+    iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
   });
 }
 

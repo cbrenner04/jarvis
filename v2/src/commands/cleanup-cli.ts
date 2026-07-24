@@ -1,4 +1,6 @@
+import { parseArgs } from "node:util";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { CLEANUP_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError, request } from "../cli/ipc.ts";
@@ -23,29 +25,22 @@ type CleanupCliArgs = {
 };
 
 function parseCleanupCliArgs(argv: readonly string[], io: Io): CleanupCliArgs | undefined {
-  let dryRun = false;
-  let yes = false;
-  let abandonName: string | undefined;
-
-  const args = [...argv];
-  while (args.length > 0) {
-    const arg = args.shift();
-    if (arg === "--dry-run") {
-      dryRun = true;
-    } else if (arg === "--yes" || arg === "-y") {
-      yes = true;
-    } else if (arg === "--abandon") {
-      const name = args.shift();
-      if (name === undefined || name.startsWith("-")) {
-        io.stderr(CLEANUP_USAGE);
-        return undefined;
-      }
-      abandonName = name;
-    } else {
-      io.stderr(CLEANUP_USAGE);
-      return undefined;
-    }
+  let values: Record<string, string | boolean | string[] | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: CLEANUP_PARSE_ARG_OPTIONS,
+    }).values;
+  } catch {
+    io.stderr(CLEANUP_USAGE);
+    return undefined;
   }
+
+  const dryRun = values["dry-run"] === true;
+  const yes = values.yes === true;
+  const abandonName = typeof values.abandon === "string" ? values.abandon : undefined;
 
   if (dryRun && yes) {
     io.stderr(CLEANUP_USAGE);

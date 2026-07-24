@@ -1,5 +1,7 @@
+import { parseArgs } from "node:util";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import { RUN_LIST_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
@@ -84,33 +86,57 @@ function parseOneListArgvFlag(
   return { ok: true, limit: parsedLimit };
 }
 
+function listFlagHasValue(rest: readonly string[], flag: "--since" | "--limit"): boolean {
+  const index = rest.indexOf(flag);
+  if (index === -1) return true;
+  const value = rest[index + 1];
+  return value !== undefined && !value.startsWith("-");
+}
+
 function parseListArgv(
   rest: readonly string[],
   io: Io,
   deps: CliDeps,
 ): { ok: true; sinceMs?: number; limit?: number } | { ok: false } {
+  let values: Record<string, string | boolean | string[] | undefined>;
+  try {
+    values = parseArgs({
+      args: [...rest],
+      allowPositionals: false,
+      strict: true,
+      options: RUN_LIST_PARSE_ARG_OPTIONS,
+    }).values;
+  } catch {
+    if (!listFlagHasValue(rest, "--since")) {
+      io.stderr(listFlagMissingValueMessage("--since"));
+      return { ok: false };
+    }
+    if (!listFlagHasValue(rest, "--limit")) {
+      io.stderr(listFlagMissingValueMessage("--limit"));
+      return { ok: false };
+    }
+    io.stderr(RUN_LIST_USAGE);
+    return { ok: false };
+  }
+
   let sinceMs: number | undefined;
   let limit: number | undefined;
 
-  for (let index = 0; index < rest.length; ) {
-    const flag = rest[index];
-    if (flag !== "--since" && flag !== "--limit") {
-      io.stderr(RUN_LIST_USAGE);
-      return { ok: false };
-    }
-    const value = rest[index + 1];
-    if (value === undefined || value.startsWith("-")) {
-      io.stderr(listFlagMissingValueMessage(flag));
-      return { ok: false };
-    }
-    const piece = parseOneListArgvFlag(flag, value, deps);
+  if (typeof values.since === "string") {
+    const piece = parseOneListArgvFlag("--since", values.since, deps);
     if (!piece.ok) {
       io.stderr(piece.stderr);
       return { ok: false };
     }
-    if (piece.sinceMs !== undefined) sinceMs = piece.sinceMs;
-    if (piece.limit !== undefined) limit = piece.limit;
-    index += 2;
+    sinceMs = piece.sinceMs;
+  }
+  if (typeof values.limit === "string") {
+    const piece = parseOneListArgvFlag("--limit", values.limit, deps);
+    if (!piece.ok) {
+      io.stderr(piece.stderr);
+      return { ok: false };
+    }
+    limit = piece.limit;
   }
 
   return {

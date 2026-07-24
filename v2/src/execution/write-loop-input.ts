@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { WRITE_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
@@ -77,15 +78,7 @@ export function parseWriteArgs(argv: readonly string[]): Record<string, string |
     args: [...argv],
     allowPositionals: false,
     strict: true,
-    options: {
-      "project-root": { type: "string" },
-      project: { type: "string" },
-      branch: { type: "string" },
-      base: { type: "string" },
-      spec: { type: "string" },
-      artifact: { type: "string" },
-      "max-iterations": { type: "string" },
-    },
+    options: WRITE_PARSE_ARG_OPTIONS,
   }).values;
 }
 

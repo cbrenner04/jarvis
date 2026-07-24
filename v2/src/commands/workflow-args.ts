@@ -1,6 +1,30 @@
 import { parseArgs } from "node:util";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 
+export const INTENT_WORKFLOW_PARSE_OPTIONS = {
+  seed: { type: "string" },
+  "seed-text": { type: "string" },
+  "target-dir": { type: "string" },
+  "review-passes": { type: "string" },
+  "review-behavior": { type: "string" },
+} as const satisfies Record<string, { type: "string" }>;
+
+export const PLAN_WORKFLOW_PARSE_OPTIONS = {
+  "ready-intent": { type: "string" },
+  "target-dir": { type: "string" },
+  "review-passes": { type: "string" },
+  "review-behavior": { type: "string" },
+} as const satisfies Record<string, { type: "string" }>;
+
+export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
+  branch: { type: "string" },
+  base: { type: "string" },
+  spec: { type: "string" },
+  artifact: { type: "string" },
+  "review-passes": { type: "string" },
+  "review-behavior": { type: "string" },
+} as const satisfies Record<string, { type: "string" }>;
+
 type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
 
 function parseReviewCliInput(
@@ -44,14 +68,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
       args: [...argv],
       allowPositionals: false,
       strict: true,
-      options: {
-        branch: { type: "string" },
-        base: { type: "string" },
-        spec: { type: "string" },
-        artifact: { type: "string" },
-        "review-passes": { type: "string" },
-        "review-behavior": { type: "string" },
-      },
+      options: IMPLEMENT_WORKFLOW_PARSE_OPTIONS,
     }).values;
   } catch {
     return { ok: false };
@@ -86,18 +103,11 @@ export type IntentWorkflowCliInput =
 export function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
-    const options: Record<string, { type: "string" }> = {
-      seed: { type: "string" },
-      "seed-text": { type: "string" },
-      "target-dir": { type: "string" },
-      "review-passes": { type: "string" },
-      "review-behavior": { type: "string" },
-    };
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
       strict: true,
-      options,
+      options: INTENT_WORKFLOW_PARSE_OPTIONS,
     }).values;
   } catch {
     return { ok: false };
@@ -134,17 +144,11 @@ export type PlanWorkflowCliInput =
 export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
   let values: Record<string, string | boolean | undefined>;
   try {
-    const options: Record<string, { type: "string" }> = {
-      "ready-intent": { type: "string" },
-      "target-dir": { type: "string" },
-      "review-passes": { type: "string" },
-      "review-behavior": { type: "string" },
-    };
     values = parseArgs({
       args: [...argv],
       allowPositionals: false,
       strict: true,
-      options,
+      options: PLAN_WORKFLOW_PARSE_OPTIONS,
     }).values;
   } catch {
     return { ok: false };

@@ -14,12 +14,32 @@ import {
   WORKFLOW_USAGE,
   WRITE_USAGE,
 } from "./usage.ts";
+import {
+  CLEANUP_HELP_FLAGS,
+  DAEMON_LOG_HELP_FLAGS,
+  RUN_LIST_HELP_FLAGS,
+  WORKFLOW_IMPLEMENT_HELP_FLAGS,
+  WORKFLOW_INTENT_HELP_FLAGS,
+  WORKFLOW_PLAN_HELP_FLAGS,
+  WRITE_HELP_FLAGS,
+} from "./command-help-flags.ts";
+
+export interface CommandFlag {
+  name: string;
+  argumentShape: string;
+  description: string;
+}
 
 export interface CommandNode {
   name: string;
   summary: string;
   usage?: string;
+  flags?: readonly CommandFlag[];
   subcommands?: readonly CommandNode[];
+}
+
+export function formatCommandFlagHelpLine(flag: CommandFlag): string {
+  return `${flag.name}\t${flag.argumentShape}\t${flag.description}`;
 }
 
 export const commandTree: CommandNode = {
@@ -30,6 +50,7 @@ export const commandTree: CommandNode = {
       name: "write",
       summary: "Run an in-process write loop.",
       usage: WRITE_USAGE,
+      flags: WRITE_HELP_FLAGS,
     },
     {
       name: "daemon",
@@ -52,6 +73,7 @@ export const commandTree: CommandNode = {
           name: "log",
           summary: "Stream daemon logs.",
           usage: DAEMON_LOG_USAGE,
+          flags: DAEMON_LOG_HELP_FLAGS,
         },
       ],
     },
@@ -83,11 +105,13 @@ export const commandTree: CommandNode = {
           name: "start",
           summary: "Start a new run.",
           usage: WRITE_USAGE,
+          flags: WRITE_HELP_FLAGS,
         },
         {
           name: "list",
           summary: "List runs.",
           usage: RUN_LIST_USAGE,
+          flags: RUN_LIST_HELP_FLAGS,
         },
         {
           name: "log",
@@ -118,16 +142,19 @@ export const commandTree: CommandNode = {
               name: "intent",
               summary: "Create a spec seed.",
               usage: WORKFLOW_INTENT_USAGE,
+              flags: WORKFLOW_INTENT_HELP_FLAGS,
             },
             {
               name: "plan",
               summary: "Create an implementation plan.",
               usage: WORKFLOW_PLAN_USAGE,
+              flags: WORKFLOW_PLAN_HELP_FLAGS,
             },
             {
               name: "implement",
               summary: "Implement a plan.",
               usage: WORKFLOW_IMPLEMENT_USAGE,
+              flags: WORKFLOW_IMPLEMENT_HELP_FLAGS,
             },
           ],
         },
@@ -149,6 +176,7 @@ export const commandTree: CommandNode = {
       name: "cleanup",
       summary: "Retire completed worktrees and specs.",
       usage: CLEANUP_USAGE,
+      flags: CLEANUP_HELP_FLAGS,
     },
     {
       name: "help",
@@ -230,6 +258,9 @@ export function renderHelpNode(root: CommandNode, path: readonly string[]): stri
   }
 
   let output = usage ?? "";
+  for (const flag of node.flags ?? []) {
+    output += `${formatCommandFlagHelpLine(flag)}\n`;
+  }
   for (const child of node.subcommands ?? []) {
     output += `${child.name}\t${child.summary}\n`;
   }

@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis help run workflow intent`, `jarvis help run workflow plan`, and `jarvis help run workflow implement` each list every parser-accepted flag with a non-empty description; stdout is otherwise unchanged aside from the new flag lines, stderr is empty, exit `0`.
-- [ ] `v2/src/cli.test.ts` workflow help regressions for `intent`, `plan`, and `implement` (named tests or one scoped group) each fail against the pre-fix tree and pass after registration.
-- [ ] Omitting one registered workflow flag from the tree while the parser still accepts it causes the workflow help regressions for all three presets above to fail.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis help run workflow intent`, `jarvis help run workflow plan`, and `jarvis help run workflow implement` each list every parser-accepted flag with a non-empty description; stdout is otherwise unchanged aside from the new flag lines, stderr is empty, exit `0`.
+- [x] `v2/src/cli.test.ts` workflow help regressions for `intent`, `plan`, and `implement` (named tests or one scoped group) each fail against the pre-fix tree and pass after registration.
+- [x] Omitting one registered workflow flag from the tree while the parser still accepts it causes the workflow help regressions for all three presets above to fail.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

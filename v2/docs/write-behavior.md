@@ -5,8 +5,15 @@
 `jarvis help [<command> [<subcommand>…]]` walks the command tree in
 `v2/src/cli/command-tree.ts` to render command and subcommand discovery. Each
 path renders its node's usage line (when present), followed by one
-`name<TAB>summary` line per child subcommand; leaf nodes print usage alone. The
-top-level registry in `v2/src/cli.ts` composes each entry from its tree node
+`name<TAB>argumentShape<TAB>description` line per registered flag on that node
+(boolean flags use an empty `argumentShape`; value-taking flags use a placeholder
+such as `<path>`), then one `name<TAB>summary` line per child subcommand; leaf
+nodes print usage and flags alone. Flag lines use canonical long names in
+declaration order; short aliases accepted by the parser (for example `-y` for
+`--yes`) appear as their own flag line when the parser treats them as distinct
+tokens. The `usage:` strings in `v2/src/cli/usage.ts` may still mention flags
+until error-path usage rendering is shortened — structured flag lines are the
+discovery surface for accepted options. The top-level registry in `v2/src/cli.ts` composes each entry from its tree node
 plus a handler, so a command's name, summary, and usage have one home.
 
 `--help` and `-h` are aliases for the same output: `main()` intercepts them

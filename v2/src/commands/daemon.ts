@@ -1,5 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
+import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatLifecycleError } from "../cli/ipc.ts";
@@ -127,7 +129,19 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
     if (argv.length === 1) {
       return deps.readDaemonProcessLog(deps.logPath, { writeOut: io.stdout, writeErr: io.stderr });
     }
-    if (argv.length === 2 && argv[1] === "--follow") {
+    let follow = false;
+    try {
+      follow = parseArgs({
+        args: argv.slice(1),
+        allowPositionals: false,
+        strict: true,
+        options: DAEMON_LOG_PARSE_ARG_OPTIONS,
+      }).values.follow === true;
+    } catch {
+      io.stderr(DAEMON_LOG_USAGE);
+      return 1;
+    }
+    if (follow) {
       const controller = new AbortController();
       const unregister = deps.onSigint(() => controller.abort());
       try {

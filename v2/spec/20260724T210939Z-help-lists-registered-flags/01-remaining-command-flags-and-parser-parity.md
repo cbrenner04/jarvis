@@ -21,11 +21,11 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis help write`, `jarvis help cleanup`, `jarvis help run list`, and `jarvis help daemon log` list every parser-accepted flag with a non-empty description; `jarvis help run start` matches `jarvis help write` flag lines.
-- [ ] `v2/src/cli/help-flags-parity.test.ts` fails when a parser-accepted flag is dropped from its node's registered flags and passes with the full registration.
-- [ ] Inverting the parity guard (e.g. excluding one expected flag from the assertion set while it remains parser-accepted) fails the parity test.
-- [ ] Exact-help stdout tests for affected nodes are updated for new flag lines and pass with full registration.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `jarvis help write`, `jarvis help cleanup`, `jarvis help run list`, and `jarvis help daemon log` list every parser-accepted flag with a non-empty description; `jarvis help run start` matches `jarvis help write` flag lines.
+- [x] `v2/src/cli/help-flags-parity.test.ts` fails when a parser-accepted flag is dropped from its node's registered flags and passes with the full registration.
+- [x] Inverting the parity guard (e.g. excluding one expected flag from the assertion set while it remains parser-accepted) fails the parity test.
+- [x] Exact-help stdout tests for affected nodes are updated for new flag lines and pass with full registration.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

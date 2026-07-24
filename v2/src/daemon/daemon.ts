@@ -92,6 +92,7 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
 }
 
 const LIST_TERMINAL_RUN_LIMIT = 50;
+const FILTERED_LIST_DEFAULT_LIMIT = 200;
 
 /** Marks orphaned runs before IPC is exposed. Review-debate rows are interrupted. */
 export async function reconcileOrphanedRuns(
@@ -979,11 +980,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const listHandler: RpcHandler = (frame) => {
-    const sinceMs = (frame.params as { sinceMs?: number } | undefined)?.sinceMs;
+    const params = frame.params as { sinceMs?: number; limit?: number } | undefined;
+    const sinceMs = params?.sinceMs;
     const durableRuns =
       sinceMs === undefined
         ? retainListedRuns(store.listRuns())
-        : store.listRuns().filter((run) => run.createdAt >= sinceMs);
+        : store
+            .listRuns()
+            .filter((run) => run.createdAt >= sinceMs)
+            .slice(0, params?.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {

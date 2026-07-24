@@ -1,0 +1,3 @@
+The implementation matches the subspec: filtered queries (`sinceMs`) cap at explicit `--limit` or 200 newest rows before row assembly; bare `--limit` stays on `retainListedRuns`; CLI rejects bad limits with `invalid_limit` before RPC; required docs are updated; acceptance tests cover the pinned behaviors including distinct `invalid_since` / `invalid_limit` messages and the bare-`limit` vs filtered-cap guard.
+
+Remaining gaps (daemon RPC validation for bad `limit`, multi-daemon global cap, non-terminal visibility on filtered history, `intent.md` checkboxes, shared constants, extra CLI coverage) are out of scope for this slice’s acceptance criteria or belong to follow-up work (`run-list-dimension-filters`, hardening). No actuator changes required for this patch pass.

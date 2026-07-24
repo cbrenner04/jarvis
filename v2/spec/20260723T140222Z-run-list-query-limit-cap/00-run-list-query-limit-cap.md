@@ -25,19 +25,19 @@ operators also need an explicit row bound.
 
 ## Acceptance criteria
 
-- [ ] `--limit` on a filtered query returns at most N newest matching rows.
-- [ ] A filtered query without `--limit` returns at most 200 newest matching rows.
-- [ ] `daemon-terminal-run-retention.test.ts` stays green.
-- [ ] Bare `jarvis run list --limit <n>` keeps today's `retainListedRuns` policy (not the filtered default cap).
-- [ ] Invalid `--limit` exits `1` with `invalid_limit` and does not issue a `list` RPC.
-- [ ] `run-list-query-limit-cap.test.ts` asserts `--limit` and the default cap on a filtered query; it fails against baseline.
-- [ ] Tests fail when the `invalid_limit` guard is inverted: a garbage `--limit` value must not return rows.
-- [ ] The error *message* is asserted per flag: a bad `--limit` emits `invalid_limit`, a bad `--since`
+- [x] `--limit` on a filtered query returns at most N newest matching rows.
+- [x] A filtered query without `--limit` returns at most 200 newest matching rows.
+- [x] `daemon-terminal-run-retention.test.ts` stays green.
+- [x] Bare `jarvis run list --limit <n>` keeps today's `retainListedRuns` policy (not the filtered default cap).
+- [x] Invalid `--limit` exits `1` with `invalid_limit` and does not issue a `list` RPC.
+- [x] `run-list-query-limit-cap.test.ts` asserts `--limit` and the default cap on a filtered query; it fails against baseline.
+- [x] Tests fail when the `invalid_limit` guard is inverted: a garbage `--limit` value must not return rows.
+- [x] The error *message* is asserted per flag: a bad `--limit` emits `invalid_limit`, a bad `--since`
       emits `invalid_since`. Both messages are pinned, so flipping the flag comparison that selects
       between them (`flag === "--since"`) fails a test. Asserting only exit code 1, or only one of the
       two messages, does not distinguish the directions.
-- [ ] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] Tests fail when bare `--limit` is wrongly treated as a filtered query: inverted guard must not apply the default cap to the default list path.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

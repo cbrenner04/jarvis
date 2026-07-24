@@ -54,25 +54,54 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function parseListArgv(rest: readonly string[], io: Io, deps: CliDeps): { ok: true; sinceMs?: number } | { ok: false } {
-  if (rest.length === 2 && rest[0] === "--since") {
-    const value = rest[1];
-    if (value === undefined || value.startsWith("-")) {
-      io.stderr("invalid_since: invalid value\n");
-      return { ok: false };
+function parseListArgv(
+  rest: readonly string[],
+  io: Io,
+  deps: CliDeps,
+): { ok: true; sinceMs?: number; limit?: number } | { ok: false } {
+  let sinceMs: number | undefined;
+  let limit: number | undefined;
+  let index = 0;
+  while (index < rest.length) {
+    const flag = rest[index];
+    if (flag === "--since") {
+      const value = rest[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        io.stderr("invalid_since: invalid value\n");
+        return { ok: false };
+      }
+      const cutoff = parseSince(value, deps.now?.() ?? Date.now());
+      if (cutoff === undefined) {
+        io.stderr("invalid_since: invalid value\n");
+        return { ok: false };
+      }
+      sinceMs = cutoff;
+      index += 2;
+      continue;
     }
-    const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-    if (cutoff === undefined) {
-      io.stderr("invalid_since: invalid value\n");
-      return { ok: false };
+    if (flag === "--limit") {
+      const value = rest[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        io.stderr("invalid_limit: invalid value\n");
+        return { ok: false };
+      }
+      const parsedLimit = Number(value);
+      if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+        io.stderr("invalid_limit: invalid value\n");
+        return { ok: false };
+      }
+      limit = parsedLimit;
+      index += 2;
+      continue;
     }
-    return { ok: true, sinceMs: cutoff };
-  }
-  if (rest.length !== 0) {
     io.stderr(RUN_LIST_USAGE);
     return { ok: false };
   }
-  return { ok: true };
+  return {
+    ok: true,
+    ...(sinceMs !== undefined ? { sinceMs } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
 }
 
 async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
@@ -117,7 +146,13 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
     listResults.push([socketPath, undefined]);
     firstError ??= error;
   };
-  const listParams = parsed.sinceMs === undefined ? undefined : { sinceMs: parsed.sinceMs };
+  const listParams =
+    parsed.sinceMs === undefined && parsed.limit === undefined
+      ? undefined
+      : {
+          ...(parsed.sinceMs !== undefined ? { sinceMs: parsed.sinceMs } : {}),
+          ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
+        };
 
   for (const socketPath of socketPaths) {
     try {

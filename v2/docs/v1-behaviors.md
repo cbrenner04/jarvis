@@ -541,7 +541,9 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (single-daemon fallback). `jarvis run list` and `jarvis run wait` remain
   single-daemon. `jarvis run list --since` queries durable history past the
   default fifty-terminal-run retention window (relative duration or absolute
-  timestamp); returned run IDs work with `run log` on the same daemon and with
+  timestamp); filtered queries default to **200** newest matches unless
+  `--limit <n>` is set. Bare `--limit` alone does not bypass terminal retention.
+  Returned run IDs work with `run log` on the same daemon and with
   `tui log` across all live daemons (auto-discovers the run's owner). Sources:
   `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-log-follow-entry.tsx`,
   `v2/src/daemon/live-daemon-socket-discovery.ts`, `v2/docs/write-behavior.md`

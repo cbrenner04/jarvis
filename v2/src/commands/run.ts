@@ -55,6 +55,35 @@ function parseSince(value: string, nowMs: number): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function parseLimitArgvValue(value: string): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function listFlagMissingValueMessage(flag: "--since" | "--limit"): string {
+  return flag === "--since" ? "invalid_since: invalid value\n" : "invalid_limit: invalid value\n";
+}
+
+function parseOneListArgvFlag(
+  flag: "--since" | "--limit",
+  value: string,
+  deps: CliDeps,
+): { ok: true; sinceMs?: number; limit?: number } | { ok: false; stderr: string } {
+  if (flag === "--since") {
+    const cutoff = parseSince(value, deps.now?.() ?? Date.now());
+    if (cutoff === undefined) {
+      return { ok: false, stderr: "invalid_since: invalid value\n" };
+    }
+    return { ok: true, sinceMs: cutoff };
+  }
+  const parsedLimit = parseLimitArgvValue(value);
+  if (parsedLimit === undefined) {
+    return { ok: false, stderr: "invalid_limit: invalid value\n" };
+  }
+  return { ok: true, limit: parsedLimit };
+}
+
 function parseListArgv(
   rest: readonly string[],
   io: Io,
@@ -65,32 +94,23 @@ function parseListArgv(
 
   for (let index = 0; index < rest.length; ) {
     const flag = rest[index];
-    if (flag === "--since" || flag === "--limit") {
-      const value = rest[index + 1];
-      if (value === undefined || value.startsWith("-")) {
-        io.stderr(flag === "--since" ? "invalid_since: invalid value\n" : "invalid_limit: invalid value\n");
-        return { ok: false };
-      }
-      if (flag === "--since") {
-        const cutoff = parseSince(value, deps.now?.() ?? Date.now());
-        if (cutoff === undefined) {
-          io.stderr("invalid_since: invalid value\n");
-          return { ok: false };
-        }
-        sinceMs = cutoff;
-      } else {
-        const parsed = Number(value);
-        if (!Number.isInteger(parsed) || parsed <= 0) {
-          io.stderr("invalid_limit: invalid value\n");
-          return { ok: false };
-        }
-        limit = parsed;
-      }
-      index += 2;
-      continue;
+    if (flag !== "--since" && flag !== "--limit") {
+      io.stderr(RUN_LIST_USAGE);
+      return { ok: false };
     }
-    io.stderr(RUN_LIST_USAGE);
-    return { ok: false };
+    const value = rest[index + 1];
+    if (value === undefined || value.startsWith("-")) {
+      io.stderr(listFlagMissingValueMessage(flag));
+      return { ok: false };
+    }
+    const piece = parseOneListArgvFlag(flag, value, deps);
+    if (!piece.ok) {
+      io.stderr(piece.stderr);
+      return { ok: false };
+    }
+    if (piece.sinceMs !== undefined) sinceMs = piece.sinceMs;
+    if (piece.limit !== undefined) limit = piece.limit;
+    index += 2;
   }
 
   return {

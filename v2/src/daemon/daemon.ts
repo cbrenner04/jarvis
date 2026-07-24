@@ -4,6 +4,7 @@ import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { FILTERED_LIST_DEFAULT_LIMIT, type ListRpcParams, listRpcRequestIsFiltered } from "../commands/run-list-rpc.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
@@ -19,11 +20,6 @@ import {
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
-import {
-  FILTERED_LIST_DEFAULT_LIMIT,
-  listRpcRequestIsFiltered,
-  type ListRpcParams,
-} from "../commands/run-list-rpc.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";

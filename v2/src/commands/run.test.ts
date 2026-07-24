@@ -69,9 +69,7 @@ async function runWait(
   return withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, WAIT_REQUEST_ID], () =>
     main(["run", "wait", runId], cap.io, {
       socketDiscovery: async () => [],
-      connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, runs, () =>
-        makeIpcClient(frames, { sent }),
-      ),
+      connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, runs, () => makeIpcClient(frames, { sent })),
     }),
   );
 }
@@ -422,20 +420,17 @@ describe("run control", () => {
     const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
       main(["run", "log", "run-123"], cap.io, {
         socketDiscovery: async () => [],
-        connectIpcClient: connectAfterSoloOwnerList(
-          SOLO_LIST_REQUEST_ID,
-          [soloDaemonListRow("run-123")],
-          () =>
-            makeIpcClient(
-              [
-                { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
-                { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
-                { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
-                { kind: "stream-data", streamId, payload: JSON.stringify(records[3]) },
-                { kind: "stream-end", streamId },
-              ],
-              { sent },
-            ),
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+          makeIpcClient(
+            [
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[0]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[3]) },
+              { kind: "stream-end", streamId },
+            ],
+            { sent },
+          ),
         ),
       }),
     );
@@ -726,17 +721,12 @@ describe("run list multi-daemon", () => {
         main(["run", "log", "run-404"], cap.io, {
           socketPath: INVOKING_SOCKET,
           socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: connectForTwoListsThen(
-            LIST_IDS,
-            emptyEverywhere,
-            connectSockets,
-            (socketPath) => {
-              if (socketPath !== INVOKING_SOCKET) {
-                throw new Error(`stream must use invoking socket, got ${socketPath}`);
-              }
-              return makeIpcClient([{ kind: "stream-end", streamId: STREAM_REQUEST_ID }], { sent });
-            },
-          ),
+          connectIpcClient: connectForTwoListsThen(LIST_IDS, emptyEverywhere, connectSockets, (socketPath) => {
+            if (socketPath !== INVOKING_SOCKET) {
+              throw new Error(`stream must use invoking socket, got ${socketPath}`);
+            }
+            return makeIpcClient([{ kind: "stream-end", streamId: STREAM_REQUEST_ID }], { sent });
+          }),
         }),
     );
 
@@ -767,14 +757,17 @@ describe("run list multi-daemon", () => {
               if (socketPath !== OTHER_SOCKET) {
                 throw new Error(`wait must use owner socket, got ${socketPath}`);
               }
-              return makeIpcClient([
-                waitResponse({
-                  runStatus: "completed",
-                  loopOutcomeKind: "complete",
-                  iterationsConsumed: 1,
-                  resumable: false,
-                }),
-              ], { sent });
+              return makeIpcClient(
+                [
+                  waitResponse({
+                    runStatus: "completed",
+                    loopOutcomeKind: "complete",
+                    iterationsConsumed: 1,
+                    resumable: false,
+                  }),
+                ],
+                { sent },
+              );
             },
           ),
         }),
@@ -782,9 +775,7 @@ describe("run list multi-daemon", () => {
 
     expect(code).toBe(0);
     expect(connectSockets).toEqual([INVOKING_SOCKET, OTHER_SOCKET, OTHER_SOCKET]);
-    expect(sent).toEqual([
-      { kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "remote-run" } },
-    ]);
+    expect(sent).toEqual([{ kind: "request", id: WAIT_REQUEST_ID, method: "wait", params: { runId: "remote-run" } }]);
     expect(cap.read().stdout).toBe(
       '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
     );

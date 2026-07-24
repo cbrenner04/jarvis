@@ -234,32 +234,35 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 }
 
 async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {
-  const socketPath = invertRunOwnerResolutionForTest
-    ? deps.socketPath
-    : await resolveRunOwnerSocket(runId, deps);
-  return withRunClient(io, deps, async (client) => {
-    const streamId = crypto.randomUUID();
-    client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq: 0 } });
+  const socketPath = invertRunOwnerResolutionForTest ? deps.socketPath : await resolveRunOwnerSocket(runId, deps);
+  return withRunClient(
+    io,
+    deps,
+    async (client) => {
+      const streamId = crypto.randomUUID();
+      client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq: 0 } });
 
-    while (true) {
-      try {
-        const frame = await client.nextFrame();
-        if (frame.kind === "stream-data" && frame.streamId === streamId) {
-          const record = parseStreamPayload(frame.payload);
-          io.stdout(`${JSON.stringify(record)}\n`);
-          continue;
+      while (true) {
+        try {
+          const frame = await client.nextFrame();
+          if (frame.kind === "stream-data" && frame.streamId === streamId) {
+            const record = parseStreamPayload(frame.payload);
+            io.stdout(`${JSON.stringify(record)}\n`);
+            continue;
+          }
+          if (frame.kind === "stream-end" && frame.streamId === streamId) {
+            return 0;
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message === "connection closed") {
+            return 0;
+          }
+          throw error;
         }
-        if (frame.kind === "stream-end" && frame.streamId === streamId) {
-          return 0;
-        }
-      } catch (error) {
-        if (error instanceof Error && error.message === "connection closed") {
-          return 0;
-        }
-        throw error;
       }
-    }
-  }, socketPath);
+    },
+    socketPath,
+  );
 }
 
 async function runActionCommand(
@@ -320,9 +323,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
       io.stderr(RUN_USAGE);
       return 1;
     }
-    const socketPath = invertRunOwnerResolutionForTest
-      ? deps.socketPath
-      : await resolveRunOwnerSocket(runId, deps);
+    const socketPath = invertRunOwnerResolutionForTest ? deps.socketPath : await resolveRunOwnerSocket(runId, deps);
     return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io), socketPath);
   }
 

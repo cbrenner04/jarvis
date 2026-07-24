@@ -8,7 +8,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { TERMINAL_RUN_STATUSES, type RunStatus } from "../persistence/state-store.ts";
+import { type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -62,14 +62,7 @@ function parseLimitArgvValue(value: string): number | undefined {
   return parsed;
 }
 
-const LIST_ARGV_FLAGS = [
-  "--since",
-  "--limit",
-  "--project",
-  "--branch",
-  "--spec",
-  "--status",
-] as const;
+const LIST_ARGV_FLAGS = ["--since", "--limit", "--project", "--branch", "--spec", "--status"] as const;
 type ListArgvFlag = (typeof LIST_ARGV_FLAGS)[number];
 
 const LIST_FLAG_MISSING_VALUE: Record<ListArgvFlag, string> = {
@@ -93,9 +86,7 @@ export function setInvertInvalidStatusGuardForTest(value: boolean): void {
   invertInvalidStatusGuardForTest = value;
 }
 
-type ParseListArgvPiece =
-  | { ok: true; fields: Partial<ListRpcParams> }
-  | { ok: false; stderr: string };
+type ParseListArgvPiece = { ok: true; fields: Partial<ListRpcParams> } | { ok: false; stderr: string };
 
 function parseOneListArgvFlag(flag: ListArgvFlag, value: string, deps: CliDeps): ParseListArgvPiece {
   if (flag === "--since") {

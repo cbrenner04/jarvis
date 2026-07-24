@@ -39,6 +39,23 @@ export function setInvertListRpcRequestIsFilteredForTest(value: boolean): void {
   invertListRpcRequestIsFilteredForTest = value;
 }
 
+export type ListFilterRunSnapshot = {
+  createdAt: number;
+  project: string;
+  branch: string;
+  specPath: string;
+  status: RunStatus;
+};
+
+export function runMatchesListRpcParams(run: ListFilterRunSnapshot, listParams: ListRpcParams): boolean {
+  if (listParams.sinceMs !== undefined && run.createdAt < listParams.sinceMs) return false;
+  if (listParams.project !== undefined && run.project !== listParams.project) return false;
+  if (listParams.branch !== undefined && run.branch !== listParams.branch) return false;
+  if (listParams.specPath !== undefined && run.specPath !== listParams.specPath) return false;
+  if (listParams.status !== undefined && run.status !== listParams.status) return false;
+  return true;
+}
+
 export function listRpcRequestIsFiltered(params: ListRpcParams | undefined): boolean {
   const filtered =
     params !== undefined &&

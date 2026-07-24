@@ -9,11 +9,8 @@ import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-h
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
 import { connectTuiLogTail } from "../tui/tui-log-tail-client.ts";
-import {
-  listRpcRequestIsFiltered,
-  setInvertListRpcRequestIsFilteredForTest,
-} from "./run-list-rpc.ts";
 import { setInvertInvalidStatusGuardForTest } from "./run.ts";
+import { listRpcRequestIsFiltered, setInvertListRpcRequestIsFilteredForTest } from "./run-list-rpc.ts";
 
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000020";
 const STREAM_ID = "00000000-0000-4000-8000-000000000021";
@@ -164,22 +161,25 @@ test("dimension-only filtered query bypasses terminal retention", async () => {
 });
 
 test("run list CLI passes dimension RPC params", async () => {
-  const { code, sent } = await runListCli([
-    "run",
-    "list",
-    "--project",
-    "p",
-    "--branch",
-    "main",
-    "--spec",
-    "/x.md",
-    "--status",
-    "completed",
-    "--since",
-    "1h",
-    "--limit",
-    "5",
-  ], { now: () => NOW_MS });
+  const { code, sent } = await runListCli(
+    [
+      "run",
+      "list",
+      "--project",
+      "p",
+      "--branch",
+      "main",
+      "--spec",
+      "/x.md",
+      "--status",
+      "completed",
+      "--since",
+      "1h",
+      "--limit",
+      "5",
+    ],
+    { now: () => NOW_MS },
+  );
   expect(code).toBe(0);
   expect(sent).toEqual([
     {
@@ -198,10 +198,7 @@ test("run list CLI passes dimension RPC params", async () => {
   ]);
 });
 
-async function expectListCliRejectsBeforeRpc(
-  argv: string[],
-  expectedStderr: string,
-): Promise<void> {
+async function expectListCliRejectsBeforeRpc(argv: string[], expectedStderr: string): Promise<void> {
   const cap = captureIo();
   const sent: unknown[] = [];
   const code = await main(argv, cap.io, {
@@ -226,10 +223,7 @@ async function expectListCliRejectsBeforeRpc(
 }
 
 test("invalid --status exits 1 with invalid_status and skips list RPC", async () => {
-  await expectListCliRejectsBeforeRpc(
-    ["run", "list", "--status", "in-progress"],
-    "invalid_status: invalid value\n",
-  );
+  await expectListCliRejectsBeforeRpc(["run", "list", "--status", "in-progress"], "invalid_status: invalid value\n");
 });
 
 test("repeat --status exits 1 with invalid_status and skips list RPC", async () => {

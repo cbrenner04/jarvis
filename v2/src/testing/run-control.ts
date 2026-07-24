@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
-import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
+import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client.ts";

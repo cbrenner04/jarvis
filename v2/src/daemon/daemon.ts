@@ -19,6 +19,11 @@ import {
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import {
+  FILTERED_LIST_DEFAULT_LIMIT,
+  listRpcRequestIsFiltered,
+  type ListRpcParams,
+} from "../commands/run-list-rpc.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
@@ -979,11 +984,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const listHandler: RpcHandler = (frame) => {
-    const sinceMs = (frame.params as { sinceMs?: number } | undefined)?.sinceMs;
-    const durableRuns =
-      sinceMs === undefined
-        ? retainListedRuns(store.listRuns())
-        : store.listRuns().filter((run) => run.createdAt >= sinceMs);
+    const listParams = frame.params as ListRpcParams | undefined;
+    let durableRuns = store.listRuns();
+    if (listRpcRequestIsFiltered(listParams)) {
+      durableRuns = durableRuns
+        .filter((run) => run.createdAt >= listParams.sinceMs)
+        .slice(0, listParams.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
+    } else {
+      durableRuns = retainListedRuns(durableRuns);
+    }
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {

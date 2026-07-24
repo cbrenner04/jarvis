@@ -21,10 +21,10 @@ primary file can strand committed rows or leave a torn store.
 
 ## Acceptance criteria
 
-- [ ] `state-store-on-disk.test.ts` copies a WAL-backed store with a committed run row to a fresh path, reopens the copy, and reads the same row; it fails against the pre-fix code.
-- [ ] `state-store-on-disk.test.ts` asserts copy that omits `-wal` and/or `-shm` loses the committed row when the copy is opened; it fails when sidecar copy is present.
-- [ ] `state-store-on-disk.test.ts` asserts `removeOrchestrationStore` deletes the main file and both sidecars when present; a guard that removes only the main file leaves `-wal`/`-shm` and fails the test.
-- [ ] `state-store-on-disk.test.ts` asserts copy/remove are no-ops (no throw) for `:memory:` paths.
+- [x] `state-store-on-disk.test.ts` copies a WAL-backed store with a committed run row to a fresh path, reopens the copy, and reads the same row; it fails against the pre-fix code.
+- [x] `state-store-on-disk.test.ts` asserts copy that omits `-wal` and/or `-shm` loses the committed row when the copy is opened; it fails when sidecar copy is present.
+- [x] `state-store-on-disk.test.ts` asserts `removeOrchestrationStore` deletes the main file and both sidecars when present; a guard that removes only the main file leaves `-wal`/`-shm` and fails the test.
+- [x] `state-store-on-disk.test.ts` asserts copy/remove are no-ops (no throw) for `:memory:` paths.
 
 ## Documentation updates
 

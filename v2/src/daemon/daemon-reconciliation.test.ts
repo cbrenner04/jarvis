@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
@@ -23,12 +23,6 @@ const PRIOR_IDENTITY = "11111:1000000";
 const CURRENT_IDENTITY = "22222:2000000";
 
 let seedStore: StateStore;
-
-function removeDbFiles(path: string): void {
-  rmSync(path, { force: true });
-  rmSync(`${path}-wal`, { force: true });
-  rmSync(`${path}-shm`, { force: true });
-}
 
 function openSweepStore(isOwnerAlive: OwnerLivenessProbe): StateStore {
   return openStateStore(dbPath, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive });
@@ -58,13 +52,13 @@ function createRun(store: StateStore, status: RunStatus): string {
 }
 
 beforeEach(() => {
-  removeDbFiles(dbPath);
+  removeOrchestrationStore(dbPath);
   seedStore = openStateStore(dbPath, { currentIdentity: PRIOR_IDENTITY });
 });
 
 afterEach(() => {
   seedStore.close();
-  removeDbFiles(dbPath);
+  removeOrchestrationStore(dbPath);
 });
 
 test("reconciles every orphaned status after a forced daemon stop, retaining durable run metadata", async () => {

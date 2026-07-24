@@ -17,9 +17,9 @@ hit the same failure mode as a bad harness copy.
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts`, `state-store-wal-open.test.ts`, `state-store-wal-concurrency.test.ts`, and `daemon-reconciliation.test.ts` import `removeOrchestrationStore` and contain no `removeDbFiles` helper and no inline `${dbPath}-wal` / `${dbPath}-shm` teardown `rmSync` triples.
-- [ ] `state-store.test.ts`, `state-store-wal-open.test.ts`, `state-store-wal-concurrency.test.ts`, and `daemon-reconciliation.test.ts` stay green.
-- [ ] `state-store-on-disk.test.ts` stays green.
+- [x] `state-store.test.ts`, `state-store-wal-open.test.ts`, `state-store-wal-concurrency.test.ts`, and `daemon-reconciliation.test.ts` import `removeOrchestrationStore` and contain no `removeDbFiles` helper and no inline `${dbPath}-wal` / `${dbPath}-shm` teardown `rmSync` triples.
+- [x] `state-store.test.ts`, `state-store-wal-open.test.ts`, `state-store-wal-concurrency.test.ts`, and `daemon-reconciliation.test.ts` stay green.
+- [x] `state-store-on-disk.test.ts` stays green.
 
 ## Documentation updates
 

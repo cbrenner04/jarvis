@@ -23,10 +23,28 @@ const NO_TEST_IMPACT_PATTERNS = [
   /^\.jarvis-intent-review-verdict\.md$/,
 ];
 
+/** Intent staging plus ci-test-scope classifier wiring (incl. package.json `check` script). */
+function isIntentClassifierOnlyDiff(paths: readonly string[]): boolean {
+  if (!paths.some((path) => CI_TEST_SCOPE_SCRIPT.test(path))) {
+    return false;
+  }
+  return paths.every(
+    (path) =>
+      path === "package.json" ||
+      path === "v1/test/ready-script.sandbox-unrunnable.test.ts" ||
+      CI_TEST_SCOPE_SCRIPT.test(path) ||
+      NO_TEST_IMPACT_PATTERNS.some((pattern) => pattern.test(path)),
+  );
+}
+
 /** Classify already-resolved changed paths into the scripts CI needs to run. */
 export function classifyChangedPaths(paths: string[]): ScopedTests {
   if (paths.length === 0) {
     return "full";
+  }
+
+  if (isIntentClassifierOnlyDiff(paths)) {
+    return [];
   }
 
   for (const path of paths) {

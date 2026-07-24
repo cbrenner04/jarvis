@@ -91,6 +91,22 @@ describe("resolveCiTestScope", () => {
     ).toEqual([]);
   });
 
+  test("ci-test-scope + package.json check wiring + intent staging skips aggregate tests", () => {
+    expect(
+      resolveCiTestScope(
+        [
+          "package.json",
+          "scripts/ci-test-scope.ts",
+          "scripts/ci-test-scope.test.ts",
+          "v1/test/ready-script.sandbox-unrunnable.test.ts",
+          ".jarvis-intent-review-verdict.md",
+          ".jarvis-intent-stage/workflow-print-run-id-at-admission.md",
+        ],
+        true,
+      ),
+    ).toEqual([]);
+  });
+
   test("other scripts/ changes still run full suite", () => {
     expect(resolveCiTestScope(["scripts/ready.ts"], true)).toBe("full");
     expect(resolveCiTestScope(["scripts/ci-test-scope.ts", "scripts/ready.ts"], true)).toBe("full");

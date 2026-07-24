@@ -9,6 +9,21 @@ path renders its node's usage line (when present), followed by one
 top-level registry in `v2/src/cli.ts` composes each entry from its tree node
 plus a handler, so a command's name, summary, and usage have one home.
 
+`--help` and `-h` are aliases for the same output: `main()` intercepts them
+before dispatch and delegates to the `help` renderer. Only the exact tokens
+`--help` and `-h` trigger the alias (not `--help=<value>` or bundled short
+flags). The alias fires only when the first `-`-prefixed argv token is one of
+those flags, so a later flag value or operand may contain `--help` without
+rendering help. The help path is the leading run of non-`-` tokens before that
+flag, truncated to the longest prefix that resolves in the command tree — for
+example `jarvis tui log <run-id> --help` renders `help tui log`, and
+`jarvis run workflow intent-reviewed --help` renders `help run workflow`.
+When that run is non-empty but its first segment is not a tree node, behavior
+matches `help` for the full run: stderr gets the unknown-segment error, stdout
+stays empty, exit 1. Root `--help`/`-h` renders the same overview as bare
+`jarvis help`, including the root node's missing usage line (pre-existing
+`help` behavior).
+
 A node without its own usage falls back to its nearest ancestor's usage line.
 For example, `jarvis help run pause` and `jarvis help daemon start` print the
 `run` and `daemon` usage lines, since neither subcommand has a dedicated one.

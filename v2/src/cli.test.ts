@@ -11,7 +11,7 @@ import {
   WORKFLOW_USAGE,
   WRITE_USAGE,
 } from "./cli/usage.ts";
-import { enumerateCommands, findCommand } from "./cli.ts";
+import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
@@ -368,6 +368,126 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(0);
     expect(cap.read().stderr).toBe("");
     expect(cap.read().stdout).toMatch(/^\d+\.\d+\.\d+\n$/);
+  });
+
+  async function expectHelpFlagMatchesHelp(aliasArgv: readonly string[], helpPath: readonly string[]) {
+    const helpCap = captureIo();
+    const helpCode = await main(["help", ...helpPath], helpCap.io);
+    const helpOutput = helpCap.read();
+
+    const aliasCap = captureIo();
+    const aliasCode = await main(aliasArgv, aliasCap.io);
+
+    expect(aliasCode).toBe(helpCode);
+    expect(aliasCap.read()).toEqual(helpOutput);
+  }
+
+  function treeHelpPaths(node: CommandNode, prefix: readonly string[] = []): readonly (readonly string[])[] {
+    return (node.subcommands ?? []).flatMap((child) => {
+      const path = [...prefix, child.name];
+      return [path, ...treeHelpPaths(child, path)];
+    });
+  }
+
+  test("the --help and -h alias match help for every command-tree path", async () => {
+    const paths: readonly (readonly string[])[] = [[], ...treeHelpPaths(commandTree)];
+
+    for (const path of paths) {
+      for (const flag of ["--help", "-h"] as const) {
+        await expectHelpFlagMatchesHelp([...path, flag], path);
+      }
+    }
+  });
+
+  test("resolveHelpFlagAlias truncates to the longest tree prefix", () => {
+    expect(resolveHelpFlagAlias(["tui", "log", "abc123", "--help"])).toEqual(["tui", "log"]);
+    expect(resolveHelpFlagAlias(["run", "workflow", "intent-reviewed", "-h"])).toEqual(["run", "workflow"]);
+  });
+
+  describe("help flag alias guard invariants", () => {
+    test("exact --help/-h tokens only: --helps does not alias", async () => {
+      expect(resolveHelpFlagAlias(["--helps"])).toBeUndefined();
+      expect(resolveHelpFlagAlias(["-help"])).toBeUndefined();
+
+      const cap = captureIo();
+      const code = await main(["--helps"], cap.io);
+
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({
+        stdout: "",
+        stderr: unknownCommandError("--helps"),
+      });
+    });
+
+    test("first - token only: --help after an earlier flag does not alias", () => {
+      const argv = ["run", "workflow", "intent", "--seed-text", "prose with --help inside"] as const;
+      expect(resolveHelpFlagAlias(argv)).toBeUndefined();
+    });
+
+    test("longest tree prefix: positional tail after a valid path does not force unknown help", async () => {
+      const helpCap = captureIo();
+      const helpCode = await main(["help", "tui", "log", "abc123"], helpCap.io);
+      expect(helpCode).toBe(1);
+
+      await expectHelpFlagMatchesHelp(["tui", "log", "abc123", "--help"], ["tui", "log"]);
+    });
+  });
+
+  test("resolveHelpFlagAlias keeps an unknown first segment for help to reject", () => {
+    expect(resolveHelpFlagAlias(["nope", "--help"])).toEqual(["nope"]);
+  });
+
+  test.each([
+    [
+      ["tui", "log", "abc123", "--help"],
+      ["tui", "log"],
+    ],
+    [
+      ["run", "workflow", "intent-reviewed", "--help"],
+      ["run", "workflow"],
+    ],
+  ] as const)("help flag alias matches help for %j", async (aliasArgv, helpPath) => {
+    await expectHelpFlagMatchesHelp(aliasArgv, helpPath);
+  });
+
+  test("jarvis nope --help is unknown at depth 0", async () => {
+    const cap = captureIo();
+
+    const code = await main(["nope", "--help"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: unknownCommandError("nope", undefined, []),
+    });
+  });
+
+  test("run workflow intent --seed-text prose with embedded --help is not the help alias", async () => {
+    const argv = ["run", "workflow", "intent", "--seed-text", "prose with --help inside"] as const;
+    expect(resolveHelpFlagAlias(argv)).toBeUndefined();
+
+    const helpCap = captureIo();
+    const helpCode = await main(["help", "run", "workflow", "intent"], helpCap.io);
+    const helpOutput = helpCap.read();
+
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ agents: ["claude"] });
+    const code = await main(argv, cap.io, {
+      connectIpcClient: () => Promise.reject(new Error("stubbed: no daemon")),
+      socketDiscovery: () => Promise.resolve([]),
+      startDaemon: async () => ({ pid: 1, socketPath: "stub", alreadyRunning: false }),
+      stopDaemon: async () => {},
+      readProjectRegistry: () => ({}),
+      machineConfigPath: configPath,
+      ...tempPaths(),
+    });
+
+    expect(code).toBe(1);
+    expect(code).not.toBe(helpCode);
+    const output = cap.read();
+    expect(output).not.toEqual(helpOutput);
+    expect(output.stdout).toBe("");
+    expect(output.stderr).toMatch(/^intent:/);
   });
 
   describe("dispatch-coverage: every tree path is dispatchable", () => {

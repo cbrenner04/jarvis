@@ -10,27 +10,27 @@ Operators background every `jarvis run workflow` by hand because the default att
 
 ## Decisions
 
-- Add a non-blocking launch mode on `jarvis run workflow` that returns promptly after successful daemon admission; rules out a new top-level subcommand.
+- Opt-in `--detach` on `jarvis run workflow <preset>` (default remains attached); rules out a new top-level subcommand or env-only surface.
+- Detach runs the same pre-`start` validation, workspace reset, and daemon admission path as attach; only post-admission client wait differs.
 - On admitted detach: print the workflow entry run ID (same admission contract as attach), exit `0`, and leave the workflow running under the daemon; rules out implicitly killing or pausing the workflow on client exit.
-- Attach vs detach: attach keeps the CLI up through workflow-terminal wait (with admission ID and optional boundary lines); detach issues `start`, prints admission ID, and exits without client-side `wait`.
-- Deferred to plan subspec: whether non-blocking launch is the default or opt-in via flag — pin when drafting CLI surface.
+- Attach vs detach: attach keeps the CLI up through workflow-terminal wait (admission ID plus optional attach-only `workflow-step:` lines); detach issues `start`, prints admission ID, and exits without client-side `wait` or boundary lines.
 - Failed admission unchanged; rules out coupling detach to attach wait behavior.
 - CLI-only; rules out daemon lifecycle changes.
 
 ## Acceptance criteria
 
-- [ ] A regression test in `workflow.test.ts` launches a workflow in detach mode and asserts the CLI exits `0` after exactly one `start` IPC (no `wait`), with the workflow entry run ID on stdout; it fails against pre-fix attach-only behavior.
+- [ ] A new regression in `workflow.test.ts` launches a workflow with `--detach` and asserts the CLI exits `0` after exactly one `start` IPC (no `wait`), with the workflow entry run ID as the first stdout line; fails against pre-fix attach-only behavior.
 - [ ] After detach, the workflow continues to completion under the daemon without requiring the launching shell to stay open (daemon fixture reaches workflow entry terminal while the CLI process has already exited).
-- [ ] A failed admission still exits non-zero with the existing named failure (no run ID line).
+- [ ] Failed admission preserved: `workflow.test.ts` `run workflow implement passes through daemon guard errors without local workflow logic` stays green (non-zero, named stderr, no run ID on stdout).
 - [ ] `bun run typecheck`, `test:v2`, and `test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` — detach vs attach launch modes and stdout on each.
+- `v2/docs/write-behavior.md` — detach vs attach launch modes and stdout on each (detach: admission ID only).
 - `v2/docs/operator-runbook.md` — launching workflows without blocking a shell; observing via admission run ID.
-- `v2/docs/v1-behaviors.md` — document detach launch alongside attached workflow wait.
+- `v2/docs/v1-behaviors.md` — document `--detach` alongside attached workflow-terminal wait.
 
 ## Prerequisites
 
-- Intent `workflow-print-run-id-at-admission` implemented (admission run ID on stdout before any client wait).
-- Intent `workflow-attached-waits-for-terminal` implemented (attach vs detach semantics for client-side wait).
+- Workflow launch prints the workflow entry run ID on stdout immediately after daemon admission, before any client-side completion wait.
+- Attached `jarvis run workflow` blocks until the workflow entry run is terminal (defines attach vs detach contrast).

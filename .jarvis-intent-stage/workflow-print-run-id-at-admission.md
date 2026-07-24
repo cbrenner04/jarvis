@@ -6,22 +6,23 @@ name: workflow-print-run-id-at-admission
 
 ## Problem
 
-`workflow.ts` already prints the workflow entry run ID on stdout immediately after a successful daemon `start`, before `waitForRunCompletion`. Operators and docs still treat early ID as the contract; regressions could reorder stdout, drop the line on some presets, or buffer it until wait completes. This intent hardens and tests that admission-time ordering — not first-time emission.
+`workflow.ts` already prints the workflow entry run ID on stdout immediately after a successful daemon `start`, before `waitForRunCompletion`. Operators and docs still treat early ID as the contract; regressions could reorder stdout, drop the line on some presets, or buffer it until wait completes. This intent hardens and tests admission-time ordering — not first-time emission.
 
 ## Decisions
 
 - Pin stdout order: workflow entry run ID line immediately after successful `start`, before any client-side completion wait and before terminal completion JSON; rules out moving ID to post-wait or preset-specific omission.
+- **First stdout line** is the run ID line on success; stderr (e.g. `intent paths:` on intent presets) may precede it; rules out treating stderr as the admission contract.
 - Apply on every registered `jarvis run workflow` preset; rules out implement-only or attach-only emission.
 - Preserve failed pre-admission validation and daemon `start` failures (non-zero exit, named stderr, no run ID line); rules out folding admission errors into attach semantics.
-- No stdout before `start` beyond today's validation/stale-reset surfaces; flush so the ID line is observable before a long wait when buffering would matter.
+- Flush so the ID line is observable before a long wait when buffering would matter; rules out silent buffering through the first wait.
 - CLI-only; rules out daemon run lifecycle or IPC shape changes for this slice.
-- Plan as **one spec** with four **ordered** subspecs on this seam (this intent → terminal wait → boundary progress → detach); plan subspec drafts detach default vs flag and unifies `write-behavior`, operator runbook, and `v1-behaviors` in one index.
 
 ## Acceptance criteria
 
-- [ ] A regression test in `workflow.test.ts` drives each registered workflow preset through admitted `start` and asserts the workflow entry run ID is the first stdout line before any wait/completion JSON; it fails if ID is omitted, reordered after wait output, or not flushed pre-wait.
-- [ ] `jarvis run log <id>` and `jarvis tui log <id>` accept the ID exactly as printed at admission while the workflow is still live.
-- [ ] A failed admission still exits non-zero with the existing named failure (no run ID line).
+- [ ] `workflow.test.ts` `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON` stays green (baseline admission ID on stdout before wait JSON).
+- [ ] A new regression in `workflow.test.ts` drives each registered workflow preset through admitted `start` and asserts the workflow entry run ID is the first **stdout** line before wait/completion JSON (stderr such as `intent paths:` excluded); inverting flush, preset omission, or post-wait reorder fails the test.
+- [ ] `workflow.test.ts` asserts the admission stdout run ID equals the `wait` IPC `runId` for an in-flight admitted workflow (same identifier operators pass to `run log` / `tui log` on a live daemon).
+- [ ] Failed admission preserved: `workflow.test.ts` `run workflow implement passes through daemon guard errors without local workflow logic`, `run workflow implement exits nonzero on an invalid daemon response`, and usage/validation rejects before daemon contact stay green (non-zero, named stderr, no run ID on stdout).
 - [ ] `bun run typecheck`, `test:v2`, and `test:integration:v2` pass.
 
 ## Documentation updates

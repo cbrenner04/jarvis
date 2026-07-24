@@ -6,21 +6,21 @@ name: workflow-attached-waits-for-terminal
 
 ## Problem
 
-Attached `jarvis run workflow` can exit zero with the first constituent run's completion JSON while later steps continue under other run IDs — operators misread this as a finished workflow with no PR.
+Daemon entry `wait` already awaits workflow-terminal rollup on main, but `workflow.test.ts` only exercises mocked single `wait` frames — a client that exited after the first constituent row would still pass. Operator docs still describe attached `jarvis run workflow` returning on the first constituent run, so the CLI contract is unguarded and misdocumented.
 
 ## Decisions
 
 - Default attached launch blocks until the **workflow entry** run is terminal, not until the first child run completes; rules out reusing today's single-run `wait` completion as the command outcome.
 - Final stdout JSON and process exit code describe the workflow entry outcome; rules out mirroring an intermediate step run's status.
-- Builds on terminal workflow failure rollup from `20260721T115738Z-workflow-command-reports-terminal-workflow-failure` (attach duration and CLI outliving multi-row workflows only — not re-litigating rollup semantics).
-- Failed admission unchanged; rules out changing validation or `start` error surfaces in this slice.
+- Builds on workflow-entry terminal failure rollup already shipped; rules out re-litigating rollup semantics in this slice.
+- Failed admission unchanged; rules out changing validation or `start` error surfaces here.
 - CLI attachment only; rules out changing daemon step scheduling or workflow execution.
 
 ## Acceptance criteria
 
-- [ ] A regression test in `workflow.test.ts` uses a multi-row workflow fixture, keeps the real CLI process attached (no mocked early exit), and asserts the process has not exited until the workflow entry run reaches a terminal state; it fails against pre-fix code that exits on the first constituent `wait`.
-- [ ] The attached command's final minified JSON line and exit code match the workflow entry's terminal outcome, not an intermediate run's.
-- [ ] A failed admission still exits non-zero with the existing named failure.
+- [ ] A new regression in `workflow.test.ts` uses a multi-row workflow daemon fixture, keeps the real attached CLI process (no mocked early exit), and asserts the process has not exited while a second constituent row is still non-terminal and only exits after the workflow entry run is terminal; fails if the client stops waiting after the first constituent completion.
+- [ ] The same test asserts final stdout minified JSON and exit code match the workflow entry terminal rollup, not an intermediate constituent row.
+- [ ] Failed admission preserved: `workflow.test.ts` `run workflow implement passes through daemon guard errors without local workflow logic` stays green (non-zero, named stderr, no success JSON).
 - [ ] `bun run typecheck`, `test:v2`, and `test:integration:v2` pass.
 
 ## Documentation updates
@@ -31,5 +31,4 @@ Attached `jarvis run workflow` can exit zero with the first constituent run's co
 
 ## Prerequisites
 
-- Spec `20260721T115738Z-workflow-command-reports-terminal-workflow-failure` merged (workflow entry terminal failure rollup).
-- Intent `workflow-print-run-id-at-admission` implemented (admission run ID precedes attach wait stdout).
+- Workflow CLI failure and completion reporting use the workflow entry run's terminal outcome when a workflow spans multiple daemon run rows (daemon rollup on entry `wait`/`list`).

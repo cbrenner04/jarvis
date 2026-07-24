@@ -1,9 +1,4 @@
 import packageJson from "../../package.json";
-import type { CliDeps } from "./cli/deps.ts";
-import { createRuntimeDeps } from "./cli/deps.ts";
-import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
-import type { Io } from "./cli/io.ts";
-import { WRITE_USAGE } from "./cli/usage.ts";
 import {
   commandTree,
   findUnknownSegment,
@@ -11,6 +6,11 @@ import {
   renderHelpNode,
   renderUnknownSegmentError,
 } from "./cli/command-tree.ts";
+import type { CliDeps } from "./cli/deps.ts";
+import { createRuntimeDeps } from "./cli/deps.ts";
+import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
+import type { Io } from "./cli/io.ts";
+import { WRITE_USAGE } from "./cli/usage.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";

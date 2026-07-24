@@ -17,9 +17,10 @@ import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./tes
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
 
 function unknownCommandError(command: string, suggestion?: string, path?: readonly string[]): string {
-  const trailer = path === undefined || path.length === 0
-    ? "run `jarvis help` for available commands\n"
-    : `run \`jarvis help ${path.join(" ")}\` for available commands\n`;
+  const trailer =
+    path === undefined || path.length === 0
+      ? "run `jarvis help` for available commands\n"
+      : `run \`jarvis help ${path.join(" ")}\` for available commands\n`;
   return `unknown command: ${command}\n${suggestion === undefined ? "" : `did you mean ${suggestion}?\n`}${trailer}`;
 }
 
@@ -205,7 +206,9 @@ describe("v2 cli dispatch", () => {
     const code = await main(["help", "write"], cap.io);
 
     expect(code).toBe(0);
-    expect(cap.read().stdout).toBe("usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n");
+    expect(cap.read().stdout).toBe(
+      "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n",
+    );
   });
 
   test("help nope is unknown at depth 0", async () => {
@@ -303,11 +306,7 @@ describe("v2 cli dispatch", () => {
       ],
     };
 
-    expect(resolveHelpPath(synthetic, ["outer", "inner"])?.map(({ name }) => name)).toEqual([
-      "root",
-      "outer",
-      "inner",
-    ]);
+    expect(resolveHelpPath(synthetic, ["outer", "inner"])?.map(({ name }) => name)).toEqual(["root", "outer", "inner"]);
     expect(resolveHelpPath(synthetic, ["outer", "nope"])).toBeUndefined();
     // `outer` and `inner` carry no usage, so both fall back to the root's line.
     expect(renderHelpNode(synthetic, ["outer"])).toBe("usage: root\ninner\tInner node.\n");

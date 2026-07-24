@@ -133,26 +133,37 @@ async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps
   });
 }
 
-async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps): Promise<number> {
-  const parsed = parseListArgv(rest, io, deps);
-  if (!parsed.ok) return 1;
+type ListQueryParams = { sinceMs?: number; limit?: number };
 
-  const discovered = await (deps.socketDiscovery ?? (async () => []))();
-  const socketPaths = [...new Set([...discovered, deps.socketPath])].sort();
+function listRequestParams(parsed: ListQueryParams): ListQueryParams | undefined {
+  if (parsed.sinceMs === undefined && parsed.limit === undefined) return undefined;
+  return {
+    ...(parsed.sinceMs !== undefined ? { sinceMs: parsed.sinceMs } : {}),
+    ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
+  };
+}
 
+function writeListAggregateFailure(io: Io, firstError: unknown): void {
+  if (firstError instanceof RpcError) {
+    io.stderr(formatRpcError(firstError));
+  } else if (firstError instanceof Error) {
+    io.stderr(`${firstError.message}\n`);
+  } else {
+    io.stderr("connection failed\n");
+  }
+}
+
+async function collectListResults(
+  socketPaths: readonly string[],
+  listParams: ListQueryParams | undefined,
+  deps: CliDeps,
+): Promise<{ listResults: Array<[string, DaemonListResult | undefined]>; firstError: unknown }> {
   const listResults: Array<[string, DaemonListResult | undefined]> = [];
   let firstError: unknown;
   const fail = (socketPath: string, error: unknown) => {
     listResults.push([socketPath, undefined]);
     firstError ??= error;
   };
-  const listParams =
-    parsed.sinceMs === undefined && parsed.limit === undefined
-      ? undefined
-      : {
-          ...(parsed.sinceMs !== undefined ? { sinceMs: parsed.sinceMs } : {}),
-          ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
-        };
 
   for (const socketPath of socketPaths) {
     try {
@@ -184,14 +195,20 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
     }
   }
 
+  return { listResults, firstError };
+}
+
+async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parseListArgv(rest, io, deps);
+  if (!parsed.ok) return 1;
+
+  const discovered = await (deps.socketDiscovery ?? (async () => []))();
+  const socketPaths = [...new Set([...discovered, deps.socketPath])].sort();
+  const listParams = listRequestParams(parsed);
+  const { listResults, firstError } = await collectListResults(socketPaths, listParams, deps);
+
   if (listResults.every(([_, result]) => result === undefined)) {
-    if (firstError instanceof RpcError) {
-      io.stderr(formatRpcError(firstError));
-    } else if (firstError instanceof Error) {
-      io.stderr(`${firstError.message}\n`);
-    } else {
-      io.stderr("connection failed\n");
-    }
+    writeListAggregateFailure(io, firstError);
     return 1;
   }
 

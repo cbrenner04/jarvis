@@ -12,6 +12,8 @@ import {
   TUI_USAGE,
   WRITE_USAGE,
 } from "./cli/usage.ts";
+import { commandTree, levenshteinDistance, renderHelpNode, renderUnknownSegmentError, resolveHelpPath } from "./cli/command-tree.ts";
+import type { CommandNode } from "./cli/command-tree.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
@@ -57,12 +59,79 @@ async function runWriteCommand(
   return exitCodeForWriteResult(loopResult.kind);
 }
 
-function renderHelp(out: Io): number {
-  out.stdout(
-    `${enumerateCommands()
-      .map(({ name, summary }) => `${name}\t${summary}`)
-      .join("\n")}\n`,
-  );
+function getAncestorUsage(node: CommandNode, path: readonly string[]): string | undefined {
+  if (node.usage !== undefined) {
+    return node.usage;
+  }
+
+  // Walk up the path to find an ancestor with usage
+  for (let i = path.length - 1; i >= 0; i--) {
+    const ancestorPath = path.slice(0, i);
+    const ancestor = resolveHelpPath(commandTree, ancestorPath);
+    if (ancestor !== undefined && ancestor.node.usage !== undefined) {
+      return ancestor.node.usage;
+    }
+  }
+
+  return undefined;
+}
+
+function renderHelp(out: Io, path: readonly string[]): number {
+  const resolved = resolveHelpPath(commandTree, path);
+
+  if (resolved === undefined) {
+    // Unknown path - find which segment is unknown
+    let current = commandTree;
+    let unknownSegment: string | undefined;
+    let unknownIndex = -1;
+
+    for (let i = 0; i < path.length; i++) {
+      const segment = path[i];
+      if (segment === undefined) break;
+
+      const child = current.subcommands?.find((sub) => sub.name === segment);
+
+      if (child === undefined) {
+        unknownSegment = segment;
+        unknownIndex = i;
+        break;
+      }
+
+      if (i === path.length - 1) {
+        current = child;
+      } else {
+        current = child;
+      }
+    }
+
+    if (unknownIndex >= 0 && unknownSegment !== undefined) {
+      const pathSoFar = path.slice(0, unknownIndex);
+      const parentResolved = resolveHelpPath(commandTree, pathSoFar);
+
+      if (parentResolved !== undefined) {
+        const siblings = parentResolved.node.subcommands ?? [];
+        out.stderr(renderUnknownSegmentError(unknownSegment, pathSoFar, siblings));
+      }
+    }
+
+    return 1;
+  }
+
+  // If node has no usage, find the ancestor's usage
+  let output = "";
+  const usage = resolved.node.usage ?? getAncestorUsage(resolved.node, path);
+  if (usage !== undefined) {
+    output += usage;
+  }
+
+  // Only show subcommands if this node has them
+  if (resolved.node.subcommands !== undefined && resolved.node.subcommands.length > 0) {
+    for (const child of resolved.node.subcommands) {
+      output += `${child.name}\t${child.summary}\n`;
+    }
+  }
+
+  out.stdout(output);
   return 0;
 }
 
@@ -80,14 +149,10 @@ const commandEntries: readonly CommandEntry[] = [
   },
   {
     name: "help",
-    summary: "List top-level commands.",
+    summary: "Show help for commands and subcommands.",
     usage: HELP_USAGE,
     handler: (argv, io) => {
-      if (argv.length !== 0) {
-        io.stderr(HELP_USAGE);
-        return Promise.resolve(1);
-      }
-      return Promise.resolve(renderHelp(io));
+      return Promise.resolve(renderHelp(io, argv));
     },
   },
 ];
@@ -101,27 +166,6 @@ export function findCommand(name: string): CommandEntry | undefined {
   return commandEntries.find((entry) => entry.name === name);
 }
 
-function levenshteinDistance(left: string, right: string): number {
-  const leftCharacters = Array.from(left);
-  const rightCharacters = Array.from(right);
-  let previous = Array.from({ length: rightCharacters.length + 1 }, (_, index) => index);
-
-  for (let leftIndex = 1; leftIndex <= leftCharacters.length; leftIndex += 1) {
-    const current = [leftIndex];
-    for (let rightIndex = 1; rightIndex <= rightCharacters.length; rightIndex += 1) {
-      current.push(
-        Math.min(
-          (current[rightIndex - 1] ?? 0) + 1,
-          (previous[rightIndex] ?? 0) + 1,
-          (previous[rightIndex - 1] ?? 0) + Number(leftCharacters[leftIndex - 1] !== rightCharacters[rightIndex - 1]),
-        ),
-      );
-    }
-    previous = current;
-  }
-
-  return previous[rightCharacters.length] ?? 0;
-}
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {

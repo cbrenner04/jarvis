@@ -2,15 +2,28 @@
 
 ## Top-level command help
 
-`jarvis help` writes the registered top-level commands as `name<TAB>summary`
-lines. The registry in `v2/src/cli.ts` is the source of truth for command
-dispatch, this overview, and unknown-command diagnostics; each entry owns its
-handler and command usage. `jarvis help` accepts no operands or options;
-invalid help arguments print `usage: jarvis help` to stderr and exit 1.
-Unknown top-level commands print `unknown command: <input>` to stderr, followed
-by `did you mean <name>?` only when exactly one registry name is within
-Levenshtein distance 2. They finish with `run \`jarvis help\` for available
-commands`, write nothing to stdout, and exit 1.
+`jarvis help [<command> [<subcommand>…]]` walks a command tree rooted at the
+registry (`v2/src/cli.ts`) to render command and subcommand discovery. Each
+path renders its node's usage line (when present), followed by one
+`name<TAB>summary` line per child subcommand; leaf nodes print usage alone.
+
+A node without its own usage falls back to its nearest ancestor's usage line.
+For example, `jarvis help run pause` prints the `run` command's usage since
+`pause` has no dedicated usage string.
+
+Unknown segments print `unknown command: <input>` to stderr, followed by
+`did you mean <name>?` only when exactly one sibling is within Levenshtein
+distance 2. The trailer names the parent command in square brackets for the
+help path: depth 0 `run \`jarvis help\` for available commands`; depth ≥1
+`run \`jarvis help <path so far>\` for available commands`. Stderr gets the
+error; nothing reaches stdout; exit 1.
+
+The tree structure is help and coverage data only — it does not gate dispatch.
+Dispatchers keep their inline branch chains; a name added to the tree without
+a corresponding dispatcher is caught by dispatch-coverage tests. Legacy
+workflow aliases (`intent-reviewed`, `plan-reviewed`, `plan-reviewed-light`)
+remain dispatchable but absent from the tree, so `jarvis help run workflow
+intent-reviewed` is an unknown segment.
 
 ## Completed-spec archival
 

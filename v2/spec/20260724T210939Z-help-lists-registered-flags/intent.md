@@ -6,9 +6,11 @@ name: help-lists-registered-flags
 
 ## Problem
 
-No `jarvis` command lists its flags. `--base`, `--spec`, `--ready-intent`, `--seed`,
-`--review-passes`, `--review-behavior`, `--target-dir`, `--dry-run`, `--abandon`,
-`--no-auto-bounce` are discoverable only by reading source or docs.
+`jarvis help` for `run workflow` presets (`intent`, `plan`, `implement`), `write`,
+`cleanup`, `run list`, `daemon log`, and `run start` (write parity) does not list
+accepted flags. Examples such as `--base`, `--spec`, `--ready-intent`, `--seed`,
+`--review-passes`, `--review-behavior`, `--target-dir`, `--dry-run`, and `--abandon`
+are discoverable only by reading source or docs.
 
 ## Decisions
 

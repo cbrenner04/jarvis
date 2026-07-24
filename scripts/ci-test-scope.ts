@@ -4,6 +4,15 @@ export type ScopedTests = "full" | string[];
 
 const ROOT_TOOLING_PATTERNS = [/^package\.json$/, /^tsconfig.*\.json$/, /^\.github\//, /^scripts\//];
 
+const CI_TEST_SCOPE_SCRIPT = /^scripts\/ci-test-scope(\.test)?\.ts$/;
+
+function isRootToolingPath(path: string): boolean {
+  if (CI_TEST_SCOPE_SCRIPT.test(path)) {
+    return false;
+  }
+  return ROOT_TOOLING_PATTERNS.some((pattern) => pattern.test(path));
+}
+
 const NO_TEST_IMPACT_PATTERNS = [
   /^reports\//,
   /^v1\/docs\//,
@@ -21,13 +30,17 @@ export function classifyChangedPaths(paths: string[]): ScopedTests {
   }
 
   for (const path of paths) {
-    if (ROOT_TOOLING_PATTERNS.some((pattern) => pattern.test(path))) {
+    if (isRootToolingPath(path)) {
       return "full";
     }
   }
 
   const filtered = paths.filter((path) => !NO_TEST_IMPACT_PATTERNS.some((pattern) => pattern.test(path)));
   if (filtered.length === 0) {
+    return [];
+  }
+
+  if (filtered.every((path) => CI_TEST_SCOPE_SCRIPT.test(path))) {
     return [];
   }
 

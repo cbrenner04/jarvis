@@ -74,6 +74,28 @@ describe("resolveCiTestScope", () => {
     expect(resolveCiTestScope(["package.json", "v1/docs/run-loop.md"], true)).toBe("full");
   });
 
+  test("ci-test-scope classifier-only diff skips aggregate tests", () => {
+    expect(resolveCiTestScope(["scripts/ci-test-scope.ts", "scripts/ci-test-scope.test.ts"], true)).toEqual([]);
+  });
+
+  test("ci-test-scope classifier mixed with intent staging skips aggregate tests", () => {
+    expect(
+      resolveCiTestScope(
+        [
+          "scripts/ci-test-scope.ts",
+          ".jarvis-intent-review-verdict.md",
+          ".jarvis-intent-stage/workflow-print-run-id-at-admission.md",
+        ],
+        true,
+      ),
+    ).toEqual([]);
+  });
+
+  test("other scripts/ changes still run full suite", () => {
+    expect(resolveCiTestScope(["scripts/ready.ts"], true)).toBe("full");
+    expect(resolveCiTestScope(["scripts/ci-test-scope.ts", "scripts/ready.ts"], true)).toBe("full");
+  });
+
   test("test/ (harness) change runs shared test slices", () => {
     expect(resolveCiTestScope(["test/setup-fake-agents.ts"], true)).toEqual(["test:shared", "test:integration:shared"]);
   });

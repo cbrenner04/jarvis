@@ -213,11 +213,16 @@ first failing step. First runs with no existing worktree skip this path.
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
 - **Pre-mutation refusal** — nothing was touched. Raised when the workspace is
-  live-held, the matching PR is ready (non-draft), or multiple open PRs match the
-  branch; stderr names the blocking state. Recovery: end the live run or wait for
-  its lock to clear; mark the PR draft again or merge it; or close duplicate PRs
-  until exactly one open draft remains, then re-run. Manual fallback: `jarvis
-  cleanup --abandon <branch>` when guards pass.
+  live-held, the matching PR is ready (non-draft), multiple open PRs match the
+  branch, or the materialized worktree has uncommitted tracked or untracked paths;
+  stderr names the blocking state (for a dirty worktree, paths and recovery:
+  commit, discard local changes, or `jarvis cleanup --abandon <branch>`). The
+  same dirty-worktree gate applies to incomplete git-enabled `jarvis run workflow
+  plan` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
+  run or wait for its lock to clear; mark the PR draft again or merge it; close
+  duplicate PRs until exactly one open draft remains; or clean the worktree as
+  named in the refusal, then re-run. Manual fallback: `jarvis cleanup --abandon
+  <branch>` when guards pass.
 - **Partial teardown** — stderr reads `retirement failed at <step>; <what
   remains>`. Local artifacts may already be gone. Finish the teardown by hand (see
   [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) for the per-step remnants

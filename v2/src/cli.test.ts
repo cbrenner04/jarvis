@@ -438,8 +438,14 @@ describe("v2 cli dispatch", () => {
   });
 
   test.each([
-    [["tui", "log", "abc123", "--help"], ["tui", "log"]],
-    [["run", "workflow", "intent-reviewed", "--help"], ["run", "workflow"]],
+    [
+      ["tui", "log", "abc123", "--help"],
+      ["tui", "log"],
+    ],
+    [
+      ["run", "workflow", "intent-reviewed", "--help"],
+      ["run", "workflow"],
+    ],
   ] as const)("help flag alias matches help for %j", async (aliasArgv, helpPath) => {
     await expectHelpFlagMatchesHelp(aliasArgv, helpPath);
   });

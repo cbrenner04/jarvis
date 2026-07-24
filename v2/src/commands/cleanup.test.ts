@@ -2365,13 +2365,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, "keep-me.txt"), "dirty\n");
 
-    const result = await callReset(
-      branch,
-      ghPrListRunner([{ number: 803, isDraft: true }]),
-      noLiveDaemon,
-      silentIo,
-      { enforceDirtyWorktreeGate: false },
-    );
+    const result = await callReset(branch, ghPrListRunner([{ number: 803, isDraft: true }]), noLiveDaemon, silentIo, {
+      enforceDirtyWorktreeGate: false,
+    });
 
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);

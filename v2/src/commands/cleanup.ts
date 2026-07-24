@@ -707,8 +707,7 @@ export type DirtyWorktreeListResult =
   | { status: "dirty"; paths: string[] }
   | { status: "error"; message: string };
 
-const staleResetDirtyRecovery =
-  "commit, discard local changes, or run `jarvis cleanup --abandon <branch>`";
+const staleResetDirtyRecovery = "commit, discard local changes, or run `jarvis cleanup --abandon <branch>`";
 
 export async function listDirtyWorktreePathsForStaleReset(
   worktreePath: string,
@@ -737,8 +736,7 @@ export function staleResetDirtyWorktreeGateReason(
 ): string | undefined {
   if (!enabled) return undefined;
   if (listResult.status === "dirty") {
-    const pathDetail =
-      listResult.paths.length > 0 ? listResult.paths.join(", ") : "unparseable git status output";
+    const pathDetail = listResult.paths.length > 0 ? listResult.paths.join(", ") : "unparseable git status output";
     return `worktree has uncommitted changes (${pathDetail}); ${staleResetDirtyRecovery} to retire the workspace, then re-run`;
   }
   if (listResult.status === "error") {

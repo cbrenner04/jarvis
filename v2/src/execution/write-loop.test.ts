@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
@@ -6,7 +7,9 @@ import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import { createCompletionCommitter } from "./completion-commit.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
+import { renderAttribution } from "./pr-attribution.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
@@ -14,6 +17,7 @@ import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./writ
 import {
   appendRuntimeSmokeOutcome,
   executeWriteLoop,
+  shouldFailTerminalCompletionForDirtyWorktree,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
 } from "./write-loop.ts";
@@ -899,6 +903,7 @@ describe("write loop", () => {
       const logSink = new TestLogSink();
       let gateCalls = 0;
       const prompts: string[] = [];
+      const forceDistinctFlags: boolean[] = [];
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
@@ -914,7 +919,11 @@ describe("write loop", () => {
           },
         ],
         logSink,
-        ...completionHooks,
+        completionCommitter: async (input) => {
+          forceDistinctFlags.push(input.forceDistinctCommit === true);
+          return completionHooks.completionCommitter();
+        },
+        completionPublisher: completionHooks.completionPublisher,
         readyFinalizer: async () => {
           gateCalls += 1;
           if (gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
@@ -923,6 +932,7 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("complete");
       expect(gateCalls).toBe(2);
+      expect(forceDistinctFlags.filter(Boolean).length).toBeGreaterThanOrEqual(2);
       expect(prompts).toHaveLength(2);
       expect(prompts[1]).toContain("Command: bun run ready");
       expect(prompts[1]).toContain("Exit code: 1");
@@ -2804,6 +2814,433 @@ describe("write loop", () => {
 
       expect(rendered).toContain(testReport);
       expect(rendered).toContain("deliver-only");
+    });
+  });
+
+  describe("per-iteration git commit on progress", () => {
+    const progressInvocation = {
+      attempts: [] as const,
+      final: {
+        result: { kind: "ok" as const, stdout: "progress", stderr: "" },
+        binding: {
+          id: "sim.1",
+          metadata: { agent: "Test Agent", model: "sim-model" },
+        },
+      },
+      telemetryFailures: [] as const,
+    };
+
+    function gitIn(worktreePath: string, args: readonly string[]): string {
+      return execFileSync("git", ["-C", worktreePath, ...args], { encoding: "utf8", stdio: "pipe" }).trim();
+    }
+
+    function initGitWorktree(jarvisRoot: string, branchName: string): string {
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+      return worktreePath;
+    }
+
+    function progressWrite(worktreePath: string) {
+      return {
+        worktreePath,
+        worktreeReused: false as const,
+        lock: { kind: "acquired" as const },
+        result: { kind: "progress" as const, token: "progress" as const, invocation: progressInvocation },
+      };
+    }
+
+    function completeWrite(worktreePath: string) {
+      return {
+        worktreePath,
+        worktreeReused: false as const,
+        lock: { kind: "acquired" as const },
+        result: { kind: "complete" as const, token: "done" as const, invocation: progressInvocation },
+      };
+    }
+
+    function iterLoopInput(
+      jarvisRoot: string,
+      branchName: string,
+      store: StateStore,
+      extra: Partial<WriteLoopInput> = {},
+    ): WriteLoopInput {
+      return {
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return progress.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["progress"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        completionCommitter: createCompletionCommitter(),
+        maxIterations: 5,
+        ...extra,
+      };
+    }
+
+    test("terminal completion adds a third sha after two iteration commits and attribution lists all", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-terminal-boundary";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "subspec.md"), "- [ ] task\n", "utf8");
+      const store = openStateStore(stateDbPath);
+      const seedBase = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return progress or done.",
+            expectedArtifactPath: "subspec.md",
+            bindings: simulatedBindings(["progress", "progress", "done"]),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("complete");
+        const terminalSha = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        const iterTwoSha = gitIn(worktreePath, ["rev-parse", "HEAD~1"]);
+        const iterOneSha = gitIn(worktreePath, ["rev-parse", "HEAD~2"]);
+        expect(new Set([terminalSha, iterTwoSha, iterOneSha]).size).toBe(3);
+        expect(terminalSha).not.toBe(iterTwoSha);
+
+        const footer = await renderAttribution({ cwd: worktreePath, base: seedBase });
+        expect(footer).toContain(iterOneSha.slice(0, 7));
+        expect(footer).toContain(iterTwoSha.slice(0, 7));
+        expect(footer).toContain(terminalSha.slice(0, 7));
+        expect(footer).toContain("Test Agent");
+        expect(footer).toContain("Written by");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("publish-resume uses forceDistinctCommit after iteration commits on a clean tree", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-publish-resume-distinct";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "subspec.md"), "- [ ] task\n", "utf8");
+      const store = openStateStore(stateDbPath);
+      let calls = 0;
+      let publishAttempts = 0;
+      const forceDistinctFlags: boolean[] = [];
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      const trackingCommitter: WriteLoopInput["completionCommitter"] = async (input) => {
+        forceDistinctFlags.push(input.forceDistinctCommit === true);
+        return createCompletionCommitter()(input);
+      };
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const first = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return progress or done.",
+            expectedArtifactPath: "subspec.md",
+            bindings: simulatedBindings(["progress", "progress", "done"]),
+            completionCommitter: trackingCommitter,
+            completionPublisher: async () => {
+              publishAttempts += 1;
+              if (publishAttempts === 1) throw new Error("publish failed");
+              return {};
+            },
+            readyFinalizer: async () => {},
+          }),
+        );
+        expect(first.kind).toBe("completion_commit_failed");
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
+
+        const resumed = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: [],
+            completionCommitter: trackingCommitter,
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+        expect(resumed.kind).toBe("complete");
+        expect(forceDistinctFlags.filter(Boolean).length).toBeGreaterThanOrEqual(2);
+        expect(forceDistinctFlags.at(-1)).toBe(true);
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 4);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("dirty worktree after iteration commits fails terminal completion and names paths", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-dirty-terminal";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "subspec.md"), "- [ ] task\n", "utf8");
+      const store = openStateStore(stateDbPath);
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          writeFileSync(join(worktreePath, "left-dirty.txt"), "uncommitted\n");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return progress or done.",
+            expectedArtifactPath: "subspec.md",
+            bindings: simulatedBindings(["progress", "progress", "done"]),
+            completionCommitter: async (input) => {
+              if (input.forceDistinctCommit) return {};
+              return createCompletionCommitter()(input);
+            },
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.completionCommitError).toContain("left-dirty.txt");
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(3);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("shouldFailTerminalCompletionForDirtyWorktree rejects complete when dirty after no-op committer (inverted guard would complete)", () => {
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, ["left-dirty.txt"])).toBe(true);
+      expect(shouldFailTerminalCompletionForDirtyWorktree("sha", ["left-dirty.txt"])).toBe(false);
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, [])).toBe(false);
+      const invertedIgnoresDirty = false;
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, ["left-dirty.txt"])).not.toBe(
+        invertedIgnoresDirty,
+      );
+    });
+
+    test("commits once per changed progress iteration with Jarvis-Agent and Spec lines", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-commit-run";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "subspec.md"), "- [ ] task\n", "utf8");
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return progress or done.",
+            expectedArtifactPath: "subspec.md",
+            bindings: simulatedBindings(["progress", "progress", "done"]),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+            logSink: sink,
+          }),
+        );
+
+        expect(result.kind).toBe("complete");
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
+        for (const rev of ["HEAD~1", "HEAD~2"]) {
+          const message = gitIn(worktreePath, ["log", "-1", "--format=%B", rev]);
+          expect(message).toContain("Jarvis-Agent: Test Agent");
+          expect(message).toContain("Spec: subspec.md");
+        }
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("skips git commit when progress materializes no diff vs HEAD", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-no-diff";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 1 }));
+
+        expect(result.kind).toBe("budget-exhausted");
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount);
+        expect(calls).toBe(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("keeps iteration commit when aborted before the next iteration starts", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-abort-between";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const abort = new AbortController();
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+          if (calls === 1) {
+            queueMicrotask(() => abort.abort());
+            return progressWrite(worktreePath);
+          }
+          return new Promise<never>(() => undefined);
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["progress", "progress"]),
+            signal: abort.signal,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 1 });
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 1);
+        expect(calls).toBe(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("commits progress before post-settle abort short-circuit", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-abort-post-settle";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const abort = new AbortController();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "iter-1.txt"), "x\n");
+          abort.abort();
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { signal: abort.signal }));
+
+        expect(result).toMatchObject({ kind: "progress", resumable: true, iterationsConsumed: 1 });
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("stops failed when iteration commit throws on progress", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-commit-fail";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let commitCalls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "iter-1.txt"), "x\n");
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["progress", "progress"]),
+            logSink: sink,
+            completionCommitter: async () => {
+              commitCalls += 1;
+              throw new Error("iteration commit blew up");
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_commit_failed");
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+        expect(commitCalls).toBe(1);
+        expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started")).toHaveLength(
+          1,
+        );
+        expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "boundary_committed")).toHaveLength(
+          0,
+        );
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
     });
   });
 });

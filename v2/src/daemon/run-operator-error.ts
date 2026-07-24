@@ -22,6 +22,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "harness_failure",
   "not_implemented",
   "completion_commit_failed",
+  "iteration_commit_failed",
   "ready_gate_failed",
   "ready_flip_failed",
   "surviving_mutation_failed",
@@ -129,6 +130,11 @@ function mapFromLoopFinished(
     case "completion_commit_failed":
       return {
         ...op("completion_commit_failed", "resume", true),
+        ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+      };
+    case "iteration_commit_failed":
+      return {
+        ...op("iteration_commit_failed", "resume", true),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     case "ready_gate_failed":

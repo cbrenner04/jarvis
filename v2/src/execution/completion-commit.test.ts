@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
+import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -151,6 +151,38 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({ commitSha: "completion-commit", filesChanged: 1 });
   });
 
+  test("forceDistinctCommit creates a new sha when the tree matches HEAD with Jarvis-Agent", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "iteration-head";
+      if (args[0] === "read-tree") return "";
+      if (args[0] === "add") return "";
+      if (args[0] === "write-tree") return "same-tree";
+      if (args[0] === "rev-parse" && args[1] === "iteration-head^{tree}") return "same-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "terminal-commit";
+      if (args[0] === "diff-tree") return "";
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    const result = await committer({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+      forceDistinctCommit: true,
+    });
+
+    expect(result).toEqual({ commitSha: "terminal-commit", filesChanged: 0 });
+    expect(calls.some((c) => c.args[0] === "commit-tree")).toBe(true);
+  });
+
   test("truly nothing to commit when HEAD is not a completion commit", async () => {
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
 
@@ -281,5 +313,16 @@ describe("createCompletionCommitter", () => {
     });
 
     expect(result).toEqual({ commitSha: "existing-commit", filesChanged: 1 });
+  });
+
+  test("shouldReuseHeadWithoutNewCommit blocks spurious commits when trees match (inverted guard would commit)", () => {
+    const tree = "same-tree";
+    const headTree = "same-tree";
+    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, false)).toBe(true);
+    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, true)).toBe(false);
+    expect(shouldReuseHeadWithoutNewCommit(tree, "other-tree", false)).toBe(false);
+    const invertedSkipGuard = tree !== headTree;
+    expect(invertedSkipGuard).toBe(false);
+    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, false)).not.toBe(invertedSkipGuard);
   });
 });

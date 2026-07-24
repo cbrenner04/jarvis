@@ -468,9 +468,13 @@ Durable non-terminal rows from a prior daemon are reconciled to `killed` with re
 daemon automatically resumes every reconciled row with a resolvable workflow write snapshot.
 The original run ID, snapshot, worktree, and branch are retained; check `jarvis run log <run-id>`
 for its `run_recovery` outcome. A failed automatic admission becomes `failed` with an actionable
-log diagnostic, without blocking other recoveries. Worktrees and branches survive, but the killed
-iteration's agent work does **not** — it is left uncommitted in the worktree, and its token spend
-is lost.
+log diagnostic, without blocking other recoveries. Worktrees and branches survive.
+Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
+and resume while the branch exists; only in-flight edits before that iteration's
+git commit may be lost. Uncommitted work from the killed step itself is left
+dirty in the worktree, and its token spend is lost. **Implement re-run reset**
+(`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
+the branch and unpushed commits; publication remains terminal-`complete` only.
 
 **This trap observed live on 2026-07-14:**
 
@@ -501,8 +505,8 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then
-`jarvis run resume <run-id>`. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot before replaying
+Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then
+`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot before replaying
 publication without re-invoking the write-step agent; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
 
 **`ready_flip_failed` is terminal** — do not resume. The flip error identifies the PR by number (`error.prNumber`); inspect and manually fix the PR draft → ready transition. The fix does not require a daemon restart or `jarvis run resume`. The PR number is also available via `jarvis run list <run-id>` as the `readyFlipPrNumber` field; use it to identify the PR to fix. After manual fix, verify `gh pr view <prNumber> --json isDraft` reports `false`, then proceed with the next workflow step or close the run.

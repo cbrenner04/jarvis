@@ -361,6 +361,11 @@ test.each([
   { invocationId: "budget-soft-stopped", status: "budget-soft-stopped" as const, logOutcome: undefined },
   { invocationId: "killed", status: "killed" as const, logOutcome: undefined },
   {
+    invocationId: "iteration-commit-failed",
+    status: "failed" as const,
+    logOutcome: "iteration_commit_failed" as const,
+  },
+  {
     invocationId: "completion-commit-failed",
     status: "completed" as const,
     logOutcome: "completion_commit_failed" as const,

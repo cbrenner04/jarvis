@@ -363,7 +363,7 @@ A **run** is a workflow instance carrying:
   `budget-soft-stopped`, `paused`, `failed`, `killed`, `queued`).
   The write loop uses `paused` to record a graceful pause (last attempt committed at
   boundary); `killed` records an immediate abort by the daemon (last attempt may be
-  uncommitted).
+  uncommitted; prior iteration commits on the branch remain).
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
@@ -457,9 +457,11 @@ streams stay out of the orchestration store.
   loop doesn't race the daemon's status write.
 - **Kill is immediate** — aborts the run's AbortSignal immediately, causing
   signal-honoring bindings to tear down their agent processes (SIGTERM→SIGKILL).
-  **Kill leaves a dirty worktree**; killed runs are recovered or cleaned up, never
-  cleanly continued. The loop skips the boundary commit if a step returns after
-  abort, so the daemon is the sole writer of `killed` status.
+  **Kill may leave a dirty worktree** (in-flight step edits not yet committed);
+  **committed per-iteration SHAs on the same branch survive** kill, daemon
+  reconcile, and resume while the branch exists. The loop skips the boundary
+  commit if a step returns after abort, so the daemon is the sole writer of
+  `killed` status.
 - **Resume branches on how the current step stopped.** Pause stopped
   *completed-at-boundary* (last attempt committed) → resume continues with a fresh
   attempt. Kill/crash stopped *interrupted* (last attempt still in-progress) →

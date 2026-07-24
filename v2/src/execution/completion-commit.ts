@@ -11,6 +11,8 @@ export type CompletionCommitInput = {
   agent: string;
   /** Authoritative commit subject, resolved by the caller that owns workflow context. */
   title: string;
+  /** Terminal completion: create a new commit even when the index tree matches HEAD. */
+  forceDistinctCommit?: boolean;
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
@@ -32,6 +34,15 @@ function git(cwd: string, args: readonly string[], env?: Record<string, string>)
       else resolve(stdout.trim());
     });
   });
+}
+
+/** When true, the committer reuses HEAD without creating a commit (iteration materialization no-op). */
+export function shouldReuseHeadWithoutNewCommit(
+  indexTree: string,
+  headTree: string,
+  forceDistinctCommit: boolean,
+): boolean {
+  return indexTree === headTree && !forceDistinctCommit;
 }
 
 async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): Promise<number> {
@@ -62,7 +73,7 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
         const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
         const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
-        if (tree === baseTree) {
+        if (shouldReuseHeadWithoutNewCommit(tree, baseTree, input.forceDistinctCommit === true)) {
           // HEAD may already be a completion commit whose publish previously failed;
           // report its sha so the caller retries publication instead of no-op'ing.
           const headMessage = await runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);

@@ -18,7 +18,14 @@ function buildWaitPayload(result: WaitRunCompletionResult): Record<string, unkno
 
 export function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWriteLoop>>["kind"]): number {
   if (kind === "complete") return 0;
-  if (kind === "completion_commit_failed" || kind === "ready_gate_failed" || kind === "ready_flip_failed") return 1;
+  if (
+    kind === "completion_commit_failed" ||
+    kind === "iteration_commit_failed" ||
+    kind === "ready_gate_failed" ||
+    kind === "ready_flip_failed"
+  ) {
+    return 1;
+  }
   if (kind === "invocation_failure") return 2;
   if (kind === "budget-exhausted") return 5;
   return 1;

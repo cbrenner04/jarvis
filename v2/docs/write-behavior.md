@@ -81,7 +81,12 @@ returns no `commitSha`. A clean snapshot whose HEAD *is* the completion commit
 — i.e. the commit landed on a prior attempt but publication never confirmed
 success — reports that existing `commitSha` again rather than no-op'ing, so
 resume re-attempts publication instead of masking a failed publish as success.
-The spec title is resolved identically to the PR title: from the spec
+After per-iteration commits, a clean worktree whose HEAD is only the last
+iteration commit still receives a **distinct** terminal completion commit
+(`forceDistinctCommit` on every terminal publication-boundary committer call — in-loop
+`complete`, publish-resume, and post-ready-gate repair re-commit) so publish-resume and PR
+attribution have a separate completion boundary SHA instead of reusing the last
+iteration SHA. The spec title is resolved identically to the PR title: from the spec
 `index.md` H1 heading (when readable and non-empty), falling back to the spec
 directory basename.
 
@@ -90,6 +95,21 @@ checks the worktree for uncommitted changes (`git status --porcelain`). If dirty
 run records `completion_commit_failed` (resumable) and names the uncommitted paths in
 `completionCommitError`; a clean worktree still records `complete`. This guarantees a
 reported `complete` always implies a commit exists.
+
+**Per-iteration commits (`progress` only):** On git-backed loops with
+`publishCompletion !== false`, each settled `progress` step runs the same
+completion committer seam after the step settles and before the SQLite
+`progress` boundary. The committer no-ops when the isolated index tree matches
+`HEAD^{tree}` (reprompt-only or advisory-only iterations with no materialized
+diff). Iteration commits use the step binding's `Jarvis-Agent` label, a `Spec:`
+line for the active subspec path (`expectedArtifactPath` when that file exists
+in the worktree, otherwise the run `specPath`), and a subject from binding
+metadata `title` when set, else the same creation-title fallback as terminal
+completion. A throwing committer or missing agent label stops the run
+`failed` with `iteration_commit_failed` (resumable); the loop does not advance
+to another iteration. `iteration_timeout` and other terminal outcomes do not
+trigger per-iteration git commits. Push and PR publication remain on terminal
+`complete` only.
 
 **Push+PR phase:** (when commit succeeds, or resume finds an already-committed
 HEAD) starts at upstream detection: a branch without upstream tracking uses
@@ -128,8 +148,9 @@ block (pre-rendered markdown; omitted when absent or blank), preserved content
 between plain `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->`
 markers when present, and an attribution footer from `Jarvis-Agent` trailer(s) on
 commits in
-`baseRef..HEAD` whose first body line begins with `Spec:`. Under v2's single
-completion commit, that selects the `jarvis: complete run` meta-commit. Footer
+`baseRef..HEAD` whose first body line begins with `Spec:`. Qualifying commits
+include each per-iteration WIP commit plus the terminal completion commit when
+both land on the branch. Footer
 shape: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`,
 labels joined per commit; `unknown` when no trailer; excluded from summary),
 blank line, then `Written by <labels> through Jarvis.` with first-seen dedup.
@@ -919,13 +940,13 @@ caller-supplied bindings, same seam as write-step invocations.
 ## Exit codes
 
 - `0`: `complete` (success)
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, or `ready_flip_failed`
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, or `ready_flip_failed`
 - `2`: `invocation_failure` (binding chain or token parse failure)
 - `5`: `budget-exhausted` (soft-stop, resumable per spec 02)
 
-`completion_commit_failed`, `ready_gate_failed`, and `surviving_mutation_failed` leave the durable run
+`completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, and `surviving_mutation_failed` leave the durable run
 `failed` with `resumable: true`; `jarvis run resume <run-id>` may retry without
-creating a duplicate commit or PR. `ready_flip_failed` is a terminal non-resumable settlement:
+creating a duplicate commit or PR. `iteration_commit_failed` means the iteration git commit failed before `boundary_committed`; resume retries that iteration. `ready_flip_failed` is a terminal non-resumable settlement:
 the run stays `completed` with `resumable: false`, and `resume` is rejected as a terminal run.
 During the post-completion verification tail (ready gate, mutation verification, smoke, flip), the durable row is `in-progress` so `list` / `wait` do not report `completed` until finalization settles.
 
@@ -939,11 +960,12 @@ needing lifecycle success should loop `wait` until exit `0` or inspect stdout
 When `loopOutcomeKind` is present it wins over `runStatus`:
 
 - `0`: `complete`
-- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, `ready_flip_failed`, `paused`, `progress`, or any other present kind
+- `1`: `blocked`, `contract_miss`, `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, `ready_flip_failed`, `paused`, `progress`, or any other present kind
 - `2`: `invocation_failure`
 - `5`: `budget-exhausted`
 
 `completion_commit_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
+`iteration_commit_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume` (no `boundary_committed` on the failed iteration).
 `ready_gate_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 `surviving_mutation_failed` carries `runStatus: failed`, `resumable: true`, and `error` with `reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, plus `survivingMutation` and source file/line; exit `1` is retryable via `jarvis run resume`.
 `ready_flip_failed` carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.

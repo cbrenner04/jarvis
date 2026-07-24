@@ -753,6 +753,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             specPath: publicationPath,
             agent: publicationAgent,
             title: creationTitle,
+            forceDistinctCommit: true,
           });
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);

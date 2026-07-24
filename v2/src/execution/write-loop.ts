@@ -47,6 +47,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
+  "iteration_commit_failed",
   "ready_gate_failed",
   "ready_flip_failed",
   "surviving_mutation_failed",
@@ -168,6 +169,14 @@ async function runCoverageAdvisory(
 }
 
 /** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
+/** Terminal completion fails closed when the committer produced no sha but the worktree is dirty. */
+export function shouldFailTerminalCompletionForDirtyWorktree(
+  commitSha: string | undefined,
+  uncommittedPaths: readonly string[],
+): boolean {
+  return commitSha === undefined && uncommittedPaths.length > 0;
+}
+
 export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
   try {
     return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath))
@@ -218,6 +227,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             specPath: args.specPath,
             agent: prepared.result.completionAgent ?? "",
             title: creationTitle,
+            forceDistinctCommit: true,
           });
           if (published.commitSha !== undefined) {
             store.setRunStatus(prepared.result.runId, "in-progress");
@@ -255,7 +265,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           }
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree));
-            if (uncommitted.length > 0) {
+            if (shouldFailTerminalCompletionForDirtyWorktree(published.commitSha, uncommitted)) {
               return completionCommitFailed(
                 args,
                 store,
@@ -332,12 +342,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const stepResult = settled.result;
       iterationsConsumed += 1;
 
-      // If the abort signal was triggered while the step was running, skip boundary commit
-      if (args.signal?.aborted) {
+      const { result } = stepResult;
+
+      // Non-progress: abort before terminal boundary when the signal fired mid-step.
+      if (args.signal?.aborted && result.kind !== "progress") {
         return finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
-
-      const { result } = stepResult;
 
       if (result.reprompt !== undefined) {
         const responseText = result.reprompt.responseText;
@@ -357,6 +367,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "progress") {
+        try {
+          await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
+        } catch (error) {
+          return iterationCommitFailed(
+            args,
+            store,
+            runId,
+            attemptId,
+            iterationsConsumed,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {
           kind: "boundary_committed",
@@ -364,6 +387,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           outcomeKind: "progress",
           runStatus: "in-progress",
         });
+
+        if (args.signal?.aborted) {
+          return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        }
 
         // Check for graceful pause at the loop boundary
         if (args.pauseSignal?.aborted) {
@@ -500,6 +527,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           specPath: args.specPath,
           agent,
           title: creationTitle,
+          forceDistinctCommit: true,
         });
         if (published.commitSha !== undefined) {
           store.setRunStatus(runId, "in-progress");
@@ -540,7 +568,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
         if (published.commitSha === undefined) {
           const uncommitted = await getUncommittedPaths(worktreePath);
-          if (uncommitted.length > 0) {
+          if (shouldFailTerminalCompletionForDirtyWorktree(published.commitSha, uncommitted)) {
             return completionCommitFailed(
               args,
               store,
@@ -1059,6 +1087,7 @@ export async function publishWithReadyRepair(
         specPath: input.specPath,
         agent: result.completionAgent ?? "",
         title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+        forceDistinctCommit: true,
       });
       outcome = await publishCompletionArtifacts(args, input);
     } catch (error) {
@@ -1295,6 +1324,65 @@ function readyFailed(
 
 function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+}
+
+async function commitProgressIteration(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  result: Extract<StepRunResult, { kind: "progress" }>,
+): Promise<void> {
+  if (args.publishCompletion === false || !existsSync(join(worktreePath, ".git"))) {
+    return;
+  }
+  const agent = result.invocation.final?.binding.metadata?.agent?.trim();
+  if (!agent) throw new Error("completion attribution is missing");
+  const artifactPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
+  const specPath = existsSync(artifactPath) ? artifactPath : args.specPath;
+  const metadata = result.invocation.final?.binding.metadata as { title?: string } | undefined;
+  const stepTitle = typeof metadata?.title === "string" ? metadata.title.trim() : "";
+  const title = stepTitle
+    ? stepTitle
+    : resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
+  await (args.completionCommitter ?? createCompletionCommitter())({
+    worktreePath,
+    baseRef: args.worktree.baseRef,
+    specPath,
+    agent,
+    title,
+  });
+}
+
+function iterationCommitFailed(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  error: Error,
+): WriteLoopResult {
+  store.setRunStatus(runId, "failed");
+  const publicationFailure = publicationFailureFor(error);
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_commit_failed",
+    iterationsConsumed,
+    resumable: true,
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+  });
+  return {
+    kind: "iteration_commit_failed",
+    runId,
+    iterationsConsumed,
+    resumable: true,
+    completionCommitError: error.message,
+    attemptId,
+    outcomeKind: "progress",
+    runStatus: "failed",
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+  };
 }
 
 function appendBlockerToSpec(specPath: string, reason: string): void {

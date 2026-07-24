@@ -50,8 +50,9 @@ For each `write` step in order:
 1. Run its write loop (via `executeWriteLoop`) to a terminal outcome.
 2. If the outcome is `complete` and the step role is `implement`, commit its
    output, then run one hidden shrink write loop before advancing. On a
-   successful publication, that checkpoint and shrink edits fold into the
-   single completion commit.
+   successful publication, the implement checkpoint, shrink edits, and any prior
+   per-iteration write commits remain distinct SHAs on the branch; the terminal
+   completion commit is a separate boundary commit (see `write-behavior.md`).
 3. If the outcome is `complete`, advance to the next step.
 4. Any other terminal outcome (`blocked`, `contract_miss`, `invocation_failure`) or soft-stop (`budget-exhausted`, `paused`) stops the workflow at that step — no later steps are run.
 

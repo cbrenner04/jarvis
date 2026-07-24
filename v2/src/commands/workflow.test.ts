@@ -861,6 +861,42 @@ describe("implement preflight stale workspace reset", () => {
     expect(cap.read().stderr).toContain(`Cannot re-run incomplete spec: process ${process.pid} holds worktree lock`);
   });
 
+  test("run workflow implement refuses reset when the managed worktree is dirty", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const dirtyFile = "agent-leftover.txt";
+    writeFileSync(join(worktreePath, dirtyFile), "uncommitted\n", "utf8");
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+
+    const code = await main(
+      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+      cap.io,
+      resetImplementDeps({
+        subprocessRunner: {
+          runAsync: async (cmd, args, cwd) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+              return JSON.stringify([{ number: 88, isDraft: true }]);
+            }
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+          },
+        },
+        connectIpcClient: async () => makeIpcClient([]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(dirtyFile);
+    expect(stderr).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
   test("run workflow implement performs no reset teardown on a fresh run", async () => {
     const cap = captureIo();
     const teardownCalls: string[] = [];

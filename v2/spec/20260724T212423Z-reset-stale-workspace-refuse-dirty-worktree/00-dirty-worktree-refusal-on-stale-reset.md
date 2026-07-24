@@ -34,13 +34,13 @@ work silently.
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` adds a test that calls `resetStaleWorkspace` on a materialized worktree with uncommitted tracked or untracked paths, asserts `{ status: "refused", reason }` naming those paths and recovery options with no worktree/branch/PR retirement; fails against the pre-fix code.
-- [ ] `workflow.test.ts` adds a test that drives incomplete git-enabled `run workflow implement` re-run with a dirty managed worktree, asserts non-zero exit, operator stderr `Cannot re-run incomplete spec: …` naming the dirty paths and recovery, and no `gh pr close` / branch-delete / worktree-remove side effects; fails against the pre-fix code.
-- [ ] Dirty-listing failure refuses fail-closed: `reason` explains the failure, no `performAbandonmentSteps`, no retirement side effects.
-- [ ] Guard-inversion tests on the dirty-check seam fail when the guard is inverted: an otherwise eligible stale workspace with local edits retires as today instead of refusing.
-- [ ] `cleanup.test.ts` `resetStaleWorkspace: incomplete implement re-run reset` stays green.
-- [ ] `cleanup.test.ts` `abandon retires an unmerged workspace via git worktree remove --force, branch -D, and push origin --delete` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `cleanup.test.ts` adds a test that calls `resetStaleWorkspace` on a materialized worktree with uncommitted tracked or untracked paths, asserts `{ status: "refused", reason }` naming those paths and recovery options with no worktree/branch/PR retirement; fails against the pre-fix code.
+- [x] `workflow.test.ts` adds a test that drives incomplete git-enabled `run workflow implement` re-run with a dirty managed worktree, asserts non-zero exit, operator stderr `Cannot re-run incomplete spec: …` naming the dirty paths and recovery, and no `gh pr close` / branch-delete / worktree-remove side effects; fails against the pre-fix code.
+- [x] Dirty-listing failure refuses fail-closed: `reason` explains the failure, no `performAbandonmentSteps`, no retirement side effects.
+- [x] Guard-inversion tests on the dirty-check seam fail when the guard is inverted: an otherwise eligible stale workspace with local edits retires as today instead of refusing.
+- [x] `cleanup.test.ts` `resetStaleWorkspace: incomplete implement re-run reset` stays green.
+- [x] `cleanup.test.ts` `abandon retires an unmerged workspace via git worktree remove --force, branch -D, and push origin --delete` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

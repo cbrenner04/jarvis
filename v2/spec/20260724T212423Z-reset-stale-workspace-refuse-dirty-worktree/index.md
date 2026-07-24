@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Dirty-worktree refusal on stale reset](./00-dirty-worktree-refusal-on-stale-reset.md)
+- [x] [00 - Dirty-worktree refusal on stale reset](./00-dirty-worktree-refusal-on-stale-reset.md)

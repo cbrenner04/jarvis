@@ -702,6 +702,55 @@ type AbandonResolution = {
 
 type LiveRunCheck = { live: false } | { live: true; reason: string };
 
+export type DirtyWorktreeListResult =
+  | { status: "clean" }
+  | { status: "dirty"; paths: string[] }
+  | { status: "error"; message: string };
+
+const staleResetDirtyRecovery =
+  "commit, discard local changes, or run `jarvis cleanup --abandon <branch>`";
+
+export async function listDirtyWorktreePathsForStaleReset(
+  worktreePath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<DirtyWorktreeListResult> {
+  try {
+    const output = await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], worktreePath);
+    const lines = output.split("\n").filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return { status: "clean" };
+    const paths: string[] = [];
+    for (const line of lines) {
+      let path = line.slice(3).trim();
+      const arrow = path.lastIndexOf(" -> ");
+      if (arrow >= 0) path = path.slice(arrow + 4).trim();
+      if (path) paths.push(path);
+    }
+    return { status: "dirty", paths };
+  } catch (err) {
+    return { status: "error", message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function staleResetDirtyWorktreeGateReason(
+  listResult: DirtyWorktreeListResult,
+  enabled = true,
+): string | undefined {
+  if (!enabled) return undefined;
+  if (listResult.status === "dirty") {
+    const pathDetail =
+      listResult.paths.length > 0 ? listResult.paths.join(", ") : "unparseable git status output";
+    return `worktree has uncommitted changes (${pathDetail}); ${staleResetDirtyRecovery} to retire the workspace, then re-run`;
+  }
+  if (listResult.status === "error") {
+    return `could not list worktree changes (${listResult.message}); ${staleResetDirtyRecovery} before re-running`;
+  }
+  return undefined;
+}
+
+export type ResetStaleWorkspaceOptions = {
+  enforceDirtyWorktreeGate?: boolean;
+};
+
 export async function resetStaleWorkspace(
   project: string,
   branch: string,
@@ -710,6 +759,7 @@ export async function resetStaleWorkspace(
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  options: ResetStaleWorkspaceOptions = {},
 ): Promise<
   | { status: "reset" | "no-op"; destroyed?: DestroyedArtifacts }
   | { status: "refused"; reason: string; destroyed?: DestroyedArtifacts }
@@ -722,6 +772,10 @@ export async function resetStaleWorkspace(
 
   const prGate = await gateOnOpenPrs(branch, runner);
   if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+
+  const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
+  const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.enforceDirtyWorktreeGate !== false);
+  if (dirtyReason !== undefined) return { status: "refused", reason: dirtyReason };
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
   if (abandonResult.ok) return { status: "reset", destroyed: abandonResult.destroyed };

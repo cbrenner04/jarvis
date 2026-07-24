@@ -64,12 +64,24 @@ export const CLEANUP_HELP_FLAGS: readonly CommandFlag[] = [
 export const RUN_LIST_PARSE_ARG_OPTIONS = {
   since: { type: "string" },
   limit: { type: "string" },
+  project: { type: "string" },
+  branch: { type: "string" },
+  spec: { type: "string" },
+  status: { type: "string" },
 } as const satisfies Record<string, { type: "string" }>;
 
 /** Flags accepted by `parseListArgv`, in help declaration order. */
 export const RUN_LIST_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--since", argumentShape: "<duration|timestamp>", description: "Only list runs at or after the cutoff." },
   { name: "--limit", argumentShape: "<positive-integer>", description: "Cap the number of runs returned." },
+  { name: "--project", argumentShape: "<name>", description: "Only list runs for the exact project name." },
+  { name: "--branch", argumentShape: "<name>", description: "Only list runs on the exact branch name." },
+  { name: "--spec", argumentShape: "<path>", description: "Only list runs with the exact spec path." },
+  {
+    name: "--status",
+    argumentShape: "<terminal-status>",
+    description: "Only list runs with the exact terminal durable status.",
+  },
 ];
 
 /** `parseArgs` options for `jarvis daemon log`. */

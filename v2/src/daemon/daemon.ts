@@ -4,7 +4,12 @@ import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { FILTERED_LIST_DEFAULT_LIMIT, type ListRpcParams, listRpcRequestIsFiltered } from "../commands/run-list-rpc.ts";
+import {
+  FILTERED_LIST_DEFAULT_LIMIT,
+  type ListRpcParams,
+  listRpcRequestIsFiltered,
+  runMatchesListRpcParams,
+} from "../commands/run-list-rpc.ts";
 import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import {
@@ -984,8 +989,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     let durableRuns = store.listRuns();
     if (listRpcRequestIsFiltered(listParams)) {
       durableRuns = durableRuns
-        .filter((run) => run.createdAt >= listParams.sinceMs)
-        .slice(0, listParams.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
+        .filter((run) => runMatchesListRpcParams(run, listParams))
+        .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
     } else {
       durableRuns = retainListedRuns(durableRuns);
     }

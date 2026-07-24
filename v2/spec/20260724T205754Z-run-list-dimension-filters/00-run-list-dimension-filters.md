@@ -27,14 +27,14 @@ terminal status without scanning an unfiltered `--since` window.
 
 ## Acceptance criteria
 
-- [ ] `--project`, `--branch`, `--spec`, and `--status` each return only matching durable rows; at least two dimension filters and conjunctive composition with `--since` are covered by automated tests.
-- [ ] A dimension-only filtered query returns terminal runs older than the fifty-newest window when they match (retention bypass); `daemon-terminal-run-retention.test.ts` stays green.
-- [ ] A run ID returned by a dimension-filtered query beyond the fifty-newest window is accepted by `run log` stream-open and `tui log` tail-open on the same daemon (not `unknown_run`).
-- [ ] Invalid `--status` exits `1` with `invalid_status` and does not issue a `list` RPC or return rows.
-- [ ] `run-list-dimension-filters.test.ts` asserts at least two dimension filters and composition; it fails against baseline.
-- [ ] Tests fail when the `invalid_status` guard is inverted: a non-terminal `--status` value must not return rows.
-- [ ] Tests fail when dimension-only queries are wrongly treated as unfiltered: inverted `listRpcRequestIsFiltered` (or equivalent guard) must not apply `retainListedRuns` when only dimension RPC fields are set.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `--project`, `--branch`, `--spec`, and `--status` each return only matching durable rows; at least two dimension filters and conjunctive composition with `--since` are covered by automated tests.
+- [x] A dimension-only filtered query returns terminal runs older than the fifty-newest window when they match (retention bypass); `daemon-terminal-run-retention.test.ts` stays green.
+- [x] A run ID returned by a dimension-filtered query beyond the fifty-newest window is accepted by `run log` stream-open and `tui log` tail-open on the same daemon (not `unknown_run`).
+- [x] Invalid `--status` exits `1` with `invalid_status` and does not issue a `list` RPC or return rows.
+- [x] `run-list-dimension-filters.test.ts` asserts at least two dimension filters and composition; it fails against baseline.
+- [x] Tests fail when the `invalid_status` guard is inverted: a non-terminal `--status` value must not return rows.
+- [x] Tests fail when dimension-only queries are wrongly treated as unfiltered: inverted `listRpcRequestIsFiltered` (or equivalent guard) must not apply `retainListedRuns` when only dimension RPC fields are set.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

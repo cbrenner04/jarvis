@@ -91,6 +91,11 @@ test("resolveListRpcRequest and listRpcRequestIsFiltered", () => {
     [{ sinceMs: 42 }, { sinceMs: 42 }, true],
     [{ limit: 7 }, { limit: 7 }, false],
     [{ sinceMs: 42, limit: 7 }, { sinceMs: 42, limit: 7 }, true],
+    [{ project: "demo" }, { project: "demo" }, true],
+    [{ branch: "main" }, { branch: "main" }, true],
+    [{ specPath: "/tmp/spec.md" }, { specPath: "/tmp/spec.md" }, true],
+    [{ status: "completed" }, { status: "completed" }, true],
+    [{ project: "demo", status: "failed", limit: 3 }, { project: "demo", status: "failed", limit: 3 }, true],
   ];
   for (const [input, params, filtered] of cases) {
     expect(resolveListRpcRequest(input)).toEqual(params);

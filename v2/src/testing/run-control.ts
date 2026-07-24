@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { createRunControlHandlers } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -104,7 +105,7 @@ export async function startRunDirect(
 
 export async function listRunsDirect(
   handlers: RunControlHandlers,
-  params?: { sinceMs?: number; limit?: number },
+  params?: ListRpcParams,
 ): Promise<DaemonListRunRow[] | undefined> {
   const response = await handlers.list(requestFrame("l1", "list", params), new AbortController().signal);
   expect(response.kind).toBe("response");

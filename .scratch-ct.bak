@@ -180,9 +180,9 @@ export function levenshteinDistance(left: string, right: string): number {
   return previous[rightCharacters.length] ?? 0;
 }
 
-/** Walks `node` along `segments`, returning the chain from `node` down to the target, or
- * `undefined` when a segment does not resolve. The chain carries the ancestors so callers can fall
- * back to the nearest usage line. */
+/** Walks `node` along `segments`, returning the chain from `node` to the target, or `undefined`
+ * when a segment does not resolve. The chain carries the ancestors so callers can fall back to the
+ * nearest usage line. */
 export function resolveHelpPath(node: CommandNode, segments: readonly string[]): readonly CommandNode[] | undefined {
   const chain: CommandNode[] = [node];
   let current = node;

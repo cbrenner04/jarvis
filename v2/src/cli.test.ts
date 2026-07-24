@@ -1,22 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import type { CommandNode } from "./cli/command-tree.ts";
+import { commandTree, renderHelpNode, resolveHelpPath } from "./cli/command-tree.ts";
 import {
   CLEANUP_USAGE,
   CONFIG_USAGE,
-  DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
-  RUN_LIST_USAGE,
   RUN_USAGE,
-  TUI_LOG_USAGE,
   TUI_USAGE,
-  WORKFLOW_IMPLEMENT_USAGE,
-  WORKFLOW_INTENT_USAGE,
-  WORKFLOW_PLAN_USAGE,
   WORKFLOW_USAGE,
   WRITE_USAGE,
 } from "./cli/usage.ts";
 import { enumerateCommands, findCommand } from "./cli.ts";
-import { captureIo, cliMain as main } from "./testing/cli-test-helpers.ts";
+import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "write, daemon, config, run, tui, cleanup, help";
 
@@ -170,6 +166,15 @@ describe("v2 cli dispatch", () => {
     expect(output).toContain("log\tStream daemon logs.");
   });
 
+  test("help daemon start falls back to the daemon usage line", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "daemon", "start"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(DAEMON_USAGE);
+  });
+
   test("help config lists subcommands", async () => {
     const cap = captureIo();
 
@@ -239,6 +244,18 @@ describe("v2 cli dispatch", () => {
     });
   });
 
+  test("help run workflow intent-reviewed is an unknown segment (legacy alias, absent from the tree)", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "run", "workflow", "intent-reviewed"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: unknownCommandError("intent-reviewed", undefined, ["run", "workflow"]),
+    });
+  });
+
   test("help ren suggests run", async () => {
     const cap = captureIo();
 
@@ -255,6 +272,55 @@ describe("v2 cli dispatch", () => {
 
     expect(code).toBe(1);
     expect(cap.read().stderr).toContain("did you mean start?");
+  });
+
+  // `stat` is within distance 2 of `start`, `stop`, and `status`, so only a guard keyed on
+  // "exactly one close match" suppresses the line — the zero-match cases above cannot tell the
+  // two guards apart, since an absent match suppresses it either way.
+  test("help daemon stat omits a suggestion for multiple close siblings", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "daemon", "stat"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: unknownCommandError("stat", undefined, ["daemon"]),
+    });
+  });
+
+  test("resolveHelpPath and renderHelpNode walk a caller-supplied tree", () => {
+    const synthetic: CommandNode = {
+      name: "root",
+      summary: "Synthetic root.",
+      usage: "usage: root\n",
+      subcommands: [
+        {
+          name: "outer",
+          summary: "Outer node.",
+          subcommands: [{ name: "inner", summary: "Inner node." }],
+        },
+      ],
+    };
+
+    expect(resolveHelpPath(synthetic, ["outer", "inner"])?.map(({ name }) => name)).toEqual([
+      "root",
+      "outer",
+      "inner",
+    ]);
+    expect(resolveHelpPath(synthetic, ["outer", "nope"])).toBeUndefined();
+    // `outer` and `inner` carry no usage, so both fall back to the root's line.
+    expect(renderHelpNode(synthetic, ["outer"])).toBe("usage: root\ninner\tInner node.\n");
+    expect(renderHelpNode(synthetic, ["outer", "inner"])).toBe("usage: root\n");
+    expect(renderHelpNode(synthetic, ["outer", "nope"])).toBeUndefined();
+  });
+
+  test("the command registry and the command tree agree on the top-level commands", () => {
+    const treeNodes = commandTree.subcommands ?? [];
+
+    expect(enumerateCommands().map(({ name, summary, usage }) => `${name}|${summary}|${usage}`)).toEqual(
+      treeNodes.map(({ name, summary, usage }) => `${name}|${summary}|${usage}`),
+    );
   });
 
   test("registry owns dispatched commands, metadata, and exact-name lookup", () => {
@@ -306,30 +372,69 @@ describe("v2 cli dispatch", () => {
   });
 
   describe("dispatch-coverage: every tree path is dispatchable", () => {
-    // For each tree node with subcommands, verify that valid subcommand names don't
-    // trigger an unknown-subcommand error from the parent dispatcher. We provide
-    // minimal arguments so commands dispatch and possibly fail for other reasons,
-    // but not because the subcommand is unknown.
-    const testCases = [
-      // run subcommands (these require specific argument patterns to dispatch)
-      { path: ["run", "list"] }, // no args needed
-      { path: ["run", "workflow", "intent"] }, // workflow commands fail for missing seed/seed-text, not unknown
-      { path: ["run", "workflow", "plan"] }, // workflow commands fail for missing ready-intent, not unknown
-      { path: ["run", "workflow", "implement"] }, // workflow commands fail for missing base/spec, not unknown
-      // daemon subcommands
-      { path: ["daemon", "status"] }, // no args needed
-      // config subcommands
-      { path: ["config", "show"] }, // no args needed
-      { path: ["config", "path"] }, // no args needed
-    ];
+    /** Extra operands that give a path a minimally valid argument shape, so an argument-shape
+     * rejection cannot masquerade as the parent's unknown-subcommand output (`run pause` with no
+     * run id prints `RUN_USAGE`, exactly what an unrecognized subcommand prints). Paths absent
+     * from this map are driven bare. */
+    const operands: Record<string, readonly string[]> = {
+      "config set-agents": ["claude"],
+      "run log": ["run-1"],
+      "run pause": ["run-1"],
+      "run resume": ["run-1"],
+      "run kill": ["run-1"],
+      "run wait": ["run-1"],
+      "tui log": ["run-1"],
+    };
 
-    for (const { path } of testCases) {
-      test(`${path.join(" ")} dispatches successfully`, async () => {
+    /** The output each path's parent emits for a name it does not recognize. Asserting a path does
+     * not produce it is the coverage check: a tree name no dispatcher accepts falls through to it. */
+    function parentUnknownOutput(path: readonly string[]): string {
+      const parent = path.slice(0, -1).join(" ");
+      if (parent === "") return `unknown command: ${path[0]}\n`;
+      if (parent === "daemon") return DAEMON_USAGE;
+      if (parent === "config") return CONFIG_USAGE;
+      if (parent === "run") return RUN_USAGE;
+      if (parent === "run workflow") return WORKFLOW_USAGE;
+      if (parent === "tui") return TUI_USAGE;
+      throw new Error(`dispatch-coverage: no unknown-subcommand output known for parent \`${parent}\``);
+    }
+
+    function treePaths(node: CommandNode, prefix: readonly string[] = []): string[][] {
+      return (node.subcommands ?? []).flatMap((child) => {
+        const path = [...prefix, child.name];
+        return [path, ...treePaths(child, path)];
+      });
+    }
+
+    const paths = treePaths(commandTree);
+
+    test("the driven paths are walked from the tree, not hand-written", () => {
+      const joined = paths.map((path) => path.join(" "));
+      expect(joined).toContain("write");
+      expect(joined).toContain("daemon start");
+      expect(joined).toContain("run workflow implement");
+    });
+
+    for (const path of paths) {
+      test(`${path.join(" ")} dispatches`, async () => {
         const cap = captureIo();
-        const code = await main(path, cap.io);
-        // These commands might exit with 1 for missing args, but they should dispatch
-        // (i.e., not be rejected as unknown subcommands by the parent)
-        expect(code).toBeGreaterThanOrEqual(0);
+        const configPath = writeMachineConfig({ agents: ["claude"] });
+
+        await main([...path, ...(operands[path.join(" ")] ?? [])], cap.io, {
+          connectIpcClient: () => Promise.reject(new Error("stubbed: no daemon")),
+          socketDiscovery: () => Promise.resolve([]),
+          startDaemon: async () => ({ pid: 1, socketPath: "stub", alreadyRunning: false }),
+          stopDaemon: async () => {},
+          readDaemonProcessLog: () => 0,
+          followDaemonProcessLog: async () => 0,
+          runTuiEntry: async () => 0,
+          runTuiLogFollow: async () => 0,
+          readProjectRegistry: () => ({}),
+          machineConfigPath: configPath,
+          ...tempPaths(),
+        });
+
+        expect(cap.read().stderr).not.toContain(parentUnknownOutput(path));
       });
     }
   });

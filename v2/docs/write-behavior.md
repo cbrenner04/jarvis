@@ -2,25 +2,29 @@
 
 ## Top-level command help
 
-`jarvis help [<command> [<subcommand>…]]` walks a command tree rooted at the
-registry (`v2/src/cli.ts`) to render command and subcommand discovery. Each
+`jarvis help [<command> [<subcommand>…]]` walks the command tree in
+`v2/src/cli/command-tree.ts` to render command and subcommand discovery. Each
 path renders its node's usage line (when present), followed by one
-`name<TAB>summary` line per child subcommand; leaf nodes print usage alone.
+`name<TAB>summary` line per child subcommand; leaf nodes print usage alone. The
+top-level registry in `v2/src/cli.ts` composes each entry from its tree node
+plus a handler, so a command's name, summary, and usage have one home.
 
 A node without its own usage falls back to its nearest ancestor's usage line.
-For example, `jarvis help run pause` prints the `run` command's usage since
-`pause` has no dedicated usage string.
+For example, `jarvis help run pause` and `jarvis help daemon start` print the
+`run` and `daemon` usage lines, since neither subcommand has a dedicated one.
 
 Unknown segments print `unknown command: <input>` to stderr, followed by
 `did you mean <name>?` only when exactly one sibling is within Levenshtein
-distance 2. The trailer names the parent command in square brackets for the
-help path: depth 0 `run \`jarvis help\` for available commands`; depth ≥1
-`run \`jarvis help <path so far>\` for available commands`. Stderr gets the
+distance 2. The trailer is a backticked help path: at depth 0
+``run `jarvis help` for available commands``; at depth ≥1
+``run `jarvis help <path so far>` for available commands``. Stderr gets the
 error; nothing reaches stdout; exit 1.
 
 The tree structure is help and coverage data only — it does not gate dispatch.
 Dispatchers keep their inline branch chains; a name added to the tree without
-a corresponding dispatcher is caught by dispatch-coverage tests. Legacy
+a corresponding dispatcher is caught by the dispatch-coverage tests in
+`v2/src/cli.test.ts`, which walk the tree and drive every path through
+`main()`. Legacy
 workflow aliases (`intent-reviewed`, `plan-reviewed`, `plan-reviewed-light`)
 remain dispatchable but absent from the tree, so `jarvis help run workflow
 intent-reviewed` is an unknown segment.

@@ -470,7 +470,10 @@ describe("runTuiEntry", () => {
     const refresh = createRefreshScheduler();
     const { deps } = entryDeps(
       {
-        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS }] }],
+        listResponses: [
+          { runs: [RUN_ALPHA] },
+          { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS }] },
+        ],
         waitImpl: async () => ({ runStatus: "completed" }),
       },
       { viewHost: view.host, refreshScheduler: refresh.scheduler },

@@ -304,8 +304,17 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (selectedRunId !== null && !monitorSelectableRuns({ ...currentState, runs }).some((run) => run.runId === selectedRunId)) {
-          setState({ runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null, expandedWorkflowInvocationIds: currentState.expandedWorkflowInvocationIds });
+        if (
+          selectedRunId !== null &&
+          !monitorSelectableRuns({ ...currentState, runs }).some((run) => run.runId === selectedRunId)
+        ) {
+          setState({
+            runs,
+            selectedRunId: null,
+            waitState: { kind: "none" },
+            steeringFeedback: null,
+            expandedWorkflowInvocationIds: currentState.expandedWorkflowInvocationIds,
+          });
           activeWaitToken += 1;
           continue;
         }

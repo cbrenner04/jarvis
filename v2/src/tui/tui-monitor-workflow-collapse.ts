@@ -58,7 +58,11 @@ export function workflowGroupRepresentative(members: readonly DaemonListRunRow[]
     if (entry !== undefined) return entry;
   }
 
-  return members[0] ?? members[members.length - 1]!;
+  const fallback = members.at(0) ?? members.at(-1);
+  if (fallback === undefined) {
+    throw new Error("workflowGroupRepresentative requires at least one member");
+  }
+  return fallback;
 }
 
 function listRowAsRollupRun(row: DaemonListRunRow): Run {

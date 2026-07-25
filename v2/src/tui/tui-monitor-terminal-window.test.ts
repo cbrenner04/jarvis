@@ -3,15 +3,15 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
-import type { RunTuiEntryDeps, TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
 import {
   filterMonitorRunsForLiveWindow,
   setInvertTerminalRowCapFilterForTest,
   setInvertTerminalWindowFilterForTest,
-  terminalRunInLiveWindow,
   TUI_TERMINAL_ROW_CAP,
   TUI_TERMINAL_WINDOW_MS,
+  terminalRunInLiveWindow,
 } from "./tui-monitor-terminal-window.ts";
+import type { RunTuiEntryDeps, TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
 
 const FIXED_NOW = 1_700_000_000_000;
 
@@ -94,11 +94,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
     };
 
     const filtered = filterMonitorRunsForLiveWindow([pausedFirst, workflowMember, pausedSecond], { nowMs: FIXED_NOW });
-    expect(filtered.map((row) => row.runId)).toEqual([
-      pausedFirst.runId,
-      workflowMember.runId,
-      pausedSecond.runId,
-    ]);
+    expect(filtered.map((row) => row.runId)).toEqual([pausedFirst.runId, workflowMember.runId, pausedSecond.runId]);
   });
 
   test("terminal cap counts collapsed workflow invocations, not constituent runs", () => {
@@ -108,8 +104,20 @@ describe("filterMonitorRunsForLiveWindow", () => {
       const workflow = {
         invocationId,
         steps: [
-          { stepId: "implement", role: "implement", status: "completed" as const, attemptCount: 1, terminalOutcome: "complete" },
-          { stepId: "verify", role: "verify", status: "completed" as const, attemptCount: 1, terminalOutcome: "complete" },
+          {
+            stepId: "implement",
+            role: "implement",
+            status: "completed" as const,
+            attemptCount: 1,
+            terminalOutcome: "complete",
+          },
+          {
+            stepId: "verify",
+            role: "verify",
+            status: "completed" as const,
+            attemptCount: 1,
+            terminalOutcome: "complete",
+          },
         ],
       };
       return [
@@ -279,9 +287,7 @@ describe("runTuiEntry terminal live window", () => {
     expect(renderedIds.includes("run-stale")).toBe(false);
     const terminalRendered = renderedIds.filter((id) => id.startsWith("run-t-"));
     expect(terminalRendered).toHaveLength(TUI_TERMINAL_ROW_CAP);
-    expect(terminalRendered).toEqual(
-      Array.from({ length: TUI_TERMINAL_ROW_CAP }, (_, index) => `run-t-${index}`),
-    );
+    expect(terminalRendered).toEqual(Array.from({ length: TUI_TERMINAL_ROW_CAP }, (_, index) => `run-t-${index}`));
     expect(renderedIds.includes("run-paused-old")).toBe(true);
 
     view.quit();

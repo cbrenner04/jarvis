@@ -20,11 +20,7 @@ export function setInvertTerminalRowCapFilterForTest(value: boolean): void {
   invertTerminalRowCapFilterForTest = value;
 }
 
-export function terminalRunInLiveWindow(
-  finishedAtMs: number | undefined,
-  nowMs: number,
-  windowMs: number,
-): boolean {
+export function terminalRunInLiveWindow(finishedAtMs: number | undefined, nowMs: number, windowMs: number): boolean {
   if (finishedAtMs === undefined) return invertTerminalWindowFilterForTest;
   const inWindow = finishedAtMs >= nowMs - windowMs;
   return invertTerminalWindowFilterForTest ? !inWindow : inWindow;
@@ -74,9 +70,7 @@ export function filterMonitorRunsForLiveWindow(
     }
   }
 
-  const inWindow = terminalUnits.filter((unit) =>
-    terminalRunInLiveWindow(unit.finishedAtMs, options.nowMs, windowMs),
-  );
+  const inWindow = terminalUnits.filter((unit) => terminalRunInLiveWindow(unit.finishedAtMs, options.nowMs, windowMs));
   inWindow.sort((left, right) => (right.finishedAtMs ?? 0) - (left.finishedAtMs ?? 0));
   const keptTerminal = invertTerminalRowCapFilterForTest ? inWindow : inWindow.slice(0, terminalCap);
 

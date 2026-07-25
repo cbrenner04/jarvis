@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
-import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
+import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import { setInvertWorkflowCollapseForTest } from "./tui-monitor-workflow-collapse.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
@@ -33,7 +33,9 @@ const FAILED_WORKFLOW_STEPS = [
   { stepId: "verify", role: "verify", status: "pending", attemptCount: 0 },
 ] as const;
 
-function workflowRun(overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "branch" | "status">): DaemonListRunRow {
+function workflowRun(
+  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "branch" | "status">,
+): DaemonListRunRow {
   return {
     project: "demo",
     isLive: overrides.status === "in-progress",
@@ -208,7 +210,13 @@ describe("workflow collapse rendering", () => {
       const workflow = {
         invocationId,
         steps: [
-          { stepId: "implement", role: "implement", status: "completed" as const, attemptCount: 1, terminalOutcome: "complete" },
+          {
+            stepId: "implement",
+            role: "implement",
+            status: "completed" as const,
+            attemptCount: 1,
+            terminalOutcome: "complete",
+          },
         ],
       };
       return workflowRun({

@@ -4,9 +4,9 @@ import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
   buildWorkflowTableRows,
   isActiveRunStatus,
+  type WorkflowTableRow,
   workflowCollapsedContextSuffix,
   workflowRoleLabel,
-  type WorkflowTableRow,
 } from "./tui-monitor-workflow-collapse.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */

@@ -272,6 +272,11 @@ describe("monitorTextLines", () => {
     });
 
     for (const status of ["completed", "failed", "interrupted"] as const) {
+      const debateRow = debate(status);
+      const debateWorkflow = debateRow.workflow;
+      if (debateWorkflow === undefined) {
+        throw new Error("debate fixture must include workflow");
+      }
       const draft: DaemonListRunRow = {
         runId: "run-plan-draft",
         project: "demo",
@@ -279,11 +284,11 @@ describe("monitorTextLines", () => {
         status: "completed",
         isLive: false,
         stepId: "plan-draft",
-        workflow: debate(status).workflow!,
+        workflow: debateWorkflow,
       };
       const lines = monitorTextLines(
         monitorState({
-          runs: [draft, debate(status)],
+          runs: [draft, debateRow],
           selectedRunId: `run-authored-review-${status}`,
           expandedWorkflowInvocationIds: ["inv-plan-debate"],
         }),
@@ -297,7 +302,7 @@ describe("monitorTextLines", () => {
       );
       const statusSegment = monitorSegmentRows(
         monitorState({
-          runs: [draft, debate(status)],
+          runs: [draft, debateRow],
           selectedRunId: `run-authored-review-${status}`,
           expandedWorkflowInvocationIds: ["inv-plan-debate"],
         }),

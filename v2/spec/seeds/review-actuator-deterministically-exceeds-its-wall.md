@@ -33,6 +33,21 @@ Effect: review is unusable on any diff large enough to need it, and the operator
 ```
 
 Both actuator invocations land within 8 ms of the same 600_000 ms bound — the wall, not variance.
+
+**The actuator is not a slow role; it has the tightest bound.** Durations since 2026-07-20:
+
+| role | n | median | p90 | max |
+| --- | ---: | ---: | ---: | ---: |
+| implement | 354 | 268s | 760s | 4741s |
+| shrink | 160 | 135s | 260s | 473s |
+| adversary | 86 | 93s | 166s | 294s |
+| actuator | 121 | 88s | 548s | 600s |
+| plan | 149 | 80s | 209s | 568s |
+
+The actuator's median is fourth fastest of eight roles, but its max is exactly the wall and its p90
+is 548s — roughly a tenth of invocations are already at the bound. Meanwhile `implement` does
+comparable diff-scaled work at p90 760s and max 4741s without failing, because the write loop's
+iteration budget is far larger. The bound is mis-sized against the work, not the model mis-chosen.
 Each dispatch also re-ran a ~10-minute write step and a ~8-minute shrink before reaching the
 actuator, so each reproduction cost ~30 minutes. The write step's completion commit survived both
 times; the actuator's partial edits were left uncommitted in the worktree.
@@ -49,8 +64,13 @@ times; the actuator's partial edits were left uncommitted in the worktree.
   verdict, which is already persisted — re-running the write and shrink steps to reach it is pure
   waste. Rules out re-dispatch as the only actuator retry.
 - Size the actuator's bound against the work it is given, or bound the diff it receives — a role
-  whose input scales with diff size cannot have a fixed wall that a normal diff exceeds. Pairs with
-  `ready-intents/implement-review-bounds-diff-payload`.
+  whose input scales with diff size cannot have a fixed wall that a normal diff exceeds. The write
+  step already does the same diff-scaled work at p90 760s against a far larger budget, so the
+  actuator's 600s is the outlier. Pairs with `ready-intents/implement-review-bounds-diff-payload`.
+- Rung order is escalation, cheap to expensive; a role whose first rung is its slowest model
+  maximizes the chance of hitting the wall before any fallback is reachable. `claude.actuator` was
+  ordered `opus-5 → sonnet-5` when these timeouts were observed. Rules out treating rung order as
+  arbitrary.
 - Out of scope: whether opus-5 is the right actuator model, and the review prompt's content.
 
 ## Acceptance criteria

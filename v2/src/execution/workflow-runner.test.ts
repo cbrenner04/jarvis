@@ -50,9 +50,9 @@ import {
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type ReviewPublicationResumeContext,
-  resumeReviewPublicationTail,
   type ReviewWorkflowStep,
   resolveWorkflowPreset,
+  resumeReviewPublicationTail,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";

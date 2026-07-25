@@ -1283,7 +1283,11 @@ export async function resumeReviewPublicationTail(
       completionAgent: context.completionAgent,
       ...(commitSha !== undefined ? { commitSha } : {}),
     };
-    const publishArgs: WriteLoopInput = { ...context.writeLoopInput, stateStore: store, ...(logSink ? { logSink } : {}) };
+    const publishArgs: WriteLoopInput = {
+      ...context.writeLoopInput,
+      stateStore: store,
+      ...(logSink ? { logSink } : {}),
+    };
     const publication = await publishWithReadyRepair(publishArgs, store, result, context.iterationsConsumed, {
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,

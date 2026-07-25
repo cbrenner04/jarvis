@@ -408,7 +408,7 @@ export async function buildPlanWorkflowSteps(
 ): Promise<PlanWorkflowResult> {
   const r = await planSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
-  const passes = input.reviewPasses ?? 0;
+  const passes = input.reviewPasses ?? 1;
   if (!Number.isInteger(passes) || passes < 0)
     return { ok: false, error: "plan: reviewPasses must be a non-negative integer" };
   if (passes === 0) {
@@ -570,21 +570,10 @@ function planSource(
     return { source, identity: { name: ready.name, branch } };
   })();
 }
-export async function buildReviewedPlanWorkflowSteps(
-  input: PlanWorkflowInput,
-  deps: PlanWorkflowDeps = {},
-): Promise<PlanWorkflowResult> {
-  return buildPlanWorkflowSteps(
-    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "debate" },
-    deps,
-  );
-}
+export const buildReviewedPlanWorkflowSteps = buildPlanWorkflowSteps;
 export async function buildReviewedPlanLightWorkflowSteps(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps = {},
 ): Promise<PlanWorkflowResult> {
-  return buildPlanWorkflowSteps(
-    { ...input, reviewPasses: input.reviewPasses ?? 1, reviewBehavior: input.reviewBehavior ?? "light" },
-    deps,
-  );
+  return buildPlanWorkflowSteps({ ...input, reviewBehavior: input.reviewBehavior ?? "light" }, deps);
 }

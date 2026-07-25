@@ -35,9 +35,11 @@ import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-wo
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { landPublication } from "./publication-landing.ts";
+import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
 import { ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
+import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import {
   executeWorkflow,
   isPostCommitReviewRetryableFailureKind,
@@ -5375,6 +5377,102 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# Before");
     expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("");
+  });
+
+  test("lands default plan tree when review passes are omitted", async () => {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    process.env.JARVIS_HOME = jarvisRoot;
+    try {
+      const projectRoot = mkdtempSync(join(tmpdir(), "plan-default-landing-project-"));
+      roots.push(projectRoot);
+      const readyIntentRel = "v2/spec/ready-intents/default-plan.md";
+      const intentContent = "---\nname: default-plan\n---\n\n## Prerequisites\n\n- none\n";
+      mkdirSync(join(projectRoot, "v2/spec/ready-intents"), { recursive: true });
+      writeFileSync(join(projectRoot, readyIntentRel), intentContent);
+      const configPath = join(projectRoot, "config.json");
+      writeFileSync(configPath, JSON.stringify({ projects: { demo: { root: projectRoot, git: false } } }));
+
+      const loadPlanWorkflowSteps = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
+        steps.map((step) =>
+          step.behavior === "write"
+            ? {
+                ...step,
+                agents: ["claude"],
+                agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+              }
+            : step.behavior === "review"
+              ? { ...step, agents: { critic: ["claude"], actuator: ["claude"] }, agentModelConfig: {} }
+              : {
+                  ...step,
+                  agents: {
+                    adversary: ["claude"],
+                    advocate: ["claude"],
+                    adjudicator: ["claude"],
+                    actuator: ["claude"],
+                  },
+                  agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+                },
+        );
+
+      const built = await buildPlanWorkflowSteps(
+        { cwd: projectRoot, readyIntent: readyIntentRel, configPath },
+        {
+          readReadyIntent: (path) => ({ ok: true as const, name: "default-plan", content: readFileSync(path, "utf8") }),
+          loadWorkflowSteps: loadPlanWorkflowSteps,
+        },
+      );
+      if (!built.ok) throw new Error(built.error);
+      const write = built.steps[0];
+      const debate = built.steps[1];
+      if (write?.behavior !== "write" || debate?.behavior !== "review-debate") {
+        throw new Error("expected plan write plus review-debate steps");
+      }
+
+      const planRoot = write.worktree.git === false ? write.worktree.localPath : undefined;
+      if (planRoot === undefined) throw new Error("expected git-disabled plan root");
+      const stage = join(planRoot, ".jarvis-plan-stage");
+      const durable = write.specPath;
+
+      write.withExternalWorktree = async (_args, run) => {
+        mkdirSync(planRoot, { recursive: true });
+        const value = await run({ path: planRoot, reused: false });
+        return { worktree: { path: planRoot, reused: false }, lock: { kind: "acquired" }, value };
+      };
+      write.publishCompletion = false;
+      write.createBinding = () => ({
+        id: "plan-draft",
+        metadata: { agent: "claude", model: "plan" },
+        invoke: async () => {
+          mkdirSync(stage, { recursive: true });
+          writeFileSync(join(stage, "index.md"), "# Index\n", "utf8");
+          writeFileSync(join(stage, "intent.md"), intentContent, "utf8");
+          writeFileSync(join(stage, "00-first.md"), "# First\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      });
+
+      debate.createBinding = createDebateBindingFactory(async ({ adapterModel }) => ({
+        kind: "ok",
+        stdout: adapterModel === "ADJ" ? "" : "ok",
+        stderr: "",
+      }));
+
+      await withStateStore(async (store) => {
+        expect(await executeWorkflow({ steps: [write, debate], stateStore: store })).toMatchObject({
+          kind: "complete",
+        });
+      });
+
+      expect(existsSync(stage)).toBe(false);
+      expect(existsSync(join(durable, "index.md"))).toBe(true);
+      expect(existsSync(join(durable, "intent.md"))).toBe(true);
+      expect(existsSync(join(durable, "00-first.md"))).toBe(true);
+    } finally {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    }
   });
 
   test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {

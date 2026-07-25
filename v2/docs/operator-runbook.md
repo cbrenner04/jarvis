@@ -62,6 +62,8 @@ without observing a run.** "The review step never invokes an agent" is refuted:
 telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`).
 Bare `intent` now runs one light review by default; pass `--review-passes 0` to
 recover split-only completion for scripts that relied on the prior zero-pass default.
+Bare `plan` now runs one debate review by default; pass `--review-passes 0` to
+recover draft-only completion for scripts that relied on the prior zero-pass default.
 Note an empty review log proves nothing either way: `runReviewStep` gets no `logSink`,
 so it logs nothing whether or not an agent ran. Both wrong diagnoses read that silence
 as evidence. Ready-intent: `review-step-emits-log-events`.
@@ -167,13 +169,13 @@ Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 | Preset | Purpose |
 | --- | --- |
 | `intent` | Split seed → `ready-intents/` (one light review by default; `--review-passes 0` opts out) |
-| `plan` | Draft spec tree from ready-intent |
+| `plan` | Draft spec tree from ready-intent (one debate review by default; `--review-passes 0` opts out) |
 | `implement` | Index-routed implementation + shrink (+ review by default; `--review-passes 0` to skip) |
 
 `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy
 aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`) that
-resolve to `intent`/`plan` and emit a migration hint. `intent-reviewed` is
-redundant with bare `intent`.
+resolve to `intent`/`plan` and emit a migration hint. `intent-reviewed` and
+`plan-reviewed` are redundant with bare `intent` and `plan`.
 
 Examples:
 
@@ -182,6 +184,7 @@ jarvis run workflow intent --seed v2/spec/seeds/my-seed.md
 jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-passes 0  # split-only
 jarvis run workflow intent --seed v2/spec/seeds/my-seed.md --review-behavior debate
 jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
+jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md --review-passes 0  # draft-only
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 # omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0
 ```

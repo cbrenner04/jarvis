@@ -28,19 +28,19 @@
 
 ## Acceptance criteria
 
-- [ ] `plan-workflow-steps.test.ts` `"defaults to one debate review pass when review options are omitted"` (new or renamed from the `undefined` branch of `"omits review for reviewPasses=%s"`) fails against baseline `reviewPasses ?? 0` and passes after implementation, asserting two steps with `review-debate` at index 1, `maxCycles: 1`, and `reviewBehavior: "debate"`.
-- [ ] `plan-workflow-steps.test.ts` `"omits review for explicit zero passes"` (split from the default case above) still yields a one-step draft-only workflow for `reviewPasses: 0`.
-- [ ] `plan-workflow-steps.test.ts` proves `buildReviewedPlanWorkflowSteps` with no review options produces the same step shape as `buildPlanWorkflowSteps` with no review options.
-- [ ] `plan-workflow-steps.test.ts` `"delegates zero passes to the draft-only plan workflow"` stays green for `buildReviewedPlanWorkflowSteps` after wrapper collapse (compare against `reviewPasses: 0`, not omitted options).
-- [ ] `plan-workflow-steps.test.ts` `"aliases delegate with defaults while explicit options override them"` updated so bare `plan` matches `plan-reviewed` debate shape; `plan-reviewed-light` still selects light; explicit zero passes still draft-only.
-- [ ] `plan-workflow-steps.test.ts` proves omitted `reviewPasses` with explicit `reviewBehavior: "light"` yields one light `review` step with `maxCycles: 1`.
-- [ ] `plan-workflow-steps.test.ts` proves the default-on review step carries `plan-tree` landing with `stagingDir: ".jarvis-plan-stage"` and stage-scoped verdict/spec context (guards against stage-only PR regression at composition time).
-- [ ] `workflow-runner.test.ts` `"lands default plan tree when review passes are omitted"` (new) drives a plan workflow built with omitted `reviewPasses` through debate review to a landed spec tree (durable dir with `index.md`, `intent.md`, and at least one `NN-*.md`; `.jarvis-plan-stage/` consumed); it fails against baseline draft-only `plan` and passes after implementation.
-- [ ] `workflow-runner.test.ts` `"lands a reviewed light plan tree with its final verdict"`, `"lands a reviewed debate plan tree with its final empty verdict"`, `"retains exact cardinality for plan preset"`, and `"executeWorkflow plan review dispatch"` stay green.
-- [ ] `v2/docs/workflow-runner.md` plan sections state one debate pass by default, `--review-passes 0` opt-out, explicit overrides, and no remaining draft-only `plan` vs distinct `plan-reviewed` contradictions.
-- [ ] `v2/docs/operator-runbook.md` preset table, canonical examples, and telemetry copy are consistent with review-on-by-default `plan` and document `--review-passes 0` opt-out plus breaking change for draft-only automation.
-- [ ] `v2/docs/v1-behaviors.md` plan review bullet records the new default, opt-out, prior zero-pass v2 behavior, and v1 review-by-default alignment without false v1 parity claims on unrelated surfaces.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `plan-workflow-steps.test.ts` `"defaults to one debate review pass when review options are omitted"` (new or renamed from the `undefined` branch of `"omits review for reviewPasses=%s"`) fails against baseline `reviewPasses ?? 0` and passes after implementation, asserting two steps with `review-debate` at index 1, `maxCycles: 1`, and `reviewBehavior: "debate"`.
+- [x] `plan-workflow-steps.test.ts` `"omits review for explicit zero passes"` (split from the default case above) still yields a one-step draft-only workflow for `reviewPasses: 0`.
+- [x] `plan-workflow-steps.test.ts` proves `buildReviewedPlanWorkflowSteps` with no review options produces the same step shape as `buildPlanWorkflowSteps` with no review options.
+- [x] `plan-workflow-steps.test.ts` `"delegates zero passes to the draft-only plan workflow"` stays green for `buildReviewedPlanWorkflowSteps` after wrapper collapse (compare against `reviewPasses: 0`, not omitted options).
+- [x] `plan-workflow-steps.test.ts` `"aliases delegate with defaults while explicit options override them"` updated so bare `plan` matches `plan-reviewed` debate shape; `plan-reviewed-light` still selects light; explicit zero passes still draft-only.
+- [x] `plan-workflow-steps.test.ts` proves omitted `reviewPasses` with explicit `reviewBehavior: "light"` yields one light `review` step with `maxCycles: 1`.
+- [x] `plan-workflow-steps.test.ts` proves the default-on review step carries `plan-tree` landing with `stagingDir: ".jarvis-plan-stage"` and stage-scoped verdict/spec context (guards against stage-only PR regression at composition time).
+- [x] `workflow-runner.test.ts` `"lands default plan tree when review passes are omitted"` (new) drives a plan workflow built with omitted `reviewPasses` through debate review to a landed spec tree (durable dir with `index.md`, `intent.md`, and at least one `NN-*.md`; `.jarvis-plan-stage/` consumed); it fails against baseline draft-only `plan` and passes after implementation.
+- [x] `workflow-runner.test.ts` `"lands a reviewed light plan tree with its final verdict"`, `"lands a reviewed debate plan tree with its final empty verdict"`, `"retains exact cardinality for plan preset"`, and `"executeWorkflow plan review dispatch"` stay green.
+- [x] `v2/docs/workflow-runner.md` plan sections state one debate pass by default, `--review-passes 0` opt-out, explicit overrides, and no remaining draft-only `plan` vs distinct `plan-reviewed` contradictions.
+- [x] `v2/docs/operator-runbook.md` preset table, canonical examples, and telemetry copy are consistent with review-on-by-default `plan` and document `--review-passes 0` opt-out plus breaking change for draft-only automation.
+- [x] `v2/docs/v1-behaviors.md` plan review bullet records the new default, opt-out, prior zero-pass v2 behavior, and v1 review-by-default alignment without false v1 parity claims on unrelated surfaces.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

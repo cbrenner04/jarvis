@@ -190,14 +190,15 @@ Boundary violations restore unauthorized changes and prevent landing.
 
 Target precedence is run override, canonical ready-intent parent (`<targetDir>/ready-intents/`), project `plan.targetDir`, global `modes.plan.targetDir`, then `spec`. Thus canonical v1 and v2 queue inputs draft to their matching surfaces even when configuration names the other one. `plan-reviewed` and `plan-reviewed-light` delegate to this builder and share the same routing. Effective publication follows project `plan.commit`, global `modes.plan.commit`, then `true`, with project `git: false` disabling it. Git-enabled output uses branch `plan/<name>` in `~/.jarvis/worktrees`, and the GitHub default branch is used as the base ref. Durable output is `<targetDir>/<UTC-timestamp>-<name>/`. Git-disabled output is external `~/.jarvis/specs/<project-safe-id>/plans/<name>/` regardless of the ready-intent location; the run does not publish Git or GitHub state. The UTC timestamp is generated once in the builder, pre-daemon, ensuring the spec-dir path is stable across the run.
 
-The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). `reviewPasses` defaults to zero, so the canonical builder omits review unless a positive count is supplied. Positive counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
+The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). Omitted `reviewPasses` defaults to one debate pass; pass `--review-passes 0` to emit draft-only (no review step). Positive explicit counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default when behavior is omitted). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
 
 Plan-drafted acceptance criteria follow the [both-direction guard contract](../../v1/docs/spec-guidance.md#failing-test-requirement-for-runtime-behavior-subspecs).
 
 **CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
-`buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) is a compatibility
-alias for the canonical builder with defaults of one debate pass. Explicit
+`buildReviewedPlanWorkflowSteps` (preset: `plan-reviewed`) delegates to
+`buildPlanWorkflowSteps` with identical defaults (one debate pass when review
+options are omitted) and emits a migration hint. Explicit
 `reviewPasses` and `reviewBehavior` options override those defaults. The debate
 uses
 `plan.prompt.review.adversary`, `.advocate`, and `.adjudicator`; its
@@ -206,13 +207,14 @@ verdict-driven actuator applies the verdict at
 After the final review cycle, landing copies that exact artifact (including an
 empty file) into the durable plan root, so the plan PR carries its final verdict.
 
-`plan-reviewed` remains a compatibility alias for `plan`, defaulting to one
-debate pass and emitting a migration hint. Explicit review flags override it.
-Choose it for adversarial review; `plan-reviewed-light` is the critic-actuator
-alternative for a lighter editorial pass.
+`plan-reviewed` remains a compatibility alias for `plan` (behaviorally redundant;
+same defaults). Explicit review flags override it. Bare `plan` already defaults
+to one debate pass when review options are omitted; prefer bare `plan` over
+`plan-reviewed`. Use `plan-reviewed-light` or `plan` with `--review-behavior light`
+for a lighter critic-actuator pass.
 
-`buildReviewedPlanLightWorkflowSteps` (preset: `plan-reviewed-light`) is a
-compatibility alias for the canonical builder with defaults of one light pass.
+`buildReviewedPlanLightWorkflowSteps` (preset: `plan-reviewed-light`) delegates to
+`buildPlanWorkflowSteps` with `reviewBehavior` defaulting to `light` when omitted.
 Explicit `reviewPasses` and `reviewBehavior` options override those defaults.
 Positive values set the critic-actuator cycle limit and load separate `critic` and `actuator`
 orders from machine configuration. Runtime rendering uses
@@ -220,8 +222,8 @@ orders from machine configuration. Runtime rendering uses
 materialized draft; the critic verdict is written to
 `.jarvis-plan-stage/verdict-plan.md`.
 
-`plan-reviewed-light` remains a compatibility alias for `plan`, defaulting to one
-light pass and emitting a migration hint. Explicit review flags override it.
+`plan-reviewed-light` remains a compatibility alias for `plan` with light review
+behavior when `reviewBehavior` is omitted, and emits a migration hint. Explicit review flags override it.
 All three primary commands accept both review flags; malformed values are
 rejected before daemon contact.
 
@@ -259,8 +261,8 @@ Current primary preset surface:
 - `write-write`: two steps
 - `implement`: one or two steps, with `role`/`promptId` fixed by the preset on both positions
 - `intent`: split write step plus one light review by default (`--review-passes 0` opts out)
-- `plan`: one validated draft write step, optionally followed by review
-- aliases: `intent-reviewed` → `intent` (redundant), `plan-reviewed` → `plan` (debate), `plan-reviewed-light` → `plan` (light)
+- `plan`: validated draft write step plus one debate review by default (`--review-passes 0` opts out)
+- aliases: `intent-reviewed` → `intent` (redundant), `plan-reviewed` → `plan` (redundant; bare `plan` defaults debate), `plan-reviewed-light` → `plan` (light `reviewBehavior` default on that alias)
 
 Validation stays synchronous:
 

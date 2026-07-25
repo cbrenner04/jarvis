@@ -54,10 +54,21 @@ See `real-clock-races-slip-past-the-determinism-guard`.
 - A timeout kill (`124`) must reach the implement run as retryable infrastructure failure, not as a
   red gate; the repair path must not be entered and no agent iteration may be spent. Rules out the
   observed `gateExitCode: 1` laundering, which costs two full repair iterations per occurrence.
-- Give each step its own deadline, or at minimum give the flake-retry a fresh budget — a retry that
-  cannot finish answers nothing. Rules out keeping one shared wall clock across steps and retries.
-- The default budget must exceed the measured worst-case scope (`shared/**` → all three slices) with
-  real headroom, and the gate must say which step exhausted it and how long that step had. Rules out
+- **Each step gets its own deadline**, sized to what that step does; the shared wall clock is
+  removed as the binding constraint. Rules out one number covering a seconds-long `lint:md` and a
+  ~9-minute test step. This is the missing middle bound: the v2 runner already has a per-*file*
+  timeout (`PER_FILE_TIMEOUT_MS`, floored at `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000`), and
+  `ready` has a total — nothing is sized to the step.
+- **Retain a total ceiling as a backstop, not as the normal bound.** Per-step budgets alone make the
+  worst case their sum, with nothing stopping a pathological run from holding the machine. Same
+  shape as the write loop's progress-extended wall plus hard ceiling (#2121) — reuse that pattern
+  rather than inventing a second one. Rules out both a single shared budget and an uncapped
+  per-step model.
+- The flake-retry runs on a **fresh step budget**, which falls out of per-step deadlines; a retry
+  that cannot finish answers nothing. Rules out charging the retry to the first attempt's remainder,
+  which is what made the observed failure deterministic.
+- Per-step budgets must exceed the measured worst-case scope (`shared/**` → all three slices) with
+  real headroom, and an exhausted budget must name the step and the time it was allotted. Rules out
   a bare `deadline exceeded` with no attribution.
 - Do not fix this by raising `JARVIS_READY_TIMEOUT_MS` alone. It is honored (`parseTimeout`,
   `ready.ts:53`) and — unlike `JARVIS_READY_TIER` — is not stomped by `ready-finalize.ts:171`, so it
@@ -72,8 +83,12 @@ See `real-clock-races-slip-past-the-determinism-guard`.
       iteration consumed; it fails against the pre-fix code, which reports `gateExitCode: 1`.
 - [ ] A test asserts a genuinely failing test step still enters the repair path, so the discrimination
       is real in both directions; inverting the timeout guard fails one of the two.
-- [ ] A test asserts the flake-retry runs with a budget not already consumed by the first attempt;
-      the pre-fix shared-budget behavior fails it.
+- [ ] A test asserts each step is bounded by its own budget: a step that overruns is killed while a
+      later step still receives its full budget; the pre-fix shared wall clock fails it.
+- [ ] A test asserts the flake-retry runs with a fresh step budget, not the first attempt's
+      remainder; the pre-fix shared-budget behavior fails it.
+- [ ] A test asserts the total ceiling still terminates a run whose per-step budgets would otherwise
+      sum past it; removing the ceiling fails it.
 - [ ] Deadline-exceeded output names the step that exhausted the budget and the time it was allotted.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

@@ -74,6 +74,10 @@ export async function openInkMonitor(
       }
       if (key.upArrow) {
         controls.selectPreviousRun();
+        return;
+      }
+      if (input === "e") {
+        controls.toggleSelectedWorkflowExpansion();
       }
     });
 

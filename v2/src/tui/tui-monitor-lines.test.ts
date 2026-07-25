@@ -35,6 +35,7 @@ const WORKFLOW_RUN: DaemonListRunRow = {
   status: "in-progress",
   isLive: true,
   workflow: {
+    invocationId: "inv-wf-single",
     steps: [
       WORKFLOW_STEP_1_COMPLETED,
       { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
@@ -49,6 +50,7 @@ function monitorState(overrides: Partial<TuiMonitorState> = {}): TuiMonitorState
     selectedRunId: null,
     waitState: { kind: "none" },
     steeringFeedback: null,
+    expandedWorkflowInvocationIds: [],
     ...overrides,
   };
 }
@@ -62,6 +64,7 @@ const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
   selectedRunId: "run-alpha",
   waitState: { kind: "ready", runId: "run-alpha", result: { runStatus: "in-progress" } },
   steeringFeedback: "daemon_error: paused",
+  expandedWorkflowInvocationIds: [],
 };
 
 const MONITOR_LINES_FIXTURE_PIN = [
@@ -74,7 +77,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "Outcome",
   "runStatus: in-progress",
   "daemon_error: paused",
-  "Press up/down or j to select; q or Ctrl-C to quit.",
+  "Press up/down or j to select; e expands workflow; q or Ctrl-C to quit.",
 ] as const;
 
 describe("orderSelectableRuns", () => {
@@ -153,7 +156,7 @@ describe("firstSelectableRunId", () => {
       isLive: false,
     };
 
-    expect(firstSelectableRunId([terminal, SINGLE_STEP_RUN])).toBe("run-single");
+    expect(firstSelectableRunId(monitorState({ runs: [terminal, SINGLE_STEP_RUN] }))).toBe("run-single");
   });
 
   test("falls back to the first terminal row when every selectable run is terminal", () => {
@@ -172,7 +175,7 @@ describe("firstSelectableRunId", () => {
       isLive: false,
     };
 
-    expect(firstSelectableRunId([newer, older])).toBe("run-newer");
+    expect(firstSelectableRunId(monitorState({ runs: [newer, older] }))).toBe("run-newer");
   });
 });
 
@@ -246,20 +249,15 @@ describe("monitorTextLines", () => {
   });
 
   test("renders distinct durable draft and debate rows with terminal status tones", () => {
-    const draft: DaemonListRunRow = {
-      runId: "run-plan-draft",
-      project: "demo",
-      branch: "plan",
-      status: "completed",
-      isLive: false,
-    };
     const debate = (status: "completed" | "failed" | "interrupted"): DaemonListRunRow => ({
       runId: `run-authored-review-${status}`,
       project: "demo",
       branch: "plan",
       status,
       isLive: false,
+      stepId: "authored-plan-review",
       workflow: {
+        invocationId: "inv-plan-debate",
         steps: [
           { stepId: "plan-draft", role: "plan", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
           {
@@ -274,21 +272,43 @@ describe("monitorTextLines", () => {
     });
 
     for (const status of ["completed", "failed", "interrupted"] as const) {
-      const rows = monitorSegmentRows(
-        monitorState({ runs: [draft, debate(status)], selectedRunId: `run-authored-review-${status}` }),
+      const debateRow = debate(status);
+      const debateWorkflow = debateRow.workflow;
+      if (debateWorkflow === undefined) {
+        throw new Error("debate fixture must include workflow");
+      }
+      const draft: DaemonListRunRow = {
+        runId: "run-plan-draft",
+        project: "demo",
+        branch: "plan",
+        status: "completed",
+        isLive: false,
+        stepId: "plan-draft",
+        workflow: debateWorkflow,
+      };
+      const lines = monitorTextLines(
+        monitorState({
+          runs: [draft, debateRow],
+          selectedRunId: `run-authored-review-${status}`,
+          expandedWorkflowInvocationIds: ["inv-plan-debate"],
+        }),
       );
-      expect(rows.map(joinMonitorRow)).toEqual(
+      const rollupStatus = status === "completed" ? "completed" : status;
+      expect(lines).toEqual(
         expect.arrayContaining([
-          "  run-plan-draft demo plan completed not-live",
-          `> run-authored-review-${status} demo plan ${status} not-live`,
-          "  authored-plan-review  " +
-            (status === "completed"
-              ? "completed complete"
-              : `stopped ${status === "failed" ? "invocation_failure" : status}`) +
-            " attempts=1",
+          `  run-plan-draft demo plan completed not-live workflow-status:${rollupStatus}`,
+          `> run-authored-review-${status} demo plan ${status} not-live role:authored-plan-review`,
         ]),
       );
-      const statusSegment = rows.flatMap((line) => line.segments).find((segment) => segment.text === status);
+      const statusSegment = monitorSegmentRows(
+        monitorState({
+          runs: [draft, debateRow],
+          selectedRunId: `run-authored-review-${status}`,
+          expandedWorkflowInvocationIds: ["inv-plan-debate"],
+        }),
+      )
+        .flatMap((line) => line.segments)
+        .find((segment) => segment.text === status);
       expect(statusSegment?.tone).toBe(status === "completed" ? "success" : "failure");
     }
   });
@@ -313,6 +333,7 @@ describe("monitorTextLines", () => {
             status: "blocked",
             isLive: false,
             workflow: {
+              invocationId: "inv-wf-single",
               steps: [
                 WORKFLOW_STEP_1_COMPLETED,
                 { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },

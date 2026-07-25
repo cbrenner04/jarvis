@@ -106,6 +106,7 @@ function noopControls(): TuiMonitorControls {
     selectRun() {},
     selectNextRun() {},
     selectPreviousRun() {},
+    toggleSelectedWorkflowExpansion() {},
     pauseSelected() {},
     resumeSelected() {},
     killSelected() {},
@@ -119,6 +120,7 @@ function monitorState(runs: readonly DaemonListRunRow[], selectedRunId: string |
     selectedRunId,
     waitState: { kind: "none" },
     steeringFeedback: null,
+    expandedWorkflowInvocationIds: [],
   };
 }
 

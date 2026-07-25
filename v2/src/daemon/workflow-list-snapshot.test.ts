@@ -23,6 +23,7 @@ function runFixture(
       startedAt: 0,
       status: "completed",
       outcomeKind: attempt.outcomeKind,
+      completedAt: null,
       invocationFailureDetail: null,
     })),
   };

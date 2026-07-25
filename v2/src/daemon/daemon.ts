@@ -383,6 +383,18 @@ function runListRowError(
   return composeRunOperatorError(run, terminalRecord);
 }
 
+function runListFinishedAtMs(reportedStatus: RunStatus, fullRun: LoadedRun | undefined): number | undefined {
+  if (!isTerminalRunStatus(reportedStatus) || fullRun === undefined) return undefined;
+  let finishedAtMs: number | undefined;
+  for (const attempt of fullRun.attempts) {
+    if (attempt.completedAt === null) continue;
+    if (finishedAtMs === undefined || attempt.completedAt > finishedAtMs) {
+      finishedAtMs = attempt.completedAt;
+    }
+  }
+  return finishedAtMs;
+}
+
 /**
  * Injectable dependencies for {@link createRunControlHandlers}.
  *
@@ -968,6 +980,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...entryOutcomeFields
     } = entryResult ?? { runStatus: reportedStatus };
 
+    const finishedAtMs = runListFinishedAtMs(reportedStatus, fullRun);
+
     return {
       runId: run.id,
       project: run.project,
@@ -977,11 +991,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...entryOutcomeFields,
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
+      ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),
       ...(fullRun !== undefined && snapshot !== undefined
         ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
         : {}),
       ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       ...runListPrEvidence(run),
+      ...(finishedAtMs !== undefined ? { finishedAtMs } : {}),
     };
   };
 

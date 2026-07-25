@@ -42,18 +42,18 @@ stay open in `v2/spec/seeds/tui-cannot-distinguish-a-workflows-runs.md` and are 
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-workflow-collapse.test.ts` with a three- or four-run workflow fixture asserts
+- [x] `tui-monitor-workflow-collapse.test.ts` with a three- or four-run workflow fixture asserts
       the collapsed monitor table shows one top-level row, not one per run; it fails against
       baseline.
-- [ ] The same test expands the row and asserts each constituent run shows distinct role-identifying
+- [x] The same test expands the row and asserts each constituent run shows distinct role-identifying
       labels in rendered output.
-- [ ] While a constituent run is non-terminal, the collapsed row identifies the active step in
+- [x] While a constituent run is non-terminal, the collapsed row identifies the active step in
       rendered output; after terminal rollup it shows the workflow terminal status in rendered
       output.
-- [ ] Coverage asserts rendered monitor text, not only view-model state.
-- [ ] Tests fail when collapse is disabled or inverted: every constituent run must appear as its
+- [x] Coverage asserts rendered monitor text, not only view-model state.
+- [x] Tests fail when collapse is disabled or inverted: every constituent run must appear as its
       own top-level row in rendered output under inversion.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

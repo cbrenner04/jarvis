@@ -1,26 +1,13 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
-
-function isActiveRunStatus(status: RunStatus): boolean {
-  switch (status) {
-    case "in-progress":
-    case "paused":
-    case "budget-soft-stopped":
-      return true;
-    case "completed":
-    case "failed":
-    case "interrupted":
-    case "killed":
-    case "blocked":
-    case "queued":
-      return false;
-    default: {
-      const _exhaustive: never = status;
-      return _exhaustive;
-    }
-  }
-}
+import {
+  buildWorkflowTableRows,
+  isActiveRunStatus,
+  type WorkflowTableRow,
+  workflowCollapsedContextSuffix,
+  workflowRoleLabel,
+} from "./tui-monitor-workflow-collapse.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -37,9 +24,21 @@ export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonLi
   return [...active, ...terminal];
 }
 
+function expandedInvocationIdSet(state: TuiMonitorState): ReadonlySet<string> {
+  return new Set(state.expandedWorkflowInvocationIds);
+}
+
+/** Selectable runs in monitor display order (collapsed workflows count as one row). */
+export function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[] {
+  const selectable = orderSelectableRuns(state.runs);
+  return buildWorkflowTableRows(selectable, state.runs, expandedInvocationIdSet(state)).map((row) =>
+    row.kind === "workflow-collapsed" ? row.representative : row.run,
+  );
+}
+
 /** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
-export function firstSelectableRunId(runs: readonly DaemonListRunRow[]): string | null {
-  return orderSelectableRuns(runs)[0]?.runId ?? null;
+export function firstSelectableRunId(state: TuiMonitorState): string | null {
+  return monitorSelectableRuns(state)[0]?.runId ?? null;
 }
 
 export type MonitorSegmentTone = "active" | "success" | "failure";
@@ -87,7 +86,7 @@ export function joinMonitorRow(line: MonitorLineRow): string {
   return line.segments.map((segment) => segment.text).join("");
 }
 
-function runTableRow(run: DaemonListRunRow, selectedRunId: string | null): MonitorLineRow {
+function runTableRow(run: DaemonListRunRow, selectedRunId: string | null, suffix = ""): MonitorLineRow {
   const marker = run.runId === selectedRunId ? ">" : " ";
   const livenessText = run.isLive ? "live" : "not-live";
   const liveTone = livenessTone(run.isLive);
@@ -103,7 +102,19 @@ function runTableRow(run: DaemonListRunRow, selectedRunId: string | null): Monit
     { text: run.status, tone: RUN_STATUS_TONES[run.status] },
     separator(),
     liveTone === undefined ? untoned(livenessText) : { text: livenessText, tone: liveTone },
+    ...(suffix.length > 0 ? [separator(), untoned(suffix.trimStart())] : []),
   );
+}
+
+function renderWorkflowTableRow(tableRow: WorkflowTableRow, selectedRunId: string | null): MonitorLineRow {
+  switch (tableRow.kind) {
+    case "standalone":
+      return runTableRow(tableRow.run, selectedRunId);
+    case "workflow-collapsed":
+      return runTableRow(tableRow.representative, selectedRunId, workflowCollapsedContextSuffix(tableRow.members));
+    case "workflow-child":
+      return runTableRow(tableRow.run, selectedRunId, workflowRoleLabel(tableRow.run));
+  }
 }
 
 function queueRow(run: DaemonListRunRow): MonitorLineRow {
@@ -147,13 +158,14 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   const selected = state.selectedRunId;
   const lines: MonitorLineRow[] = [row(untoned("jarvis tui"))];
   const selectableRuns = orderSelectableRuns(state.runs);
+  const tableRows = buildWorkflowTableRows(selectableRuns, state.runs, expandedInvocationIdSet(state));
   const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
-  if (selectableRuns.length === 0) {
+  if (tableRows.length === 0) {
     lines.push(row(untoned("No runs.")));
   } else {
     lines.push(row(untoned("runId project branch status liveness")));
-    for (const run of selectableRuns) {
-      lines.push(runTableRow(run, selected));
+    for (const tableRow of tableRows) {
+      lines.push(renderWorkflowTableRow(tableRow, selected));
     }
   }
   if (queuedRuns.length > 0) {
@@ -179,7 +191,7 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   if (state.steeringFeedback !== null) {
     lines.push(row(untoned(state.steeringFeedback)));
   }
-  lines.push(row(untoned("Press up/down or j to select; q or Ctrl-C to quit.")));
+  lines.push(row(untoned("Press up/down or j to select; e expands workflow; q or Ctrl-C to quit.")));
   return lines;
 }
 

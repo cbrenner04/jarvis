@@ -539,8 +539,14 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
   daemon sockets, connects to each, and aggregates their `list` results into one
   monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);
-  connections that fail to list are skipped without aborting the view. Steering
-  RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
+  connections that fail to list are skipped without aborting the view. After merge,
+  the monitor applies a live terminal window: non-terminal rows pass through;
+  terminal rows need `finishedAtMs` within the last hour (latest attempt
+  `completed_at`), sort newest-first, and cap at twenty **collapsed workflow
+  rows** (constituent step runs share one top-level row until expanded with
+  `e`); unlike default `jarvis run list`, which keeps the daemon fifty-newest
+  terminal retention.
+  Steering RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
   are discovered, the monitor connects only to the invoking digest's socket
   (single-daemon fallback). `jarvis run list`, `jarvis run log`, and `jarvis run wait`
   resolve run owners across live keyed daemons (same merge as `run list`).
@@ -592,6 +598,12 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] TUI workflow-step view: workflow-backed `list` rows render
   per-step status from the daemon snapshot; single-step rows unchanged.
   Sources: `v2/src/tui/tui-monitor-lines.ts`, `v2/docs/write-behavior.md`
+- [v2 additive] TUI workflow collapse: rows sharing a `workflow.invocationId`
+  render as one top-level monitor row (active step or terminal rollup status on
+  the collapsed line); `e` expands constituent runs with per-run role labels;
+  steering still targets the selected underlying `runId`. Sources:
+  `v2/src/tui/tui-monitor-lines.ts`, `v2/src/tui/tui-entry.tsx`,
+  `v2/docs/operator-runbook.md` § Observe
 - [v2 additive] TUI run-monitor state cells: run-table and queue `status` plus
   run-table `liveness` render as separate ink cells colored by semantic tone
   (active cyan, completed green, terminal failure red; `not-live` uncolored);

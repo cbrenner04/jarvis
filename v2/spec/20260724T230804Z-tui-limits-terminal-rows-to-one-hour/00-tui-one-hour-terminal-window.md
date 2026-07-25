@@ -42,17 +42,17 @@ quiet periods show stale terminal rows. Operators still reach older terminal run
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-terminal-window.test.ts` drives the monitor with terminal runs inside and
+- [x] `tui-monitor-terminal-window.test.ts` drives the monitor with terminal runs inside and
       outside the one-hour window and asserts only in-window terminal rows render, in descending
       `finishedAtMs` order, capped at twenty; it fails against baseline.
-- [ ] The same or companion test asserts a non-terminal run older than one hour still appears in
+- [x] The same or companion test asserts a non-terminal run older than one hour still appears in
       rendered monitor output.
-- [ ] Coverage asserts rendered monitor text, not only `TuiMonitorState` or view-model fields.
-- [ ] Tests fail when the one-hour terminal filter guard is inverted: terminal runs finished more
+- [x] Coverage asserts rendered monitor text, not only `TuiMonitorState` or view-model fields.
+- [x] Tests fail when the one-hour terminal filter guard is inverted: terminal runs finished more
       than one hour before `nowMs` must appear in rendered output under inversion.
-- [ ] Tests fail when the twenty-row cap guard is inverted: more than twenty in-window terminal
+- [x] Tests fail when the twenty-row cap guard is inverted: more than twenty in-window terminal
       runs must all appear in rendered output under inversion.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

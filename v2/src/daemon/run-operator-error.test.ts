@@ -26,6 +26,7 @@ function attempt(outcomeKind: Attempt["outcomeKind"], detail: Attempt["invocatio
     startedAt: 1,
     status: "completed",
     outcomeKind,
+    completedAt: 2,
     invocationFailureDetail: detail,
   };
 }

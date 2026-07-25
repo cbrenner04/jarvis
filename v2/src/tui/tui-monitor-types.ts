@@ -20,6 +20,8 @@ export type TuiMonitorState = {
   waitState: TuiWaitState;
   /** Session-local steering feedback; cleared on selection change. */
   steeringFeedback: string | null;
+  /** Workflow invocations whose constituent runs are expanded in the run table. */
+  expandedWorkflowInvocationIds: readonly string[];
 };
 
 /**
@@ -34,6 +36,8 @@ export type TuiMonitorControls = {
   selectNextRun(): void;
   /** Move to the previous selectable row in display order. */
   selectPreviousRun(): void;
+  /** Expand or collapse the selected workflow invocation's constituent runs. */
+  toggleSelectedWorkflowExpansion(): void;
   /** Signals pause via daemon `pause`. */
   pauseSelected(): void;
   /** Resumes via daemon `resume` and re-issues `wait`, abandoning any prior ready snapshot. */
@@ -85,4 +89,6 @@ export type RunTuiEntryDeps = {
   inkRender?: InkRender;
   /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
   socketDiscovery?: SocketDiscovery;
+  /** Injectable clock for the terminal live window; defaults to `Date.now`. */
+  nowMs?: () => number;
 };

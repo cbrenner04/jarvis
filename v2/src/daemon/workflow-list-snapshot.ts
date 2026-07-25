@@ -28,12 +28,13 @@ export function workflowRowSnapshot(
   runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
   liveRunIds: ReadonlySet<string>,
   reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
-): { steps: WorkflowStepListSnapshot[] } | undefined {
+): { invocationId: string; steps: WorkflowStepListSnapshot[] } | undefined {
   const snapshot = run.workflowSnapshot;
   if (snapshot === null || snapshot === undefined) return undefined;
 
   const workflowRuns = runsByWorkflowInvocation.get(snapshot.invocationId) ?? new Map<string, LoadedRun>();
   return {
+    invocationId: snapshot.invocationId,
     steps: snapshot.steps.map((step) =>
       workflowStepSnapshot(
         step,

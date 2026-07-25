@@ -77,6 +77,12 @@ recoverable.
 - [ ] `run-operator-error.test.ts` covers `landing_failed` with `nextAction: "resume"` and
   `retryable: true` for populated-stage finalization pending promotion, distinct from
   `completion_commit_failed`.
+- [ ] `composeRunOperatorError` does not rely on a `loop_finished` + `complete` branch that never
+  executes when `run.status === "failed"` (`allowResumableLogOutcomes` is false). For a failed
+  authoritative row whose log says `loop_finished complete` — or whose attempt detail maps to no
+  resumable reason — the row still exposes non-empty `error.reason`, `retryable`, and `nextAction`.
+  Either implement that path for failed status or delete the dead branch; either way a regression
+  fails without attempt-backed landing detail. This is the occurrence #8/#9 empty-failed-row shape.
 
 ## Documentation updates
 

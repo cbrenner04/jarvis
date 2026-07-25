@@ -79,6 +79,13 @@ discriminator as genuinely unknown and let the trace identify it.
   the test.
 - [ ] Inverting the promotion guard in the finalization path fails
   `"promotes two staged intents through a full reviewed intent workflow"` (staged files remain).
+- [ ] The guard-inversion proof lives **in that two-file workflow test itself**, not only via a
+  `promote = false` path in the trace test: disabling promotion must leave staged markdown in
+  `.jarvis-intent-stage/` and turn that named test red.
+- [ ] An intent workflow whose **last step is `review-debate`** (not light `review`) runs the same
+  `workflow_completion` promotion, verdict cleanup, tracing, and landing-failure settlement as the
+  light-review path; a test covering debate-last intent fails against a tail guard narrower than
+  `isReviewLastStep`.
 
 ## Documentation updates
 

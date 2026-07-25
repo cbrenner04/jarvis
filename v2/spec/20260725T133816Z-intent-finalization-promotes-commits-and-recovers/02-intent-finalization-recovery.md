@@ -48,6 +48,18 @@ command completes publication. Operators recovered by hand-copying staged files 
   fails `"resumes intent finalization from a populated stage without review re-invocation"`.
 - [ ] `run wait` / list projection for that `runId` reports `landing_failed` with `retryable: true` and
   `nextAction: "resume"` before resume, and `completed` after successful republication.
+- [ ] The admission-inversion proof is in `daemon-resume.test.ts`: flipping the populated-stage
+  finalization admission gate makes resume refuse (`terminal_run` or equivalent) **and** breaks
+  `"resumes intent finalization from a populated stage without review re-invocation"`. Admission
+  plus operator projection alone do not satisfy this.
+- [ ] At least one path drives daemon resume through the **write-loop entry that actually calls**
+  `resumePopulatedIntentPublication` (real or a fake executor that invokes it), asserting promotion,
+  cleanup, commit, and git publication hooks with no new split/review invocations. A second
+  `executeWorkflow` call is not accepted as the primary republication proof.
+- [ ] When resume admits a populated-stage `landing_failed` row but completion-agent resolution
+  fails, the run settles a visible landing/harness failure rather than returning the prior
+  `invocation_failure` stub with no publication work; `nextAction: "resume"` must never pair with a
+  no-op resume path.
 
 ## Documentation updates
 

@@ -27,7 +27,7 @@ import {
   setWriteLoopBindingSourceDepsForTests,
 } from "../daemon/daemon.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import { openStateStore } from "../persistence/state-store.ts";
+import { openStateStore, type Run } from "../persistence/state-store.ts";
 import {
   createFakeWithExternalWorktree,
   createJarvisHome,
@@ -49,6 +49,8 @@ import {
   isPostCommitReviewRetryableFailureKind,
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
+  type ReviewPublicationResumeContext,
+  resumeReviewPublicationTail,
   type ReviewWorkflowStep,
   resolveWorkflowPreset,
   type WorkflowStepInput,
@@ -6387,5 +6389,210 @@ describe("executeWorkflow telemetry", () => {
       expect(capturedPublisherInputs).toHaveLength(1);
       expect(capturedPublisherInputs[0]?.narrative).toBeUndefined();
     });
+  });
+});
+
+describe("resumeReviewPublicationTail", () => {
+  function buildResumeContext(
+    worktreePath: string,
+    overrides: Partial<ReviewPublicationResumeContext> = {},
+  ): ReviewPublicationResumeContext {
+    return {
+      writeLoopInput: {
+        worktree: { projectRoot: worktreePath, projectName: "demo", branchName: "review-resume", baseRef: "HEAD" },
+        specPath: "spec.md",
+        stepRules: "n/a",
+        expectedArtifactPath: "proof.txt",
+        bindings: [],
+      },
+      completionAgent: "claude",
+      worktreePath,
+      baseRef: "HEAD",
+      specPath: "spec.md",
+      branch: "review-resume",
+      iterationsConsumed: 2,
+      completionRole: "implement",
+      creationTitle: "Resume review completion",
+      ...overrides,
+    };
+  }
+
+  function createReviewResumeRun(store: ReturnType<typeof openStateStore>, worktreePath: string): Run {
+    const runId = store.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath,
+      branch: "review-resume",
+      specPath: "spec.md",
+      stepId: "implement-review",
+    });
+    store.setRunStatus(runId, "failed");
+    const run = store.loadRun(runId);
+    if (!run) throw new Error("run not created");
+    return run;
+  }
+
+  test("commits pending worktree changes before publication runs, then completes", async () => {
+    const workspace = initGitWorkspace("review-resume-commit-first-");
+    writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+    // Operator's uncommitted coverage fix, sitting in the worktree at resume time.
+    writeFileSync(join(workspace, "coverage-fix.txt"), "fix\n", "utf8");
+
+    let statusAtPublish: string | undefined;
+    await withStateStore(async (store) => {
+      const run = createReviewResumeRun(store, workspace);
+      const logSink = new TestLogSink();
+      await resumeReviewPublicationTail(
+        store,
+        run,
+        buildResumeContext(workspace, {
+          writeLoopInput: {
+            worktree: { projectRoot: workspace, projectName: "demo", branchName: "review-resume", baseRef: "HEAD" },
+            specPath: "spec.md",
+            stepRules: "n/a",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            completionPublisher: async () => {
+              statusAtPublish = execFileSync("git", ["status", "--porcelain"], { cwd: workspace, encoding: "utf8" });
+              return { prNumber: 7, prUrl: "https://example.test/pr/7" };
+            },
+            readyFinalizer: async () => {},
+          },
+        }),
+        logSink,
+      );
+
+      expect(statusAtPublish).toBe("");
+      const commitLog = execFileSync("git", ["log", "-1", "--format=%B"], { cwd: workspace, encoding: "utf8" });
+      expect(commitLog).toContain("Jarvis-Agent: claude");
+      expect(store.loadRun(run.id)?.status).toBe("completed");
+      const finalRecord = logSink.getEventsForRun(run.id).at(-1);
+      expect(finalRecord).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
+    });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test("settles a publication failure (ready gate) with a terminal loop_finished record", async () => {
+    const workspace = initGitWorkspace("review-resume-publish-failure-");
+    writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+
+    await withStateStore(async (store) => {
+      const run = createReviewResumeRun(store, workspace);
+      const logSink = new TestLogSink();
+      await resumeReviewPublicationTail(
+        store,
+        run,
+        buildResumeContext(workspace, {
+          writeLoopInput: {
+            worktree: { projectRoot: workspace, projectName: "demo", branchName: "review-resume", baseRef: "HEAD" },
+            specPath: "spec.md",
+            stepRules: "n/a",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              throw new ReadyGateError("bun run ready", 1, "red", true);
+            },
+          },
+        }),
+        logSink,
+      );
+
+      expect(store.loadRun(run.id)?.status).toBe("failed");
+      const finalRecord = logSink.getEventsForRun(run.id).at(-1);
+      expect(finalRecord).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        resumable: true,
+      });
+    });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test("settles a ready-flip failure as completed, non-resumable", async () => {
+    const workspace = initGitWorkspace("review-resume-flip-failure-");
+    writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+
+    await withStateStore(async (store) => {
+      const run = createReviewResumeRun(store, workspace);
+      const logSink = new TestLogSink();
+      await resumeReviewPublicationTail(
+        store,
+        run,
+        buildResumeContext(workspace, {
+          writeLoopInput: {
+            worktree: { projectRoot: workspace, projectName: "demo", branchName: "review-resume", baseRef: "HEAD" },
+            specPath: "spec.md",
+            stepRules: "n/a",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              throw new Error("gh pr ready failed");
+            },
+          },
+        }),
+        logSink,
+      );
+
+      expect(store.loadRun(run.id)?.status).toBe("completed");
+      const finalRecord = logSink.getEventsForRun(run.id).at(-1);
+      expect(finalRecord).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_flip_failed",
+        resumable: false,
+      });
+    });
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test("a thrown tail still settles a boundary instead of leaving the row live with no terminal record", async () => {
+    const workspace = initGitWorkspace("review-resume-throw-");
+    writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+
+    await withStateStore(async (store) => {
+      const run = createReviewResumeRun(store, workspace);
+      const logSink = new TestLogSink();
+      // Simulates a late, unexpected throw (e.g. a store fault) after publication otherwise
+      // succeeds — a path with no dedicated inner catch, so only the outer boundary-settling
+      // catch can prevent the row from going live with no terminal record.
+      const throwingStore = {
+        ...store,
+        setRunStatus: (runId: string, status: string) => {
+          if (status === "completed") throw new Error("simulated late store fault");
+          return store.setRunStatus(runId, status as Parameters<typeof store.setRunStatus>[1]);
+        },
+      } as typeof store;
+
+      await resumeReviewPublicationTail(
+        throwingStore,
+        run,
+        buildResumeContext(workspace, {
+          writeLoopInput: {
+            worktree: { projectRoot: workspace, projectName: "demo", branchName: "review-resume", baseRef: "HEAD" },
+            specPath: "spec.md",
+            stepRules: "n/a",
+            expectedArtifactPath: "proof.txt",
+            bindings: [],
+            completionPublisher: async () => ({ prNumber: 9, prUrl: "https://example.test/pr/9" }),
+            readyFinalizer: async () => {},
+          },
+        }),
+        logSink,
+      );
+
+      expect(store.loadRun(run.id)?.status).toBe("failed");
+      const finalRecord = logSink.getEventsForRun(run.id).at(-1);
+      expect(finalRecord?.kind).toBe("loop_finished");
+    });
+    rmSync(workspace, { recursive: true, force: true });
   });
 });

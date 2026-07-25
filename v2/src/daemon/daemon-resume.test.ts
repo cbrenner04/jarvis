@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
+import { type LogReader, type LoopFinishedEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
@@ -109,7 +109,10 @@ afterEach(async () => {
   rmSync(profileHome, { recursive: true, force: true });
 });
 
-function createHandlers(logReader?: LogReader): Handlers {
+function createHandlers(
+  logReader?: LogReader,
+  overrides?: Partial<Parameters<typeof createRunControlHandlers>[0]>,
+): Handlers {
   return createRunControlHandlers({
     stateStore,
     ...(logReader !== undefined ? { logReader } : {}),
@@ -117,6 +120,7 @@ function createHandlers(logReader?: LogReader): Handlers {
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    ...overrides,
   });
 }
 
@@ -954,4 +958,207 @@ test("wait and list resumable agrees for non-entry workflow step row", async () 
   const admitted = isResumeAdmitted(run, terminalRecord);
   expect(await waitResumable(localHandlers, step2RunId)).toBe(admitted);
   expect(await listResumable(localHandlers, step2RunId)).toBe(admitted);
+});
+
+// --- Review-step surviving-mutation publication-tail resume ---
+
+type ReviewWorkflowFixture = {
+  invocationId: string;
+  implementRunId: string;
+  shrinkRunId: string;
+  reviewRunId: string;
+  logsPath: string;
+  logDir: string;
+  logReader: LogReader;
+};
+
+/**
+ * A two-step durable workflow (`implement` write step + a durable `implement-review`
+ * step of the given behavior) whose implement write step (and its hidden `~shrink` row)
+ * already completed, and whose review row settled `surviving_mutation_failed`.
+ */
+function createReviewWorkflowFixture(
+  behavior: "review" | "review-debate",
+  invocationId: string,
+): ReviewWorkflowFixture {
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "resume rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"] as const,
+        agentModelConfig: AGENT_MODEL_CONFIG,
+      },
+      {
+        stepId: "implement-review",
+        role: "",
+        behavior,
+      },
+    ],
+  };
+  const baseRun = {
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project-worktree",
+    branch: "test-branch",
+    specPath: "/tmp/test-project/spec.md",
+    workflowSnapshot,
+  };
+
+  const implementRunId = stateStore.createRun({ ...baseRun, stepId: "implement" });
+  const implementAttemptId = stateStore.recordAttemptStart(implementRunId);
+  stateStore.commitCompletionBoundary({
+    attemptId: implementAttemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "codex",
+  });
+
+  const shrinkRunId = stateStore.createRun({ ...baseRun, stepId: "implement~shrink" });
+  const shrinkAttemptId = stateStore.recordAttemptStart(shrinkRunId);
+  stateStore.commitCompletionBoundary({
+    attemptId: shrinkAttemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "codex",
+  });
+
+  const reviewRunId = stateStore.createRun({ ...baseRun, stepId: "implement-review" });
+  stateStore.setRunStatus(reviewRunId, "failed");
+
+  const logDir = mkdtempSync(join(tmpdir(), "jarvis-resume-review-logs-"));
+  const logsPath = join(logDir, "logs.jsonl");
+  const logSink = openLogSink(logsPath);
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 17,
+  });
+  logSink.close();
+
+  return {
+    invocationId,
+    implementRunId,
+    shrinkRunId,
+    reviewRunId,
+    logsPath,
+    logDir,
+    logReader: openLogReader(logsPath),
+  };
+}
+
+test.each([
+  "review",
+  "review-debate",
+] as const)("resume finalizes a durable %s step's surviving-mutation failure on the publication-tail path", async (behavior) => {
+  const fixture = createReviewWorkflowFixture(behavior, `review-resume-${behavior}`);
+  try {
+    const publicationCalls: unknown[] = [];
+    const localHandlers = createHandlers(fixture.logReader, {
+      reviewPublicationTailExecutor: async (run, context) => {
+        publicationCalls.push({ runId: run.id, context });
+        const sink = openLogSink(fixture.logsPath);
+        sink.append(run.id, {
+          kind: "loop_finished",
+          loopOutcomeKind: "complete",
+          iterationsConsumed: 0,
+          resumable: false,
+        });
+        sink.close();
+        stateStore.setRunStatus(run.id, "completed");
+      },
+    });
+
+    const response = await resumeDirect(localHandlers, fixture.reviewRunId);
+    expect(response.kind).toBe("response");
+    await flushBackgroundRuns();
+
+    expect(publicationCalls.length).toBe(1);
+    // The already-complete implement write step must not re-invoke the write loop.
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts.length).toBe(0);
+
+    expect(stateStore.loadRun(fixture.reviewRunId)?.status).toBe("completed");
+    const freshReader = openLogReader(fixture.logsPath);
+    const records = freshReader.tail(fixture.reviewRunId);
+    const finalRecord = records.at(-1);
+    expect(finalRecord?.event.kind).toBe("loop_finished");
+    if (finalRecord?.event.kind === "loop_finished") {
+      expect(finalRecord.event.loopOutcomeKind).toBe("complete");
+      expect(finalRecord.event.resumable).toBe(false);
+    }
+  } finally {
+    rmSync(fixture.logDir, { recursive: true, force: true });
+  }
+});
+
+test("resume on a review step with a non-surviving-mutation terminal still refuses via write-step reconstruction", async () => {
+  const fixture = createReviewWorkflowFixture("review-debate", "review-resume-other-outcome");
+  try {
+    // Overwrite the review row's terminal record with a non-surviving-mutation outcome that a
+    // review step still cannot satisfy as an executable write step.
+    const logSink = openLogSink(fixture.logsPath);
+    logSink.append(fixture.reviewRunId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "completion_commit_failed",
+      iterationsConsumed: 1,
+      resumable: true,
+    });
+    logSink.close();
+    const localHandlers = createHandlers(openLogReader(fixture.logsPath));
+
+    const response = await resumeDirect(localHandlers, fixture.reviewRunId);
+    expect(response.kind).toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).toBe("resume_unsupported");
+      expect(response.message).toContain("is not an executable write step");
+    }
+  } finally {
+    rmSync(fixture.logDir, { recursive: true, force: true });
+  }
+});
+
+test("resume on a completed review row (no surviving-mutation failure) refuses terminal_run", async () => {
+  const fixture = createReviewWorkflowFixture("review", "review-resume-completed-control");
+  try {
+    stateStore.setRunStatus(fixture.reviewRunId, "completed");
+    const emptyLogReader: LogReader = { tail: () => [], async *follow() {} };
+    const localHandlers = createHandlers(emptyLogReader);
+
+    const response = await resumeDirect(localHandlers, fixture.reviewRunId);
+    expect(response.kind).toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).toBe("terminal_run");
+    }
+  } finally {
+    rmSync(fixture.logDir, { recursive: true, force: true });
+  }
+});
+
+test("resume on the workflow entry id or the completed shrink row for a review surviving-mutation scenario still refuses", async () => {
+  const fixture = createReviewWorkflowFixture("review-debate", "review-resume-entry-shrink-refusal");
+  try {
+    const localHandlers = createHandlers(fixture.logReader);
+
+    const entryResponse = await resumeDirect(localHandlers, fixture.implementRunId);
+    expect(entryResponse.kind).toBe("error");
+    if (entryResponse.kind === "error") {
+      expect(entryResponse.code).toBe("terminal_run");
+    }
+
+    const shrinkResponse = await resumeDirect(localHandlers, fixture.shrinkRunId);
+    expect(shrinkResponse.kind).toBe("error");
+    if (shrinkResponse.kind === "error") {
+      expect(shrinkResponse.code).toBe("terminal_run");
+    }
+  } finally {
+    rmSync(fixture.logDir, { recursive: true, force: true });
+  }
 });

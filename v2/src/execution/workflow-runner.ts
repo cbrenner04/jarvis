@@ -11,7 +11,7 @@ import {
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import { openStateStore, type Run, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
@@ -1185,6 +1185,143 @@ function buildCompletionStepWriteLoopInput(
         }
       : {}),
   };
+}
+
+/**
+ * Reconstructed publication-tail input for resuming a durable review-step row
+ * (`implement-review` or a durable `review-debate` last step) that settled
+ * `surviving_mutation_failed`. The implement write step already completed and
+ * committed; resume only re-runs completion publication (ready finalizer,
+ * ready gate, draft→ready) against the same row, never the write step.
+ */
+export type ReviewPublicationResumeContext = {
+  writeLoopInput: WriteLoopInput;
+  completionAgent: string;
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+  branch: string;
+  /** Iterations already consumed by the write step and prior publication attempts. */
+  iterationsConsumed: number;
+  /** The completion step's role, e.g. `"implement"` — drives PR-body summary derivation. */
+  completionRole: string;
+  creationTitle?: string;
+};
+
+/** A resumed tail that dies before settling a boundary must still record one, so `run wait` doesn't hang. */
+function settleReviewPublicationTailThrow(
+  store: StateStore,
+  run: Run,
+  iterationsConsumed: number,
+  logSink: LogSink | undefined,
+): void {
+  logSink?.append(run.id, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed,
+    resumable: true,
+  });
+  store.setRunStatus(run.id, "failed");
+}
+
+/**
+ * Re-run the completion publication tail (commit → ready finalizer → ready gate → draft→ready)
+ * against a durable review-step row, settling `loop_finished`/run status on that same
+ * row id — mirroring the inline publication tail in {@link executeWorkflow}, but without
+ * re-running the review agents or the already-complete implement write step.
+ */
+export async function resumeReviewPublicationTail(
+  store: StateStore,
+  run: Run,
+  context: ReviewPublicationResumeContext,
+  logSink: LogSink | undefined,
+): Promise<void> {
+  store.setRunStatus(run.id, "in-progress");
+  try {
+    const title = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitle);
+    const committer = context.writeLoopInput.completionCommitter ?? createCompletionCommitter();
+    let commitSha: string | undefined;
+    try {
+      const committed = await committer({
+        worktreePath: context.worktreePath,
+        baseRef: context.baseRef,
+        specPath: context.specPath,
+        agent: context.completionAgent,
+        title,
+        forceDistinctCommit: true,
+      });
+      commitSha = committed.commitSha;
+      if (commitSha === undefined) {
+        const uncommitted = await getUncommittedPaths(context.worktreePath);
+        if (uncommitted.length > 0) {
+          settleReviewPublicationTailThrow(store, run, context.iterationsConsumed, logSink);
+          return;
+        }
+      }
+    } catch {
+      settleReviewPublicationTailThrow(store, run, context.iterationsConsumed, logSink);
+      return;
+    }
+
+    let bodySummary: string | undefined;
+    let specTemplate = false;
+    if (context.completionRole === "implement") {
+      specTemplate = true;
+      bodySummary = await deriveSpecRunBodySummary({
+        worktreePath: context.worktreePath,
+        specPath: context.specPath,
+        baseRef: context.baseRef,
+      });
+    }
+
+    const shrinkNarrative = tryReadShrinkNarrative(context.worktreePath);
+    const result: WriteLoopResult = {
+      kind: "complete",
+      runId: run.id,
+      iterationsConsumed: context.iterationsConsumed,
+      resumable: false,
+      completionAgent: context.completionAgent,
+      ...(commitSha !== undefined ? { commitSha } : {}),
+    };
+    const publishArgs: WriteLoopInput = { ...context.writeLoopInput, stateStore: store, ...(logSink ? { logSink } : {}) };
+    const publication = await publishWithReadyRepair(publishArgs, store, result, context.iterationsConsumed, {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      branch: context.branch,
+      creationTitle: title,
+      ...(bodySummary !== undefined ? { bodySummary } : {}),
+      ...(specTemplate ? { specTemplate } : {}),
+      ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
+    });
+
+    if (publication.failure !== undefined) {
+      appendRuntimeSmokeOutcome(logSink, run.id, publication.failure.runtimeSmokeOutcome);
+      const publicationFailure = publicationFailureFor(publication.failure.error);
+      const isFlipFailure = publication.failure.kind === "ready_flip_failed";
+      logSink?.append(run.id, {
+        kind: "loop_finished",
+        loopOutcomeKind: publication.failure.kind,
+        iterationsConsumed: publication.iterationsConsumed,
+        resumable: !isFlipFailure,
+        ...survivingMutationLogFields(publication.failure.error),
+        ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+      });
+      store.setRunStatus(run.id, isFlipFailure ? "completed" : "failed");
+      return;
+    }
+
+    appendRuntimeSmokeOutcome(logSink, run.id, publication.success?.runtimeSmokeOutcome);
+    logSink?.append(run.id, {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: publication.iterationsConsumed,
+      resumable: false,
+    });
+    store.setRunStatus(run.id, "completed");
+  } catch {
+    settleReviewPublicationTailThrow(store, run, context.iterationsConsumed, logSink);
+  }
 }
 
 function prepareWorkflowStep(

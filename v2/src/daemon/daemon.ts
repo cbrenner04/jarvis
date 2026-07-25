@@ -28,6 +28,8 @@ import {
   executeWorkflow,
   LinkedIndexReadError,
   type ReviewProgress,
+  type ReviewPublicationResumeContext,
+  resumeReviewPublicationTail,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -86,6 +88,10 @@ type ActiveRun =
     }
   | {
       kind: "workflow";
+      runId: string;
+    }
+  | {
+      kind: "publication-tail";
       runId: string;
     };
 
@@ -388,6 +394,132 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
   });
 }
 
+/** The review behavior of the snapshot step owning `run`, or undefined for a write step / no snapshot match. */
+function reviewStepBehaviorForRun(
+  run: Pick<Run, "workflowSnapshot" | "stepId">,
+): "review" | "review-debate" | undefined {
+  const stepId = run.stepId;
+  if (!stepId) return undefined;
+  return run.workflowSnapshot?.steps.find((step) => step.stepId === stepId)?.behavior;
+}
+
+/**
+ * Reconstruct the publication-tail resume for a durable review-step row (`implement-review`
+ * or a durable `review-debate` last step) that settled `surviving_mutation_failed`. The
+ * implement write step already completed and committed; this rebuilds only what
+ * `resumeReviewPublicationTail` needs to re-run completion publication against the same row.
+ */
+function reconstructReviewPublicationResume(
+  store: StateStore,
+  run: Run,
+  iterationsConsumed: number,
+): { ok: true; context: ReviewPublicationResumeContext } | { ok: false; message: string } {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  if (!snapshot || !stepId) return { ok: false, message: "run has no matching workflow snapshot step" };
+
+  const completionStep = [...snapshot.steps].reverse().find((step) => step.behavior === undefined);
+  if (!completionStep) return { ok: false, message: "no completion write step found in workflow snapshot" };
+  if (
+    !completionStep.stepRules ||
+    !completionStep.expectedArtifactPath ||
+    !completionStep.agents?.length ||
+    !completionStep.agentModelConfig
+  ) {
+    return { ok: false, message: "snapshot completion step is missing write resume context" };
+  }
+
+  // The completion step's hidden `~shrink` row (when one ran) recorded the final
+  // completion agent/commit; prefer it over the pre-shrink implement row, mirroring
+  // `reconstructWriteResume`'s hidden-shrink handling.
+  const shrinkRun = store.findRunByProjectBranch({
+    project: run.project,
+    branch: run.branch,
+    stepId: `${completionStep.stepId}~shrink`,
+  });
+  const completionRun =
+    shrinkRun ??
+    store.findRunByProjectBranch({
+      project: run.project,
+      branch: run.branch,
+      stepId: completionStep.stepId,
+    });
+  if (!completionRun) return { ok: false, message: "completion step run not found" };
+  const completionAgent = completionRun.attempts.at(-1)?.completionAgent?.trim();
+  if (!completionAgent) return { ok: false, message: "completion step has no recorded completion agent" };
+
+  const resolved = resolveWriteLoopBindings({
+    worktree: {
+      projectRoot: run.worktreePath,
+      projectName: run.project,
+      branchName: run.branch,
+      baseRef: run.specRef,
+    },
+    specPath: completionRun.specPath,
+    stepRules: completionStep.stepRules,
+    expectedArtifactPath: completionStep.expectedArtifactPath,
+    bindings: [],
+    bindingResolution: {
+      role: completionStep.role,
+      agents: completionStep.agents,
+      agentModelConfig: completionStep.agentModelConfig,
+    },
+    stepId: completionStep.stepId,
+    workflowSnapshot: snapshot,
+    ...(completionStep.iterationTimeoutMs === undefined
+      ? {}
+      : { iterationTimeoutMs: completionStep.iterationTimeoutMs }),
+    iterationCeilingMs: completionStep.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
+  });
+  if (!resolved.ok) return resolved;
+
+  const creationTitle = run.creationTitle ?? snapshot.creationTitle;
+  return {
+    ok: true,
+    context: {
+      writeLoopInput: resolved.input,
+      completionAgent,
+      worktreePath: run.worktreePath,
+      baseRef: run.specRef,
+      specPath: completionRun.specPath,
+      branch: run.branch,
+      iterationsConsumed,
+      completionRole: completionStep.role,
+      ...(creationTitle ? { creationTitle } : {}),
+    },
+  };
+}
+
+type ResumeReconstruction =
+  | { ok: true; kind: "write"; input: WriteLoopInput }
+  | { ok: true; kind: "review-publication-tail"; context: ReviewPublicationResumeContext }
+  | { ok: false; message: string };
+
+/**
+ * Reconstruct what resuming `run` should execute: the review-behavior + `surviving_mutation_failed`
+ * predicate branches to a publication-tail respawn (review agents already ran; only completion
+ * publication needs to replay); every other admitted row reconstructs the write loop as before.
+ */
+function reconstructResume(
+  store: StateStore,
+  run: Run,
+  terminalRecord: TerminalLogRecord | undefined,
+): ResumeReconstruction {
+  const behavior = reviewStepBehaviorForRun(run);
+  if (
+    (behavior === "review" || behavior === "review-debate") &&
+    terminalRecord?.event.kind === "loop_finished" &&
+    terminalRecord.event.loopOutcomeKind === "surviving_mutation_failed"
+  ) {
+    const reviewResume = reconstructReviewPublicationResume(store, run, terminalRecord.event.iterationsConsumed);
+    return reviewResume.ok
+      ? { ok: true, kind: "review-publication-tail", context: reviewResume.context }
+      : reviewResume;
+  }
+  const writeResume = reconstructWriteResume(run);
+  return writeResume.ok ? { ok: true, kind: "write", input: writeResume.input } : writeResume;
+}
+
 /** Confirmed publication evidence, so `completed` is falsifiable from `run list` alone. */
 function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
   return {
@@ -413,25 +545,27 @@ const UNSUPPORTED_RESUME_ERROR = {
 } as const;
 
 function resumeContextForRun(
+  store: StateStore,
   run: Run & { attempts?: Attempt[] },
   terminalRecord?: TerminalLogRecord,
-): ResolvedWriteLoopInput | undefined {
+): ResumeReconstruction | undefined {
   // Admission is derived from the advertised row contract: if nextAction is
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
-  return isResumeAdmitted(run, terminalRecord) ? reconstructWriteResume(run) : undefined;
+  return isResumeAdmitted(run, terminalRecord) ? reconstructResume(store, run, terminalRecord) : undefined;
 }
 
 function resumeContextForTerminalRecord(
+  store: StateStore,
   run: (Run & { attempts?: Attempt[] }) | undefined,
   terminalRecord: TerminalLogRecord | undefined,
-): ResolvedWriteLoopInput | undefined {
+): ResumeReconstruction | undefined {
   if (!run) return undefined;
-  return resumeContextForRun(run, terminalRecord);
+  return resumeContextForRun(store, run, terminalRecord);
 }
 
 function runListRowError(
   run: Parameters<typeof composeRunOperatorError>[0] | undefined,
-  resumeContext: ResolvedWriteLoopInput | undefined,
+  resumeContext: ResumeReconstruction | undefined,
   terminalRecord: TerminalLogRecord | undefined,
 ) {
   if (!run) return undefined;
@@ -472,6 +606,8 @@ export type RunControlHandlerDeps = {
   /** Daemon session id stamped on workflow telemetry; required when `logsPath` is set. */
   operatorSessionId?: string;
   writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
+  /** Runs the completion-publication-tail resume for a durable review-step row; defaults to {@link resumeReviewPublicationTail}. */
+  reviewPublicationTailExecutor?: (run: LoadedRun, context: ReviewPublicationResumeContext) => Promise<void>;
   failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
   /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
   /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
@@ -653,7 +789,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
-    const resumeContext = run ? resumeContextForRun(run, record) : undefined;
+    const resumeContext = run ? resumeContextForRun(store, run, record) : undefined;
     const error =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
@@ -702,7 +838,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       resumable: isResumeAdmitted(owner.run, owner.terminalRecord),
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
-    const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
+    const entryResumeContext = resumeContextForTerminalRecord(store, entryRun, entryRecord);
     const entryCanResume = entryResumeContext?.ok === true;
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
@@ -729,6 +865,61 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         }
         try {
           await failureReporter(runId, reason);
+        } catch {
+          // reporter failure does not block cleanup or roll back status
+        }
+      } finally {
+        activeRuns.delete(ks);
+        _registry.release(key);
+        promoteQueuedRun();
+      }
+    })();
+  };
+
+  const reviewPublicationTailExecutor: (run: LoadedRun, context: ReviewPublicationResumeContext) => Promise<void> =
+    deps.reviewPublicationTailExecutor ??
+    (async (run, context) => {
+      const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+      const telemetryContext =
+        operatorSessionId !== undefined
+          ? { ...context, writeLoopInput: applyOperatorSessionId(context.writeLoopInput, operatorSessionId) }
+          : context;
+      try {
+        await resumeReviewPublicationTail(store, run, telemetryContext, logSink);
+      } finally {
+        logSink?.close();
+      }
+    });
+
+  /**
+   * Spawn a publication-tail resume for a durable review-step row that settled
+   * `surviving_mutation_failed`: re-runs completion publication against that row id
+   * without re-invoking review agents or the already-complete implement write step.
+   */
+  const spawnReviewPublicationTail = (
+    key: OwnershipKey,
+    run: LoadedRun,
+    context: ReviewPublicationResumeContext,
+  ): void => {
+    const ks = ownershipKeyString(key);
+    activeRuns.set(ks, { kind: "publication-tail", runId: run.id });
+
+    _registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
+
+    (async () => {
+      try {
+        await reviewPublicationTailExecutor(run, context);
+      } catch (reason) {
+        try {
+          const latest = store.loadRun(run.id);
+          if (latest && !isSettledRunStatus(latest.status)) {
+            store.setRunStatus(run.id, "failed");
+          }
+        } catch {
+          // best-effort persist; cleanup still runs
+        }
+        try {
+          await failureReporter(run.id, reason);
         } catch {
           // reporter failure does not block cleanup or roll back status
         }
@@ -1052,7 +1243,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
     const error =
       rowOutcome?.error ??
-      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+      runListRowError(fullRun, resumeContextForTerminalRecord(store, fullRun, terminalRecord), terminalRecord);
     const {
       runStatus: _entryRunStatus,
       error: _entryError,
@@ -1212,7 +1403,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord);
+    const reconstructed = resumeContextForTerminalRecord(store, run, terminalRecord);
     if (!reconstructed?.ok) {
       return {
         kind: "error",
@@ -1223,7 +1414,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const key: OwnershipKey = { project: run.project, branch: run.branch };
     const claimError = checkWorktreeClaimed(_registry, key);
     if (claimError) return claimError;
-    spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    if (reconstructed.kind === "review-publication-tail") {
+      spawnReviewPublicationTail(key, run, reconstructed.context);
+    } else {
+      spawnWriteLoop(key, runId, run.worktreePath, reconstructed.input);
+    }
 
     return { kind: "response", result: { ok: true } };
   };

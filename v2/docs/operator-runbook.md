@@ -416,6 +416,14 @@ transition (see [Publication / completion failures](#publication--completion-fai
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
+A `surviving_mutation_failed` settled on a durable review row (`implement-review`, or a durable
+`review-debate` last step) is resumed by resuming **that row**, not the implement row or a completed
+`~shrink` row. The implement write step already completed; `jarvis run resume` on the review row's
+own id re-runs only the completion-publication tail (ready finalizer → ready gate → draft→ready)
+against that row, without re-invoking the write-step agent. Resuming the workflow entry id or a
+completed `~shrink` row for this scenario still refuses (`terminal_run`) — they never owned the
+failure.
+
 A `surviving_mutation_failed` outcome whose site is a timer callback in a determinism-guarded root (v2/src/daemon or v2/src/execution .test.ts) names both constraints: the natural kill test (which is forbidden by the determinism guard's real-timer prohibition) and the fix (extract the guard into a pure exported predicate and test both truth directions directly without a real-timer wait, then resume). Codify the extracted predicate directly in the guarded suite's test file and verify its coverage independently.
 
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.
@@ -597,7 +605,7 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 ### Publication / completion failures
 
 Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then
-`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot for step identity (rules, artifact path, outer agent order) before replaying publication without re-invoking the write-step agent; agent/model bindings come from the current machine profile at continuation time. Confirm the active rung from attempt telemetry until `jarvis run list` shows binding. Daemon-process logs are secondary, and do not delete the worktree.
+`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. When the failure instead settled on a durable review row (`implement-review` or a durable `review-debate` last step), resume that review row itself — resume respawns only the completion-publication tail on that row id, not a write loop, and the entry id / a completed `~shrink` row still refuse. Resume reuses the persisted write snapshot for step identity (rules, artifact path, outer agent order) before replaying publication without re-invoking the write-step agent; agent/model bindings come from the current machine profile at continuation time. Confirm the active rung from attempt telemetry until `jarvis run list` shows binding. Daemon-process logs are secondary, and do not delete the worktree.
 
 **Store lock after a completed write step:** when `list` / `wait` report
 `error.reason: "state_store_lock_timeout"` (`retryable: true`, `nextAction: "resume"`)
@@ -816,6 +824,20 @@ Operators add bullets here; delete when fixed.
   surviving mutation text plus source file and line. `run resume` accepts that row. During the
   post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
   `surviving-mutation-failure-is-resumable-failed`.
+- **A review-owned surviving-mutation failure resumes the review row, not `~shrink` (shipped
+  2026-07-25):** when `surviving_mutation_failed` settles on a durable review row
+  (`implement-review`, or a durable `review-debate` last step) instead of on a write step, resume
+  that review row's own id — not the workflow entry id and not a completed `~shrink` row, which
+  still refuse `terminal_run`. Resume respawns only the completion-publication tail (commit any
+  pending worktree changes → ready finalizer → ready gate → draft→ready) on that row; the implement
+  write step already completed and is not re-invoked. This tail is not pausable/killable while it
+  runs — `pause`/`kill` on that row id return `run_not_active`, same as the existing workflow-step
+  variant (see [`daemon-host.md` § Live controls on workflow-started runs](./daemon-host.md#live-controls-on-workflow-started-runs)).
+  Reconstruction reads the completion step's `role` from the persisted snapshot but not its
+  `landing`/`promptId`/`publishCompletion` (not retained there), so PR-body summary derivation is
+  verified only for an `implement`-role completion step, and a completion step authored with
+  `publishCompletion: false` is not honored on this path. Ready-intent:
+  `resume-finalizes-review-step-mutation-failure`.
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Test doubles must not call production behavior (shipped 2026-07-22):** Fixtures under `v2/src/testing/**` are statically guarded by `scripts/guard-test-double-production-calls.ts` (runs as part of `bun run check`). Test doubles that compute responses by calling production behavior violate the guard and must be refactored to use direct value returns or allowlisted entry points (state-store, daemon-lifecycle, CLI main). Type-only imports, unused constants, and calls to allowlisted builders are permitted. See [`v2/docs/test-writing.md` § Test doubles must not call production behavior](./test-writing.md#test-doubles-must-not-call-production-behavior).
 - **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding

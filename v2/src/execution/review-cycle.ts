@@ -27,7 +27,7 @@ export type ReviewCycleInput = {
   bindings: ReviewCycleRoleBindings;
   verdictPath: string;
   maxCycles: number;
-  /** Wall clock per role invocation; defaults to the write-loop iteration timeout. */
+  /** Wall clock per role invocation; defaults to the configured review-role timeout. */
   roleTimeoutMs?: number;
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;

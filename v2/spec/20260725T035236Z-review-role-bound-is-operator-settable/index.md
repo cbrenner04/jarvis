@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Configured review-role bound reaches invokeReviewRole](./00-review-role-bound-config-key.md)
+- [x] [00 - Configured review-role bound reaches invokeReviewRole](./00-review-role-bound-config-key.md)

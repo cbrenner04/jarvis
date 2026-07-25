@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import {
   type CliRepoFixture,
@@ -361,6 +361,153 @@ describe("review-passes and review-behavior resolution", () => {
     } else {
       expect(builtInput).toMatchObject({ [key]: expected });
     }
+  });
+});
+
+describe("review-role timeout resolution", () => {
+  function fakeReviewStep(): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "implement-run",
+      agents: { critic: ["claude"], actuator: ["claude"] },
+      agentModelConfig: {},
+      cwd: fx.repoRoot,
+      verdictPath: "verdict.md",
+      maxCycles: 1,
+    };
+  }
+
+  function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
+    return {
+      behavior: "review-debate",
+      stepId: "review-debate",
+      project: "demo",
+      branch: "implement-run",
+      agents: {
+        adversary: ["claude"],
+        advocate: ["claude"],
+        adjudicator: ["claude"],
+        actuator: ["claude"],
+      },
+      agentModelConfig: {},
+      cwd: fx.repoRoot,
+      verdictPath: "verdict.md",
+      maxCycles: 1,
+      prompts: { adversary: "a", advocate: "b", adjudicator: "c" },
+    };
+  }
+
+  test("stamps the default reviewRoleTimeoutMs onto review steps when unconfigured", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-default", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", roleTimeoutMs: 1_800_000 });
+  });
+
+  test("stamps a configured reviewRoleTimeoutMs onto review steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 900_000 });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-configured", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", roleTimeoutMs: 900_000 });
+  });
+
+  test("stamps the default reviewRoleTimeoutMs onto review-debate steps when unconfigured", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewDebateStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-debate-default", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review-debate", roleTimeoutMs: 1_800_000 });
+  });
+
+  test("stamps a configured reviewRoleTimeoutMs onto review-debate steps", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 900_000 });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewDebateStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-debate-configured", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({ behavior: "review-debate", roleTimeoutMs: 900_000 });
+  });
+
+  test("rejects a non-positive reviewRoleTimeoutMs before daemon contact", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({ reviewRoleTimeoutMs: 0 });
+
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      noDaemonDeps({
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toBe("Machine config 'reviewRoleTimeoutMs' must be a positive number\n");
   });
 });
 

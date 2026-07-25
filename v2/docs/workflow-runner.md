@@ -24,6 +24,11 @@ Each write step resolves `iterationTimeoutMs` from `~/.jarvis/config.json`
 budget is retained in the workflow snapshot, so resume uses it.
 Timeout ends the step as non-resumable `iteration_timeout`.
 
+Each `review` and `review-debate` step resolves `reviewRoleTimeoutMs` from
+`~/.jarvis/config.json` (default `1,800,000` ms) and stamps it on the step's
+`roleTimeoutMs`, bounding every critic/actuator/debate-role invocation within
+that step.
+
 For a multi-step preset, resolution happens per step when the runner reaches
 it. The runner does not precompute one shared binding chain or reuse step
 one's resolved bindings for step two, even when both positions use the same
@@ -538,8 +543,8 @@ independently through the normal agent/rung fallback, then runs the review
 cycle with enforcement (for intent workflows).
 
 Each role invocation (`critic`, `actuator`, and every `review-debate` role) is
-armed with two bounds: a per-role wall-clock bound (`roleTimeoutMs`, defaulting
-to the write-loop iteration timeout) and a per-role idle-output budget
+armed with two bounds: a per-role wall-clock bound (`roleTimeoutMs`, resolved
+from `reviewRoleTimeoutMs` at prepare time, default `1,800,000` ms) and a per-role idle-output budget
 (`idleOutputMs`, defaulting to 90_000 ms). A wall-clock timer abort classifies
 as `failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution.
 An idle-output stall (no stdout/stderr for `idleOutputMs`) classifies as

@@ -5,7 +5,12 @@ import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers, projectWorkflowEntryResult, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  projectWorkflowEntryResult,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+} from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 

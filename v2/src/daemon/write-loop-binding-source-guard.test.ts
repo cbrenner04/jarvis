@@ -1,14 +1,14 @@
+import { expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "bun:test";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import {
   resetWriteLoopBindingSourceDepsForTests,
   resolveWriteLoopBindings,
   setWriteLoopBindingSourceDepsForTests,
 } from "./daemon.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
@@ -76,7 +76,10 @@ test("daemon binding resolution re-loads from the machine profile unless the sna
     machinesDir: mkdtempSync(join(tmpdir(), "jarvis-guard-machines-")),
     machineConfigPath: join(mkdtempSync(join(tmpdir(), "jarvis-guard-home-")), "config.json"),
   };
-  writeFileSync(badProfileDeps.machineConfigPath, JSON.stringify({ machineProfile: "absent-profile", agents: ["claude"] }));
+  writeFileSync(
+    badProfileDeps.machineConfigPath,
+    JSON.stringify({ machineProfile: "absent-profile", agents: ["claude"] }),
+  );
 
   setWriteLoopBindingSourceDepsForTests({ ...badProfileDeps, forceSnapshotAgentModelConfig: true });
   try {

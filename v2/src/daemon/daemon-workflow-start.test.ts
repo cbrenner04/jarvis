@@ -7,8 +7,10 @@ import {
   intentReviewProfile,
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
@@ -27,8 +29,6 @@ import {
   setWriteLoopBindingSourceDepsForTests,
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -618,10 +618,7 @@ test("second write-loop admission on a live handler resolves rungs from the edit
       join(machinesDir, `${machineProfile}.json`),
       JSON.stringify({ models: { claude: claudeBundle(implementModel) } }),
     );
-    writeFileSync(
-      join(profileHome, "config.json"),
-      JSON.stringify({ machineProfile, agents: ["claude"] }),
-    );
+    writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
     setWriteLoopBindingSourceDepsForTests({
       machineConfigPath: join(profileHome, "config.json"),
       machinesDir,

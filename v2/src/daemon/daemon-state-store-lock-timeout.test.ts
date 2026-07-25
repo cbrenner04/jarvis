@@ -1,13 +1,17 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+} from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 type RpcResult = Awaited<ReturnType<RpcHandler>>;
@@ -36,7 +40,10 @@ function installLockTimeoutMachineProfile(): void {
     adjudicator: rung("adj", "adj"),
     actuator: rung("act", "act"),
   };
-  writeFileSync(join(machinesDir, `${LOCK_TIMEOUT_MACHINE_PROFILE}.json`), JSON.stringify({ models: { codex: codexRoles } }));
+  writeFileSync(
+    join(machinesDir, `${LOCK_TIMEOUT_MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: { codex: codexRoles } }),
+  );
   writeFileSync(
     join(profileHome, "config.json"),
     JSON.stringify({ machineProfile: LOCK_TIMEOUT_MACHINE_PROFILE, agents: ["codex"] }),

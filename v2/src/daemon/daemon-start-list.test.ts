@@ -15,7 +15,11 @@ import {
   workflowSnapshot,
 } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+} from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 

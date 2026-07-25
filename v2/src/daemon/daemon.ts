@@ -275,8 +275,7 @@ export function resetWriteLoopBindingSourceDepsForTests(): void {
 
 export function runWithWriteLoopMachineConfigPath<T>(machineConfigPath: string | undefined, fn: () => T): T {
   const prior = writeLoopBindingSourceDeps;
-  writeLoopBindingSourceDeps =
-    machineConfigPath === undefined ? prior : { ...prior, machineConfigPath };
+  writeLoopBindingSourceDeps = machineConfigPath === undefined ? prior : { ...prior, machineConfigPath };
   try {
     return fn();
   } finally {
@@ -300,9 +299,7 @@ function loadAgentModelConfigForWriteLoopAgents(agents: readonly string[]): Agen
   return loaded;
 }
 
-function resolveWriteLoopAgentModelConfig(
-  context: NonNullable<WriteLoopInput["bindingResolution"]>,
-): AgentModelConfig {
+function resolveWriteLoopAgentModelConfig(context: NonNullable<WriteLoopInput["bindingResolution"]>): AgentModelConfig {
   if (writeLoopBindingSourceDeps.forceSnapshotAgentModelConfig) {
     return context.agentModelConfig;
   }

@@ -16,8 +16,8 @@ import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   createRunControlHandlers,
-  recoverReconciledRuns,
   reconcileOrphanedRuns,
+  recoverReconciledRuns,
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
   startDaemonRuntime,
@@ -595,10 +595,7 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
       join(machinesDir, `${machineProfile}.json`),
       JSON.stringify({ models: { codex: codexBundle(implementModels) } }),
     );
-    writeFileSync(
-      join(profileHome, "config.json"),
-      JSON.stringify({ machineProfile, agents: ["codex"] }),
-    );
+    writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["codex"] }));
     setWriteLoopBindingSourceDepsForTests({
       machineConfigPath: join(profileHome, "config.json"),
       machinesDir,

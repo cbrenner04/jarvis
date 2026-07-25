@@ -21,7 +21,11 @@ import { implementReviewPromptProfile } from "../../../shared/prompts/review-imp
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
+import {
+  createRunControlHandlers,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+} from "../daemon/daemon.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
@@ -93,10 +97,7 @@ function installWorkflowRunnerResumeProfile(): void {
     actuator: rung("act", "act"),
   };
   writeFileSync(join(machinesDir, `${profileName}.json`), JSON.stringify({ models: { claude: claudeRoles } }));
-  writeFileSync(
-    join(profileHome, "config.json"),
-    JSON.stringify({ machineProfile: profileName, agents: ["claude"] }),
-  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile: profileName, agents: ["claude"] }));
   setWriteLoopBindingSourceDepsForTests({
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,

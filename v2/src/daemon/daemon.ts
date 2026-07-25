@@ -51,9 +51,9 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isResumeAdmitted,
-  terminalResumeRefusalMessage,
   type RunOperatorError,
   type TerminalLogRecord,
+  terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";

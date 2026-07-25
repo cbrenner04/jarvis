@@ -197,9 +197,9 @@ test("composeRunOperatorError prefers resumable ready_gate_failed loop_finished 
 });
 
 test("composeRunOperatorError keeps blocked attempt detail when loop_finished is not resumable finalization", () => {
-  expect(
-    composeRunOperatorError(runWith("failed", [attempt("blocked")]), loopFinished("complete")),
-  ).toEqual(err("agent_blocked", "inspect_spec"));
+  expect(composeRunOperatorError(runWith("failed", [attempt("blocked")]), loopFinished("complete"))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
 });
 
 test("composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished", () => {

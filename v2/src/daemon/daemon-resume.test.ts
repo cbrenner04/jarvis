@@ -3,15 +3,21 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { WRITE_LOOP_OUTCOME_KINDS } from "../execution/write-loop.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { WRITE_LOOP_OUTCOME_KINDS } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import { composeRunOperatorError, findTerminalLogRecord, isResumeAdmitted, terminalResumeRefusalMessage, type TerminalLogRecord } from "./run-operator-error.ts";
+import {
+  composeRunOperatorError,
+  findTerminalLogRecord,
+  isResumeAdmitted,
+  type TerminalLogRecord,
+  terminalResumeRefusalMessage,
+} from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -110,11 +116,7 @@ async function resumeDirect(h: Handlers, runId: string) {
   return h.resume(resumeFrame(runId), new AbortController().signal);
 }
 
-async function rowResumable(
-  h: Handlers,
-  runId: string,
-  via: "wait" | "list",
-): Promise<boolean | undefined> {
+async function rowResumable(h: Handlers, runId: string, via: "wait" | "list"): Promise<boolean | undefined> {
   const response =
     via === "wait"
       ? await h.wait(
@@ -129,9 +131,7 @@ async function rowResumable(
   return runs.find((row) => row.runId === runId)?.resumable;
 }
 
-function loopFinishedEvent(
-  loopOutcomeKind: LoopFinishedEvent["loopOutcomeKind"],
-): Omit<LoopFinishedEvent, "kind"> {
+function loopFinishedEvent(loopOutcomeKind: LoopFinishedEvent["loopOutcomeKind"]): Omit<LoopFinishedEvent, "kind"> {
   const event: Omit<LoopFinishedEvent, "kind"> = {
     loopOutcomeKind,
     iterationsConsumed: 1,
@@ -732,19 +732,19 @@ test("row resumable admission guard inversion", () => {
   expect(invertedAdmission).toBe(terminalRecord.event.kind === "loop_finished" && terminalRecord.event.resumable);
 });
 
-test.each(["paused", "budget-exhausted"] as const)(
-  "failed row with stale %s loop_finished reports resumable false on wait and list",
-  async (loopOutcomeKind) => {
-    const runId = createWorkflowRun({ invocationId: `stale-${loopOutcomeKind}-on-failed` });
-    stateStore.setRunStatus(runId, "failed");
-    const logReader = loopFinishedLogReader(runId, {
-      loopOutcomeKind,
-      iterationsConsumed: 1,
-      resumable: true,
-    });
-    const localHandlers = createHandlers(logReader);
+test.each([
+  "paused",
+  "budget-exhausted",
+] as const)("failed row with stale %s loop_finished reports resumable false on wait and list", async (loopOutcomeKind) => {
+  const runId = createWorkflowRun({ invocationId: `stale-${loopOutcomeKind}-on-failed` });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind,
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const localHandlers = createHandlers(logReader);
 
-    expect(await rowResumable(localHandlers, runId, "wait")).toBe(false);
-    expect(await rowResumable(localHandlers, runId, "list")).toBe(false);
-  },
-);
+  expect(await rowResumable(localHandlers, runId, "wait")).toBe(false);
+  expect(await rowResumable(localHandlers, runId, "list")).toBe(false);
+});

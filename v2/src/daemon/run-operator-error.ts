@@ -230,6 +230,40 @@ export function terminalResumeRefusalMessage(
   return `${base}: ${RUN_OPERATOR_ERROR_RECOVERY[operatorError.reason]}`;
 }
 
+function operatorErrorFromTerminalSignals(
+  run: RunWithAttempts,
+  terminalRecord: TerminalLogRecord | undefined,
+  lastAttempt: Attempt | undefined,
+  allowResumableLogOutcomes: boolean,
+): RunOperatorError | undefined {
+  if (terminalRecord?.event.kind === "run_execution_failed") {
+    if (isPostBoundaryStateStoreLockTimeout(terminalRecord, run)) {
+      return op("state_store_lock_timeout", "resume", true);
+    }
+    return op("harness_failure", "stop");
+  }
+
+  if (
+    terminalRecord?.event.kind === "loop_finished" &&
+    (run.status === "failed" || run.status === "blocked") &&
+    isResumableFinalizationLoopFinished(terminalRecord.event)
+  ) {
+    const fromFinalization = mapFromLoopFinished(terminalRecord.event, lastAttempt, true);
+    if (fromFinalization) return fromFinalization;
+  }
+
+  if (run.status === "failed" || run.status === "blocked") {
+    const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);
+    if (fromAttempt) return fromAttempt;
+  }
+
+  if (terminalRecord?.event.kind === "loop_finished") {
+    return mapFromLoopFinished(terminalRecord.event, lastAttempt, allowResumableLogOutcomes);
+  }
+
+  return undefined;
+}
+
 /**
  * Compose operator error from durable run state and optional terminal log.
  * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
@@ -264,31 +298,8 @@ export function composeRunOperatorError(
   if (resumable) return resumable;
   const allowResumableLogOutcomes = run.status !== "failed" && run.status !== "blocked";
 
-  if (terminalRecord?.event.kind === "run_execution_failed") {
-    if (isPostBoundaryStateStoreLockTimeout(terminalRecord, run)) {
-      return op("state_store_lock_timeout", "resume", true);
-    }
-    return op("harness_failure", "stop");
-  }
-
-  if (
-    terminalRecord?.event.kind === "loop_finished" &&
-    (run.status === "failed" || run.status === "blocked") &&
-    isResumableFinalizationLoopFinished(terminalRecord.event)
-  ) {
-    const fromFinalization = mapFromLoopFinished(terminalRecord.event, lastAttempt, true);
-    if (fromFinalization) return fromFinalization;
-  }
-
-  if (run.status === "failed" || run.status === "blocked") {
-    const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);
-    if (fromAttempt) return fromAttempt;
-  }
-
-  if (terminalRecord?.event.kind === "loop_finished") {
-    const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt, allowResumableLogOutcomes);
-    if (fromLog) return fromLog;
-  }
+  const fromTerminal = operatorErrorFromTerminalSignals(run, terminalRecord, lastAttempt, allowResumableLogOutcomes);
+  if (fromTerminal) return fromTerminal;
 
   if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
   if (run.status === "failed") return op("harness_failure", "stop");

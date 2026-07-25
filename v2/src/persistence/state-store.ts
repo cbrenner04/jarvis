@@ -123,6 +123,7 @@ export type Attempt = {
   startedAt: number;
   status: AttemptStatus;
   outcomeKind: OutcomeKind | null;
+  completedAt: number | null;
   invocationFailureDetail: InvocationFailureDetail | null;
   completionAgent?: string | null;
 };
@@ -238,7 +239,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   pr_number AS prNumber, pr_url AS prUrl`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
-  outcome_kind AS outcomeKind, invocation_failure_detail AS invocationFailureDetailJson,
+  outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent`;
 
 const SCHEMA_MIGRATIONS = [

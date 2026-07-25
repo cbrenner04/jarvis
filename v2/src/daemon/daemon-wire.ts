@@ -13,6 +13,7 @@ type DaemonWorkflowStepSnapshot = {
 
 /** Optional workflow metadata on daemon `list` rows. */
 export type DaemonWorkflowSnapshot = {
+  invocationId: string;
   steps: DaemonWorkflowStepSnapshot[];
 };
 
@@ -34,12 +35,16 @@ export type DaemonListRunRow = {
   /** Retained implement review behavior; absent on non-implement workflow rows. */
   reviewBehavior?: "debate" | "light";
   workflow?: DaemonWorkflowSnapshot;
+  /** Durable workflow step key when this row backs a snapshot step. */
+  stepId?: string;
   /** Surviving worktree path; present on `blocked` rows so the operator can locate resumable work. */
   worktreePath?: string;
   /** Confirmed PR number when publication succeeded. */
   prNumber?: number;
   /** Confirmed PR URL when publication succeeded. */
   prUrl?: string;
+  /** Latest attempt `completed_at` for terminal statuses; drives TUI live terminal window. */
+  finishedAtMs?: number;
 };
 
 /** Successful daemon `list` wire payload. */

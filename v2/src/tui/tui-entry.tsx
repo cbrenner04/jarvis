@@ -5,7 +5,8 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
-import { firstSelectableRunId, orderSelectableRuns } from "./tui-monitor-lines.ts";
+import { firstSelectableRunId, monitorSelectableRuns } from "./tui-monitor-lines.ts";
+import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -53,6 +54,16 @@ function buildWaitStateForSelection(runId: string | null): TuiWaitState {
   return runId === null ? { kind: "none" } : { kind: "pending", runId };
 }
 
+function emptyMonitorState(): TuiMonitorState {
+  return {
+    runs: [],
+    selectedRunId: null,
+    waitState: { kind: "none" },
+    steeringFeedback: null,
+    expandedWorkflowInvocationIds: [],
+  };
+}
+
 function entryErrorFeedback(error: unknown): TuiViewState {
   if (error instanceof RpcError) {
     return { kind: "rpc-error", code: error.code, message: error.message };
@@ -79,12 +90,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let runOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
-  let currentState: TuiMonitorState = {
-    runs: [],
-    selectedRunId: null,
-    waitState: { kind: "none" },
-    steeringFeedback: null,
-  };
+  let currentState: TuiMonitorState = emptyMonitorState();
   let activeWaitToken = 0;
   let refreshInFlight = false;
   let refreshQueued = false;
@@ -276,23 +282,30 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
         if (initial && allClientsFailed) throw firstError;
 
-        const { rows: runs, owners } = mergeRunLists(listResults);
+        const { rows: mergedRuns, owners } = mergeRunLists(listResults);
+        const runs = filterMonitorRunsForLiveWindow(mergedRuns, { nowMs: deps.nowMs?.() ?? Date.now() });
         runOwners = owners;
 
         if (initial) {
-          const runId = firstSelectableRunId(runs);
-          currentState = {
+          const draftState: TuiMonitorState = {
             runs,
+            selectedRunId: null,
+            waitState: { kind: "none" },
+            steeringFeedback: null,
+            expandedWorkflowInvocationIds: [],
+          };
+          const runId = firstSelectableRunId(draftState);
+          currentState = {
+            ...draftState,
             selectedRunId: runId,
             waitState: buildWaitStateForSelection(runId),
-            steeringFeedback: null,
           };
           return;
         }
 
         const selectedRunId = currentState.selectedRunId;
-        if (selectedRunId !== null && !orderSelectableRuns(runs).some((run) => run.runId === selectedRunId)) {
-          setState({ runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null });
+        if (selectedRunId !== null && !monitorSelectableRuns({ ...currentState, runs }).some((run) => run.runId === selectedRunId)) {
+          setState({ runs, selectedRunId: null, waitState: { kind: "none" }, steeringFeedback: null, expandedWorkflowInvocationIds: currentState.expandedWorkflowInvocationIds });
           activeWaitToken += 1;
           continue;
         }
@@ -330,23 +343,41 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       currentState,
       {
         selectRun(runId) {
-          if (!orderSelectableRuns(currentState.runs).some((run) => run.runId === runId)) return;
+          if (!monitorSelectableRuns(currentState).some((run) => run.runId === runId)) return;
           if (currentState.selectedRunId === runId) return;
           setSelection(runId);
         },
         selectNextRun() {
-          const rows = orderSelectableRuns(currentState.runs);
+          const rows = monitorSelectableRuns(currentState);
           if (rows.length === 0) return;
           const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
           const next = rows[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, rows.length - 1)];
           if (next !== undefined && next.runId !== currentState.selectedRunId) setSelection(next.runId);
         },
         selectPreviousRun() {
-          const rows = orderSelectableRuns(currentState.runs);
+          const rows = monitorSelectableRuns(currentState);
           if (rows.length === 0) return;
           const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
           const previous = rows[selectedIndex < 0 ? rows.length - 1 : Math.max(selectedIndex - 1, 0)];
           if (previous !== undefined && previous.runId !== currentState.selectedRunId) setSelection(previous.runId);
+        },
+        toggleSelectedWorkflowExpansion() {
+          const selectedRunId = currentState.selectedRunId;
+          if (selectedRunId === null) return;
+          const selectedRun = currentState.runs.find((run) => run.runId === selectedRunId);
+          const invocationId = selectedRun?.workflow?.invocationId;
+          if (invocationId === undefined) return;
+          const expanded = new Set(currentState.expandedWorkflowInvocationIds);
+          if (expanded.has(invocationId)) {
+            expanded.delete(invocationId);
+          } else {
+            expanded.add(invocationId);
+          }
+          setState({
+            ...currentState,
+            expandedWorkflowInvocationIds: [...expanded],
+            steeringFeedback: null,
+          });
         },
         pauseSelected() {
           runSteeringAction("pause");

@@ -15,6 +15,8 @@ import type {
   TuiViewState,
 } from "./tui-monitor-types.ts";
 
+const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
+
 const RUN_ALPHA: DaemonListRunRow = {
   runId: "run-alpha",
   project: "demo",
@@ -29,6 +31,7 @@ const RUN_BETA: DaemonListRunRow = {
   branch: "beta",
   status: "completed",
   isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
 };
 
 const RUN_GAMMA: DaemonListRunRow = {
@@ -37,6 +40,7 @@ const RUN_GAMMA: DaemonListRunRow = {
   branch: "gamma",
   status: "blocked",
   isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
 };
 
 const RUN_DELTA: DaemonListRunRow = {
@@ -337,6 +341,7 @@ describe("runTuiEntry", () => {
       selectedRunId: null,
       waitState: { kind: "none" },
       steeringFeedback: null,
+      expandedWorkflowInvocationIds: [],
     });
   });
 
@@ -465,7 +470,7 @@ describe("runTuiEntry", () => {
     const refresh = createRefreshScheduler();
     const { deps } = entryDeps(
       {
-        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false }] }],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [{ ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS }] }],
         waitImpl: async () => ({ runStatus: "completed" }),
       },
       { viewHost: view.host, refreshScheduler: refresh.scheduler },
@@ -479,7 +484,9 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(view.monitorStates.at(-1)?.runs).toEqual([{ ...RUN_ALPHA, status: "completed", isLive: false }]);
+    expect(view.monitorStates.at(-1)?.runs).toEqual([
+      { ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS },
+    ]);
     expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
   });
 
@@ -512,6 +519,7 @@ describe("runTuiEntry", () => {
       selectedRunId: null,
       waitState: { kind: "none" },
       steeringFeedback: null,
+      expandedWorkflowInvocationIds: [],
     });
   });
 

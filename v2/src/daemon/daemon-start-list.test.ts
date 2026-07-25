@@ -317,6 +317,7 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   let runs = await listRunsDirect(handlers);
   const liveRow = runs?.find((row) => row.runId === liveRunId);
   expect(liveRow?.workflow).toEqual({
+    invocationId: snapshot.invocationId,
     steps: [
       { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
       { stepId: "step-2", role: "review", status: "in_progress", attemptCount: 1 },
@@ -349,6 +350,7 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   runs = await listRunsDirect(handlers);
   const stoppedRow = runs?.find((row) => row.runId === finalRunId);
   expect(stoppedRow?.workflow).toEqual({
+    invocationId: snapshot.invocationId,
     steps: [
       { stepId: "step-1", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
       { stepId: "step-2", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
@@ -386,6 +388,7 @@ test("list returns workflow step snapshots for live, stopped, and completed work
   runs = await listRunsDirect(handlers);
   const completedRow = runs?.find((row) => row.runId === completeRunB);
   expect(completedRow?.workflow).toEqual({
+    invocationId: completeSnapshot.invocationId,
     steps: [
       { stepId: "step-a", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
       { stepId: "step-b", role: "review", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
@@ -467,6 +470,7 @@ test("list projects a review behavior entry in authored order and tracks progres
 
   let runs = await listRunsDirect(handlers);
   expect(runs?.find((row) => row.runId === runId)?.workflow).toEqual({
+    invocationId: snapshot.invocationId,
     steps: [
       { stepId: "step-1", role: "plan", status: "stopped", attemptCount: 0, terminalOutcome: "invocation_failure" },
       { stepId: "review-1", role: "", status: "pending", attemptCount: 0 },

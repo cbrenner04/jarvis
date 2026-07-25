@@ -3409,7 +3409,12 @@ describe("write loop", () => {
             completionPublisher: async () => ({}),
             readyFinalizer: async () => {
               const { ReadyGateError } = await import("./ready-finalize.ts");
-              throw new ReadyGateError("bun run ready", 1, "ready: deadline exceeded after 600000ms; killing child tree\n", true);
+              throw new ReadyGateError(
+                "bun run ready",
+                1,
+                "ready: deadline exceeded after 600000ms; killing child tree\n",
+                true,
+              );
             },
           }),
         );

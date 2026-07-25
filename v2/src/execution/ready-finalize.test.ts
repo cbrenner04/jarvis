@@ -329,7 +329,13 @@ index 1234567..abcdefg 100644
     const finalizer = createReadyFinalizer({
       asyncSubprocessRunner: {
         async runAsync() {
-          throw new AsyncSubprocessError("ready failed", 1, "ready: deadline exceeded after 600000ms; killing child tree\n", "", undefined);
+          throw new AsyncSubprocessError(
+            "ready failed",
+            1,
+            "ready: deadline exceeded after 600000ms; killing child tree\n",
+            "",
+            undefined,
+          );
         },
       },
     });

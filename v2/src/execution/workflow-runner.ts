@@ -10,8 +10,13 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import type { LogSink } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import type { IntentFinalizationEvent, LogSink } from "../persistence/log-stream.ts";
+import {
+  openStateStore,
+  type StateStore,
+  type WorkflowSnapshot,
+  type WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
@@ -39,7 +44,7 @@ import {
   type ReviewDebateRole,
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
-import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
+import { excludeVerdictFromStaging, executeReviewCycleEnforced, VERDICT_FILE } from "./review-intent-enforcement.ts";
 import { cycleProfileContext } from "./review-profile-context.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
 import {
@@ -708,11 +713,18 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
     if (!lastResult) throw new Error("Unreachable: lastResult undefined after checked bounds");
 
-    const publicationAgent = lastResult.kind === "complete" ? completionAgent : undefined;
     let publicationSpecPath: string | undefined;
     const completionStep = [...args.steps].reverse().find(isWriteStep);
     const lastStep = args.steps[args.steps.length - 1];
     const isReviewLastStep = lastStep?.behavior === "review" || lastStep?.behavior === "review-debate";
+    // A reviewed-last workflow's completion tail must still commit/push/PR when the critic
+    // approved with an empty verdict and the review step's actuator never ran (no
+    // `completionAgent` from that step). Fall back to the write step's own configured agent
+    // so publication is never silently skipped because the actuator was skipped.
+    const publicationAgent =
+      lastResult.kind === "complete"
+        ? (completionAgent ?? (isReviewLastStep ? completionStep?.agents[0] : undefined))
+        : undefined;
 
     // The publication tail always writes status/log records against `lastResult.runId`. When the
     // last step is non-durable (e.g. a light review with no landing), that id is a synthesized
@@ -752,6 +764,19 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.setRunStatus(lastResult.runId, "failed");
+        args.logSink?.append(lastResult.runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "landing_failed",
+          iterationsConsumed: totalIterationsConsumed,
+          resumable: true,
+        });
+        traceCompletionPublication(
+          args.logSink,
+          lastResult.runId,
+          completionStep.landing,
+          completionStep.worktree.branchName,
+          `landing_failed: ${message}`,
+        );
         return {
           kind: "pre-publication",
           stepIndex: args.steps.length - 1,
@@ -794,7 +819,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           });
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
-            if (uncommitted.length > 0) {
+            const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
+            const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
+            if (namedPaths.length > 0) {
               store.setRunStatus(lastResult.runId, "failed");
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
@@ -802,6 +829,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
               });
+              traceCompletionPublication(
+                args.logSink,
+                lastResult.runId,
+                completionStep.landing,
+                worktree.branchName,
+                `completion_commit_failed: uncommitted changes: ${namedPaths.join(", ")}`,
+              );
               return {
                 kind: "completion_commit_failed",
                 stepIndex: args.steps.length - 1,
@@ -809,7 +843,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 runId: lastResult.runId,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
-                completionCommitError: `Uncommitted changes: ${uncommitted.join(", ")}`,
+                completionCommitError: `Uncommitted changes: ${namedPaths.join(", ")}`,
               };
             }
           }
@@ -891,6 +925,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               // restore a terminal status. A flip failure keeps its documented `completed` status;
               // leaving `in-progress` strands it non-live and hangs `run wait`.
               store.setRunStatus(lastResult.runId, isFlipFailure ? "completed" : "failed");
+              traceCompletionPublication(
+                args.logSink,
+                lastResult.runId,
+                completionStep.landing,
+                worktree.branchName,
+                `${publication.failure.kind}: ${publication.failure.error?.message ?? "publication failed"}`,
+              );
               return {
                 kind: publication.failure.kind,
                 stepIndex: args.steps.length - 1,
@@ -915,6 +956,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
             appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.success?.runtimeSmokeOutcome);
             store.setRunStatus(lastResult.runId, "completed");
+            traceCompletionPublication(args.logSink, lastResult.runId, completionStep.landing, worktree.branchName);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -925,6 +967,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             iterationsConsumed: totalIterationsConsumed,
             resumable: true,
           });
+          traceCompletionPublication(
+            args.logSink,
+            lastResult.runId,
+            completionStep.landing,
+            worktree.branchName,
+            `completion_commit_failed: ${message}`,
+          );
           return {
             kind: "completion_commit_failed",
             stepIndex: args.steps.length - 1,
@@ -953,6 +1002,37 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!args.stateStore) {
       store.close();
     }
+  }
+}
+
+/**
+ * Trace the workflow-completion publication tail's finalization attempt, scoped to intent
+ * workflows (the other landing kinds — plan-tree, none — aren't this subspec's concern).
+ */
+function traceCompletionPublication(
+  logSink: LogSink | undefined,
+  runId: string,
+  landing: WriteWorkflowStep["landing"],
+  branch: string,
+  stopReason?: string,
+): void {
+  if (landing?.kind !== "intent-stage") return;
+  recordIntentFinalization(logSink, runId, "completion_publication", branch, stopReason);
+}
+
+/**
+ * Staged intent files a no-commitSha publication attempt left behind. A committer can report no
+ * new commit while `git status` shows no uncommitted changes (e.g. the stage was tracked but the
+ * commit itself never landed) — this catches that gap so a populated stage never settles `done`.
+ */
+function remainingStagedIntentPaths(worktreePath: string, landing: WriteWorkflowStep["landing"]): string[] {
+  if (landing?.kind !== "intent-stage") return [];
+  const stagingDir = resolve(worktreePath, landing.stagingDir);
+  if (!existsSync(stagingDir)) return [];
+  try {
+    return readdirSync(stagingDir).map((name) => join(landing.stagingDir, name));
+  } catch {
+    return [];
   }
 }
 
@@ -1479,6 +1559,7 @@ async function runReviewDebateStep(
   store: StateStore,
   workflowSnapshot: WorkflowSnapshot,
   freshDispatch: boolean | undefined,
+  logSink?: LogSink,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const {
     stepId,
@@ -1495,7 +1576,7 @@ async function runReviewDebateStep(
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return finishReviewedLanding(step, landing, checkpoint.id, store, reviewCompletionAgent(checkpoint));
+      return finishReviewedLanding(step, landing, checkpoint.id, store, reviewCompletionAgent(checkpoint), logSink);
     }
   }
 
@@ -1511,6 +1592,7 @@ async function runReviewDebateStep(
       onStepRunCreated,
       store,
       resolveBindings,
+      logSink,
     );
     if (actuatorOnlyRetry !== undefined) return actuatorOnlyRetry;
   }
@@ -1566,7 +1648,15 @@ async function runReviewDebateStep(
   });
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
-    const landingFailure = await landReviewedOutputOrFail(step, landing, attemptId, runId, result.cycles.length, store);
+    const landingFailure = await landReviewedOutputOrFail(
+      step,
+      landing,
+      attemptId,
+      runId,
+      result.cycles.length,
+      store,
+      logSink,
+    );
     if (landingFailure !== undefined) return landingFailure;
   }
 
@@ -1618,16 +1708,26 @@ function commitReviewDebateOutcome(
 
 /** Lands a review step's deferred publication output, failing the attempt on error. */
 async function landReviewedOutputOrFail(
-  step: Pick<ReviewDebateWorkflowStep, "cwd" | "verdictPath">,
+  step: Pick<ReviewDebateWorkflowStep, "cwd" | "verdictPath" | "branch">,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
   runId: string,
   iterationsConsumed: number,
   store: StateStore,
+  logSink?: LogSink,
 ): Promise<ReviewDebateStepOutcome | undefined> {
-  const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
+  const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
+    logSink,
+    runId,
+    branch: step.branch,
+  });
   if (landingError === undefined) return undefined;
-  store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+  });
   return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
 }
 
@@ -1647,6 +1747,7 @@ async function tryActuatorOnlyReviewDebateRetry(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   store: StateStore,
   resolveBindings: (binding: ResolvedAgentBinding) => InvocationBinding,
+  logSink?: LogSink,
 ): Promise<ReviewDebateStepOutcome | undefined> {
   // Single-cycle admission only: with maxCycles > 1, an actuator failure on an
   // intermediate cycle would otherwise retry that one actuator and report `complete`,
@@ -1754,7 +1855,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     execution.final?.result.kind === "ok" ? execution.final.binding.metadata?.agent?.trim() : undefined;
 
   if (step.landing !== undefined && step.landing.kind !== "none") {
-    const landingFailure = await landReviewedOutputOrFail(step, step.landing, attemptId, runId, 1, store);
+    const landingFailure = await landReviewedOutputOrFail(step, step.landing, attemptId, runId, 1, store, logSink);
     if (landingFailure !== undefined) return landingFailure;
   }
 
@@ -1794,13 +1895,49 @@ function findReviewLandingCheckpoint(
 }
 
 /**
+ * Structured trace for a finalization attempt on either seam (review-step landing or the
+ * workflow completion publication tail). `stopReason` is set only when finalization did not
+ * complete; absent on the happy path. Kept as a single-line helper so callers instrument
+ * without growing their own complexity.
+ */
+function recordIntentFinalization(
+  logSink: LogSink | undefined,
+  runId: string,
+  phase: IntentFinalizationEvent["phase"],
+  branch: string,
+  stopReason?: string,
+): void {
+  logSink?.append(runId, {
+    kind: "intent_finalization",
+    phase,
+    branch,
+    ...(stopReason !== undefined ? { stopReason } : {}),
+  });
+}
+
+/** Restore the verdict sidecar files a failed promotion attempt removed before landing. */
+function restoreVerdictSidecars(
+  verdictPath: string,
+  verdict: string | undefined,
+  ownerPath: string,
+  owner: string | undefined,
+): void {
+  if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");
+  if (owner !== undefined) writeFileSync(ownerPath, owner, "utf8");
+}
+
+/**
  * Intent landing excludes its reserved verdict. Plan landing carries its verdict verbatim.
- * Returns an error message on failure, or undefined on success.
+ * This is the one promotion + verdict-cleanup entry shared by every review-landing call site
+ * (light review, review-debate, and the non-durable profile review path); it always runs
+ * regardless of whether the review step's actuator ran. Returns an error message on failure,
+ * or undefined on success.
  */
 async function landReviewedPublicationOutput(
   worktreePath: string,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,
+  trace?: { logSink: LogSink | undefined; runId: string; branch: string },
 ): Promise<string | undefined> {
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
@@ -1813,11 +1950,13 @@ async function landReviewedPublicationOutput(
       rmSync(ownerPath, { force: true });
     }
     await landPublication(deferred, worktreePath);
+    if (trace) recordIntentFinalization(trace.logSink, trace.runId, "review_landing", trace.branch);
     return undefined;
   } catch (error) {
-    if (verdict !== undefined) writeFileSync(verdictPath, verdict, "utf8");
-    if (owner !== undefined) writeFileSync(ownerPath, owner, "utf8");
-    return error instanceof Error ? error.message : String(error);
+    restoreVerdictSidecars(verdictPath, verdict, ownerPath, owner);
+    const message = error instanceof Error ? error.message : String(error);
+    if (trace) recordIntentFinalization(trace.logSink, trace.runId, "review_landing", trace.branch, message);
+    return message;
   }
 }
 
@@ -1830,7 +1969,7 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
 }
 
 async function finishReviewedLanding(
-  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath">,
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch">,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   runId: string,
   store: StateStore,
@@ -1839,7 +1978,11 @@ async function finishReviewedLanding(
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
   logSink?.append(runId, { kind: "iteration_started", attemptId });
-  const landingError = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath);
+  const landingError = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath, {
+    logSink,
+    runId,
+    branch: step.branch,
+  });
   if (landingError !== undefined) {
     store.commitCompletionBoundary({
       attemptId,
@@ -1876,6 +2019,321 @@ async function finishReviewedLanding(
     resumable: outcome.resumable,
   });
   return outcome;
+}
+
+const INTENT_STAGE_DIR = ".jarvis-intent-stage";
+
+/** Reconstructed context for resuming a review-behavior step's populated-stage `landing_failed` row. */
+export type IntentFinalizationResumeContext = {
+  runId: string;
+  worktreePath: string;
+  project: string;
+  branch: string;
+  baseRef: string;
+  invocationId: string;
+  durableDir: string;
+  verdictPath: string;
+  landing: Extract<PublicationLanding, { kind: "intent-stage" }>;
+  completionAgent: string | undefined;
+  creationTitleHint: string | undefined;
+};
+
+export type IntentFinalizationResumeResolution =
+  | { ok: true; context: IntentFinalizationResumeContext }
+  | { ok: false; message: string };
+
+/** The durable write step's snapshot entry is the only one carrying no `behavior` field. */
+function findDurableWriteStepId(steps: readonly WorkflowSnapshotStep[]): string | undefined {
+  return steps.find((step) => step.behavior === undefined)?.stepId;
+}
+
+/** True when `.jarvis-intent-stage/` exists under `worktreePath` and holds at least one file. */
+export function hasPopulatedIntentStage(worktreePath: string): boolean {
+  const stageDir = join(worktreePath, INTENT_STAGE_DIR);
+  if (!existsSync(stageDir)) return false;
+  try {
+    return readdirSync(stageDir, { withFileTypes: true }).some((entry) => entry.isFile());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Admission and reconstruction for resuming a review-behavior step's `landing_failed` row without
+ * re-entering review: requires a failed review/review-debate row whose last attempt recorded a
+ * landing invocation failure, a populated `.jarvis-intent-stage/`, and the sibling durable write
+ * step's own row — the only row carrying the resolved `durableDir` (its `specPath`).
+ */
+export function resolveIntentFinalizationResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+): IntentFinalizationResumeResolution {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
+  if (!snapshot || !stepId || !step || (step.behavior !== "review" && step.behavior !== "review-debate")) {
+    return { ok: false, message: "run is not a review-behavior step" };
+  }
+  if (run.status !== "failed") return { ok: false, message: "run is not in a failed state" };
+  const lastAttempt = run.attempts.at(-1);
+  if (
+    lastAttempt?.outcomeKind !== "invocation_failure" ||
+    lastAttempt.invocationFailureDetail?.failureKind !== "landing"
+  ) {
+    return { ok: false, message: "run did not fail at landing" };
+  }
+  if (!hasPopulatedIntentStage(run.worktreePath)) {
+    return { ok: false, message: "the intent stage is empty or missing" };
+  }
+  const writeStepId = findDurableWriteStepId(snapshot.steps);
+  const writeRun = writeStepId
+    ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
+    : null;
+  if (!writeRun) return { ok: false, message: "durable write step row not found" };
+
+  const completionAgent =
+    reviewCompletionAgent(run) ?? snapshot.steps.find((candidate) => candidate.stepId === writeStepId)?.agents?.[0];
+
+  return {
+    ok: true,
+    context: {
+      runId: run.id,
+      worktreePath: run.worktreePath,
+      project: run.project,
+      branch: run.branch,
+      baseRef: run.specRef,
+      invocationId: snapshot.invocationId,
+      durableDir: writeRun.specPath,
+      verdictPath: join(run.worktreePath, VERDICT_FILE),
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: writeRun.specPath },
+        stagingDir: INTENT_STAGE_DIR,
+        invocationId: snapshot.invocationId,
+        baseRef: run.specRef,
+      },
+      completionAgent,
+      creationTitleHint: snapshot.creationTitle,
+    },
+  };
+}
+
+export type IntentFinalizationResumeOutcome =
+  | { ok: true; commitSha?: string; prNumber?: number; prUrl?: string }
+  | { ok: false; message: string };
+
+export type IntentFinalizationResumeDeps = {
+  logSink?: LogSink;
+  completionCommitter?: CompletionCommitter;
+  completionPublisher?: CompletionPublisher;
+  readyFinalizer?: ReadyFinalizer;
+};
+
+/** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */
+function settleIntentResumeFailure(
+  store: StateStore,
+  context: IntentFinalizationResumeContext,
+  attemptId: string,
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  iterationsConsumed: number,
+  message: string,
+  deps: IntentFinalizationResumeDeps,
+): IntentFinalizationResumeOutcome {
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+  });
+  deps.logSink?.append(context.runId, { kind: "loop_finished", loopOutcomeKind, iterationsConsumed, resumable: true });
+  traceCompletionPublication(
+    deps.logSink,
+    context.runId,
+    context.landing,
+    context.branch,
+    `${loopOutcomeKind}: ${message}`,
+  );
+  return { ok: false, message };
+}
+
+/** Stub `WriteLoopInput` for `publishWithReadyRepair`: `maxIterations: 0` forbids the agent-driven
+ * ready-gate repair branch (no agent bindings exist on resume) so any gate failure surfaces directly. */
+function inertResumeWriteLoopInput(
+  context: IntentFinalizationResumeContext,
+  deps: IntentFinalizationResumeDeps,
+): WriteLoopInput {
+  return {
+    worktree: {
+      projectRoot: context.worktreePath,
+      projectName: context.project,
+      branchName: context.branch,
+      baseRef: context.baseRef,
+    },
+    specPath: context.durableDir,
+    stepRules: "",
+    expectedArtifactPath: "",
+    bindings: [],
+    maxIterations: 0,
+    ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
+    ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
+    ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
+    ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+  };
+}
+
+/** Commit the landed `durableDir` and run the shared commit/push/PR publication tail. */
+async function runIntentResumeCommitAndPublish(
+  context: IntentFinalizationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  deps: IntentFinalizationResumeDeps,
+): Promise<IntentFinalizationResumeOutcome> {
+  const creationTitle = resolvePublicationTitle(context.worktreePath, context.durableDir, context.creationTitleHint);
+  store.setCreationTitle(context.runId, creationTitle);
+  const committer = deps.completionCommitter ?? createCompletionCommitter();
+  let published: Awaited<ReturnType<CompletionCommitter>>;
+  try {
+    published = await committer({
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.durableDir,
+      agent: context.completionAgent as string,
+      title: creationTitle,
+      forceDistinctCommit: true,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return settleIntentResumeFailure(store, context, attemptId, "completion_commit_failed", 0, message, deps);
+  }
+  if (published.commitSha === undefined) {
+    const uncommitted = await getUncommittedPaths(context.worktreePath);
+    const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
+    const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
+    if (namedPaths.length > 0) {
+      return settleIntentResumeFailure(
+        store,
+        context,
+        attemptId,
+        "completion_commit_failed",
+        0,
+        `Uncommitted changes: ${namedPaths.join(", ")}`,
+        deps,
+      );
+    }
+  }
+
+  const bodySummary = deriveIntentRunBodySummary({
+    creationTitle: context.creationTitleHint,
+    intentFiles: await listLandedIntentFiles(context.worktreePath, context.invocationId),
+  });
+  const result: WriteLoopResult = {
+    kind: "complete",
+    runId: context.runId,
+    iterationsConsumed: 0,
+    resumable: false,
+    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+  };
+  store.setRunStatus(context.runId, "in-progress");
+  const publication = await publishWithReadyRepair(inertResumeWriteLoopInput(context, deps), store, result, 0, {
+    worktreePath: context.worktreePath,
+    baseRef: context.baseRef,
+    specPath: context.durableDir,
+    branch: context.branch,
+    creationTitle,
+    ...(bodySummary !== undefined ? { bodySummary } : {}),
+  });
+  if (publication.failure !== undefined) {
+    const failure = publication.failure;
+    const isFlip = failure.kind === "ready_flip_failed";
+    const message = failure.error?.message ?? failure.kind;
+    const publicationFailure = publicationFailureFor(failure.error);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: isFlip ? "completed" : "failed",
+      outcomeKind: isFlip ? "done" : "invocation_failure",
+      ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
+    });
+    deps.logSink?.append(context.runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: failure.kind,
+      iterationsConsumed: publication.iterationsConsumed,
+      resumable: !isFlip,
+      ...survivingMutationLogFields(failure.error),
+      ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    });
+    traceCompletionPublication(
+      deps.logSink,
+      context.runId,
+      context.landing,
+      context.branch,
+      `${failure.kind}: ${message}`,
+    );
+    return { ok: false, message };
+  }
+
+  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(context.completionAgent ? { completionAgent: context.completionAgent } : {}),
+  });
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: publication.iterationsConsumed,
+    resumable: false,
+  });
+  traceCompletionPublication(deps.logSink, context.runId, context.landing, context.branch);
+  return {
+    ok: true,
+    ...(published.commitSha !== undefined ? { commitSha: published.commitSha } : {}),
+    ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
+    ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+  };
+}
+
+/**
+ * Daemon-callable resume for a review-behavior step's populated-stage `landing_failed` row:
+ * replays only finalization (promote `durableDir`, verdict-sidecar cleanup, commit, push, draft
+ * PR) from the persisted workflow snapshot — no split/critic/actuator re-invocation, no
+ * `freshDispatch`. Callers must gate on {@link resolveIntentFinalizationResumeContext} first;
+ * this never returns a no-op stub — an admitted resume always settles success or a visible failure.
+ */
+export async function resumePopulatedIntentPublication(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+  deps: IntentFinalizationResumeDeps = {},
+): Promise<IntentFinalizationResumeOutcome> {
+  const resolved = resolveIntentFinalizationResumeContext(run, store);
+  if (!resolved.ok) return { ok: false, message: resolved.message };
+  const { context } = resolved;
+
+  const attemptId = store.recordAttemptStart(context.runId);
+  deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
+
+  if (context.completionAgent === undefined) {
+    return settleIntentResumeFailure(
+      store,
+      context,
+      attemptId,
+      "invocation_failure",
+      0,
+      "no completion agent available to attribute the publication commit",
+      deps,
+    );
+  }
+
+  const landingError = await landReviewedPublicationOutput(context.worktreePath, context.landing, context.verdictPath, {
+    logSink: deps.logSink,
+    runId: context.runId,
+    branch: context.branch,
+  });
+  if (landingError !== undefined) {
+    return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landingError, deps);
+  }
+
+  return runIntentResumeCommitAndPublish(context, store, attemptId, deps);
 }
 
 type ReviewStepExecutionIds = {
@@ -2148,19 +2606,23 @@ async function finalizeStandardReviewStep(
   result: Extract<ReviewCycleResult, { kind: "complete" }>,
   ids: ReviewStepExecutionIds,
   store: StateStore,
+  logSink?: LogSink,
 ): Promise<ReviewStepOutcome> {
   const completionAgent =
     result.cycles.at(-1)?.kind === "completed"
       ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
       : undefined;
-  if (landing === undefined || landing.kind === "none") {
-    return {
-      kind: "complete",
-      runId: ids.runId,
-      iterationsConsumed: result.cycles.length,
-      resumable: false,
-      ...(completionAgent ? { completionAgent } : {}),
-    };
+  if (landing !== undefined && landing.kind !== "none") {
+    const landingFailure = await landReviewedOutputOrFail(
+      step,
+      landing,
+      ids.attemptId,
+      ids.runId,
+      result.cycles.length,
+      store,
+      logSink,
+    );
+    if (landingFailure !== undefined) return landingFailure;
   }
   store.commitCompletionBoundary({
     attemptId: ids.attemptId,
@@ -2168,8 +2630,13 @@ async function finalizeStandardReviewStep(
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
   });
-  const landed = await finishReviewedLanding(step, landing, ids.runId, store, completionAgent);
-  return { ...landed, iterationsConsumed: result.cycles.length };
+  return {
+    kind: "complete",
+    runId: ids.runId,
+    iterationsConsumed: result.cycles.length,
+    resumable: false,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
 }
 
 function resolveProfileReviewCompletion(lastCycle: ReviewCycleOutcome | undefined): {
@@ -2269,6 +2736,7 @@ async function runStandardReviewStep(
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
+  logSink?: LogSink,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
   const workspaceFailureOutcome = standardReviewWorkspaceFailureOutcome(step, landing, ids, store);
@@ -2312,7 +2780,7 @@ async function runStandardReviewStep(
     return evidenceFailureOutcome;
   }
 
-  return finalizeStandardReviewStep(step, landing, result, ids, store);
+  return finalizeStandardReviewStep(step, landing, result, ids, store, logSink);
 }
 
 async function runReviewDispatch(
@@ -2338,6 +2806,7 @@ async function runReviewDispatch(
       store,
       workflowSnapshot,
       freshDispatch,
+      logSink,
     );
   }
 
@@ -2383,7 +2852,18 @@ async function runReviewDispatch(
   }
 
   const outcome = await (isDurableWorkflowStep(step)
-    ? runStandardReviewStep(step, reviewInput, step.landing, ids, bindings, invocationId, onProgress, telemetry, store)
+    ? runStandardReviewStep(
+        step,
+        reviewInput,
+        step.landing,
+        ids,
+        bindings,
+        invocationId,
+        onProgress,
+        telemetry,
+        store,
+        logSink,
+      )
     : runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry));
 
   if (isDurableWorkflowStep(step)) {

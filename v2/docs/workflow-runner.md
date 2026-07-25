@@ -87,7 +87,13 @@ Landing runs before completion commit/push/PR publication; publication receives
 the durable directory as `specPath`. Validation, boundary, collision, and
 landing failures return `kind: "pre-publication"`, persist the completed step's
 run as `failed`, retain staging, and include rerun guidance. Resume retries this
-boundary without another agent invocation.
+boundary without another agent invocation. This seam also appends a
+`loop_finished` record with `loopOutcomeKind: "landing_failed"` (`resumable:
+true`) on the same run row, so the row's log agrees with its durable status
+instead of ending on the write step's earlier `complete` boundary;
+`composeRunOperatorError` maps it to `landing_failed`
+(`nextAction: "resume"`, `retryable: true`), matching the review-landing seam's
+`failureKind: "landing"` mapping below.
 Existing destination files are accepted only
 when byte-identical; differing collisions are never overwritten.
 The workflow records landed filenames by invocation in the worktree's private
@@ -627,21 +633,46 @@ the enforcement layer immediately runs final intent validation and landing:
   landing semantics match the standalone intent step's landing.
 - The verdict file is deleted after successful landing.
 
-After review succeeds, its durable checkpoint is recorded before landing. If
-landing fails (collision, validation, or I/O error), the review step returns
-`kind: "invocation_failure"` with persisted `failureKind: "landing"` and
-`resumable: true`. The verdict file remains for diagnostics. Resume retries
-landing without re-running critic or actuator, preserving the reviewed output
-unchanged. After successful landing, git-enabled workflows commit, push, and
-open or reuse the draft PR from that workspace; git-disabled workflows only
-land local files and perform no Git or GitHub operation.
+After review succeeds, landing runs before the review step's durable
+completion boundary is committed — the row never settles `done` /
+`completed` while landing is still outstanding. If landing fails (collision,
+validation, or I/O error), the review step returns `kind: "invocation_failure"`
+with persisted `failureKind: "landing"` and `resumable: true`; no `done`
+boundary is committed on that attempt. The verdict file remains for
+diagnostics. Resume retries landing without re-running critic or actuator,
+preserving the reviewed output unchanged. After successful landing, the
+review step commits its `done` boundary, then git-enabled workflows commit,
+push, and open or reuse the draft PR from that workspace; git-disabled
+workflows only land local files and perform no Git or GitHub operation.
 
-An empty verdict (trimmed) or all bounded cycles without actuator invocation
-converges to `complete` without landing (landing only occurs when
-the reviewed-intent landing policy is configured and cycles complete). Critic, actuator,
-abort, verdict-I/O failures, and landing failures return `invocation_failure`
-and stop later steps. `iterationsConsumed` counts cycles whose critic started,
-including a role-failed cycle, but not pre-critic failures or landing attempts.
+The `failureKind: "landing"` detail is uniform across every review landing
+seam — light review, standard (durable) review, and review-debate alike — so a
+post-role landing failure never settles as an undifferentiated
+`invocation_failure`: `composeRunOperatorError` maps it to `landing_failed`
+(`nextAction: "resume"`, `retryable: true`), distinct from
+`completion_commit_failed` (the workflow-completion publication tail's commit
+failure, after landing already succeeded).
+
+**Publication contract:** `.jarvis-intent-stage/` is transient working state; the
+configured durable output directory (`intentOutput.durableDir` / landing
+`output.durableDir`) is the durable output. Promotion — copying staged `*.md`
+into `durableDir`, then removing `.jarvis-intent-stage/` and the verdict
+sidecars — is not conditional on actuation: an empty (trimmed) critic verdict
+still promotes and runs the workflow-completion publication tail (commit and,
+when git-enabled, push/draft PR), attributing that commit to the write step's
+own configured agent since no actuator ran. Critic, actuator, abort,
+verdict-I/O failures, and landing failures return `invocation_failure` and stop
+later steps. `iterationsConsumed` counts cycles whose critic started, including
+a role-failed cycle, but not pre-critic failures or landing attempts.
+
+**No `done` on an unchanged head.** When the workflow-completion publication
+tail's committer reports no `commitSha`, the run does not settle `completed`:
+it names every outstanding path in `completion_commit_failed`'s
+`completionCommitError`, combining `git status --porcelain` output with any
+files still under the write step's `.jarvis-intent-stage/` — the latter
+catches the case where the committer no-ops while the working tree isn't a
+readable Git repo (so `git status` alone reports nothing), which is exactly
+the shape that let a populated stage settle `done` in production.
 
 Each ordinary review step receives a fresh synthesized run ID and invokes
 `onStepRunCreated` before role execution. Reviewed-intent review instead records
@@ -665,6 +696,14 @@ is known, on both the completed and `invocation_failure` paths. A step re-entere
 at its landing checkpoint (resumed after a recorded landing failure) emits its
 own `iteration_started`/`loop_finished` pair around that landing retry, on the
 same run row.
+
+**`intent_finalization` trace:** Every finalization attempt on either seam —
+review-step landing (`finishReviewedLanding`) and the workflow-completion
+publication tail alike — appends an `intent_finalization` log event: `phase`
+(`"review_landing"` or `"completion_publication"`), `branch`, and an optional
+`stopReason` set only when that attempt did not complete (absent on the happy
+path). This traces which seam ran and why it short-circuited, independent of
+the `loop_finished` outcome kind.
 
 Workflow loading accepts `review` source steps; presets and YAML/config authoring
 do not accept them in this slice.

@@ -70,24 +70,24 @@ discriminator as genuinely unknown and let the trace identify it.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` `"promotes two staged intents through a full reviewed intent workflow"`
+- [x] `workflow-runner.test.ts` `"promotes two staged intents through a full reviewed intent workflow"`
   drives split (two `.jarvis-intent-stage/*.md`) plus succeeding review roles, asserts both files under
   the configured `durableDir`, stage and both verdict sidecars absent, and a new commit on the intent
   branch containing the promoted paths; fails against pre-fix code.
-- [ ] `workflow-runner.test.ts` `"promotes staged intents when the critic returns an empty verdict"`
+- [x] `workflow-runner.test.ts` `"promotes staged intents when the critic returns an empty verdict"`
   asserts the same promotion, cleanup, commit, and completion-tail publication hooks used elsewhere for
   git-enabled intent workflows (push/PR stubs or equivalents), with zero actuator invocations; fails if
   only review landing runs and the completion tail is skipped; fails against pre-fix code.
-- [ ] `workflow-runner.test.ts` `"records intent finalization trace on success and when promotion stops
+- [x] `workflow-runner.test.ts` `"records intent finalization trace on success and when promotion stops
   short"` asserts at least one `intent_finalization` log event with `branch` on the happy path and a
   `stopReason` when finalization is injected to fail before promotion; inverting trace emission fails
   the test.
-- [ ] Inverting the promotion guard in the finalization path fails
+- [x] Inverting the promotion guard in the finalization path fails
   `"promotes two staged intents through a full reviewed intent workflow"` (staged files remain).
-- [ ] The guard-inversion proof lives **in that two-file workflow test itself**, not only via a
+- [x] The guard-inversion proof lives **in that two-file workflow test itself**, not only via a
   `promote = false` path in the trace test: disabling promotion must leave staged markdown in
   `.jarvis-intent-stage/` and turn that named test red.
-- [ ] An intent workflow whose **last step is `review-debate`** (not light `review`) runs the same
+- [x] An intent workflow whose **last step is `review-debate`** (not light `review`) runs the same
   `workflow_completion` promotion, verdict cleanup, tracing, and landing-failure settlement as the
   light-review path; a test covering debate-last intent fails against a tail guard narrower than
   `isReviewLastStep`.

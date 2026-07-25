@@ -52,6 +52,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "ready_flip_failed",
   "surviving_mutation_failed",
   "runtime_smoke_failed",
+  "landing_failed",
 ] as const;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];

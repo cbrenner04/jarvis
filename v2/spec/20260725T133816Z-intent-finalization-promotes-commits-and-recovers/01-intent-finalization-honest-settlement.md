@@ -53,31 +53,31 @@ recoverable.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` `"does not emit done boundary before intent finalization finishes"`
+- [x] `workflow-runner.test.ts` `"does not emit done boundary before intent finalization finishes"`
   drives a scenario where landing/finalization is still in flight (or fails after a premature boundary
   attempt), asserts no `boundary_committed` with `outcomeKind: "done"` / `runStatus: "completed"`
   on the authoritative completion row until promotion and commit succeed; inverting the guard fails the
   test.
-- [ ] `workflow-runner.test.ts` `"does not record done completion boundary when intent stage remains
+- [x] `workflow-runner.test.ts` `"does not record done completion boundary when intent stage remains
   uncommitted"` stubs the completion committer to return no `commitSha` with staged files present,
   asserts no `boundary_committed` with `outcomeKind: "done"` / `runStatus: "completed"` on the
   authoritative row and asserts uncommitted stage paths are named in `completion_commit_failed`; inverting
   the guard fails the test.
-- [ ] `workflow-runner.test.ts` `"settles workflow-tail finalization failure without invocation_failure
+- [x] `workflow-runner.test.ts` `"settles workflow-tail finalization failure without invocation_failure
   when all roles succeeded"` fails finalization in the post-review workflow tail (not inside review role
   execution) after every review role returned `ok`, asserts terminal outcome names finalization /
   `landing_failed` (not `invocation_failure`); inverting the classifier fails the test.
-- [ ] `workflow-runner.test.ts` `"settles post-review finalization failure without invocation_failure
+- [x] `workflow-runner.test.ts` `"settles post-review finalization failure without invocation_failure
   when all roles succeeded"` injects a finalization error after all review roles return `ok` within the
   review step, asserts the same finalization classification; inverting the classifier fails the test.
-- [ ] `workflow-runner.test.ts` `"does not emit an empty failed row when log shows loop_finished
+- [x] `workflow-runner.test.ts` `"does not emit an empty failed row when log shows loop_finished
   complete"` drives split-vs-log disagreement on the authoritative durable completion row (`list` /
   `wait` id), asserts non-empty `error.reason`, `retryable`, and `nextAction` (naming mismatch or
   resumable `landing_failed`); inverting the guard fails the test.
-- [ ] `run-operator-error.test.ts` covers `landing_failed` with `nextAction: "resume"` and
+- [x] `run-operator-error.test.ts` covers `landing_failed` with `nextAction: "resume"` and
   `retryable: true` for populated-stage finalization pending promotion, distinct from
   `completion_commit_failed`.
-- [ ] `composeRunOperatorError` does not rely on a `loop_finished` + `complete` branch that never
+- [x] `composeRunOperatorError` does not rely on a `loop_finished` + `complete` branch that never
   executes when `run.status === "failed"` (`allowResumableLogOutcomes` is false). For a failed
   authoritative row whose log says `loop_finished complete` — or whose attempt detail maps to no
   resumable reason — the row still exposes non-empty `error.reason`, `retryable`, and `nextAction`.

@@ -955,3 +955,180 @@ test("wait and list resumable agrees for non-entry workflow step row", async () 
   expect(await waitResumable(localHandlers, step2RunId)).toBe(admitted);
   expect(await listResumable(localHandlers, step2RunId)).toBe(admitted);
 });
+
+/**
+ * Fixture for a reviewed-intent finalization: a durable write step row (carrying `durableDir` as
+ * its own `specPath`) plus its sibling review-behavior row — the only two rows daemon resume needs
+ * to reconstruct {@link resolveIntentFinalizationResumeContext}'s context.
+ */
+function createIntentFinalizationRuns(overrides: {
+  invocationId: string;
+  worktreePath: string;
+  branch: string;
+  durableDir: string;
+}): { writeRunId: string; reviewRunId: string } {
+  const workflowSnapshot = {
+    invocationId: overrides.invocationId,
+    creationTitle: "intent: example",
+    steps: [
+      {
+        stepId: "intent",
+        role: "plan",
+        durable: true,
+        stepRules: "intent rules",
+        expectedArtifactPath: ".jarvis-intent-stage",
+        agents: ["codex"],
+        agentModelConfig: AGENT_MODEL_CONFIG,
+      },
+      { stepId: "review", role: "", durable: true, behavior: "review" as const },
+    ],
+  };
+  const base = {
+    project: "test-project",
+    specRef: "main",
+    worktreePath: overrides.worktreePath,
+    branch: overrides.branch,
+    workflowSnapshot,
+  };
+  const writeRunId = stateStore.createRun({ ...base, specPath: overrides.durableDir, stepId: "intent" });
+  stateStore.setRunStatus(writeRunId, "completed");
+  const reviewRunId = stateStore.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+  return { writeRunId, reviewRunId };
+}
+
+function failReviewRunAtLanding(runId: string): void {
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+  });
+}
+
+function landingFailedLogReader(runId: string): LogReader {
+  return loopFinishedLogReader(runId, {
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+}
+
+async function listRow(h: Handlers, runId: string): Promise<{ error?: { reason?: string; nextAction?: string } }> {
+  const frame = await h.list({ kind: "request", id: "list-intent", method: "list" }, new AbortController().signal);
+  expect(frame.kind).toBe("response");
+  if (frame.kind !== "response") throw new Error("not a response");
+  const runs = (frame.result as { runs: Array<{ runId: string; error?: { reason?: string; nextAction?: string } }> })
+    .runs;
+  const row = runs.find((candidate) => candidate.runId === runId);
+  if (!row) throw new Error(`row ${runId} not found`);
+  return row;
+}
+
+test("admits a populated-stage intent finalization landing_failed row instead of unsupported_resume_context", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
+  try {
+    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
+    mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+
+    const { reviewRunId } = createIntentFinalizationRuns({
+      invocationId: "intent-finalize-admission",
+      worktreePath,
+      branch: "intent/example",
+      durableDir: "ready-intents",
+    });
+    failReviewRunAtLanding(reviewRunId);
+    const localHandlers = createHandlers(landingFailedLogReader(reviewRunId));
+
+    const row = await listRow(localHandlers, reviewRunId);
+    expect(row.error?.reason).toBe("landing_failed");
+    expect(row.error?.nextAction).toBe("resume");
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    if (response.kind === "error") {
+      expect(response.code).not.toBe("resume_unsupported");
+      expect(response.code).not.toBe("terminal_run");
+    }
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("rejects unsupported_resume_context for the same row when the stage is empty (admission-gate inversion)", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-empty-"));
+  try {
+    // No `.jarvis-intent-stage/` created: inverts the populated-stage precondition the gate requires.
+    mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+
+    const { reviewRunId } = createIntentFinalizationRuns({
+      invocationId: "intent-finalize-empty-stage",
+      worktreePath,
+      branch: "intent/empty",
+      durableDir: "ready-intents",
+    });
+    failReviewRunAtLanding(reviewRunId);
+    const localHandlers = createHandlers(landingFailedLogReader(reviewRunId));
+
+    const row = await listRow(localHandlers, reviewRunId);
+    expect(row.error?.reason).toBe("unsupported_resume_context");
+    expect(row.error?.nextAction).toBe("stop");
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).toBe("resume_unsupported");
+    }
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-e2e-"));
+  try {
+    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(
+      join(worktreePath, ".jarvis-intent-stage", "example.md"),
+      "---\nname: example\n---\n\n## Prerequisites\n",
+      "utf8",
+    );
+    mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+
+    const { reviewRunId } = createIntentFinalizationRuns({
+      invocationId: "intent-finalize-e2e",
+      worktreePath,
+      branch: "intent/e2e",
+      durableDir: "ready-intents",
+    });
+    failReviewRunAtLanding(reviewRunId);
+    const logReader = landingFailedLogReader(reviewRunId);
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    expect(await waitResumable(localHandlers, reviewRunId)).toBe(true);
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+
+    const settled = stateStore.loadRun(reviewRunId);
+    expect(settled?.status).toBe("completed");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});

@@ -3,14 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { WRITE_LOOP_OUTCOME_KINDS } from "../execution/write-loop.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import { composeRunOperatorError, type TerminalLogRecord } from "./run-operator-error.ts";
+import { composeRunOperatorError, findTerminalLogRecord, isResumeAdmitted, terminalResumeRefusalMessage, type TerminalLogRecord } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -109,6 +110,58 @@ async function resumeDirect(h: Handlers, runId: string) {
   return h.resume(resumeFrame(runId), new AbortController().signal);
 }
 
+async function rowResumable(
+  h: Handlers,
+  runId: string,
+  via: "wait" | "list",
+): Promise<boolean | undefined> {
+  const response =
+    via === "wait"
+      ? await h.wait(
+          { kind: "request", id: "wait-resumable", method: "wait", params: { runId } },
+          new AbortController().signal,
+        )
+      : await h.list({ kind: "request", id: "list-resumable", method: "list" }, new AbortController().signal);
+  expect(response.kind).toBe("response");
+  if (response.kind !== "response") return undefined;
+  if (via === "wait") return (response.result as { resumable?: boolean }).resumable;
+  const runs = (response.result as { runs: Array<{ runId: string; resumable?: boolean }> }).runs;
+  return runs.find((row) => row.runId === runId)?.resumable;
+}
+
+function loopFinishedEvent(
+  loopOutcomeKind: LoopFinishedEvent["loopOutcomeKind"],
+): Omit<LoopFinishedEvent, "kind"> {
+  const event: Omit<LoopFinishedEvent, "kind"> = {
+    loopOutcomeKind,
+    iterationsConsumed: 1,
+    resumable: true,
+  };
+  if (loopOutcomeKind === "surviving_mutation_failed") {
+    return {
+      ...event,
+      survivingMutation: "mut",
+      survivingMutationSourceFile: "src/a.ts",
+      survivingMutationSourceLine: 1,
+    };
+  }
+  return event;
+}
+
+const ROW_RESUMABLE_DURABLE_STATUSES = [
+  "completed",
+  "failed",
+  "blocked",
+  "paused",
+  "budget-soft-stopped",
+  "killed",
+] as const satisfies readonly RunStatus[];
+
+async function resumeRefusedAsTerminal(h: Handlers, runId: string): Promise<boolean> {
+  const response = await resumeDirect(h, runId);
+  return response.kind === "error" && response.code === "terminal_run";
+}
+
 function createWorkflowRun(overrides: {
   invocationId: string;
   role?: string;
@@ -164,6 +217,70 @@ test("resume rejects terminal run status", async () => {
     expect(response.code).toBe("terminal_run");
     expect(response.message).toBe("Cannot resume a completed run");
   }
+});
+
+test("resume refuses ready_flip_failed with PR-flip recovery in message", async () => {
+  const runId = createWorkflowRun({ invocationId: "ready-flip-failed-refusal" });
+  stateStore.setRunStatus(runId, "completed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "ready_flip_failed",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+    expect(response.message).toContain("gh pr view");
+    expect(response.message).toContain("isDraft");
+    expect(response.message).not.toBe("Cannot resume a completed run");
+  }
+});
+
+test("resume refuses agent_blocked with inspect-spec recovery in message", async () => {
+  const runId = createWorkflowRun({ invocationId: "agent-blocked-refusal" });
+  stateStore.setRunStatus(runId, "blocked");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "blocked",
+    outcomeKind: "blocked",
+  });
+  const localHandlers = createHandlers();
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+    expect(response.message).toContain("inspect");
+    expect(response.message).not.toBe("Cannot resume a blocked run");
+  }
+});
+
+test("terminal resume refusal tracks admission", () => {
+  const admittedRunId = createWorkflowRun({ invocationId: "admitted-paused-refusal" });
+  stateStore.setRunStatus(admittedRunId, "paused");
+  const admittedRun = stateStore.loadRun(admittedRunId);
+  expect(admittedRun).toBeDefined();
+  if (!admittedRun) return;
+  expect(terminalResumeRefusalMessage(admittedRun)).toBeUndefined();
+
+  const refusedRunId = createWorkflowRun({ invocationId: "refused-ready-flip" });
+  stateStore.setRunStatus(refusedRunId, "completed");
+  const logReader = loopFinishedLogReader(refusedRunId, {
+    loopOutcomeKind: "ready_flip_failed",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  const refusedRun = stateStore.loadRun(refusedRunId);
+  expect(refusedRun).toBeDefined();
+  if (!refusedRun) return;
+  const terminalRecord = findTerminalLogRecord(logReader.tail(refusedRunId)) as TerminalLogRecord;
+  const admitted = isResumeAdmitted(refusedRun, terminalRecord);
+  const refused = terminalResumeRefusalMessage(refusedRun, terminalRecord) !== undefined;
+  expect(refused).toBe(!admitted);
 });
 
 test("resume retries a completed run after a resumable publication failure", async () => {
@@ -466,6 +583,12 @@ test.each([
   { invocationId: "invalid-token", status: "failed" as const, logOutcome: undefined, withInvalidToken: true },
   { invocationId: "missing-blocker", status: "blocked" as const, logOutcome: undefined, withMissingBlocker: true },
   {
+    invocationId: "ready-gate-blocked-repair",
+    status: "failed" as const,
+    logOutcome: "ready_gate_failed" as const,
+    withBlockedAttempt: true,
+  },
+  {
     invocationId: "store-lock-timeout",
     status: "failed" as const,
     logOutcome: undefined,
@@ -503,6 +626,18 @@ test.each([
       runStatus: "blocked",
       outcomeKind: "missing_blocker",
     });
+  } else if ("withBlockedAttempt" in config && config.withBlockedAttempt) {
+    const attemptId = stateStore.recordAttemptStart(runId);
+    stateStore.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "blocked",
+    });
+    logReader = loopFinishedLogReader(runId, {
+      loopOutcomeKind: config.logOutcome ?? "ready_gate_failed",
+      iterationsConsumed: 1,
+      resumable: true,
+    });
   } else if ("withStoreLockFailure" in config && config.withStoreLockFailure) {
     const attemptId = stateStore.recordAttemptStart(runId);
     stateStore.commitCompletionBoundary({
@@ -533,9 +668,7 @@ test.each([
   expect(run).toBeDefined();
   if (run) {
     // Verify that composeRunOperatorError produces nextAction: "resume"
-    const terminalRecord = logReader
-      ? logReader.tail(runId).find((r) => r.event.kind === "loop_finished" || r.event.kind === "run_execution_failed")
-      : undefined;
+    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
     const error = composeRunOperatorError(run, terminalRecord as TerminalLogRecord | undefined);
     expect(error?.nextAction).toBe("resume");
 
@@ -548,3 +681,70 @@ test.each([
     }
   }
 });
+
+test.each(
+  WRITE_LOOP_OUTCOME_KINDS.flatMap((loopOutcomeKind) =>
+    ROW_RESUMABLE_DURABLE_STATUSES.map((status) => ({ loopOutcomeKind, status })),
+  ),
+)("wait and list resumable agree with resume admission for $status + $loopOutcomeKind", async ({
+  loopOutcomeKind,
+  status,
+}) => {
+  const runId = createWorkflowRun({ invocationId: `row-resumable-${loopOutcomeKind}-${status}` });
+  stateStore.setRunStatus(runId, status);
+  const logReader = loopFinishedLogReader(runId, loopFinishedEvent(loopOutcomeKind));
+  const localHandlers = createHandlers(logReader);
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+
+  const terminalRecord = findTerminalLogRecord(logReader.tail(runId)) as TerminalLogRecord | undefined;
+  const admitted = isResumeAdmitted(run, terminalRecord);
+  const waitResumable = await rowResumable(localHandlers, runId, "wait");
+  const listResumable = await rowResumable(localHandlers, runId, "list");
+  const terminalRefused = await resumeRefusedAsTerminal(localHandlers, runId);
+
+  expect(waitResumable).toBe(admitted);
+  expect(listResumable).toBe(admitted);
+  if (admitted) {
+    expect(terminalRefused).toBe(false);
+  } else {
+    expect(waitResumable).toBe(false);
+    expect(terminalRefused).toBe(true);
+  }
+});
+
+test("row resumable admission guard inversion", () => {
+  const runId = createWorkflowRun({ invocationId: "stale-paused-guard-inversion" });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "paused",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+  const terminalRecord = findTerminalLogRecord(logReader.tail(runId)) as TerminalLogRecord;
+  expect(isResumeAdmitted(run, terminalRecord)).toBe(false);
+  const invertedAdmission = !isResumeAdmitted(run, terminalRecord);
+  expect(terminalRecord.event.kind === "loop_finished" && terminalRecord.event.resumable).toBe(true);
+  expect(invertedAdmission).toBe(terminalRecord.event.kind === "loop_finished" && terminalRecord.event.resumable);
+});
+
+test.each(["paused", "budget-exhausted"] as const)(
+  "failed row with stale %s loop_finished reports resumable false on wait and list",
+  async (loopOutcomeKind) => {
+    const runId = createWorkflowRun({ invocationId: `stale-${loopOutcomeKind}-on-failed` });
+    stateStore.setRunStatus(runId, "failed");
+    const logReader = loopFinishedLogReader(runId, {
+      loopOutcomeKind,
+      iterationsConsumed: 1,
+      resumable: true,
+    });
+    const localHandlers = createHandlers(logReader);
+
+    expect(await rowResumable(localHandlers, runId, "wait")).toBe(false);
+    expect(await rowResumable(localHandlers, runId, "list")).toBe(false);
+  },
+);

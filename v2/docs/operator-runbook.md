@@ -327,6 +327,10 @@ Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the complet
 adjudicated verdict on disk; recovery is the same re-dispatch path as `role_timeout`, not
 `jarvis run resume`.
 
+`jarvis run list` / `wait` `resumable` and `jarvis run resume` share one admission predicate: a row
+advertising `resumable: true` is admitted, and a `terminal_run` refusal names the owning recovery for
+the composed `error.reason` (not merely the durable status).
+
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
 markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
@@ -460,7 +464,7 @@ A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, br
 blocker.
 
 **`jarvis run resume` does not work on a blocked run** — it refuses with
-`terminal_run: Cannot resume a blocked run`, and `run list` correctly reports the row as
+`terminal_run` naming inspect-spec recovery (see [Gate trust](#gate-trust)), and `run list` correctly reports the row as
 `resumable: false` with remediation `inspect_spec`. (This section previously said "`blocked` is
 inspect-and-resume, not terminal" and told you to resume. That was wrong; the harness never
 supported it.) To continue the work, resolve the blocker and **re-run the spec**. An incomplete

@@ -37,7 +37,7 @@ import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
-const WRITE_LOOP_OUTCOME_KINDS = [
+export const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
   "progress",
   "blocked",

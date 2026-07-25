@@ -80,6 +80,17 @@ const INVOCATION_BY_FAILURE_KIND: Record<string, RunOperatorError> = {
   stall: op("role_stalled", "retry_later", true),
 };
 
+const RESUMABLE_FINALIZATION_LOOP_OUTCOME_KINDS = new Set<LoopFinishedEvent["loopOutcomeKind"]>([
+  "ready_gate_failed",
+  "surviving_mutation_failed",
+  "completion_commit_failed",
+  "iteration_commit_failed",
+]);
+
+function isResumableFinalizationLoopFinished(event: LoopFinishedEvent): boolean {
+  return event.resumable && RESUMABLE_FINALIZATION_LOOP_OUTCOME_KINDS.has(event.loopOutcomeKind);
+}
+
 /** Chronologically last terminal event; `list` and `wait` share this selection. */
 export function findTerminalLogRecord(records: PersistedRecord[]): TerminalLogRecord | undefined {
   let latest: TerminalLogRecord | undefined;
@@ -174,15 +185,56 @@ function mapFromLoopFinished(
   }
 }
 
+const RUN_OPERATOR_ERROR_RECOVERY: Record<RunOperatorErrorReason, string> = {
+  resumable_pause: "use `jarvis run resume <run-id>`",
+  resumable_budget: "use `jarvis run resume <run-id>`",
+  resumable_kill: "use `jarvis run resume <run-id>`",
+  agent_blocked: "inspect the active subspec, resolve the blocker, and re-run the workflow",
+  contract_miss: "inspect the spec contract and re-run the workflow",
+  invalid_token: "use `jarvis run resume <run-id>`",
+  missing_blocker: "use `jarvis run resume <run-id>`",
+  quota_exhausted: "retry later or advance to the next configured agent",
+  model_config: "fix agent/model configuration (`jarvis config`, machine profile)",
+  no_binding: "fix agent bindings in configuration",
+  landing_failed: "fix publication landing and use `jarvis run resume <run-id>`",
+  invocation_error: "inspect `jarvis run log <run-id>` and re-run if appropriate",
+  role_timeout: "re-dispatch the same workflow (not `jarvis run resume`)",
+  role_stalled: "re-dispatch the same workflow (not `jarvis run resume`)",
+  harness_failure: "inspect `jarvis run log <run-id>` and re-run if appropriate",
+  state_store_lock_timeout: "use `jarvis run resume <run-id>`",
+  not_implemented: "workflow-backed paused runs only; ad-hoc paused runs cannot resume yet",
+  completion_commit_failed: "fix publication/commit state and use `jarvis run resume <run-id>`",
+  iteration_commit_failed: "use `jarvis run resume <run-id>` to retry the iteration commit",
+  ready_gate_failed: "fix the ready gate and use `jarvis run resume <run-id>`",
+  ready_flip_failed:
+    "manually fix the PR draft-to-ready transition and verify with `gh pr view <prNumber> --json isDraft`",
+  surviving_mutation_failed: "fix mutation expectations and use `jarvis run resume <run-id>`",
+  iteration_timeout: "inspect the run and re-dispatch with a higher iteration timeout",
+  unsupported_resume_context: "fix the persisted snapshot or start a fresh workflow",
+};
+
 /** Check if a run's operator error (if any) advertises resumability. */
 export function isResumeAdmitted(run: RunWithAttempts, terminalRecord?: TerminalLogRecord): boolean {
   return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
 }
 
+/** `terminal_run` message when resume is refused; undefined when admission would succeed. */
+export function terminalResumeRefusalMessage(
+  run: RunWithAttempts,
+  terminalRecord?: TerminalLogRecord,
+): string | undefined {
+  const operatorError = composeRunOperatorError(run, terminalRecord);
+  if (operatorError?.nextAction === "resume") return undefined;
+  const base = `Cannot resume a ${run.status} run`;
+  if (operatorError === undefined) return base;
+  return `${base}: ${RUN_OPERATOR_ERROR_RECOVERY[operatorError.reason]}`;
+}
+
 /**
  * Compose operator error from durable run state and optional terminal log.
  * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
- * last-attempt store detail wins over conflicting `loop_finished`, and resumable
+ * a resumable finalization `loop_finished` wins over last-attempt detail, otherwise
+ * attempt detail wins over conflicting `loop_finished`, and durable-status resumable
  * `loopOutcomeKind` values from stale logs do not override `failed` / `blocked`.
  */
 export function composeRunOperatorError(
@@ -217,6 +269,15 @@ export function composeRunOperatorError(
       return op("state_store_lock_timeout", "resume", true);
     }
     return op("harness_failure", "stop");
+  }
+
+  if (
+    terminalRecord?.event.kind === "loop_finished" &&
+    (run.status === "failed" || run.status === "blocked") &&
+    isResumableFinalizationLoopFinished(terminalRecord.event)
+  ) {
+    const fromFinalization = mapFromLoopFinished(terminalRecord.event, lastAttempt, true);
+    if (fromFinalization) return fromFinalization;
   }
 
   if (run.status === "failed" || run.status === "blocked") {

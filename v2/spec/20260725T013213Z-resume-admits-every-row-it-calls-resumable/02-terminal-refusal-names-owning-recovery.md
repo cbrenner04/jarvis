@@ -25,15 +25,15 @@ point somewhere, not at each other.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run resume` on a `ready_flip_failed` row is still refused with `code: "terminal_run"`, and the
+- [x] `jarvis run resume` on a `ready_flip_failed` row is still refused with `code: "terminal_run"`, and the
       message names the documented manual PR-flip fix; a new `v2/src/daemon/daemon-resume.test.ts` case fails
       against pre-fix code, which emits only `Cannot resume a completed run`.
-- [ ] A second refusal reason (`agent_blocked`) is refused with its documented recovery named in the message,
+- [x] A second refusal reason (`agent_blocked`) is refused with its documented recovery named in the message,
       covered by the same suite.
-- [ ] The reason→recovery mapping is exhaustive over `RunOperatorErrorReason`: removing a reason's entry
+- [x] The reason→recovery mapping is exhaustive over `RunOperatorErrorReason`: removing a reason's entry
       fails `bun run typecheck`.
-- [ ] Inverting the refusal guard fails a test — an admitted row emits no refusal message.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] Inverting the refusal guard fails a test — an admitted row emits no refusal message.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

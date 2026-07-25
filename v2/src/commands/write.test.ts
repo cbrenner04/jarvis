@@ -10,7 +10,6 @@ import {
   makeCliRepoFixture,
   stubAgentModelConfig,
   writeHomeMachineConfig,
-  writeMachineConfig,
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";

@@ -408,7 +408,7 @@ describe("review-role timeout resolution", () => {
         cwd: () => fx.repoSub,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: {
-          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
         },
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "run-review-default", COMPLETED_WAIT_RESULT), { sent }),
@@ -431,7 +431,7 @@ describe("review-role timeout resolution", () => {
         machineConfigPath: configPath,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: {
-          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
         },
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "run-review-configured", COMPLETED_WAIT_RESULT), { sent }),
@@ -452,7 +452,7 @@ describe("review-role timeout resolution", () => {
         cwd: () => fx.repoSub,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: {
-          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewDebateStep()] }),
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewDebateStep()] }),
         },
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "run-review-debate-default", COMPLETED_WAIT_RESULT), { sent }),
@@ -475,7 +475,7 @@ describe("review-role timeout resolution", () => {
         machineConfigPath: configPath,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: {
-          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewDebateStep()] }),
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewDebateStep()] }),
         },
         connectIpcClient: async () =>
           makeIpcClient(workflowFrames("start", "wait", "run-review-debate-configured", COMPLETED_WAIT_RESULT), {
@@ -501,7 +501,7 @@ describe("review-role timeout resolution", () => {
         machineConfigPath: configPath,
         readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
         workflowPresetBuilders: {
-          implement: () => ({ ok: true, steps: [fx.fakeImplementSteps[0]!, fakeReviewStep()] }),
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
         },
       }),
     );

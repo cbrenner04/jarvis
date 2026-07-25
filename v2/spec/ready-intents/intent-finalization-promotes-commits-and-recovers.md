@@ -30,6 +30,19 @@ separate them either. **The discriminator is unknown**, and two diagnoses of an 
 already been wrong. Instrument first, observe one failure, then fix. The promotion behavior is wanted
 regardless of the trigger.
 
+**Occurrence #8 (2026-07-25, `intent/wedged-workflow-kill-needs-a-live-stall-`)** narrows where to
+instrument. The review run settled `invocation_failure` **1.007 s** after the actuator returned
+`exit_kind: "ok"` (actuator 13:17:52.775, `loop_finished` 13:17:53.782); the split, critic, and
+actuator all reported `ok`. The failure is in the post-actuator finalization tail, not in any
+invocation. A markdown-lint gate on the staged files is ruled out — both staged intents lint clean
+against the repo config.
+
+That incident also shows a **third** dishonest record, worse than the two below: the split run
+(`c4485ef4`) settled a durable `failed` row whose reason, retryable, and `nextAction` are all
+**empty**, while its own log holds `boundary_committed { outcomeKind: "done", runStatus: "completed" }`
+and `loop_finished { loopOutcomeKind: "complete" }`. A `failed` row that names nothing at all must
+also be covered.
+
 ## Decisions
 
 - Finalization promotes every `.jarvis-intent-stage/*.md` to the durable `ready-intents/` directory,
@@ -68,6 +81,9 @@ regardless of the trigger.
       paths; inverting the guard fails the test.
 - [ ] A test asserts a post-invocation finalization failure settles with an error naming the
       finalization step, not `invocation_failure`, when every role reported `exit_kind: "ok"`.
+- [ ] No terminal `failed` row is emitted with an empty reason / retryable / `nextAction`; a test
+      covering a row whose own log records `loop_finished complete` asserts the row either agrees with
+      that record or names why it does not. Inverting the guard fails the test.
 - [ ] A test drives an intent run to a finalization failure with a populated stage, then asserts the
       documented recovery command promotes the stage, cleans up the stage and verdict sidecars, and
       completes publication without invoking any split or review agent; it fails against pre-fix code.

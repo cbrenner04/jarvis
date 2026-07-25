@@ -503,7 +503,20 @@ may still exit without `iteration_started` follow-up until
 
 ### `run kill` ineffective on workflow runs
 
-Workflow-started runs reject live kill/pause ([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)). Stop the daemon only as a last resort — it orphans every in-flight run.
+Workflow-started runs reject live kill/pause ([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
+
+**A daemon restart does not orphan in-flight work** (corrected 2026-07-25). This entry previously
+said "stop the daemon only as a last resort — it orphans every in-flight run"; that predates the
+reconcile-and-resume work (#1430, #1476–#1478). Startup reconciliation settles every non-terminal
+row to `killed` / `daemon_restart` before IPC opens, then auto-resumes each one that has a
+resolvable workflow write snapshot, retaining the run ID, snapshot, worktree, and branch — see
+[Orphaned non-terminal runs after daemon restart](#orphaned-non-terminal-runs-after-daemon-restart).
+
+The exception is narrow and worth knowing: a row with **no** resolvable write snapshot is not
+auto-resumed and strands `unsupported_resume_context`. Review-step rows are exactly that shape, so a
+restart while a review step is live will strand that row; a restart during a write step will not.
+Observed 2026-07-25: four `unsupported_resume_context` rows in one session, all review steps, none
+of them caused by a restart.
 
 ### Branch / worktree collision
 

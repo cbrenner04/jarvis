@@ -658,9 +658,10 @@ Each trigger considers `queued` runs oldest (`created_at`) first, skipping
 any whose `(project, branch)` key is currently claimed in favor of the
 next-oldest eligible one, and promotes at most one run per call: sets its
 status to `in-progress`, then spawns it from its persisted `WriteLoopInput`.
-Workflow-step queued inputs rebuild bindings from their persisted
-`role`/`agents`/`agentModelConfig`; ad-hoc inputs keep bare agent-id binding
-rehydration until they gain resolver context.
+Workflow-step queued inputs pass persisted `bindingResolution` context
+(`role`/`agents`/historical `agentModelConfig`) through `resolveWriteLoopBindings`,
+which loads rungs from the current machine profile; ad-hoc inputs keep bare
+agent-id binding rehydration until they gain resolver context.
 No preemption — promotion only fills free headroom; it never pauses, kills,
 or otherwise touches an already-running run.
 

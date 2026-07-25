@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers, projectWorkflowEntryResult } from "./daemon.ts";
+import { createRunControlHandlers, projectWorkflowEntryResult, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -13,6 +13,37 @@ let stateStore: StateStore;
 let logSink: LogSink;
 let logsPath: string;
 let handlers: Handlers;
+
+const WAIT_COMPLETION_MACHINE_PROFILE = "wait-completion-profile";
+
+function installWaitCompletionMachineProfile(): void {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-wait-completion-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string, priceKey: string) => ({ rungs: [{ adapterModel, priceKey }] });
+  const codexRoles = {
+    plan: rung("plan", "plan"),
+    implement: rung("M1", "P1"),
+    shrink: rung("S1", "S1"),
+    adversary: rung("adv", "adv"),
+    critic: rung("crit", "crit"),
+    advocate: rung("advoc", "advoc"),
+    adjudicator: rung("adj", "adj"),
+    actuator: rung("act", "act"),
+  };
+  writeFileSync(
+    join(machinesDir, `${WAIT_COMPLETION_MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: { codex: codexRoles } }),
+  );
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: WAIT_COMPLETION_MACHINE_PROFILE, agents: ["codex"] }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+}
 
 function createRun(): string {
   return stateStore.createRun({
@@ -67,6 +98,7 @@ async function waitForInProgress(runId: string): Promise<void> {
 }
 
 beforeEach(() => {
+  installWaitCompletionMachineProfile();
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
   stateStore = openStateStore(join(tmpdir(), `jarvis-wait-state-${unique}.db`));
   logsPath = join(tmpdir(), `jarvis-wait-logs-${unique}.jsonl`);
@@ -82,6 +114,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetWriteLoopBindingSourceDepsForTests();
   handlers.close();
   logSink.close();
   stateStore.close();

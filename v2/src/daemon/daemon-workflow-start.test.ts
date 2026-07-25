@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,7 +21,14 @@ import {
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+  WorktreeOwnershipRegistry,
+} from "./daemon.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -585,4 +592,84 @@ test("a workflow that dies in durable review-debate marks its debate row failed 
     .map((record) => record.event.kind);
   expect(kinds.at(-1)).toBe("run_execution_failed");
   rmSync(logsPath, { force: true });
+});
+
+test("second write-loop admission on a live handler resolves rungs from the edited machine profile", async () => {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-workflow-profile-edit-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "workflow-admission-profile";
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  const claudeBundle = (implementModel: string) => ({
+    plan: rung("plan"),
+    implement: rung(implementModel),
+    shrink: rung("shrink"),
+    adversary: rung("adv"),
+    critic: rung("crit"),
+    advocate: rung("advoc"),
+    adjudicator: rung("adj"),
+    actuator: rung("act"),
+  });
+  const writeProfile = (implementModel: string) => {
+    mkdirSync(machinesDir, { recursive: true });
+    writeFileSync(
+      join(machinesDir, `${machineProfile}.json`),
+      JSON.stringify({ models: { claude: claudeBundle(implementModel) } }),
+    );
+    writeFileSync(
+      join(profileHome, "config.json"),
+      JSON.stringify({ machineProfile, agents: ["claude"] }),
+    );
+    setWriteLoopBindingSourceDepsForTests({
+      machineConfigPath: join(profileHome, "config.json"),
+      machinesDir,
+    });
+  };
+
+  const staleConfig: AgentModelConfig = {
+    claude: { implement: { rungs: [{ adapterModel: "stale-admission-model", priceKey: "stale-admission-model" }] } },
+  };
+  const admitted: WriteLoopInput[] = [];
+  fakeExecutor = createFakeWriteLoopExecutor((input) => {
+    admitted.push(input);
+  });
+  handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    registry,
+  });
+
+  try {
+    writeProfile("first-admission-model");
+    const firstInput: WriteLoopInput = {
+      ...mockWriteLoopInput({ projectName: "demo", branchName: "profile-edit-1" }),
+      bindings: [],
+      bindingResolution: { role: "implement", agents: ["claude"], agentModelConfig: staleConfig },
+    };
+    await startRunDirect(handlers, firstInput);
+    fakeExecutor.settleFirst();
+    await flushBackgroundRuns();
+
+    writeProfile("second-admission-model");
+    const secondInput: WriteLoopInput = {
+      ...mockWriteLoopInput({ projectName: "demo", branchName: "profile-edit-2" }),
+      bindings: [],
+      bindingResolution: { role: "implement", agents: ["claude"], agentModelConfig: staleConfig },
+    };
+    await startRunDirect(handlers, secondInput);
+    await flushBackgroundRuns();
+
+    expect(admitted).toHaveLength(2);
+    expect(admitted[0]?.bindings[0]?.id).toContain("first-admission-model");
+    expect(admitted[1]?.bindings[0]?.id).toContain("second-admission-model");
+  } finally {
+    resetWriteLoopBindingSourceDepsForTests();
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(profileHome, { recursive: true, force: true });
+  }
 });

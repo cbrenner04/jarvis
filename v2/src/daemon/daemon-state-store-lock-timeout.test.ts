@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS, type StateStore } from "../persistence/state-store.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 type RpcResult = Awaited<ReturnType<RpcHandler>>;
@@ -18,6 +18,34 @@ let logsPath: string;
 let dbPath: string;
 let worktreePath = "";
 let handlers: Handlers;
+
+const LOCK_TIMEOUT_MACHINE_PROFILE = "lock-timeout-profile";
+
+function installLockTimeoutMachineProfile(): void {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-lock-timeout-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string, priceKey: string) => ({ rungs: [{ adapterModel, priceKey }] });
+  const codexRoles = {
+    plan: rung("plan", "plan"),
+    implement: rung("M1", "P1"),
+    shrink: rung("shrink", "shrink"),
+    adversary: rung("adv", "adv"),
+    critic: rung("crit", "crit"),
+    advocate: rung("advoc", "advoc"),
+    adjudicator: rung("adj", "adj"),
+    actuator: rung("act", "act"),
+  };
+  writeFileSync(join(machinesDir, `${LOCK_TIMEOUT_MACHINE_PROFILE}.json`), JSON.stringify({ models: { codex: codexRoles } }));
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: LOCK_TIMEOUT_MACHINE_PROFILE, agents: ["codex"] }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+}
 
 function createHandlers(store: StateStore, logPath: string): Handlers {
   return createRunControlHandlers({
@@ -37,6 +65,7 @@ async function expectResponse(frame: RpcResult): Promise<Record<string, unknown>
 }
 
 beforeEach(() => {
+  installLockTimeoutMachineProfile();
   const unique = `${process.pid}-${Date.now()}-${crypto.randomUUID()}`;
   dbPath = join(tmpdir(), `jarvis-lock-timeout-state-${unique}.sqlite`);
   logsPath = join(tmpdir(), `jarvis-lock-timeout-logs-${unique}.jsonl`);
@@ -46,6 +75,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetWriteLoopBindingSourceDepsForTests();
   handlers.close();
   logSink.close();
   stateStore.close();

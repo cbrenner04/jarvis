@@ -263,6 +263,12 @@ then ready gate and draft→ready flip once.
 Publication terminal results and their `loop_finished` row retain the normalized failure detail. The ready gate remains outside this policy; `ReadyGateError` enters repair, while `already ready` and `not a draft` satisfy the ready flip before classification.
 
 The captured snapshot is the retry identity: later operator edits are excluded.
+On continuation (`jarvis run resume`, daemon recovery, queue promotion), execution
+re-resolves agent/model bindings from the current machine profile while snapshot
+fields such as `stepRules`, `expectedArtifactPath`, and outer-loop `agents` stay
+snapshot-backed; on-disk `agentModelConfig` in the snapshot may lag until updated.
+Clean-slate workflow re-dispatch after `--reset-despite-dirty` uses the same fresh
+admission binding path as a new write step.
 
 Workflow-step authoring that wraps this write-loop input shape lives in
 [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).

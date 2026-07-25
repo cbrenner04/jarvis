@@ -9,12 +9,15 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   stubAgentModelConfig,
+  writeHomeMachineConfig,
   writeMachineConfig,
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 
 let fx: CliRepoFixture;
+
+const homeWriteMachineConfigPath = writeHomeMachineConfig({ agents: ["claude"] });
 
 beforeAll(() => {
   fx = makeCliRepoFixture();
@@ -89,6 +92,7 @@ describe("write command", () => {
     const cap = captureIo();
 
     const code = await main(fx.writeArgs, cap.io, {
+      machineConfigPath: homeWriteMachineConfigPath,
       loadAgentModelConfig: stubAgentModelConfig,
       executeWriteLoop: async () => result as WriteLoopResult,
     });
@@ -111,6 +115,7 @@ describe("write command", () => {
     for (const result of withoutDetail) {
       const cap = captureIo();
       await main(fx.writeArgs, cap.io, {
+        machineConfigPath: homeWriteMachineConfigPath,
         loadAgentModelConfig: stubAgentModelConfig,
         executeWriteLoop: async () => result,
       });
@@ -132,6 +137,7 @@ describe("write command", () => {
       ],
     };
     await main(fx.writeArgs, cap.io, {
+      machineConfigPath: homeWriteMachineConfigPath,
       loadAgentModelConfig: stubAgentModelConfig,
       executeWriteLoop: async () => withDetail,
     });
@@ -142,7 +148,7 @@ describe("write command", () => {
 
   test("write resolves iterationTimeoutMs and iterationCeilingMs from machine config", async () => {
     const cap = captureIo();
-    const configPath = writeMachineConfig({
+    const configPath = writeHomeMachineConfig({
       iterationTimeoutMs: 600_000,
       iterationCeilingMs: 1_800_000,
       idleOutputTimeoutMs: 0,
@@ -167,7 +173,7 @@ describe("write command", () => {
 
   test("write rejects inverted write-path iteration bounds before the loop", async () => {
     const cap = captureIo();
-    const configPath = writeMachineConfig({
+    const configPath = writeHomeMachineConfig({
       iterationTimeoutMs: 60_000,
       idleOutputTimeoutMs: 120_000,
       iterationCeilingMs: 1_800_000,
@@ -194,6 +200,7 @@ describe("write command", () => {
     let capturedInput: WriteLoopInput | undefined;
 
     await main(fx.writeArgs, cap.io, {
+      machineConfigPath: homeWriteMachineConfigPath,
       loadAgentModelConfig: stubAgentModelConfig,
       executeWriteLoop: async (input) => {
         capturedInput = input;
@@ -235,7 +242,7 @@ describe("write command", () => {
 
   test("valid machine config supplies fallback agents", async () => {
     const cap = captureIo();
-    const configPath = writeMachineConfig({ agents: ["codex", "cursor"] });
+    const configPath = writeHomeMachineConfig({ agents: ["codex", "cursor"] });
     let capturedAgents: readonly string[] | undefined;
 
     const code = await main(fx.writeArgs, cap.io, {
@@ -276,7 +283,7 @@ describe("write command", () => {
 
     await main(fx.writeArgs, cap.io, {
       loadAgentModelConfig: stubAgentModelConfig,
-      machineConfigPath: absentMachineConfigPath(),
+      machineConfigPath: homeWriteMachineConfigPath,
       executeWriteLoop: async (input) => {
         captured = input;
         return completeResult();
@@ -284,6 +291,6 @@ describe("write command", () => {
     });
 
     expect(captured?.bindings).toHaveLength(1);
-    expect(captured?.bindings[0]?.metadata).toEqual({ agent: "claude", model: "m1" });
+    expect(captured?.bindings[0]?.metadata).toEqual({ agent: "claude", model: "claude-sonnet-5" });
   });
 });

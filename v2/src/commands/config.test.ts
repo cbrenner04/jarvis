@@ -9,6 +9,7 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   stubAgentModelConfig,
+  writeHomeMachineConfig,
   writeMachineConfig,
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
@@ -34,7 +35,7 @@ async function setAgents(configPath: string, csv: string, io = captureIo().io): 
 describe("config command", () => {
   test("config set-agents writes agents, preserves unrelated keys, and later write uses the persisted order", async () => {
     const cap = captureIo();
-    const configPath = writeMachineConfig({ other: "value", agents: ["cursor"] });
+    const configPath = writeHomeMachineConfig({ other: "value", agents: ["cursor"] });
 
     const configCode = await setAgents(configPath, "claude,codex", cap.io);
 
@@ -43,6 +44,7 @@ describe("config command", () => {
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({
       other: "value",
       agents: ["claude", "codex"],
+      machineProfile: "home",
     });
 
     let capturedAgents: readonly string[] | undefined;

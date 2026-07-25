@@ -117,6 +117,11 @@ export function writeMachineConfig(value: unknown): string {
   return writeRawMachineConfig(JSON.stringify(value));
 }
 
+/** Machine config pointing at committed `config/machines/home.json` for write-loop binding re-resolve. */
+export function writeHomeMachineConfig(overrides: Record<string, unknown> = {}): string {
+  return writeMachineConfig({ machineProfile: "home", ...overrides });
+}
+
 export function absentMachineConfigPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-cli-machine-config-"));
   return join(dir, ".jarvis", "config.json");

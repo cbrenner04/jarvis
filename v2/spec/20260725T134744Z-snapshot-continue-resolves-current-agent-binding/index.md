@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Re-resolve binding on snapshot continuation](./00-re-resolve-binding-on-snapshot-continuation.md)
+- [x] [00 - Re-resolve binding on snapshot continuation](./00-re-resolve-binding-on-snapshot-continuation.md)

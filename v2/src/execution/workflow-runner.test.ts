@@ -21,7 +21,7 @@ import { implementReviewPromptProfile } from "../../../shared/prompts/review-imp
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { createRunControlHandlers } from "../daemon/daemon.ts";
+import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
@@ -75,6 +75,33 @@ const DEFAULT_AGENT_MODEL_CONFIG = {
     shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
   },
 };
+
+function installWorkflowRunnerResumeProfile(): void {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-workflow-runner-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const profileName = "workflow-runner-profile";
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string, priceKey: string) => ({ rungs: [{ adapterModel, priceKey }] });
+  const claudeRoles = {
+    plan: rung("plan", "plan"),
+    implement: rung("M1", "P1"),
+    shrink: rung("S1", "S1"),
+    adversary: rung("adv", "adv"),
+    critic: rung("crit", "crit"),
+    advocate: rung("advoc", "advoc"),
+    adjudicator: rung("adj", "adj"),
+    actuator: rung("act", "act"),
+  };
+  writeFileSync(join(machinesDir, `${profileName}.json`), JSON.stringify({ models: { claude: claudeRoles } }));
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: profileName, agents: ["claude"] }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+}
 const TWO_AGENTS = ["claude", "codex"] as const;
 const VALID_TWO_AGENT_CONFIG: AgentModelConfig = {
   claude: {
@@ -4118,6 +4145,7 @@ describe("executeWorkflow implement patch light review", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
+      installWorkflowRunnerResumeProfile();
       const handlers = createRunControlHandlers({
         stateStore: store,
         logReader: openLogReader(logsPath),
@@ -4146,6 +4174,7 @@ describe("executeWorkflow implement patch light review", () => {
         });
       } finally {
         handlers.close();
+        resetWriteLoopBindingSourceDepsForTests();
       }
     });
   });

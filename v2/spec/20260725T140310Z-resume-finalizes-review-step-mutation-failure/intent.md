@@ -51,10 +51,9 @@ text-less shrink `blocked`).
 
 ## Prerequisites
 
-Both prerequisites are sibling intents in this batch, not yet on `main`. Land order:
-`surviving-mutation-row-honest-on-any-step` → `resume-admits-every-row-it-calls-resumable` → this
-intent. Do not draft this intent until both are merged; drafting earlier will (correctly) produce a
-`## Blocker`.
+Land order (sibling batch): `surviving-mutation-row-honest-on-any-step` →
+`resume-admits-every-row-it-calls-resumable` → this intent. Both are merged on `main` in this
+worktree.
 
-- `surviving_mutation_failed` on a review step settles a durable `failed` row with `nextAction: "resume"` and the mutation/file/line details
-- `run resume` admits every row advertising `resumable: true`
+- `surviving_mutation_failed` on a review step settles a durable `failed` row with `nextAction: "resume"` and the mutation/file/line details (`v2/spec/completed/20260725T012538Z-surviving-mutation-row-honest-on-any-step/`)
+- `run resume` admits every row advertising `resumable: true` (`v2/spec/20260725T013213Z-resume-admits-every-row-it-calls-resumable/`, merged)

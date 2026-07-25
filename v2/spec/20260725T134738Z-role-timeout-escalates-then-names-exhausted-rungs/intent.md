@@ -22,8 +22,10 @@ so the documented recovery is a re-dispatch that reproduces a deterministic over
   rungs (agent + model per rung); rules out a bare `role_timeout` that hides which models were tried.
 - That settlement does not report `nextAction: "retry_later"`; rules out advertising a retry that is
   known to reproduce.
-- Timeout retains its retryable mapping only while a further rung exists; rules out flipping all
-  timeouts to non-retryable and breaking the escalation path.
+- After escalation (subspec 00), further rungs are tried inside `invokeReviewRole`; the workflow
+  only sees terminal wall-clock timeout once every configured rung is exhausted (subspec 01 maps
+  that to `stop`); rules out `retry_later` / re-dispatch for that terminal case while non-exhausted
+  `timeout` fixtures keep today’s mapping where still applicable.
 - Out of scope: machine-profile rung ordering, and whether opus-5 is the right actuator model.
 
 ## Acceptance criteria

@@ -41,7 +41,6 @@ text-less shrink `blocked`).
       resume.
 - [ ] A run whose review step succeeded is unaffected: it still settles `completed` and `resume` still
       refuses it as terminal.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

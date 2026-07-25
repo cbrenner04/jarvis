@@ -37,7 +37,6 @@ fixes one such disagreement; this one removes the class.
 - [ ] Existing `daemon-wait-run-completion.test.ts` and `daemon-start-list.test.ts` resumable assertions stay
       green (or are updated to the projected value where they pinned the log echo, with the change visible in
       the diff).
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

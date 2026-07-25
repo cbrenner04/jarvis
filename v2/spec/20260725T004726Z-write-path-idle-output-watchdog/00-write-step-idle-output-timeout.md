@@ -26,7 +26,6 @@ implement / plan-draft / intent-split agent rides the full progress-extended wal
 - [ ] A write-loop test drives a healthy iteration that emits output and completes, and asserts no stall and no timeout outcome.
 - [ ] With `idleOutputTimeoutMs: 0` in machine config, a silent write iteration produces no `idle_output_timeout`: the watchdog is absent and the run settles on the wall instead — inverting the disable guard (arming anyway) fails this test.
 - [ ] A resumed workflow write step rehydrated from its snapshot is still armed: a silent agent on resume settles `idle_output_timeout`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

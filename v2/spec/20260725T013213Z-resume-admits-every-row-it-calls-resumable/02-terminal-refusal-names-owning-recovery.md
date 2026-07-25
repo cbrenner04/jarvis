@@ -33,7 +33,6 @@ point somewhere, not at each other.
 - [ ] The reason→recovery mapping is exhaustive over `RunOperatorErrorReason`: removing a reason's entry
       fails `bun run typecheck`.
 - [ ] Inverting the refusal guard fails a test — an admitted row emits no refusal message.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

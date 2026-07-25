@@ -46,7 +46,6 @@ tests.
 - [ ] A caller that omits any dispatch-identity argument cannot silently get cross-dispatch reuse —
       the failure mode is a type or an explicit error, not a skipped review.
 - [ ] Regression coverage fails against a lookup that ignores dispatch identity.
-- [ ] `bun run typecheck`, `test:v2`, `test:integration:v2` pass.
 
 ## Documentation updates
 

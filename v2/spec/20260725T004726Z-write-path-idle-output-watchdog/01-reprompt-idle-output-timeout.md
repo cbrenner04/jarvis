@@ -18,7 +18,6 @@ than as an idle failure.
 - [ ] A write-loop test drives a silent blocker reprompt (blocked token, unsatisfied blocker contract, silent reprompt) and asserts `idle_output_timeout`, not `missing_blocker`; omitting `idleOutputMs` on the blocker-reprompt call site fails it.
 - [ ] A test drives a healthy reprompt that emits a terminal token and asserts the step settles on that token with no idle outcome.
 - [ ] With `idleOutputTimeoutMs: 0`, a silent reprompt produces no `idle_output_timeout` — inverting the disable guard fails this test.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

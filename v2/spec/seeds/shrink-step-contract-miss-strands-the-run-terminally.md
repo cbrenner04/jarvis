@@ -40,7 +40,6 @@ still settles terminal, so the completed write is still thrown away.
       strand that discards the write).
 - [ ] The shrink miss surfaces its invocation output for diagnosis (log event / run row), not only a
       bare `contract_miss`.
-- [ ] `bun run typecheck`, `test:v2`, and `test:integration:v2` pass.
 
 ## Documentation updates
 

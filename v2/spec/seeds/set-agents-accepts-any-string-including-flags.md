@@ -43,7 +43,6 @@ Two contributing gaps:
 - [ ] An empty list and a list with duplicates are both rejected without writing.
 - [ ] A valid list is written and `jarvis config show` reflects it.
 - [ ] The usage string states the accepted separator, and the accepted form(s) work as documented.
-- [ ] `bun run typecheck`, `test:v2` pass.
 
 ## Documentation updates
 

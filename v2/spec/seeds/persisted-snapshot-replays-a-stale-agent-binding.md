@@ -11,33 +11,14 @@ This bites hardest on re-dispatch: `--reset-despite-dirty` and `role_timeout` re
 the completed write step's checkpoint, which is exactly the path an operator takes *after* changing
 a rung to fix the failure they just hit. The rung change silently does not apply to the retry.
 
-## Evidence
+Observed 2026-07-25 after #2133 raised the claude implement rung from haiku to sonnet-5: on one
+unrestarted daemon, two runs admitted after the merge resolved the **new** rung, while `1dded26b`
+— re-dispatched with `--reset-despite-dirty` — replayed haiku across three attempts spanning 30
+minutes. So the profile is re-read per admission; the loader is not the problem, and a daemon
+restart is not the fix.
 
-2026-07-25. `config: raise claude implement rung from haiku to sonnet-5` (#2133) merged 02:26 UTC.
-Daemon pid 70925 started 01:01 UTC and was **never restarted**. Telemetry, `role: "implement"`:
-
-```text
-time      step_id            model                     run
-02:55:27  implement          claude-haiku-4-5-…        1dded26b
-03:01:29  implement~link-0   claude-sonnet-5           3ec2402b
-03:04:43  implement~link-0   claude-sonnet-5           3ec2402b
-03:11:11  implement          claude-haiku-4-5-…        1dded26b
-03:13:46  implement~link-1   claude-sonnet-5           cebe6542
-03:25:12  implement          claude-haiku-4-5-…        1dded26b
-```
-
-`3ec2402b` and `cebe6542` were admitted after the merge and resolved the **new** rung on the same
-unrestarted daemon — so the profile is re-read per admission and the loader is not the problem.
-`1dded26b` was re-dispatched with `--reset-despite-dirty`, reusing its persisted write snapshot, and
-replayed the **old** binding across three separate attempts spanning 30 minutes.
-
-The operator-visible symptom is silent: `jarvis run list` shows nothing about bindings, and the only
-way to tell which rung a run is using is reading `adapterModel` out of `telemetry.jsonl` after the
-fact.
-
-**Superseded framing (2026-07-25):** this seed originally claimed profile changes "never reach a
-running daemon" and prescribed a restart. That was wrong — it generalized from `1dded26b` alone
-before the newly-admitted runs were observed. A restart is not required.
+The symptom is silent: `jarvis run list` shows nothing about bindings, and the only way to tell which
+rung a run is using is reading `adapterModel` out of `telemetry.jsonl` after the fact.
 
 ## Decisions
 
@@ -64,7 +45,6 @@ before the newly-admitted runs were observed. A restart is not required.
       visible without reading telemetry; removing the field fails a test.
 - [ ] If binding replay is retained for any path, a test pins which path and asserts the divergence is
       reported on the row.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -72,7 +52,3 @@ before the newly-admitted runs were observed. A restart is not required.
   live.
 - `v2/docs/operator-runbook.md` — when a rung change applies (new admissions) and when it does not
   (runs replaying a persisted snapshot); how to confirm which binding a run is using.
-
-## Prerequisites
-
-None.

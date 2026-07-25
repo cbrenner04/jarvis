@@ -60,7 +60,6 @@ leaves the pattern free to come back.
 - [ ] Inverting the new guard rule fails a test in `scripts/guard-deterministic-daemon-tests.test.ts`.
 - [ ] `bun run check` (which runs the guard) is green on the whole tree after the rewrite — no other
       guarded file trips the new rule, or any that does is fixed in the same change.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

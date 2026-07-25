@@ -22,10 +22,15 @@ retryable `ready_gate_failed`.
   `failed` row. Rules out a blanket "log resumable wins" that regresses the demotion cases.
 - Fix composition, not `isResumeAdmitted`; admission already derives from `nextAction`, so `list`, `wait`, and
   `resume` correct together. Rules out a resume-only admission patch.
+- Extract the precedence resolution into a pure exported helper in `run-operator-error.ts` rather than adding
+  another branch to `composeRunOperatorError` in place. That function is already at the
+  `noExcessiveCognitiveComplexity` limit (24); two from-scratch attempts red-gated at 26 adding the branch
+  inline. Rules out an in-place conditional, and rules out raising the lint threshold.
 
 ## Tasks
 
-- Reorder `composeRunOperatorError` so a resumable finalization `loop_finished` wins over attempt detail.
+- Extract the precedence resolution from `composeRunOperatorError` into a pure exported helper, then reorder
+  it so a resumable finalization `loop_finished` wins over attempt detail.
 - Regress in `daemon-resume.test.ts`: `ready_gate_failed` + `blocked` last attempt is admitted.
 - Regress in `run-operator-error.test.ts`: composed reason/`nextAction` for that row shape.
 
@@ -42,7 +47,8 @@ retryable `ready_gate_failed`.
       wins when the terminal record is not a resumable finalization outcome.
 - [ ] `run-operator-error.test.ts` stale-log tests (`failed` + `loopOutcomeKind: "paused"` /
       `"budget-exhausted"` compose `harness_failure` / `stop`) stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [ ] The precedence resolution is a pure exported helper covered by its own unit test, and `bun run check`
+      is green — no `noExcessiveCognitiveComplexity` violation on `composeRunOperatorError`.
 
 ## Documentation updates
 

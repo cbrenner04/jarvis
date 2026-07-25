@@ -20,9 +20,9 @@ prose would have made v1's prompts lie instead. Only the critic
 reads it to select a variant**. Prompts are keyed by `id`, one artifact per id, seeded from
 `prompts/registry.txt`. It is a change marker, not a version selector.
 
-This will recur. Every v2-only review change — corrected prose, a verification command the reviewer
-may call (`reviewer-verification-command`), execution permissions
-(`review-roles-are-forbidden-from-verifying`) — hits the same wall.
+This will recur. Every v2-only review change — corrected prose, and the verification command the
+reviewer may call along with the lifted "do not run tests" prohibition it replaces
+(`reviewer-verification-command`) — hits the same wall.
 
 ## Decisions
 
@@ -50,7 +50,6 @@ may call (`reviewer-verification-command`), execution permissions
 - [ ] New artifacts are registered in `prompts/registry.txt`, and a test fails if a v2 review id is
       missing from the manifest.
 - [ ] Coverage renders both engines' prompts and asserts they diverge as intended.
-- [ ] `bun run typecheck`, `test:v1`, `test:v2` pass.
 
 ## Documentation updates
 

@@ -35,7 +35,6 @@ completion-commit failure (any cause) will be just as blind.
       `loop_finished` event (not an empty event).
 - [ ] `jarvis run wait <id>` / `run list` on a `completion_commit_failed` row exposes the
       underlying error message.
-- [ ] `bun run typecheck`, `test:v2`, `test:integration:v2` pass.
 
 ## Documentation updates
 

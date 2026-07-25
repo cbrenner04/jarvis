@@ -11,8 +11,14 @@ under a minute by *running* something, and neither was reachable by reading:
   vs `0`. The lines read correctly.
 
 Both were found by an operator-run subagent that had a shell. The harness's own review roles have
-neither the diff (`review-roles-never-receive-the-diff`) nor permission to execute
-(`review-roles-are-forbidden-from-verifying`). Same models, different tools.
+neither the diff (`review-roles-never-receive-the-diff`) nor permission to execute — every implement
+review prompt carries `- **Do not run tests.** Report issues you find based on code review, not test
+results.` (`prompts/patch/review-{critic,adversary,advocate,adjudicator}.md`, `review.md`). Same
+models, different tools.
+
+That prohibition also sits oddly beside the rule directly above it, which already handles the risk it
+appears aimed at: "Spec-tree and code edits are reverted by the harness." Safety comes from
+reverting, not from prohibition.
 
 The naive fix — let the reviewer run whatever it likes — is wrong: a full `bun run test:v2` is
 minutes of wall clock and a large volume of output that is mostly irrelevant to the diff, and it
@@ -36,6 +42,9 @@ puts an unbounded cost inside every review pass.
   mutation becomes a required outcome like any other. Rules out a separate result path.
 - Enforce a per-review budget on invocations and wall clock; exceeding it ends verification without
   failing the review.
+- Replace the blanket "Do not run tests" prohibition in the v2 review prompts with the command, its
+  scope, and its budget. Rules out lifting the ban without giving the role a bounded thing to run,
+  and rules out keeping a ban the command contradicts.
 - Depends on `review-roles-never-receive-the-diff`: a role that cannot see the change has nothing
   to point the command at.
 
@@ -52,7 +61,8 @@ puts an unbounded cost inside every review pass.
       the worktree is clean afterward.
 - [ ] The command is invoked identically regardless of which agent is bound to the review role.
 - [ ] Writer roles have no access to it.
-- [ ] `bun run typecheck`, `test:v2`, `test:integration:v2` pass.
+- [ ] No v2 implement review prompt forbids running tests; each states the permitted scope and budget
+      instead.
 
 ## Documentation updates
 

@@ -36,7 +36,6 @@ file at a time in a `for` loop.
 - [ ] A test asserts the total ceiling still terminates a run whose per-step budgets would otherwise sum past it; removing the ceiling fails it.
 - [ ] Deadline-exceeded output names the step that exhausted the budget and the time it was allotted.
 - [ ] A test asserts both kill paths (per-step and total-ceiling) exit `124`.
-- [ ] `bun run typecheck` and the test scripts matching the touched surfaces pass.
 
 ## Documentation updates
 

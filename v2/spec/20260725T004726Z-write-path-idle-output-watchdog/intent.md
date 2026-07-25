@@ -27,7 +27,6 @@ as `iteration_timeout` after the full wall, which is undiagnosable in `run list`
 - [ ] Plan-draft and intent-split workflow tests each drive a silent agent and assert `idle_output_timeout` (not `iteration_timeout`), so coverage is not implement-only.
 - [ ] A write-loop test drives a silent token or blocker reprompt and asserts `idle_output_timeout`; omitting `idleOutputMs` on reprompt invoke sites fails the test.
 - [ ] A write-loop test drives a healthy completing iteration and asserts no stall and no timeout outcome; inverting the watchdog arms fails the test.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -39,7 +39,6 @@ terminal_run: Cannot resume a failed run
       while `run resume` refuses it; inverting the admission guard fails it.
 - [ ] A non-resumable terminal row (e.g. `ready_flip_failed`) is still refused, and its refusal names
       the command that owns its recovery.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -47,5 +46,3 @@ terminal_run: Cannot resume a failed run
   match the row/admission contract.
 - `v2/docs/daemon-host.md` — the `resume` RPC row: state that advertised `resumable` and admission
   agree by construction.
-
-## Prerequisites

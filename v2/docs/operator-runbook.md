@@ -313,9 +313,20 @@ hard-errors on a `failed` run that is not publication-retry-eligible. In an
 implement workflow the re-dispatch reuses the completed write step's checkpoint
 without re-invoking the write-step agent; an intent or plan review timeout is
 equally retryable but has no write checkpoint behind it, so its re-dispatch re-runs
-the whole workflow. Inspect the worktree first: the aborted actuator's partial
-edits are still on disk and the re-dispatch sweeps them into the next completion
-commit. An idle-output
+the whole workflow. Inspect the worktree first — the aborted actuator's partial edits
+are still on disk, and they are **not** swept into the next completion commit: the
+dirty-worktree gate refuses the re-dispatch, and `--reset-despite-dirty` discards
+them. Salvage anything worth keeping before re-dispatching.
+
+A timeout on a role's **last** configured rung reproduces deterministically, so
+`retry_later` is misleading there — a re-dispatch spends ~30 minutes to reach the same
+wall. Escalation is quota-only today (`role-timeout-escalates-then-names-exhausted-rungs`),
+so a declared lower rung is unreachable on a wall-clock overrun; change the rung and
+start a fresh run rather than re-dispatching, and note that a re-dispatch replays the
+binding baked into its snapshot (`persisted-snapshot-replays-a-stale-agent-binding`),
+so the rung change does not reach it.
+
+An idle-output
 watchdog on the same role invocation times out when the actuator produces no
 output for a configured idle budget (default 90_000 ms, v1 parity), settles
 `invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
@@ -582,6 +593,11 @@ The same completeness, open-PR, ownership, intent-proof, and move/rollback check
 stdout (including `--dry-run`) names candidates and refusals for unchecked criteria, open
 matching PRs, and materialized owners. It never changes durable run rows.
 
+**`--dry-run` is a plan, not an outcome.** It lists an archive destination based on the state it
+sees; the apply-time recheck runs again and can correctly refuse every archival the preview
+listed. Do not read a dry-run listing as "these will be archived" — read it as "these are
+candidates". Confirm against the apply run's stdout.
+
 A worktree is eligible iff:
 
 - **PR merged**: `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and
@@ -735,6 +751,12 @@ Operators add bullets here; delete when fixed.
   ```sh
   ps ax -o comm= | grep -cE 'codex|cursor-agent|claude'
   ```
+
+  **Count from `comm=`, not `args=`.** `ps ax -o args= | grep -c '[d]aemon-entrypoint'` returned 5
+  on a machine running 2 daemons — full command lines match on wrapper and child processes that are
+  not themselves daemons. When a count matters (how many daemons are up, whether the fleet is idle),
+  count distinct PIDs of the process you actually mean, and cross-check against
+  `jarvis daemon status`.
 - **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
   `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
   `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the

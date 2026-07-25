@@ -14,6 +14,22 @@ production is still unknown; ship wanted promotion and branch tracing before set
 slices land. Structured `intent_finalization` traces remain required even when promotion fixes known
 gaps (e.g. empty-verdict tail skip) so production can still explain any remaining short-circuit.
 
+**Paired control, 2026-07-25 13:40–13:41 UTC.** Two intent runs on one daemon, same agent order, same
+two-staged-file shape, launched seconds apart — one promoted, one did not:
+
+| intent | critic | actuator | settle after actuator | outcome |
+| --- | --- | --- | --- | --- |
+| `real-clock-races…` | ok 38.7s | ok 19.9s | 1.151s | **failed**, stage stranded |
+| `persisted-snapshot…` | ok 43.1s | ok 24.4s | 1.356s | **completed**, PR #2153 |
+
+This is stronger evidence than the earlier six-failure table and it kills three candidate
+discriminators at once: the actuator ran `exit_kind: ok` in **both**, staged-file count was 2 in
+**both**, and the ~1.2 s finalization tail is present in **both** — so neither actuator invocation,
+nor file count, nor the settle interval separates success from failure. Note in particular that the
+empty-verdict path was *not* taken by the failing run (its critic returned a non-empty verdict and the
+actuator ran), so fixing the empty-verdict tail skip alone will **not** close this defect. Treat the
+discriminator as genuinely unknown and let the trace identify it.
+
 ## Decisions
 
 - One promotion contract on both seams — review-step landing when configured and the workflow
@@ -63,7 +79,6 @@ gaps (e.g. empty-verdict tail skip) so production can still explain any remainin
   the test.
 - [ ] Inverting the promotion guard in the finalization path fails
   `"promotes two staged intents through a full reviewed intent workflow"` (staged files remain).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

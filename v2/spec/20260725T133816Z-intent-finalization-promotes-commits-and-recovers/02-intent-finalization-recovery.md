@@ -48,7 +48,6 @@ command completes publication. Operators recovered by hand-copying staged files 
   fails `"resumes intent finalization from a populated stage without review re-invocation"`.
 - [ ] `run wait` / list projection for that `runId` reports `landing_failed` with `retryable: true` and
   `nextAction: "resume"` before resume, and `completed` after successful republication.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

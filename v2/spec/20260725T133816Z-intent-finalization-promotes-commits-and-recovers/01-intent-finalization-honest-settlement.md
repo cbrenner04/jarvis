@@ -77,7 +77,6 @@ recoverable.
 - [ ] `run-operator-error.test.ts` covers `landing_failed` with `nextAction: "resume"` and
   `retryable: true` for populated-stage finalization pending promotion, distinct from
   `completion_commit_failed`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -55,12 +55,12 @@
       "actuator": {
         "rungs": [
           {
-            "adapterModel": "claude-opus-5",
-            "priceKey": "claude-opus-5"
-          },
-          {
             "adapterModel": "claude-sonnet-5",
             "priceKey": "claude-sonnet-5"
+          },
+          {
+            "adapterModel": "claude-opus-5",
+            "priceKey": "claude-opus-5"
           }
         ]
       }

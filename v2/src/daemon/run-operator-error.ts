@@ -130,6 +130,31 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
   }
 }
 
+function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinishedEvent | undefined): boolean {
+  if (event === undefined || !event.resumable) return false;
+  switch (event.loopOutcomeKind) {
+    case "ready_gate_failed":
+    case "surviving_mutation_failed":
+    case "completion_commit_failed":
+    case "iteration_commit_failed":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** Prefer resumable finalization `loop_finished` over mappable last-attempt detail on failed / blocked rows. */
+export function resolveFailedBlockedAttemptPrecedence(
+  lastAttempt: Attempt | undefined,
+  loopFinishedEvent: LoopFinishedEvent | undefined,
+): RunOperatorError | undefined {
+  if (loopFinishedEvent && resumableFinalizationLoopFinishedOutranksAttemptDetail(loopFinishedEvent)) {
+    const fromFinalization = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true);
+    if (fromFinalization) return fromFinalization;
+  }
+  return lastAttempt ? mapInvocationFromAttempt(lastAttempt) : undefined;
+}
+
 function mapFromLoopFinished(
   event: LoopFinishedEvent,
   lastAttempt?: Attempt,
@@ -174,16 +199,57 @@ function mapFromLoopFinished(
   }
 }
 
+/** Operator recovery copy for `terminal_run` refusals; aligned with `v2/docs/operator-runbook.md`. */
+export const RUN_OPERATOR_ERROR_RECOVERY = {
+  resumable_pause: "run jarvis run resume when the row reports nextAction resume",
+  resumable_budget: "run jarvis run resume after the budget clears or raise the iteration budget",
+  resumable_kill: "run jarvis run resume to continue from the killed checkpoint",
+  agent_blocked: "inspect the spec, resolve the blocker, then re-run the spec",
+  contract_miss: "inspect the spec for contract misses, then re-run the spec",
+  invalid_token: "run jarvis run resume after fixing the invalid blocked token",
+  missing_blocker: "run jarvis run resume after the harness records blocker text",
+  quota_exhausted: "wait for quota reset or switch agents, then re-dispatch the workflow",
+  model_config: "fix agent/model config, then re-dispatch the workflow",
+  no_binding: "fix agent bindings in config, then re-dispatch the workflow",
+  landing_failed: "fix landing/publication access, then jarvis run resume",
+  invocation_error: "inspect jarvis run log for the invocation failure, then re-dispatch or stop",
+  role_timeout: "re-dispatch the same workflow",
+  role_stalled: "re-dispatch the same workflow",
+  harness_failure: "inspect jarvis run log and ~/.jarvis/daemon.log, then re-dispatch or stop",
+  state_store_lock_timeout: "run jarvis run resume after the store lock clears",
+  not_implemented: "workflow paused write steps use jarvis run resume; ad-hoc paused runs are not supported yet",
+  completion_commit_failed: "fix git/gh publication, then jarvis run resume",
+  iteration_commit_failed: "fix git state, then jarvis run resume",
+  ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
+  ready_flip_failed:
+    "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
+  surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume",
+  iteration_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",
+} satisfies Record<RunOperatorErrorReason, string>;
+
 /** Check if a run's operator error (if any) advertises resumability. */
 export function isResumeAdmitted(run: RunWithAttempts, terminalRecord?: TerminalLogRecord): boolean {
   return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
 }
 
+/** Refusal message when resume is blocked; omitted when the row is admitted. */
+export function terminalResumeRefusalMessage(
+  run: RunWithAttempts,
+  terminalRecord?: TerminalLogRecord,
+): string | undefined {
+  const error = composeRunOperatorError(run, terminalRecord);
+  if (error?.nextAction === "resume") return undefined;
+  const reason = error?.reason ?? "harness_failure";
+  return `Cannot resume a ${run.status} run — ${RUN_OPERATOR_ERROR_RECOVERY[reason]}`;
+}
+
 /**
  * Compose operator error from durable run state and optional terminal log.
- * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
- * last-attempt store detail wins over conflicting `loop_finished`, and resumable
- * `loopOutcomeKind` values from stale logs do not override `failed` / `blocked`.
+ * Resumable durable statuses win over conflicting log. On `failed` / `blocked`,
+ * a resumable finalization `loop_finished` outranks last-attempt detail; other
+ * conflicting `loop_finished` values do not override mappable attempt detail, and
+ * durable-status resumable kinds from stale logs stay demoted.
  */
 export function composeRunOperatorError(
   run: RunWithAttempts,
@@ -220,8 +286,9 @@ export function composeRunOperatorError(
   }
 
   if (run.status === "failed" || run.status === "blocked") {
-    const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);
-    if (fromAttempt) return fromAttempt;
+    const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
+    const fromPrecedence = resolveFailedBlockedAttemptPrecedence(lastAttempt, loopFinishedEvent);
+    if (fromPrecedence) return fromPrecedence;
   }
 
   if (terminalRecord?.event.kind === "loop_finished") {

@@ -341,6 +341,11 @@ Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the complet
 adjudicated verdict on disk; recovery is the same re-dispatch path as `role_timeout`, not
 `jarvis run resume`.
 
+`jarvis run list` / `wait` project `resumable` from the same admission predicate as `jarvis run resume`
+(`nextAction: "resume"` on the composed operator error). A row advertising `resumable: true` is admitted;
+a `terminal_run` refusal names the owning recovery for the composed `error.reason`, not only the durable
+status.
+
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
 markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
@@ -361,7 +366,8 @@ consumes the iteration budget and republishes before the gate is rerun. A deadli
 and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate: the gate passed locally and
 timed out under gate resource constraints (shared tests hit the deadline from `shared/**` changes). Resume to re-run
 the gate with more time or decomposed in narrower scope. Flip failures are not repaired; resume a `ready_gate_failed`
-or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
+or `surviving_mutation_failed` run after fixing coverage. For `ready_flip_failed`, manually fix the PR draft → ready
+transition (see [Publication / completion failures](#publication--completion-failures)); do not `jarvis run resume`.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
@@ -474,10 +480,8 @@ A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, br
 blocker.
 
 **`jarvis run resume` does not work on a blocked run** — it refuses with
-`terminal_run: Cannot resume a blocked run`, and `run list` correctly reports the row as
-`resumable: false` with remediation `inspect_spec`. (This section previously said "`blocked` is
-inspect-and-resume, not terminal" and told you to resume. That was wrong; the harness never
-supported it.) To continue the work, resolve the blocker and **re-run the spec**. An incomplete
+`terminal_run` and names spec inspection / re-run recovery, and `run list` correctly reports the row as
+`resumable: false` with remediation `inspect_spec`. To continue the work, resolve the blocker and **re-run the spec**. An incomplete
 `jarvis run workflow implement` re-run resets the stale worktree from `--base` (see
 [Implement workflow](#implement-workflow)); uncommitted work in the prior worktree is not carried
 forward.
@@ -718,6 +722,11 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 ## Known gotchas
 
 Operators add bullets here; delete when fixed.
+
+- **Trust `list` / `wait` `resumable`, not a stale `loop_finished` flag (2026-07-25):** admission
+  projects from the composed operator error (`nextAction: "resume"`). A historical log row may still
+  say `resumable: true` while the row is not admitted — use the row's `resumable` field and the
+  `terminal_run` recovery text instead of abandoning the run because the log looked resumable.
 
 - **Nothing you normally check tells you a workflow is finished (2026-07-21):** three separate
   signals all read "done" while agents were still writing the worktree — the `jarvis run workflow`

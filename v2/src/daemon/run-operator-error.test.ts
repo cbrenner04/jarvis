@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import type { PersistedRecord } from "../persistence/log-stream.ts";
+import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 import type {
   RunOperatorError,
@@ -12,6 +12,7 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isPostBoundaryStateStoreLockTimeout,
+  resolveFailedBlockedAttemptPrecedence,
 } from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -41,6 +42,13 @@ function loopFinished(
     ts: "2026-01-01T00:00:00.000Z",
     event: { kind: "loop_finished", loopOutcomeKind, iterationsConsumed: 1, resumable: false, ...extra },
   };
+}
+
+function loopFinishedEvent(
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  extra: Partial<Extract<TerminalLogRecord["event"], { kind: "loop_finished" }>> = {},
+): LoopFinishedEvent {
+  return loopFinished(loopOutcomeKind, extra).event as LoopFinishedEvent;
 }
 
 function runExecutionFailed(seq = 2, message?: string): TerminalLogRecord {
@@ -185,6 +193,28 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
       loopFinished("complete"),
     ),
   ).toEqual(err("model_config", "fix_config"));
+});
+
+test("composeRunOperatorError prefers resumable ready_gate_failed over blocked last attempt", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("ready_gate_failed", { resumable: true }),
+    ),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+});
+
+test("resolveFailedBlockedAttemptPrecedence prefers resumable finalization over blocked attempt", () => {
+  const blocked = attempt("blocked");
+  expect(
+    resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("ready_gate_failed", { resumable: true })),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+  expect(resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("complete"))).toEqual(
+    err("agent_blocked", "inspect_spec"),
+  );
+  expect(
+    resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("ready_gate_failed", { resumable: false })),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
 });
 
 test("composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished", () => {

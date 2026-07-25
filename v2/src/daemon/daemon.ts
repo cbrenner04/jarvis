@@ -53,6 +53,7 @@ import {
   isResumeAdmitted,
   type RunOperatorError,
   type TerminalLogRecord,
+  terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
@@ -609,7 +610,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             runStatus,
             loopOutcomeKind: record.event.loopOutcomeKind,
             iterationsConsumed: record.event.iterationsConsumed,
-            resumable: unsupportedResume ? false : record.event.resumable,
+            resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
           }
         : { runStatus };
     const withError = error === undefined ? base : { ...base, error };
@@ -641,7 +642,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
       iterationsConsumed: owner.terminalRecord.event.iterationsConsumed,
-      resumable: owner.terminalRecord.event.resumable,
+      resumable: isResumeAdmitted(owner.run, owner.terminalRecord),
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
     const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
@@ -990,15 +991,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       entrySnapshot === undefined || fullRun === undefined
         ? undefined
         : workflowEntryResult(fullRun, entrySnapshot, reportedStatus);
+    const rowOutcome =
+      entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
     const error =
-      entryResult?.error ??
+      rowOutcome?.error ??
       runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
     const {
       runStatus: _entryRunStatus,
       error: _entryError,
       worktreePath: _entryWorktreePath,
       ...entryOutcomeFields
-    } = entryResult ?? { runStatus: reportedStatus };
+    } = rowOutcome ?? { runStatus: reportedStatus };
 
     const finishedAtMs = runListFinishedAtMs(reportedStatus, fullRun);
 
@@ -1119,10 +1122,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     runId: string,
   ): { kind: "error"; code: string; message: string } | undefined {
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    // Admission is derived from advertised nextAction; if the row doesn't report
-    // nextAction: "resume", it is terminal and cannot be resumed.
-    if (!isResumeAdmitted(run, terminalRecord)) {
-      return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    const refusal = terminalResumeRefusalMessage(run, terminalRecord);
+    if (refusal) {
+      return { kind: "error", code: "terminal_run", message: refusal };
     }
     return undefined;
   }

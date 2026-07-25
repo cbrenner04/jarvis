@@ -362,9 +362,11 @@ jarvis run workflow intent --seed path/to/seed.md --review-passes 1 --review-beh
 jarvis run workflow intent --seed-text "Add a safer checkout flow" --review-passes 2 --review-behavior debate
 ```
 
-The uniform `--review-passes` flag defaults to the builder/config result (zero
-for intent and plan), and `--review-behavior` selects `debate` or `light`.
-Passing `--review-passes 0` skips review.
+The uniform `--review-passes` and `--review-behavior` flags apply to intent,
+plan, and implement with preset-specific defaults. Omitted passes run one light
+review for `intent` and one debate review for `plan`. `--review-behavior`
+selects `debate` or `light` when passes are positive. Passing
+`--review-passes 0` skips review.
 
 Review runs entirely in the split workspace: critic and actuator invocations,
 verdict handling, staging, durable landing, and Git publication never modify the
@@ -397,18 +399,27 @@ This publishes the split output directly without invoking the critic or actuator
 See [`workflow-runner.md`](./workflow-runner.md) for the runner contract and
 publication ordering.
 
-## Draft and light-review a plan ready-intent
+## Draft and review a plan ready-intent
 
 The canonical `plan` workflow drafts a spec tree from a ready-intent, then
-runs one critic-actuator review cycle (by default) over the materialized draft:
+runs one debate review cycle by default over the materialized draft:
 
 ```bash
-jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-passes 1 --review-behavior light
+jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md
 jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-passes 2 --review-behavior debate
 ```
 
-`--review-passes` defaults to the builder/config result. Passing `--review-passes 0` produces the
-same draft-only workflow as `plan` (no review step is loaded). Invalid pass
+For a lighter critic-actuator pass, use `plan-reviewed-light` or pass
+`--review-behavior light`:
+
+```bash
+jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md
+jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-behavior light
+```
+
+Omitted `--review-passes` is one debate pass for `plan`. Pass
+`--review-passes 0` for draft-only (no review step); that is not equivalent
+to bare `plan`. Invalid pass
 counts (`1x`, `-1`, `1.5`, and similar) and invalid `--review-behavior` values are rejected
 before daemon contact.
 

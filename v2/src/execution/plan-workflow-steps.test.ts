@@ -263,13 +263,33 @@ describe("plan ready-intent output routing", () => {
 describe("buildPlanWorkflowSteps review composition", () => {
   const input = { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" };
 
-  test.each([undefined, 0])("omits review for reviewPasses=%s", async (reviewPasses) => {
-    const result = await buildPlanWorkflowSteps(
-      { ...input, ...(reviewPasses === undefined ? {} : { reviewPasses }) },
-      builderDeps,
-    );
+  test("defaults to one debate review pass when review options are omitted", async () => {
+    const result = await buildPlanWorkflowSteps(input, builderDeps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    const review = result.steps[1];
+    if (review?.behavior !== "review-debate") throw new Error("expected review-debate step");
+    expect(review).toMatchObject({ behavior: "review-debate", maxCycles: 1 });
+    expect(review.landing).toMatchObject({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage" });
+    expect(review.verdictPath).toMatch(/\.jarvis-plan-stage\/verdict-plan\.md$/);
+    expect(review.profileContext).toMatchObject({
+      specPath: expect.stringMatching(/\.jarvis-plan-stage$/),
+    });
+  });
+
+  test("omits review for explicit zero passes", async () => {
+    const result = await buildPlanWorkflowSteps({ ...input, reviewPasses: 0 }, builderDeps);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.steps).toHaveLength(1);
+  });
+
+  test("omitted reviewPasses with explicit light reviewBehavior yields one light review step", async () => {
+    const result = await buildPlanWorkflowSteps({ ...input, reviewBehavior: "light" }, builderDeps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps).toHaveLength(2);
+    expect(result.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
   });
 
   test.each([
@@ -298,20 +318,24 @@ describe("buildPlanWorkflowSteps review composition", () => {
   });
 
   test("aliases delegate with defaults while explicit options override them", async () => {
-    const debate = await buildReviewedPlanWorkflowSteps(input, builderDeps);
+    const plan = await buildPlanWorkflowSteps(input, builderDeps);
     const light = await buildReviewedPlanLightWorkflowSteps(input, builderDeps);
     const override = await buildReviewedPlanWorkflowSteps(
       { ...input, reviewPasses: 0, reviewBehavior: "light" },
       builderDeps,
     );
-    expect(debate.ok && debate.steps[1]).toMatchObject({ behavior: "review-debate", maxCycles: 1 });
+    expect(plan.ok && plan.steps[1]).toMatchObject({ behavior: "review-debate", maxCycles: 1 });
     expect(light.ok && light.steps[1]).toMatchObject({ behavior: "review", maxCycles: 1 });
     expect(override.ok && override.steps).toHaveLength(1);
-    if (debate.ok && light.ok) expect(debate.identity).toEqual(light.identity);
+    if (plan.ok && light.ok) expect(plan.identity).toEqual(light.identity);
   });
 });
 
 describe("buildReviewedPlanWorkflowSteps", () => {
+  test("matches buildPlanWorkflowSteps when review options are omitted", () => {
+    expect(buildReviewedPlanWorkflowSteps).toBe(buildPlanWorkflowSteps);
+  });
+
   test("defaults to one loaded draft-plus-debate workflow", async () => {
     const calls: (readonly WorkflowSourceStep[])[] = [];
     const result = await buildReviewedPlanWorkflowSteps(
@@ -380,7 +404,7 @@ describe("buildReviewedPlanWorkflowSteps", () => {
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
     const draft = await buildPlanWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", reviewPasses: 0 },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
     expect(result).toMatchObject({ ok: true });
@@ -491,7 +515,7 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
     const draft = await buildPlanWorkflowSteps(
-      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md" },
+      { cwd: "/repo", readyIntent: "spec/ready-intents/reviewed-plan.md", reviewPasses: 0 },
       { resolveProjectMatch: () => match, readReadyIntent: () => intent, loadWorkflowSteps: load },
     );
     expect(result).toMatchObject({ ok: true });

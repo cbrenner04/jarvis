@@ -4,8 +4,8 @@ import {
   type InvocationExecution,
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
+import { DEFAULT_REVIEW_ROLE_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
-import { DEFAULT_ITERATION_TIMEOUT_MS } from "./write-loop.ts";
 
 const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;
 
@@ -16,7 +16,7 @@ export type ReviewRoleInvocationExecution = InvocationExecution & {
 
 /**
  * One role invocation for review executors (critic/actuator and the debate roles).
- * Always armed with the write-loop wall clock so a hung agent cannot wedge the
+ * Always armed with the review-role wall clock so a hung agent cannot wedge the
  * run `in-progress` forever; the caller's signal aborts early. Also armed with
  * an idle-output budget: no stdout/stderr for idleOutputMs results in a stall.
  */
@@ -34,7 +34,7 @@ export async function invokeReviewRole<Role extends string>(
   bindings: readonly InvocationBinding[],
 ): Promise<ReviewRoleInvocationExecution> {
   args.onRoleStart?.(role);
-  const boundMs = args.roleTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  const boundMs = args.roleTimeoutMs ?? DEFAULT_REVIEW_ROLE_TIMEOUT_MS;
   const idleBoundMs = args.idleOutputMs ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
   const timeout = new AbortController();
   let timedOut = false;

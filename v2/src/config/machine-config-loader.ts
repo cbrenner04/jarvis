@@ -5,30 +5,30 @@ import { MACHINE_CONFIG_PATH } from "../paths.ts";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 export const DEFAULT_ITERATION_CEILING_MS = 1_800_000;
 export const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;
+export const DEFAULT_REVIEW_ROLE_TIMEOUT_MS = 1_800_000;
 
 export type WritePathIterationBounds = {
   iterationTimeoutMs: number;
   iterationCeilingMs: number;
 };
 
-/** Resolves the machine-wide write iteration wall segment. */
-export function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
-  const value = readMachineConfigDocument(configPath)?.iterationTimeoutMs;
-  if (value === undefined) return DEFAULT_ITERATION_TIMEOUT_MS;
+function readPositiveNumberField(configPath: string, field: string, defaultValue: number): number {
+  const value = readMachineConfigDocument(configPath)?.[field];
+  if (value === undefined) return defaultValue;
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new Error("Machine config 'iterationTimeoutMs' must be a positive number");
+    throw new Error(`Machine config '${field}' must be a positive number`);
   }
   return value;
 }
 
+/** Resolves the machine-wide write iteration wall segment. */
+export function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+  return readPositiveNumberField(configPath, "iterationTimeoutMs", DEFAULT_ITERATION_TIMEOUT_MS);
+}
+
 /** Resolves the machine-wide hard ceiling for progress-extended write iterations. */
 export function readIterationCeilingMs(configPath: string = MACHINE_CONFIG_PATH): number {
-  const value = readMachineConfigDocument(configPath)?.iterationCeilingMs;
-  if (value === undefined) return DEFAULT_ITERATION_CEILING_MS;
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new Error("Machine config 'iterationCeilingMs' must be a positive number");
-  }
-  return value;
+  return readPositiveNumberField(configPath, "iterationCeilingMs", DEFAULT_ITERATION_CEILING_MS);
 }
 
 /** Resolves idle-output watchdog budget for write-path ordering (v1-aligned default). */
@@ -39,6 +39,11 @@ export function readIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH
     throw new Error("Machine config 'idleOutputTimeoutMs' must be a non-negative integer");
   }
   return value;
+}
+
+/** Resolves the machine-wide wall clock bounding each review/review-debate role invocation. */
+export function readReviewRoleTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+  return readPositiveNumberField(configPath, "reviewRoleTimeoutMs", DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
 }
 
 /** Reads write-path iteration bounds and rejects inverted idle/wall/ceiling ordering. */

@@ -3,11 +3,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
   readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   readProjectRegistry,
+  readReviewRoleTimeoutMs,
   resolveMachineProfile,
   resolveWritePathIterationBounds,
   validateMachineConfigAgents,
@@ -155,6 +157,32 @@ describe("write-path iteration bounds", () => {
       iterationTimeoutMs: 600_000,
       iterationCeilingMs: 1_800_000,
     });
+  });
+});
+
+describe("readReviewRoleTimeoutMs", () => {
+  test("defaults to 1_800_000 when unset", () => {
+    const configPath = writeConfig({ agents: ["claude"] });
+    expect(readReviewRoleTimeoutMs(configPath)).toBe(DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
+  });
+
+  test("returns a configured positive value", () => {
+    const configPath = writeConfig({ agents: ["claude"], reviewRoleTimeoutMs: 900_000 });
+    expect(readReviewRoleTimeoutMs(configPath)).toBe(900_000);
+  });
+
+  test("rejects a non-positive value naming the key", () => {
+    const configPath = writeConfig({ agents: ["claude"], reviewRoleTimeoutMs: 0 });
+    expect(() => readReviewRoleTimeoutMs(configPath)).toThrow(
+      "Machine config 'reviewRoleTimeoutMs' must be a positive number",
+    );
+  });
+
+  test("rejects a non-numeric value naming the key", () => {
+    const configPath = writeConfig({ agents: ["claude"], reviewRoleTimeoutMs: "900000" });
+    expect(() => readReviewRoleTimeoutMs(configPath)).toThrow(
+      "Machine config 'reviewRoleTimeoutMs' must be a positive number",
+    );
   });
 });
 

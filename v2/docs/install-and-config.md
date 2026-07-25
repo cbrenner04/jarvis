@@ -117,6 +117,14 @@ registered-project value; `--review-passes 0` skips review. An explicit
 `--review-behavior debate|light` overrides the registered-project review
 behavior.
 
+### Review-role timeout
+
+`reviewRoleTimeoutMs` bounds each critic/actuator/debate-role invocation on
+`review` and `review-debate` workflow steps. Optional, defaults to `1800000`
+(30 min); must be a positive number, else workflow launch fails with a message
+naming the key. Resolved alongside the write-path bounds and stamped on the
+built review/review-debate steps.
+
 ## Daemon
 
 Socket and PID paths (production defaults): `~/.jarvis/daemon.sock`,

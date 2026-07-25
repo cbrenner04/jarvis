@@ -27,12 +27,12 @@ runs on 600_000 ms, whose observed p90 (548 s) is at the wall.
 
 ## Acceptance criteria
 
-- [ ] With `reviewRoleTimeoutMs` set in machine config, that value reaches `invokeReviewRole` for review and review-debate steps; a new test in `v2/src/commands/workflow.test.ts` asserts the built steps carry it and fails against the pre-fix code.
-- [ ] With no key configured the resolved bound is `1_800_000` ms; a test asserts the built review step's `roleTimeoutMs` is present and equal to the default, so reverting the wiring (parameter unset) fails it.
-- [ ] No production source under `v2/src` resolves a review-role bound from `DEFAULT_ITERATION_TIMEOUT_MS`; `review-role-invocation.ts` no longer imports from `write-loop.ts`.
-- [ ] A non-positive or non-numeric `reviewRoleTimeoutMs` fails workflow launch with a message naming the key; a test covers it.
-- [ ] Inverting each added guard (the validation reject, the config-value-present branch) makes a test fail; the reject's negative case proves the invalid value does not reach a built step.
-- [ ] `v2/src/execution/review-role-invocation.test.ts` and `review-cycle.test.ts` stay green (role-bound behavior unchanged when the value is passed explicitly).
+- [x] With `reviewRoleTimeoutMs` set in machine config, that value reaches `invokeReviewRole` for review and review-debate steps; a new test in `v2/src/commands/workflow.test.ts` asserts the built steps carry it and fails against the pre-fix code.
+- [x] With no key configured the resolved bound is `1_800_000` ms; a test asserts the built review step's `roleTimeoutMs` is present and equal to the default, so reverting the wiring (parameter unset) fails it.
+- [x] No production source under `v2/src` resolves a review-role bound from `DEFAULT_ITERATION_TIMEOUT_MS`; `review-role-invocation.ts` no longer imports from `write-loop.ts`.
+- [x] A non-positive or non-numeric `reviewRoleTimeoutMs` fails workflow launch with a message naming the key; a test covers it.
+- [x] Inverting each added guard (the validation reject, the config-value-present branch) makes a test fail; the reject's negative case proves the invalid value does not reach a built step.
+- [x] `v2/src/execution/review-role-invocation.test.ts` and `review-cycle.test.ts` stay green (role-bound behavior unchanged when the value is passed explicitly).
 
 ## Documentation updates
 

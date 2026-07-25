@@ -29,6 +29,7 @@ import { survivingMutationLogFields } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
+  type ReviewCycleOutcome,
   type ReviewCycleResult,
   type ReviewCycleRole,
 } from "./review-cycle.ts";
@@ -2171,6 +2172,33 @@ async function finalizeStandardReviewStep(
   return { ...landed, iterationsConsumed: result.cycles.length };
 }
 
+function resolveProfileReviewCompletion(lastCycle: ReviewCycleOutcome | undefined): {
+  kind: "complete" | "invocation_failure";
+  terminalRole: ReviewCycleRole;
+  completionAgent: string | undefined;
+} {
+  if (lastCycle?.kind === "role_failed") {
+    return { kind: "invocation_failure", terminalRole: lastCycle.failedRole, completionAgent: undefined };
+  }
+  const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
+  const actuatorExecution = actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
+  const completionAgent =
+    actuatorExecution?.result.kind === "ok" ? actuatorExecution.binding.metadata?.agent?.trim() : undefined;
+  return { kind: "complete", terminalRole: actuatorRan ? "actuator" : "critic", completionAgent };
+}
+
+function resolveProfileReviewRetryable(result: ReviewCycleResult, lastCycle: ReviewCycleOutcome | undefined): boolean {
+  if (result.kind !== "invocation_failure") {
+    return false;
+  }
+  const profileFailedRole = result.failedRole ?? (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
+  const failedRoleExecution =
+    lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
+  return isPostCommitReviewRetryableFailureKind(
+    buildReviewInvocationFailureDetail(result.failureKind, profileFailedRole, failedRoleExecution),
+  );
+}
+
 async function runProfileReviewStep(
   step: ReviewWorkflowStep,
   reviewInput: ReviewWorkflowCycleInput,
@@ -2201,26 +2229,13 @@ async function runProfileReviewStep(
   });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
-  const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
-  const terminalRole: ReviewCycleRole =
-    lastCycle?.kind === "role_failed"
-      ? lastCycle.failedRole
-      : lastCycle?.kind === "completed" && lastCycle.actuatorRan
-        ? "actuator"
-        : "critic";
+  const { kind, terminalRole, completionAgent } = resolveProfileReviewCompletion(lastCycle);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,
   });
-
-  const actuatorExecution =
-    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
-  const completionAgent =
-    kind === "complete" && actuatorExecution?.result.kind === "ok"
-      ? actuatorExecution.binding.metadata?.agent?.trim()
-      : undefined;
 
   if (kind === "complete" && step.landing !== undefined && step.landing.kind !== "none") {
     const landingError = await landReviewedPublicationOutput(step.cwd, step.landing, reviewInput.verdictPath);
@@ -2235,22 +2250,11 @@ async function runProfileReviewStep(
     }
   }
 
-  const profileFailedRole =
-    (result.kind === "invocation_failure" ? result.failedRole : undefined) ??
-    (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
-  const failedRoleExecution =
-    lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
-  const retryableFailure =
-    result.kind === "invocation_failure" &&
-    isPostCommitReviewRetryableFailureKind(
-      buildReviewInvocationFailureDetail(result.failureKind, profileFailedRole, failedRoleExecution),
-    );
-
   return {
     kind,
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: retryableFailure,
+    resumable: resolveProfileReviewRetryable(result, lastCycle),
     ...(completionAgent ? { completionAgent } : {}),
   };
 }

@@ -953,4 +953,27 @@ describe("createResolvedAgentBinding", () => {
     expect(binding.id).toBe("opencode/gpt-5/gpt-5");
     expect(binding.metadata).toEqual({ agent: "opencode", model: "gpt-5" });
   });
+  test("wired bindings forward output progress notifications from stdout and stderr", async () => {
+    const wired = [
+      { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+      { agentId: "codex", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "Composer 2.5" },
+    ] as const;
+
+    for (const args of wired) {
+      const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "chunk", stderr: "warn" }]);
+      let progressCalls = 0;
+      const binding = createResolvedAgentBinding(args, { spawn: fake.spawn });
+
+      await binding.invoke({
+        prompt: "p",
+        cwd: "/repo",
+        onOutputProgress: () => {
+          progressCalls += 1;
+        },
+      });
+
+      expect(progressCalls).toBeGreaterThan(0);
+    }
+  });
 });

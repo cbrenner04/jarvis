@@ -91,6 +91,9 @@ export type WriteLoopResult = {
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   iterationTimeoutMs?: number;
+  iterationCeilingMs?: number;
+  /** Test seam: when false, stdout/stderr progress does not re-arm the wall segment. */
+  resetIterationWallOnOutput?: boolean;
   stateStore?: StateStore;
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
@@ -631,20 +634,44 @@ function awaitIteration(
   const abortExecution = () => executionController.abort();
   if (args.signal?.aborted) abortExecution();
   args.signal?.addEventListener("abort", abortExecution, { once: true });
-  const execution = executeWrite(
-    buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
-  ).then(
+
+  const wallSegmentMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  let wallTimeout: ReturnType<typeof setTimeout> | undefined;
+  let ceilingTimeout: ReturnType<typeof setTimeout> | undefined;
+  let watchdogSettled = false;
+  let resolveWatchdog!: (value: IterationSettlement) => void;
+
+  const fireWatchdogTimeout = () => {
+    if (watchdogSettled) return;
+    watchdogSettled = true;
+    abortExecution();
+    resolveWatchdog({ kind: "timed_out" });
+  };
+
+  const bumpWallSegment = () => {
+    if (watchdogSettled) return;
+    if (wallTimeout !== undefined) clearTimeout(wallTimeout);
+    wallTimeout = setTimeout(fireWatchdogTimeout, wallSegmentMs);
+  };
+
+  const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
+
+  const watchdog = new Promise<IterationSettlement>((resolve) => {
+    resolveWatchdog = resolve;
+    bumpWallSegment();
+    if (args.iterationCeilingMs !== undefined) {
+      ceilingTimeout = setTimeout(fireWatchdogTimeout, args.iterationCeilingMs);
+    }
+  });
+
+  const execution = executeWrite({
+    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
+    ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
+  }).then(
     (result): IterationSettlement => ({ kind: "settled", result }),
     (error): IterationSettlement => ({ kind: "threw", error }),
   );
-  let timeout: ReturnType<typeof setTimeout> | undefined;
   let removeAbort: (() => void) | undefined;
-  const watchdog = new Promise<IterationSettlement>((resolve) => {
-    timeout = setTimeout(() => {
-      abortExecution();
-      resolve({ kind: "timed_out" });
-    }, args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS);
-  });
   const abort = new Promise<IterationSettlement>((resolve) => {
     if (!args.signal) return;
     const resolveAbort = () => queueMicrotask(() => resolve({ kind: "aborted" }));
@@ -654,7 +681,9 @@ function awaitIteration(
     removeAbort = () => args.signal?.removeEventListener("abort", onAbort);
   });
   return Promise.race([execution, watchdog, abort]).finally(() => {
-    if (timeout !== undefined) clearTimeout(timeout);
+    watchdogSettled = true;
+    if (wallTimeout !== undefined) clearTimeout(wallTimeout);
+    if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
     args.signal?.removeEventListener("abort", abortExecution);
     removeAbort?.();
   });

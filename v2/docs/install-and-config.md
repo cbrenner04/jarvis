@@ -95,6 +95,23 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
+### Write-path iteration bounds
+
+Direct `jarvis write` and workflow write steps resolve three optional machine keys from
+`~/.jarvis/config.json` before dispatch:
+
+| Key | Role | Default | Validation |
+| --- | --- | --- | --- |
+| `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
+| `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
+| `idleOutputTimeoutMs` | Idle-output watchdog budget (write-path ordering today) | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+
+Inverted idle/wall or wall/ceiling ordering fails at load with a message naming both
+compared keys and numeric values. `idleOutputTimeoutMs` is validated on the write path
+today but is not yet armed on write invocations (idle watchdog is a separate follow-on).
+Resolved `iterationTimeoutMs` and `iterationCeilingMs` are stamped on workflow write
+steps and persisted in workflow snapshots for resume and revise.
+
 An explicit `jarvis run workflow implement --review-passes <n>` overrides the
 registered-project value; `--review-passes 0` skips review. An explicit
 `--review-behavior debate|light` overrides the registered-project review

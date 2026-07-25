@@ -900,7 +900,9 @@ ${IDLE_HANG_WAIT}
     });
 
     test("silent but file-editing agent is not killed by idle watchdog", async () => {
-      const idleTimeoutMs = 800;
+      // File activity is sampled only once the idle span elapses with no stdout/stderr.
+      // Keep the span well above subprocess start + first write under parallel CI load.
+      const idleTimeoutMs = 4000;
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
       const fileEditScript = join(projectRoot, "file-edit-agent.sh");
@@ -908,10 +910,11 @@ ${IDLE_HANG_WAIT}
         fileEditScript,
         `#!/usr/bin/env bash
 set -euo pipefail
-# Edit a file every 300ms, but emit no output — should not trigger idle timeout
-for i in {1..5}; do
+# Emit no stdout/stderr; file mtimes must satisfy the idle watchdog.
+echo "boot" >> "$PWD/output.txt"
+for i in {1..6}; do
   echo "edit $i" >> "$PWD/output.txt"
-  sleep 0.3
+  sleep 0.25
 done
 echo "done"
 `,

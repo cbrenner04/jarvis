@@ -68,6 +68,7 @@ export type WorkflowSnapshotStep = {
   agents?: readonly string[];
   agentModelConfig?: AgentModelConfig;
   iterationTimeoutMs?: number;
+  iterationCeilingMs?: number;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

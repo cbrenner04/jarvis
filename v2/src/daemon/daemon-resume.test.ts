@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -114,6 +114,7 @@ function createWorkflowRun(overrides: {
   role?: string;
   agents?: readonly string[];
   iterationTimeoutMs?: number;
+  iterationCeilingMs?: number;
   stepRules?: string;
 }): string {
   return stateStore.createRun({
@@ -134,6 +135,7 @@ function createWorkflowRun(overrides: {
           agents: overrides.agents ?? ["codex"],
           agentModelConfig: AGENT_MODEL_CONFIG,
           ...(overrides.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: overrides.iterationTimeoutMs } : {}),
+          ...(overrides.iterationCeilingMs !== undefined ? { iterationCeilingMs: overrides.iterationCeilingMs } : {}),
         },
       ],
     },
@@ -236,6 +238,56 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
   expect(starts[0]?.stepRules).toBe("resume rules");
   expect(starts[0]?.stepId).toBe("step-1");
   expect(starts[0]?.iterationTimeoutMs).toBe(123);
+});
+
+test("resume resolves iterationCeilingMs when snapshot step has wall segment only", async () => {
+  const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-"));
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = isolatedHome;
+  writeFileSync(join(isolatedHome, "config.json"), JSON.stringify({ iterationCeilingMs: 2_222_222 }));
+
+  try {
+    const pausedRunId = createWorkflowRun({
+      invocationId: "legacy-wall-only",
+      iterationTimeoutMs: 123,
+    });
+    stateStore.setRunStatus(pausedRunId, "paused");
+
+    const response = await resumeDirect(handlers, pausedRunId);
+
+    expect(response).toEqual({ kind: "response", result: { ok: true } });
+    expect(starts[0]?.iterationTimeoutMs).toBe(123);
+    expect(starts[0]?.iterationCeilingMs).toBe(2_222_222);
+  } finally {
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(isolatedHome, { recursive: true, force: true });
+  }
+});
+
+test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => {
+  const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-persisted-"));
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = isolatedHome;
+  writeFileSync(join(isolatedHome, "config.json"), JSON.stringify({ iterationCeilingMs: 9_999_999 }));
+
+  try {
+    const pausedRunId = createWorkflowRun({
+      invocationId: "both-bounds",
+      iterationTimeoutMs: 123,
+      iterationCeilingMs: 456,
+    });
+    stateStore.setRunStatus(pausedRunId, "paused");
+
+    const response = await resumeDirect(handlers, pausedRunId);
+
+    expect(response).toEqual({ kind: "response", result: { ok: true } });
+    expect(starts[0]?.iterationCeilingMs).toBe(456);
+  } finally {
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(isolatedHome, { recursive: true, force: true });
+  }
 });
 
 test("resume on a killed workflow write run uses the persisted step contract", async () => {

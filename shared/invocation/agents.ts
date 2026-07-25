@@ -47,12 +47,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
         runClaudeBinding({
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -65,12 +66,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs }) => {
+      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) => {
         const runArgs = {
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -87,12 +89,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
         runCursorBinding({
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -117,9 +120,22 @@ type AgentRunOptions = {
   abortKillGraceMs?: number;
   sleepMs?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
   idleOutputMs?: number;
+  onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
 };
+
+function pickAgentRunOptions(
+  args: Pick<AgentRunOptions, "signal" | "idleOutputMs" | "onOutputProgress" | "setTimeout" | "clearTimeout">,
+): AgentRunOptions {
+  return {
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+    ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
+    ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
+  };
+}
 
 type SpawnConfig = {
   name: AgentName;
@@ -286,9 +302,18 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       settleNonZeroExit(code ?? -1);
     };
 
+    const notifyOutputProgress = () => {
+      try {
+        opts.onOutputProgress?.();
+      } catch {
+        // Progress hooks are observability only; they must never fail the invocation.
+      }
+    };
+
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
       armIdleTimer();
+      notifyOutputProgress();
     });
     stdout.on("end", () => {
       stdoutEnded = true;
@@ -300,6 +325,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
       armIdleTimer();
+      notifyOutputProgress();
     });
     stderr.on("end", () => {
       stderrEnded = true;
@@ -454,6 +480,7 @@ async function runClaudeBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   spawn?: SpawnFn;
@@ -483,12 +510,7 @@ async function runClaudeBinding(args: {
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     args.prompt,
-    {
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
-      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
-    },
+    pickAgentRunOptions(args),
   );
   return finalizeClaudeInvocationResult(result);
 }
@@ -499,6 +521,7 @@ async function runCodexBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   spawn?: SpawnFn;
@@ -535,12 +558,7 @@ async function runCodexBinding(args: {
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     `${args.prompt}\n${invocationMarker}`,
-    {
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
-      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
-    },
+    pickAgentRunOptions(args),
   );
 
   if (result.kind !== "ok") {
@@ -571,6 +589,7 @@ async function runCursorBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   spawn?: SpawnFn;
@@ -599,12 +618,7 @@ async function runCursorBinding(args: {
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     args.prompt,
-    {
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
-      ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
-    },
+    pickAgentRunOptions(args),
   );
   return finalizeCursorInvocationResult(result);
 }

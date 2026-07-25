@@ -19,19 +19,19 @@ same duration before `iteration_timeout`.
 
 ## Tasks
 
-- [ ] Replace the flat `awaitIteration` watchdog with a resettable wall segment plus an absolute ceiling timer from iteration start.
-- [ ] Hook stdout/stderr progress from the write invocation into wall-segment reset (same stream surface idle detection will use later).
-- [ ] Plumb optional `iterationCeilingMs` on `WriteLoopInput` for tests and later config resolution.
-- [ ] Add regression tests for extension, ceiling, guard inversion, and stall preservation.
-- [ ] Update durable write-loop docs listed below.
+- [x] Replace the flat `awaitIteration` watchdog with a resettable wall segment plus an absolute ceiling timer from iteration start.
+- [x] Hook stdout/stderr progress from the write invocation into wall-segment reset (same stream surface idle detection will use later).
+- [x] Plumb optional `iterationCeilingMs` on `WriteLoopInput` for tests and later config resolution.
+- [x] Add regression tests for extension, ceiling, guard inversion, and stall preservation.
+- [x] Update durable write-loop docs listed below.
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `progress output resets the iteration wall so a slow emitter completes` drives an agent that keeps emitting past the configured wall segment and asserts the iteration completes successfully; disabling wall reset on output fails the test.
-- [ ] `write-loop.test.ts` test `continuous output cannot extend an iteration past the hard ceiling` drives steady stdout/stderr progress and asserts `iteration_timeout` at the injected ceiling while the wall segment alone would not yet fire; fails against pre-fix flat-timer-only `awaitIteration`.
-- [ ] `write-loop.test.ts` `stalled executeWrite terminates the started attempt as iteration_timeout` stays green (silent stall still fences at the wall segment without progress).
-- [ ] `write-loop.test.ts` abort-vs-watchdog race coverage for `iteration_timeout` stays green.
-- [ ] `bun test v2/src/execution/write-loop.test.ts` passes.
+- [x] `write-loop.test.ts` test `progress output resets the iteration wall so a slow emitter completes` drives an agent that keeps emitting past the configured wall segment and asserts the iteration completes successfully; disabling wall reset on output fails the test.
+- [x] `write-loop.test.ts` test `continuous output cannot extend an iteration past the hard ceiling` drives steady stdout/stderr progress and asserts `iteration_timeout` at the injected ceiling while the wall segment alone would not yet fire; fails against pre-fix flat-timer-only `awaitIteration`.
+- [x] `write-loop.test.ts` `stalled executeWrite terminates the started attempt as iteration_timeout` stays green (silent stall still fences at the wall segment without progress).
+- [x] `write-loop.test.ts` abort-vs-watchdog race coverage for `iteration_timeout` stays green.
+- [x] `bun test v2/src/execution/write-loop.test.ts` passes.
 
 ## Documentation updates
 

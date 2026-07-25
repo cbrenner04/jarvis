@@ -1,7 +1,7 @@
 import type { CliDeps } from "../cli/deps.ts";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
-import { loadMachineConfig, readIterationTimeoutMs } from "../config/machine-config-loader.ts";
+import { loadMachineConfig, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import type { WriteLoopInput, WriteLoopResult } from "../execution/write-loop.ts";
 import {
   buildWriteLoopInputFromCliValues,
@@ -48,7 +48,8 @@ export function parseWriteCliInput(argv: readonly string[], deps: CliDeps): Writ
     return { ok: false };
   }
   try {
-    return { ok: true, input: { ...built.input, iterationTimeoutMs: readIterationTimeoutMs(deps.machineConfigPath) } };
+    const bounds = resolveWritePathIterationBounds(deps.machineConfigPath);
+    return { ok: true, input: { ...built.input, ...bounds } };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, message: `${message}\n` };

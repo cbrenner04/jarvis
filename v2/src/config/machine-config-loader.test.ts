@@ -9,6 +9,7 @@ import {
   readProjectImplementReviewPasses,
   readProjectRegistry,
   resolveMachineProfile,
+  resolveWritePathIterationBounds,
   validateMachineConfigAgents,
 } from "./machine-config-loader.ts";
 
@@ -103,6 +104,57 @@ describe("resolveMachineProfile", () => {
 
   test.each([["home"], ["work"]])("configured profile %s is returned (open string)", (profile) => {
     expect(resolveMachineProfile(writeConfig({ machineProfile: profile }))).toBe(profile);
+  });
+});
+
+describe("write-path iteration bounds", () => {
+  test("rejects idleOutputTimeoutMs above iterationTimeoutMs with both keys and values", () => {
+    const configPath = writeConfig({
+      agents: ["claude"],
+      iterationTimeoutMs: 60_000,
+      idleOutputTimeoutMs: 120_000,
+      iterationCeilingMs: 1_800_000,
+    });
+    expect(() => resolveWritePathIterationBounds(configPath)).toThrow(
+      "Machine config 'idleOutputTimeoutMs' (120000) must not exceed 'iterationTimeoutMs' (60000)",
+    );
+  });
+
+  test("allows idleOutputTimeoutMs at or below iterationTimeoutMs", () => {
+    const configPath = writeConfig({
+      agents: ["claude"],
+      iterationTimeoutMs: 600_000,
+      idleOutputTimeoutMs: 90_000,
+      iterationCeilingMs: 1_800_000,
+    });
+    expect(resolveWritePathIterationBounds(configPath)).toEqual({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+    });
+  });
+
+  test("rejects iterationTimeoutMs above iterationCeilingMs with both keys and values", () => {
+    const configPath = writeConfig({
+      agents: ["claude"],
+      iterationTimeoutMs: 2_000_000,
+      iterationCeilingMs: 1_000_000,
+      idleOutputTimeoutMs: 0,
+    });
+    expect(() => resolveWritePathIterationBounds(configPath)).toThrow(
+      "Machine config 'iterationTimeoutMs' (2000000) must not exceed 'iterationCeilingMs' (1000000)",
+    );
+  });
+
+  test("allows iterationTimeoutMs at or below iterationCeilingMs", () => {
+    const configPath = writeConfig({
+      agents: ["claude"],
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+    });
+    expect(resolveWritePathIterationBounds(configPath)).toEqual({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+    });
   });
 });
 

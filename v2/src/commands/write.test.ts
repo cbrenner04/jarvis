@@ -140,22 +140,53 @@ describe("write command", () => {
     expect(parsed.bindingAttempts).toEqual(withDetail.bindingAttempts);
   });
 
-  test("write resolves iterationTimeoutMs from machine config", async () => {
+  test("write resolves iterationTimeoutMs and iterationCeilingMs from machine config", async () => {
     const cap = captureIo();
-    const configPath = writeMachineConfig({ iterationTimeoutMs: 123 });
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+      idleOutputTimeoutMs: 0,
+    });
     let capturedTimeout: number | undefined;
+    let capturedCeiling: number | undefined;
 
     const code = await main(fx.writeArgs, cap.io, {
       machineConfigPath: configPath,
       loadAgentModelConfig: stubAgentModelConfig,
       executeWriteLoop: async (input) => {
         capturedTimeout = input.iterationTimeoutMs;
+        capturedCeiling = input.iterationCeilingMs;
         return completeResult();
       },
     });
 
     expect(code).toBe(0);
-    expect(capturedTimeout).toBe(123);
+    expect(capturedTimeout).toBe(600_000);
+    expect(capturedCeiling).toBe(1_800_000);
+  });
+
+  test("write rejects inverted write-path iteration bounds before the loop", async () => {
+    const cap = captureIo();
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 60_000,
+      idleOutputTimeoutMs: 120_000,
+      iterationCeilingMs: 1_800_000,
+    });
+    let executeCalled = false;
+
+    const code = await main(fx.writeArgs, cap.io, {
+      machineConfigPath: configPath,
+      loadAgentModelConfig: stubAgentModelConfig,
+      executeWriteLoop: async () => {
+        executeCalled = true;
+        return completeResult();
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(executeCalled).toBe(false);
+    expect(cap.read().stderr).toContain("idleOutputTimeoutMs' (120000)");
+    expect(cap.read().stderr).toContain("iterationTimeoutMs' (60000)");
   });
 
   test("mints an operatorSessionId when no caller-supplied telemetry is present", async () => {

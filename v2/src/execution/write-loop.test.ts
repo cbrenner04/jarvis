@@ -2279,6 +2279,107 @@ describe("write loop", () => {
     }
   });
 
+  test("progress output resets the iteration wall so a slow emitter completes", async () => {
+    const wallMs = 35;
+    const runMs = wallMs * 2 + 25;
+    const ceilingMs = runMs + 200;
+
+    async function runWithWallReset(resetIterationWallOnOutput: boolean | undefined, branchName: string) {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      mock.module("./write.ts", () => ({
+        executeWrite: async (input: WriteExecuteInput) => {
+          const start = Date.now();
+          while (Date.now() - start < runMs) {
+            input.onInvocationOutputProgress?.();
+            await new Promise<void>((resolve) => setTimeout(resolve, 8));
+            if (input.signal?.aborted) {
+              throw new Error("aborted");
+            }
+          }
+          return {
+            worktreePath: join(jarvisRoot, "worktrees", "demo", branchName),
+            worktreeReused: false,
+            lock: { kind: "acquired" as const },
+            result: {
+              kind: "complete" as const,
+              token: "done" as const,
+              invocation: { attempts: [], final: null, telemetryFailures: [] },
+            },
+          };
+        },
+      }));
+
+      try {
+        return await executeWriteLoop({
+          worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: simulatedBindings(["done"]),
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          iterationTimeoutMs: wallMs,
+          iterationCeilingMs: ceilingMs,
+          ...(resetIterationWallOnOutput !== undefined ? { resetIterationWallOnOutput } : {}),
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    }
+
+    const completed = await runWithWallReset(true, "wall-reset-complete");
+    expect(completed).toMatchObject({ kind: "complete", iterationsConsumed: 1 });
+
+    const timedOut = await runWithWallReset(false, "wall-reset-stall");
+    expect(timedOut).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+  });
+
+  test("continuous output cannot extend an iteration past the hard ceiling", async () => {
+    const wallMs = 25;
+    const ceilingMs = 70;
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const startedAt = Date.now();
+
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => {
+        while (!input.signal?.aborted) {
+          input.onInvocationOutputProgress?.();
+          await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error("aborted");
+      },
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "ceiling-run", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        iterationTimeoutMs: wallMs,
+        iterationCeilingMs: ceilingMs,
+      });
+
+      const elapsed = Date.now() - startedAt;
+      expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+      expect(elapsed).toBeGreaterThanOrEqual(ceilingMs - 15);
+      expect(elapsed).toBeLessThan(ceilingMs + 150);
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
   test("stalled executeWrite terminates the started attempt as iteration_timeout", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));

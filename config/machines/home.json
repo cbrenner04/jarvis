@@ -12,8 +12,8 @@
       "implement": {
         "rungs": [
           {
-            "adapterModel": "claude-haiku-4-5-20251001",
-            "priceKey": "claude-haiku-4-5-20251001"
+            "adapterModel": "claude-sonnet-5",
+            "priceKey": "claude-sonnet-5"
           }
         ]
       },

@@ -22,6 +22,11 @@ type ReadyGateRepairEvent = {
   gateExitCode: number | undefined;
 };
 
+type ReadyGateTimeoutEvent = {
+  kind: "ready_gate_timeout";
+  gateExitCode: number | undefined;
+};
+
 export type LoopFinishedEvent = {
   kind: "loop_finished";
   loopOutcomeKind: WriteLoopOutcomeKind;
@@ -110,6 +115,7 @@ export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
+  | ReadyGateTimeoutEvent
   | LoopFinishedEvent
   | RuntimeSmokeOutcomeEvent
   | RunExecutionFailedEvent

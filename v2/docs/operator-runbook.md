@@ -342,8 +342,12 @@ and finalization proceeds rather than erroring. Non-test steps (`check`, `typech
 insufficient without a green gate on the branch head.
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
-consumes the iteration budget and republishes before the gate is rerun. Flip failures are not repaired;
-resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
+consumes the iteration budget and republishes before the gate is rerun. A deadline-killed gate (exit code 124 or
+`ready: deadline exceeded after Nms; killing child tree` in the captured output) skips repair, logs `ready_gate_timeout`,
+and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate: the gate passed locally and
+timed out under gate resource constraints (shared tests hit the deadline from `shared/**` changes). Resume to re-run
+the gate with more time or decomposed in narrower scope. Flip failures are not repaired; resume a `ready_gate_failed`
+or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 

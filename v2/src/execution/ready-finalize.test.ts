@@ -306,6 +306,87 @@ index 1234567..abcdefg 100644
     expect(calls[0]?.env?.JARVIS_READY_TEST_SCOPE).toBe("test:v2 test:integration:v2");
   });
 
+  it("classifies gate failure with exit 124 as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 124, "", "", undefined);
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.exitCode).toBe(124);
+    }
+  });
+
+  it("classifies gate failure with deadline marker in output as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 1, "ready: deadline exceeded after 600000ms; killing child tree\n", "", undefined);
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.exitCode).toBe(1);
+    }
+  });
+
+  it("classifies non-timeout gate failure (exit 1, no marker) as not timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync() {
+          throw new AsyncSubprocessError("ready failed", 1, "test failure\n", "stderr\n", undefined);
+        },
+      },
+    });
+
+    try {
+      await finalizer(input);
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(false);
+      expect(gateError.exitCode).toBe(1);
+    }
+  });
+
+  it("classifies required-integration failure with exit 124 as timed out", async () => {
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      ghReadyFlip: async () => {},
+      asyncSubprocessRunner: {
+        async runAsync(cmd, args) {
+          if (cmd === "bun" && args?.[0] === "run" && args?.[1] === "test:integration:v2") {
+            throw new AsyncSubprocessError("integration test failed", 124, "", "", undefined);
+          }
+          return "";
+        },
+      },
+    });
+
+    try {
+      await finalizer({ ...input, requiredIntegrationScope: "test:integration:v2" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.timedOut).toBe(true);
+      expect(gateError.command).toBe("test:integration:v2");
+    }
+  });
+
   it("falls back to JARVIS_READY_TEST_SCOPE=full when diff fails", async () => {
     const calls: Array<{ env: NodeJS.ProcessEnv | undefined }> = [];
     const mockRunner: AsyncSubprocessRunner = {

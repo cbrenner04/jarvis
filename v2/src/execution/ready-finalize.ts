@@ -1,4 +1,5 @@
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
+import { DEADLINE_KILL_MARKER, TIMEOUT_EXIT_CODE } from "../../../scripts/ready.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -60,6 +61,7 @@ export class ReadyGateError extends Error {
     readonly command: string,
     readonly exitCode: number | undefined,
     readonly output: string,
+    readonly timedOut: boolean = false,
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
@@ -124,6 +126,10 @@ export class RuntimeSmokeFailedError extends Error {
 
 const READY_GATE_MAX_BUFFER = 16 * 1024 * 1024;
 
+function isDeadlineKilledGate(exitCode: number | undefined, output: string): boolean {
+  return exitCode === TIMEOUT_EXIT_CODE || output.includes(DEADLINE_KILL_MARKER);
+}
+
 async function getChangedPathsWithResolvability(
   runner: AsyncSubprocessRunner,
   worktreePath: string,
@@ -176,7 +182,9 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
-        throw new ReadyGateError("bun run ready", error.status, `${error.stdout}${error.stderr}`);
+        const output = `${error.stdout}${error.stderr}`;
+        const timedOut = isDeadlineKilledGate(error.status, output);
+        throw new ReadyGateError("bun run ready", error.status, output, timedOut);
       }
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError("bun run ready", undefined, detail);
@@ -194,7 +202,9 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
-        throw new ReadyGateError(scope, error.status, `${error.stdout}${error.stderr}`);
+        const output = `${error.stdout}${error.stderr}`;
+        const timedOut = isDeadlineKilledGate(error.status, output);
+        throw new ReadyGateError(scope, error.status, output, timedOut);
       }
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError(scope, undefined, detail);

@@ -563,18 +563,37 @@ cycle with enforcement (for intent workflows).
 Each role invocation (`critic`, `actuator`, and every `review-debate` role) is
 armed with two bounds: a per-role wall-clock bound (`roleTimeoutMs`, resolved
 from `reviewRoleTimeoutMs` at prepare time, default `1,800,000` ms) and a per-role idle-output budget
-(`idleOutputMs`, defaulting to 90_000 ms). A wall-clock timer abort classifies
-as `failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution.
+(`idleOutputMs`, defaulting to 90_000 ms). A wall-clock timeout on one binding
+escalates to the next binding in the flat rung/agent list instead of settling
+immediately, the same as quota; only the last binding's timeout classifies as
+`failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution. The
+wall clock and idle budget are armed once per escalation segment (one
+`executeWithQuotaFallback` call over the remaining binding suffix), not once
+per rung — a rung reached by in-segment quota advancement shares the rest of
+that segment's clock rather than getting a fresh timer; only a rung that starts
+a new segment (after a prior segment timed out) gets a full fresh bound.
 An idle-output stall (no stdout/stderr for `idleOutputMs`) classifies as
-`failureKind: "stall"` with identical attribution. Both settle as `invocation_failure`
-on the run row. A timeout returns `resumable: true` and daemon `error.reason: "role_timeout"`
-(`nextAction: "retry_later"`); recovery is re-dispatching the same workflow, which
-in an implement workflow reuses the completed write step's checkpoint without
-re-invoking the write-step agent. The guard keys on `failureKind` alone, so an
-intent or plan review timeout is equally retryable with no write checkpoint behind
-it. A stall returns `resumable: true` and daemon `error.reason: "role_stalled"`
-(`nextAction: "retry_later"`); recovery matches the timeout path above. A caller-signal abort (pause/kill) keeps
-its existing failure kind.
+`failureKind: "stall"` with identical attribution and does not escalate. Both settle as `invocation_failure`
+on the run row. A terminal timeout (every configured rung timed out, including a
+single-binding list) sets `exhaustedRoleTimeout: true` on the detail and lists every
+rung tried in `bindingAttempts` in profile order (`bindingId`, `agent`, `model`, and
+`resultKind` — the rung(s) actually aborted by the wall clock report `"timeout"`;
+a rung consumed by quota before the abort reports its real `InvocationResult`
+kind, e.g. `"quota"`). When any rung in the invocation was consumed by quota
+rather than the wall clock, `exhaustedRoleTimeout` is `false` even though the
+settling `failureKind` is `"timeout"` — the deterministic-wall argument for
+`stop` only holds when every rung genuinely timed out. An exhausted timeout
+returns `resumable: false` and daemon `error.reason: "role_timeout"`
+(`nextAction: "stop"`) — the wall is deterministic, so re-dispatching just spends the same
+N × bound again. A non-exhausted timeout (mixed quota/timeout) and a stall both
+return `resumable: true` and daemon `error.reason: "role_stalled"` for stall
+(`nextAction: "retry_later"`); recovery is re-dispatching the same workflow, which in an
+implement workflow reuses the completed write step's checkpoint without re-invoking the
+write-step agent. The guard keys on the exhausted gate, not `failureKind` alone. A
+successful (`ok`) result on a binding wins over a concurrently-firing wall-clock timer —
+it settles the invocation rather than escalating or discarding the success. A
+caller-signal abort (pause/kill) keeps its existing failure kind and does not advance
+to a further binding.
 
 **Enforcement and isolation:** When the intent profile is configured,
 the review step enforces role filesystem boundaries. Before and after each

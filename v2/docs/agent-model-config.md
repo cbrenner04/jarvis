@@ -242,6 +242,22 @@ Aligned with [`shared-invocation.md`](shared-invocation.md):
 [Composed fallback](#composed-fallback)). Mid-chain `quota` walks the flat list.
 `model_config` and `error` do not advance.
 
+**Role wall-clock timeout** (`invokeReviewRole`) composes with the above: on
+`roleTimeoutMs` overrun for the in-flight binding, escalation resumes at the
+next binding in the flat list (same as quota) rather than settling `roleTimeout`
+immediately. `roleTimeout` is terminal only after the last binding in the list
+times out.
+
+The wall clock is armed once per escalation **segment**, not once per rung: a
+segment is one `executeWithQuotaFallback` call over the remaining binding
+suffix, so a rung reached via in-segment quota advancement shares whatever is
+left of that segment's clock rather than getting a fresh `roleTimeoutMs`. Only
+a rung that starts a new segment (i.e. is reached after a prior segment timed
+out) gets a full fresh timer. Worst-case wall time is bounded by segment count,
+not rung count, and is `N × bound` only when every rung times out with no
+in-segment quota advancement between them. The idle-output budget is likewise
+per segment, not per rung.
+
 ## Load-time validation
 
 | Rule | On violation |

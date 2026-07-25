@@ -180,6 +180,8 @@ test("a hung critic is aborted at the role wall clock", async () => {
     agent: "critic",
     model: "hung",
     boundMs,
+    exhaustedRoleTimeout: true,
+    bindingAttempts: [{ bindingId: "critic.hung", resultKind: "timeout", agent: "critic", model: "hung" }],
   });
 });
 

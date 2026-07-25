@@ -17,7 +17,11 @@ import type { CompletionPublisher } from "./completion-publisher.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
-import type { InvocationFailureDetail, InvocationFailureKind } from "./invocation-failure.ts";
+import {
+  type InvocationFailureDetail,
+  type InvocationFailureKind,
+  isExhaustedRoleTimeout,
+} from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -85,8 +89,11 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
 
-export function isPostCommitReviewRetryableFailureKind(failureKind: InvocationFailureKind): boolean {
-  return failureKind === "timeout" || failureKind === "stall";
+export function isPostCommitReviewRetryableFailureKind(
+  detail: Pick<InvocationFailureDetail, "failureKind" | "exhaustedRoleTimeout">,
+): boolean {
+  if (detail.failureKind === "stall") return true;
+  return detail.failureKind === "timeout" && !isExhaustedRoleTimeout(detail);
 }
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
@@ -1549,7 +1556,7 @@ async function runReviewDebateStep(
     ...onRoleStart,
   });
 
-  const { kind, failureKind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
+  const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -1562,33 +1569,18 @@ async function runReviewDebateStep(
     if (landingFailure !== undefined) return landingFailure;
   }
 
-  if (kind === "invocation_failure") {
-    const failed = result.cycles.at(-1);
-    store.commitCompletionBoundary({
-      attemptId,
-      runStatus: "failed",
-      outcomeKind: "invocation_failure",
-      ...(failed?.kind === "role_failed"
-        ? {
-            invocationFailureDetail: buildReviewInvocationFailureDetail(
-              failed.failureKind,
-              failed.failedRole,
-              failed.roleResults[failed.failedRole],
-            ),
-          }
-        : {}),
-    });
-  } else {
-    store.commitCompletionBoundary({
-      attemptId,
-      runStatus: "completed",
-      outcomeKind: "done",
-      ...(completionAgent ? { completionAgent } : {}),
-    });
-  }
+  const failed = result.cycles.at(-1);
+  const failureDetail =
+    kind === "invocation_failure" && failed?.kind === "role_failed"
+      ? buildReviewInvocationFailureDetail(failed.failureKind, failed.failedRole, failed.roleResults[failed.failedRole])
+      : undefined;
+
+  commitReviewDebateOutcome(store, attemptId, kind, failureDetail, completionAgent);
 
   const retryableFailure =
-    kind === "invocation_failure" && failureKind !== undefined && isPostCommitReviewRetryableFailureKind(failureKind);
+    kind === "invocation_failure" &&
+    failureDetail !== undefined &&
+    isPostCommitReviewRetryableFailureKind(failureDetail);
 
   return {
     kind,
@@ -1597,6 +1589,30 @@ async function runReviewDebateStep(
     resumable: retryableFailure,
     ...(completionAgent ? { completionAgent } : {}),
   };
+}
+
+function commitReviewDebateOutcome(
+  store: StateStore,
+  attemptId: string,
+  kind: "complete" | "invocation_failure",
+  failureDetail: InvocationFailureDetail | undefined,
+  completionAgent: string | undefined,
+): void {
+  if (kind === "invocation_failure") {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      ...(failureDetail !== undefined ? { invocationFailureDetail: failureDetail } : {}),
+    });
+    return;
+  }
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
 }
 
 /** Lands a review step's deferred publication output, failing the attempt on error. */
@@ -1644,7 +1660,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     lastAttempt?.outcomeKind !== "invocation_failure" ||
     detail?.role !== "actuator" ||
     detail.failureKind === undefined ||
-    !isPostCommitReviewRetryableFailureKind(detail.failureKind)
+    !isPostCommitReviewRetryableFailureKind(detail)
   ) {
     return undefined;
   }
@@ -1718,17 +1734,18 @@ async function tryActuatorOnlyReviewDebateRetry(
   });
 
   if (failureKind !== null) {
+    const detail = buildReviewInvocationFailureDetail(failureKind, "actuator", execution);
     store.commitCompletionBoundary({
       attemptId,
       runStatus: "failed",
       outcomeKind: "invocation_failure",
-      invocationFailureDetail: buildReviewInvocationFailureDetail(failureKind, "actuator", execution),
+      invocationFailureDetail: detail,
     });
     return {
       kind: "invocation_failure",
       runId,
       iterationsConsumed: 1,
-      resumable: isPostCommitReviewRetryableFailureKind(failureKind),
+      resumable: isPostCommitReviewRetryableFailureKind(detail),
     };
   }
 
@@ -1955,7 +1972,7 @@ function buildReviewInvocationFailureDetail(
   const attribution = roleTimeout ?? roleExecution?.idleTimeout;
   return {
     failureKind,
-    bindingAttempts: [],
+    bindingAttempts: roleTimeout?.bindingAttempts ?? [],
     message:
       roleTimeout !== undefined
         ? `review: ${failedRole} exceeded ${roleTimeout.boundMs}ms bound (agent=${roleTimeout.agent ?? "unknown"}, model=${roleTimeout.model ?? "unknown"})`
@@ -2083,18 +2100,15 @@ function standardReviewRoleFailureOutcome(
   const lastCycle = result.cycles.at(-1);
   const failedRole = result.failedRole ?? (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
   const roleExecution = lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
+  const detail = buildReviewInvocationFailureDetail(result.failureKind, failedRole, roleExecution, message);
   if (landing?.kind === "intent-stage") {
-    commitIntentStageInvocationFailure(
-      store,
-      ids,
-      buildReviewInvocationFailureDetail(result.failureKind, failedRole, roleExecution, message),
-    );
+    commitIntentStageInvocationFailure(store, ids, detail);
   }
   return {
     kind: "invocation_failure",
     runId: ids.runId,
     iterationsConsumed: result.cycles.length,
-    resumable: isPostCommitReviewRetryableFailureKind(result.failureKind),
+    resumable: isPostCommitReviewRetryableFailureKind(detail),
     ...(landing?.kind === "intent-stage" ? { invocationFailureMessage: message } : {}),
   };
 }
@@ -2221,8 +2235,16 @@ async function runProfileReviewStep(
     }
   }
 
+  const profileFailedRole =
+    (result.kind === "invocation_failure" ? result.failedRole : undefined) ??
+    (lastCycle?.kind === "role_failed" ? lastCycle.failedRole : "review");
+  const failedRoleExecution =
+    lastCycle?.kind === "role_failed" ? lastCycle.roleResults[lastCycle.failedRole] : undefined;
   const retryableFailure =
-    result.kind === "invocation_failure" && isPostCommitReviewRetryableFailureKind(result.failureKind);
+    result.kind === "invocation_failure" &&
+    isPostCommitReviewRetryableFailureKind(
+      buildReviewInvocationFailureDetail(result.failureKind, profileFailedRole, failedRoleExecution),
+    );
 
   return {
     kind,

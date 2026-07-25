@@ -7,7 +7,16 @@ every time, while the other three review roles finish in well under three minute
 `role_timeout` / `retry_later`, and the documented recovery — re-dispatch the same workflow —
 reproduces the identical failure, because the cause is deterministic, not flaky.
 
-The configured fallback cannot rescue it: `claude.actuator` already declares two rungs
+**The bound was never chosen for review.** `review-role-invocation.ts:37` reads
+`const boundMs = args.roleTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS`, and
+`DEFAULT_ITERATION_TIMEOUT_MS = 600_000` is the **write loop's** iteration default
+(`write-loop.ts:142`). `roleTimeoutMs` is declared on three types (`review-role-invocation.ts:29`,
+`review-cycle.ts:31`, `review-debate.ts:50`) and forwarded once (`workflow-runner.ts:1971`), but
+**nothing in the repo ever sets it** — no machine-config key, no CLI flag. Every review role in
+every workflow therefore inherits a write-loop constant by accident, and the operator has no way to
+raise it short of editing source.
+
+The configured fallback cannot rescue it either: `claude.actuator` declared two rungs
 (`claude-opus-5` → `claude-sonnet-5`), but the agent order advances **on quota only**
 (`AGENTS.md`), so a wall-clock overrun never reaches the second rung. The actuator gets one shot at
 the model that cannot finish in time.
@@ -63,6 +72,14 @@ times; the actuator's partial edits were left uncommitted in the worktree.
 - The actuator must not restart the whole workflow to be retried. Its input is the adjudicated
   verdict, which is already persisted — re-running the write and shrink steps to reach it is pure
   waste. Rules out re-dispatch as the only actuator retry.
+- Make the review-role bound a real, operator-settable value rather than an accidental fallback to
+  the write-loop constant: add a machine-config key, resolve it where the other write-path bounds
+  are resolved, and thread it into the already-declared `roleTimeoutMs`. Rules out leaving a
+  plumbed-but-never-set parameter, which is why this was invisible until it failed.
+- Default the review-role bound to **1_800_000 ms**, matching `DEFAULT_ITERATION_CEILING_MS` from
+  the progress-extended wall work (#2121), and stop defaulting it to
+  `DEFAULT_ITERATION_TIMEOUT_MS`. Rules out keeping a 600s bound whose p90 is already 548s. Turning
+  review off (`--review-passes 0`) is not an acceptable standing workaround.
 - Size the actuator's bound against the work it is given, or bound the diff it receives — a role
   whose input scales with diff size cannot have a fixed wall that a normal diff exceeds. The write
   step already does the same diff-scaled work at p90 760s against a far larger budget, so the
@@ -83,6 +100,12 @@ times; the actuator's partial edits were left uncommitted in the worktree.
 - [ ] Retrying a timed-out actuator reuses the persisted adjudicated verdict and does not re-invoke
       the write or shrink steps; a test asserts neither is invoked.
 - [ ] A role that completes inside its bound is unaffected and consumes no extra rung.
+- [ ] The review-role bound is resolved from machine config and reaches `review-role-invocation`
+      through `roleTimeoutMs`; a test asserts a configured value is honored and that the default is
+      1_800_000 ms, not `DEFAULT_ITERATION_TIMEOUT_MS`. Reverting the wiring so the parameter goes
+      unset fails the test.
+- [ ] No production path resolves a review-role bound from `write-loop.ts`'s
+      `DEFAULT_ITERATION_TIMEOUT_MS`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

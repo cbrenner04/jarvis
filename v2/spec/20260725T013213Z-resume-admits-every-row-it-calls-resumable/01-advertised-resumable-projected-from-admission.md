@@ -27,14 +27,14 @@ fixes one such disagreement; this one removes the class.
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/daemon-resume.test.ts` iterates every terminal `loopOutcomeKind` in
+- [x] A test in `v2/src/daemon/daemon-resume.test.ts` iterates every terminal `loopOutcomeKind` in
       `WRITE_LOOP_OUTCOME_KINDS` and asserts no row reports `resumable: true` on `wait` / `list` while
       `run resume` refuses it, and none reports `resumable: false` while `run resume` admits it; it fails
       against pre-fix code on at least the stale `paused`-on-`failed` row.
-- [ ] Inverting the admission guard fails that test.
-- [ ] A `failed` row whose terminal record is a stale `loop_finished` with `resumable: true` for `paused` or
+- [x] Inverting the admission guard fails that test.
+- [x] A `failed` row whose terminal record is a stale `loop_finished` with `resumable: true` for `paused` or
       `budget-exhausted` reports `resumable: false` on `wait` and `list`.
-- [ ] Existing `daemon-wait-run-completion.test.ts` and `daemon-start-list.test.ts` resumable assertions stay
+- [x] Existing `daemon-wait-run-completion.test.ts` and `daemon-start-list.test.ts` resumable assertions stay
       green (or are updated to the projected value where they pinned the log echo, with the change visible in
       the diff).
 

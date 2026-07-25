@@ -36,18 +36,18 @@ retryable `ready_gate_failed`.
 
 ## Acceptance criteria
 
-- [ ] A `failed` row whose last committed attempt is `blocked` and whose terminal
+- [x] A `failed` row whose last committed attempt is `blocked` and whose terminal
       `loop_finished` is `ready_gate_failed` with `resumable: true` is admitted by `jarvis run resume` and
       respawns from its persisted snapshot; a new `v2/src/daemon/daemon-resume.test.ts` case fails against
       pre-fix code with `terminal_run: Cannot resume a failed run`.
-- [ ] `composeRunOperatorError` reports `reason: "ready_gate_failed"`, `retryable: true`,
+- [x] `composeRunOperatorError` reports `reason: "ready_gate_failed"`, `retryable: true`,
       `nextAction: "resume"` for that row shape, covered by a new `v2/src/daemon/run-operator-error.test.ts`
       case that fails pre-fix.
-- [ ] Inverting the added precedence guard fails a test; the negative direction proves attempt detail still
+- [x] Inverting the added precedence guard fails a test; the negative direction proves attempt detail still
       wins when the terminal record is not a resumable finalization outcome.
-- [ ] `run-operator-error.test.ts` stale-log tests (`failed` + `loopOutcomeKind: "paused"` /
+- [x] `run-operator-error.test.ts` stale-log tests (`failed` + `loopOutcomeKind: "paused"` /
       `"budget-exhausted"` compose `harness_failure` / `stop`) stay green.
-- [ ] The precedence resolution is a pure exported helper covered by its own unit test, and `bun run check`
+- [x] The precedence resolution is a pure exported helper covered by its own unit test, and `bun run check`
       is green — no `noExcessiveCognitiveComplexity` violation on `composeRunOperatorError`.
 
 ## Documentation updates

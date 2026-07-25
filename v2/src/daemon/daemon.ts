@@ -449,14 +449,22 @@ function workflowSurvivingMutationOwner(
   siblingRuns: LoadedRun[],
   reader: LogReader | undefined,
 ): { run: LoadedRun; terminalRecord: PersistedRecord & { event: LoopFinishedEvent } } | undefined {
-  if (!isSettledRunStatus(rollupStatus) || entryRun.status === rollupStatus) return undefined;
-  const run = siblingRuns.find((sibling) => sibling.stepId?.endsWith("~shrink") && sibling.status === "failed");
-  const terminalRecord = run && findTerminalLogRecord(reader?.tail(run.id) ?? []);
-  return run &&
-    terminalRecord?.event.kind === "loop_finished" &&
-    terminalRecord.event.loopOutcomeKind === "surviving_mutation_failed"
-    ? { run, terminalRecord: terminalRecord as PersistedRecord & { event: LoopFinishedEvent } }
-    : undefined;
+  if (rollupStatus !== "failed" || entryRun.status === rollupStatus) return undefined;
+  let owner: { run: LoadedRun; terminalRecord: PersistedRecord & { event: LoopFinishedEvent } } | undefined;
+  for (const sibling of siblingRuns) {
+    if (sibling.status !== "failed") continue;
+    const terminalRecord = findTerminalLogRecord(reader?.tail(sibling.id) ?? []);
+    if (
+      terminalRecord?.event.kind !== "loop_finished" ||
+      terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed"
+    ) {
+      continue;
+    }
+    if (owner === undefined || terminalRecord.ts > owner.terminalRecord.ts) {
+      owner = { run: sibling, terminalRecord: terminalRecord as PersistedRecord & { event: LoopFinishedEvent } };
+    }
+  }
+  return owner;
 }
 
 export function projectWorkflowEntryResult(
@@ -623,10 +631,22 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return resultFrom(entryRun.id, rollupStatus, entryRecord);
     }
 
-    const entryResult = resultFrom(owner.run.id, rollupStatus, owner.terminalRecord);
+    // Built from the owner row's own operator error, not `resultFrom`: `resultFrom`'s
+    // unsupported-resume masking answers "can this exact row be resumed?", which for a
+    // review-step owner is always no and would blank out the mutation reason/detail below.
+    // Entry resumability is projected separately via `entryCanResume`, so that masking
+    // does not apply here.
+    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord);
+    const entryResult: WaitRunCompletionResult = {
+      runStatus: rollupStatus,
+      loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
+      iterationsConsumed: owner.terminalRecord.event.iterationsConsumed,
+      resumable: owner.terminalRecord.event.resumable,
+      ...(ownerError === undefined ? {} : { error: ownerError }),
+    };
     const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
     const entryCanResume = entryResumeContext?.ok === true;
-    return projectWorkflowEntryResult({ ...entryResult, runStatus: rollupStatus }, entryCanResume);
+    return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
 
   const spawnWriteLoop = (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput): void => {

@@ -21,7 +21,8 @@ import { implementReviewPromptProfile } from "../../../shared/prompts/review-imp
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
+import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
   createFakeWithExternalWorktree,
@@ -3536,6 +3537,60 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
+  test("settles a surviving-mutation failure on the durable review-debate step's own row, not the implement step's", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-review-durable-settle",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => ({
+        kind: "ok",
+        stdout: adapterModel === "ADJ" ? "" : "ok",
+        stderr: "",
+      })),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      const reviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement-review",
+      });
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement",
+      });
+      expect(reviewRun).not.toBeNull();
+      expect(reviewRun?.id).toBe(result.runId);
+      expect(implementRun?.id).not.toBe(result.runId);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+    });
+  });
+
   test("settles review-debate timeout after committed implement write step with resumable=true and preserves commit and verdict", async () => {
     const implementStep = createStep({
       stepId: "implement",
@@ -3971,6 +4026,204 @@ describe("executeWorkflow implement patch light review", () => {
         "(implement-review, critic, codex), (implement-review, actuator, codex)",
       );
       expect(store.listRuns()).toHaveLength(0);
+    });
+  });
+
+  function createPassingLightReviewStep(branchName: string, worktreePath: string): ReviewWorkflowStep {
+    return createPatchLightReviewStep({
+      branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createLightReviewBindingFactory(async () => ({ kind: "ok", stdout: "", stderr: "" }) as const),
+    });
+  }
+
+  test("redirects a failed publication tail to the implement step's shrink row when the last step is a non-durable review", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "publish-light-review-shrink",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.id).toBe(result.runId);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "surviving_mutation_failed",
+        resumable: true,
+        survivingMutation: "operator-flip: === → !==",
+        survivingMutationSourceFile: "src/guard.ts",
+        survivingMutationSourceLine: 17,
+      });
+    });
+  });
+
+  test("wait on the redirected durable row reports surviving_mutation_failed with resume detail", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "publish-light-review-wait",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
+    const logsPath = join(mkdtempSync(join(tmpdir(), "workflow-redirect-wait-")), "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      const handlers = createRunControlHandlers({
+        stateStore: store,
+        logReader: openLogReader(logsPath),
+        writeLoopExecutor: async () => undefined,
+        failureReporter: () => undefined,
+        hasMemoryHeadroom: () => true,
+        settleDelayMs: 0,
+      });
+      try {
+        const frame = await handlers.wait(
+          { kind: "request", id: "wait", method: "wait", params: { runId: result.runId } },
+          new AbortController().signal,
+        );
+        expect(frame.kind).toBe("response");
+        if (frame.kind !== "response") throw new Error("not a response");
+        expect(frame.result).toMatchObject({
+          runStatus: "failed",
+          error: {
+            reason: "surviving_mutation_failed",
+            retryable: true,
+            nextAction: "resume",
+            survivingMutation: "operator-flip: === → !==",
+            survivingMutationSourceFile: "src/guard.ts",
+            survivingMutationSourceLine: 17,
+          },
+        });
+      } finally {
+        handlers.close();
+      }
+    });
+  });
+
+  test("redirects a failed publication tail to the implement step's own row when no shrink row exists", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "publish-light-review-no-shrink",
+      suppressShrink: true,
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).toBeNull();
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement",
+      });
+      expect(implementRun).not.toBeNull();
+      expect(implementRun?.id).toBe(result.runId);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+    });
+  });
+
+  test("settles the redirected durable row completed when a non-durable review's publication succeeds", async () => {
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "publish-light-review-success",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: implementStep.worktree.branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.id).toBe(result.runId);
+      expect(store.loadRun(result.runId)?.status).toBe("completed");
     });
   });
 });

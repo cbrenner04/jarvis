@@ -30,21 +30,21 @@ only the workflow-owned tail leaks.
 
 ## Acceptance criteria
 
-- [ ] A workflow whose last step is a non-durable `review` step and whose publication fails with
+- [x] A workflow whose last step is a non-durable `review` step and whose publication fails with
       `surviving_mutation_failed` leaves a durable `failed` row carrying the terminal
       `loop_finished` with `loopOutcomeKind: "surviving_mutation_failed"`, `resumable: true`, and
       mutation/file/line; a new `workflow-runner.test.ts` case fails against pre-fix code (durable rows
       stay `completed` and no terminal record is reachable from any durable run id).
-- [ ] `run wait` on that durable run id reports `runStatus: "failed"` with `error.reason:
+- [x] `run wait` on that durable run id reports `runStatus: "failed"` with `error.reason:
       "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and mutation/file/line.
-- [ ] The same workflow whose publication succeeds still settles that durable row `completed` with no
+- [x] The same workflow whose publication succeeds still settles that durable row `completed` with no
       terminal failure record.
-- [ ] A workflow whose last step is a durable review step still settles that step's own row on both the
+- [x] A workflow whose last step is a durable review step still settles that step's own row on both the
       failure and success paths (existing `workflow-runner.test.ts` publication cases stay green).
-- [ ] Inverting each added guard (the non-durable-last-step branch and the shrink-row-present branch)
+- [x] Inverting each added guard (the non-durable-last-step branch and the shrink-row-present branch)
       fails at least one test; with the branch inverted so no redirect occurs, the negative case proves no
       durable row is demoted.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

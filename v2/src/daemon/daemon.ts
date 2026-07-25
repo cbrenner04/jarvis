@@ -51,6 +51,7 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isResumeAdmitted,
+  terminalResumeRefusalMessage,
   type RunOperatorError,
   type TerminalLogRecord,
 } from "./run-operator-error.ts";
@@ -602,14 +603,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         : run
           ? composeRunOperatorError(run, record)
           : undefined;
-    const unsupportedResume = resumeContext?.ok === false;
     const base: WaitRunCompletionResult =
       record?.event.kind === "loop_finished"
         ? {
             runStatus,
             loopOutcomeKind: record.event.loopOutcomeKind,
             iterationsConsumed: record.event.iterationsConsumed,
-            resumable: unsupportedResume ? false : record.event.resumable,
+            resumable: resumeContext?.ok === true,
           }
         : { runStatus };
     const withError = error === undefined ? base : { ...base, error };
@@ -641,7 +641,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
       iterationsConsumed: owner.terminalRecord.event.iterationsConsumed,
-      resumable: owner.terminalRecord.event.resumable,
+      resumable: ownerError?.nextAction === "resume",
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
     const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
@@ -1121,8 +1121,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
     // Admission is derived from advertised nextAction; if the row doesn't report
     // nextAction: "resume", it is terminal and cannot be resumed.
-    if (!isResumeAdmitted(run, terminalRecord)) {
-      return { kind: "error", code: "terminal_run", message: `Cannot resume a ${run.status} run` };
+    const message = terminalResumeRefusalMessage(run, terminalRecord);
+    if (message !== undefined) {
+      return { kind: "error", code: "terminal_run", message };
     }
     return undefined;
   }

@@ -327,6 +327,15 @@ Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the complet
 adjudicated verdict on disk; recovery is the same re-dispatch path as `role_timeout`, not
 `jarvis run resume`.
 
+`run list` / `run wait` advertise `resumable: true` only when resume is not terminal-blocked
+**and** persisted snapshot context reconstructs successfully (`resumeContext.ok`). A row with
+`resumable: true` therefore admits `jarvis run resume` to spawn (`{ ok: true }`). When resume refuses
+`terminal_run`, the message names the documented recovery for the composed `error.reason` (manual PR
+flip for `ready_flip_failed`, inspect/re-run for `agent_blocked`, and so on) — follow that text
+instead of inferring recovery from `run.status` alone. `resume_unsupported` / row
+`unsupported_resume_context` means reconstruction failed while the row still names a resumable
+outcome; fix bindings or re-run the spec — not an admission split.
+
 The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
 overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
 markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
@@ -346,8 +355,9 @@ consumes the iteration budget and republishes before the gate is rerun. A deadli
 `ready: deadline exceeded after Nms; killing child tree` in the captured output) skips repair, logs `ready_gate_timeout`,
 and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate: the gate passed locally and
 timed out under gate resource constraints (shared tests hit the deadline from `shared/**` changes). Resume to re-run
-the gate with more time or decomposed in narrower scope. Flip failures are not repaired; resume a `ready_gate_failed`
-or `surviving_mutation_failed` run after fixing coverage, or a `ready_flip_failed` run after checking the PR state.
+the gate with more time or decomposed in narrower scope. Flip failures are not repaired — `ready_flip_failed` is
+terminal; inspect the PR and fix draft → ready manually (`gh pr view`), do not `jarvis run resume`. After fixing
+coverage, resume `ready_gate_failed` or `surviving_mutation_failed` rows.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
@@ -459,11 +469,12 @@ A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, br
 `worktreePath` for blocked rows; inspect the spec and uncommitted work there and resolve the
 blocker.
 
-**`jarvis run resume` does not work on a blocked run** — it refuses with
-`terminal_run: Cannot resume a blocked run`, and `run list` correctly reports the row as
-`resumable: false` with remediation `inspect_spec`. (This section previously said "`blocked` is
+**`jarvis run resume` does not work on a blocked run** — it refuses with `terminal_run` and names
+the recovery (`resolve the blocker and re-run the spec`); `run list` reports the row as
+`resumable: false` with `nextAction: "inspect_spec"`. (This section previously said "`blocked` is
 inspect-and-resume, not terminal" and told you to resume. That was wrong; the harness never
-supported it.) To continue the work, resolve the blocker and **re-run the spec**. An incomplete
+supported it.) To continue the work, follow the refusal text or resolve the blocker and **re-run
+the spec**. An incomplete
 `jarvis run workflow implement` re-run resets the stale worktree from `--base` (see
 [Implement workflow](#implement-workflow)); uncommitted work in the prior worktree is not carried
 forward.
@@ -732,6 +743,12 @@ Operators add bullets here; delete when fixed.
   ```sh
   ps ax -o comm= | grep -cE 'codex|cursor-agent|claude'
   ```
+- **Do not abandon a row just because the log said `resumable: true` and resume once refused
+  (corrected 2026-07-25):** `loop_finished.resumable` in `jarvis run log` is the loop's settle-time
+  self-report; `run list` / `run wait` project `resumable` from terminal-block admission plus
+  successful snapshot reconstruction. When those disagree with an old log line, trust the row — if it
+  says `resumable: true`, `run resume` spawns. When resume refuses `terminal_run`, the message names
+  the owning recovery; follow that instead of re-running or `--abandon`ing by default.
 - **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
   `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
   `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the

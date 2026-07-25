@@ -3,14 +3,19 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { WRITE_LOOP_OUTCOME_KINDS, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
-import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import { composeRunOperatorError, type TerminalLogRecord } from "./run-operator-error.ts";
+import {
+  composeRunOperatorError,
+  isResumeAdmitted,
+  terminalResumeRefusalMessage,
+  type TerminalLogRecord,
+} from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -163,6 +168,57 @@ test("resume rejects terminal run status", async () => {
   if (response.kind === "error") {
     expect(response.code).toBe("terminal_run");
     expect(response.message).toBe("Cannot resume a completed run");
+  }
+});
+
+test("resume refusal on a ready_flip_failed row names the documented manual PR-flip fix", async () => {
+  const runId = createWorkflowRun({ invocationId: "ready-flip-failed-refusal" });
+  stateStore.setRunStatus(runId, "completed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "ready_flip_failed",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+    expect(response.message).toContain("gh pr view");
+    expect(response.message).not.toBe("Cannot resume a completed run");
+  }
+});
+
+test("inverting terminal resume refusal guard emits refusal on admitted rows", () => {
+  const runId = createWorkflowRun({ invocationId: "refusal-guard-inversion" });
+  stateStore.setRunStatus(runId, "paused");
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+
+  expect(terminalResumeRefusalMessage(run)).toBeUndefined();
+
+  const invertedRefusal = (loaded: typeof run, terminal?: TerminalLogRecord) =>
+    isResumeAdmitted(loaded, terminal) ? (terminalResumeRefusalMessage(loaded, terminal) ?? "refused") : undefined;
+  expect(invertedRefusal(run)).toBeDefined();
+});
+
+test("resume refusal on a blocked row names its documented recovery", async () => {
+  const runId = createWorkflowRun({ invocationId: "agent-blocked-refusal" });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "blocked",
+    outcomeKind: "blocked",
+  });
+
+  const response = await resumeDirect(handlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+    expect(response.message).toContain("resolve the blocker and re-run the spec");
+    expect(response.message).not.toBe("Cannot resume a blocked run");
   }
 });
 
@@ -547,4 +603,164 @@ test.each([
       expect(response.code).not.toBe("terminal_run");
     }
   }
+});
+
+test("resume admits a failed row whose last committed attempt is blocked but terminal loop_finished is resumable ready_gate_failed", async () => {
+  const runId = createWorkflowRun({ invocationId: "ready-gate-failed-after-blocked-repair" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "blocked",
+    outcomeKind: "blocked",
+  });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "ready_gate_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).not.toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).not.toBe("terminal_run");
+  }
+});
+
+async function waitDirect(h: Handlers, runId: string) {
+  return h.wait({ kind: "request", id: "w1", method: "wait", params: { runId } }, new AbortController().signal);
+}
+
+async function listDirect(h: Handlers) {
+  return h.list({ kind: "request", id: "l1", method: "list" }, new AbortController().signal);
+}
+
+function rowResumable(result: { resumable?: boolean } | undefined): boolean {
+  return result?.resumable === true;
+}
+
+type ResumeRpcOutcome = "ok" | "terminal_run" | "resume_unsupported" | "other";
+
+function classifyResumeResponse(response: Awaited<ReturnType<typeof resumeDirect>>): ResumeRpcOutcome {
+  if (response.kind === "response") return "ok";
+  if (response.kind === "error") {
+    if (response.code === "terminal_run") return "terminal_run";
+    if (response.code === "resume_unsupported") return "resume_unsupported";
+  }
+  return "other";
+}
+
+function assertWaitListResumeAgreement(
+  advertisedResumable: boolean,
+  resumeOutcome: ResumeRpcOutcome,
+  label: string,
+): void {
+  if (advertisedResumable) {
+    expect(resumeOutcome, `${label}: advertised resumable but resume refused terminal_run`).not.toBe("terminal_run");
+    expect(resumeOutcome, `${label}: advertised resumable but resume_unsupported`).toBe("ok");
+  }
+  if (resumeOutcome === "ok") {
+    expect(advertisedResumable, `${label}: resume ok but row not resumable`).toBe(true);
+  }
+  if (resumeOutcome === "terminal_run" || resumeOutcome === "resume_unsupported") {
+    expect(advertisedResumable, `${label}: resume refused but row advertised resumable`).toBe(false);
+  }
+}
+
+/** Durable statuses each terminal `loopOutcomeKind` can settle a row on. */
+const KIND_STATUSES: Partial<Record<WriteLoopOutcomeKind, RunStatus[]>> = {
+  complete: ["completed"],
+  blocked: ["blocked"],
+  contract_miss: ["failed"],
+  invocation_failure: ["failed"],
+  iteration_timeout: ["failed"],
+  "budget-exhausted": ["budget-soft-stopped", "failed"],
+  paused: ["paused", "failed"],
+  completion_commit_failed: ["completed", "failed"],
+  iteration_commit_failed: ["failed"],
+  ready_gate_failed: ["completed", "failed"],
+  ready_flip_failed: ["completed"],
+  surviving_mutation_failed: ["failed"],
+  runtime_smoke_failed: ["failed"],
+};
+
+test("wait/list-advertised resumable agrees with resume admission across every terminal loopOutcomeKind x durable status", async () => {
+  for (const kind of WRITE_LOOP_OUTCOME_KINDS) {
+    if (kind === "progress") continue; // non-terminal: never a wait/list terminal record
+    const statuses = KIND_STATUSES[kind];
+    expect(statuses, `no durable-status table entry for terminal kind ${kind}`).toBeDefined();
+    if (!statuses) continue;
+
+    for (const status of statuses) {
+      for (const logResumable of [true, false]) {
+        const runId = createWorkflowRun({ invocationId: `agreement-${kind}-${status}-${String(logResumable)}` });
+        stateStore.setRunStatus(runId, status);
+        const logReader = loopFinishedLogReader(runId, {
+          loopOutcomeKind: kind,
+          iterationsConsumed: 1,
+          resumable: logResumable,
+        });
+        const localHandlers = createHandlers(logReader);
+
+        const waitResponse = await waitDirect(localHandlers, runId);
+        expect(waitResponse.kind).toBe("response");
+        const waitResult =
+          waitResponse.kind === "response" ? (waitResponse.result as { resumable?: boolean }) : undefined;
+
+        const listResponse = await listDirect(localHandlers);
+        expect(listResponse.kind).toBe("response");
+        const listRow =
+          listResponse.kind === "response"
+            ? (listResponse.result as { runs: Array<{ runId: string; resumable?: boolean }> }).runs.find(
+                (row) => row.runId === runId,
+              )
+            : undefined;
+        expect(listRow, `list missing run ${runId}`).toBeDefined();
+
+        const waitAdvertised = rowResumable(waitResult);
+        const listAdvertised = rowResumable(listRow);
+        expect(listAdvertised, `wait/list resumable mismatch for ${runId}`).toBe(waitAdvertised);
+
+        const resumeOutcome = classifyResumeResponse(await resumeDirect(localHandlers, runId));
+
+        const label = `kind=${kind} status=${status} logResumable=${String(logResumable)}`;
+        assertWaitListResumeAgreement(waitAdvertised, resumeOutcome, label);
+        assertWaitListResumeAgreement(listAdvertised, resumeOutcome, `${label} list`);
+        // Stale demoted rows: a `failed` row whose terminal `loop_finished` still self-reports
+        // `resumable: true` for `paused` or `budget-exhausted` must not advertise resumable.
+        if (status === "failed" && (kind === "paused" || kind === "budget-exhausted") && logResumable) {
+          expect(waitAdvertised, `${label}: stale demoted row must not advertise resumable`).toBe(false);
+        }
+      }
+    }
+  }
+});
+
+test("inverting resumable projection to admission-only breaks wait/list vs resume agreement", async () => {
+  const runId = createWorkflowRun({ invocationId: "projection-guard-inversion", agents: [] });
+  stateStore.setRunStatus(runId, "failed");
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "ready_gate_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+  const terminal = logReader.tail(runId)[0] as TerminalLogRecord;
+  const admissionOnlyResumable = isResumeAdmitted(run, terminal);
+  expect(admissionOnlyResumable).toBe(true);
+
+  const localHandlers = createHandlers(logReader);
+  const waitResponse = await waitDirect(localHandlers, runId);
+  expect(waitResponse.kind).toBe("response");
+  const projectedResumable =
+    waitResponse.kind === "response" ? rowResumable(waitResponse.result as { resumable?: boolean }) : false;
+  expect(projectedResumable).toBe(false);
+
+  const resumeOutcome = classifyResumeResponse(await resumeDirect(localHandlers, runId));
+  expect(resumeOutcome).toBe("resume_unsupported");
+  expect(() => assertWaitListResumeAgreement(admissionOnlyResumable, resumeOutcome, "inverted-projection")).toThrow();
 });

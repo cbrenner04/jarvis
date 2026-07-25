@@ -33,6 +33,36 @@ const RUN_OPERATOR_ERROR_REASONS = [
 
 export type RunOperatorErrorReason = (typeof RUN_OPERATOR_ERROR_REASONS)[number];
 
+/** Exhaustive reason→recovery map (v2/docs/operator-runbook.md); new reasons fail typecheck until named. */
+const RESUME_WITH_JARVIS = "resume with `jarvis run resume`";
+const RECOVERY_BY_REASON: Record<RunOperatorErrorReason, string> = {
+  resumable_pause: RESUME_WITH_JARVIS,
+  resumable_budget: RESUME_WITH_JARVIS,
+  resumable_kill: RESUME_WITH_JARVIS,
+  agent_blocked: "resolve the blocker and re-run the spec",
+  contract_miss: "inspect the spec",
+  invalid_token: RESUME_WITH_JARVIS,
+  missing_blocker: RESUME_WITH_JARVIS,
+  quota_exhausted: "wait for quota to reset, then retry",
+  model_config: "fix the agent/model config, then retry",
+  no_binding: "fix the agent/model config, then retry",
+  landing_failed: RESUME_WITH_JARVIS,
+  invocation_error: "inspect the daemon log; no automated recovery",
+  role_timeout: "re-dispatch the same workflow",
+  role_stalled: "re-dispatch the same workflow",
+  harness_failure: "inspect the daemon log; no automated recovery",
+  state_store_lock_timeout: RESUME_WITH_JARVIS,
+  not_implemented: "not yet implemented; re-run the spec instead",
+  completion_commit_failed: "fix the uncommitted/publication state, then `jarvis run resume`",
+  iteration_commit_failed: "fix the failing commit, then `jarvis run resume`",
+  ready_gate_failed: "fix the failing gate or coverage, then `jarvis run resume`",
+  ready_flip_failed:
+    "inspect and manually fix the PR draft-to-ready transition (see error.prNumber), then verify with `gh pr view <prNumber> --json isDraft`",
+  surviving_mutation_failed: "fix test coverage for the surviving mutation, then `jarvis run resume`",
+  iteration_timeout: "inspect the daemon log; no automated recovery",
+  unsupported_resume_context: "re-run the spec",
+};
+
 /** Closed remediation hint for operators; not free text. */
 const RUN_OPERATOR_NEXT_ACTIONS = ["resume", "inspect_spec", "fix_config", "retry_later", "stop"] as const;
 
@@ -179,11 +209,23 @@ export function isResumeAdmitted(run: RunWithAttempts, terminalRecord?: Terminal
   return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
 }
 
+/** `terminal_run` message when resume is refused; undefined when admission succeeds. */
+export function terminalResumeRefusalMessage(
+  run: RunWithAttempts,
+  terminalRecord?: TerminalLogRecord,
+): string | undefined {
+  if (isResumeAdmitted(run, terminalRecord)) return undefined;
+  const error = composeRunOperatorError(run, terminalRecord);
+  return error === undefined
+    ? `Cannot resume a ${run.status} run`
+    : `Cannot resume a ${run.status} run: ${RECOVERY_BY_REASON[error.reason]}`;
+}
+
 /**
  * Compose operator error from durable run state and optional terminal log.
  * Resumable durable statuses win over conflicting log; for `failed` / `blocked`,
- * last-attempt store detail wins over conflicting `loop_finished`, and resumable
- * `loopOutcomeKind` values from stale logs do not override `failed` / `blocked`.
+ * a terminal `loop_finished` composing `nextAction: "resume"` outranks last-attempt
+ * detail; other resumable `loopOutcomeKind` values from stale logs do not override.
  */
 export function composeRunOperatorError(
   run: RunWithAttempts,
@@ -221,6 +263,10 @@ export function composeRunOperatorError(
 
   if (run.status === "failed" || run.status === "blocked") {
     const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);
+    if (terminalRecord?.event.kind === "loop_finished") {
+      const fromLog = mapFromLoopFinished(terminalRecord.event, lastAttempt, allowResumableLogOutcomes);
+      if (fromLog?.nextAction === "resume") return fromLog;
+    }
     if (fromAttempt) return fromAttempt;
   }
 

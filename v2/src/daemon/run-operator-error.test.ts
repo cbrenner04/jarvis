@@ -215,6 +215,20 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
   );
 });
 
+test("composeRunOperatorError: resumable finalization loop_finished outranks blocked last-attempt detail", () => {
+  const run = runWith("failed", [attempt("blocked")]);
+  const terminal = loopFinished("ready_gate_failed", { resumable: true });
+
+  expect(composeRunOperatorError(run, terminal)).toEqual(err("ready_gate_failed", "resume", true));
+});
+
+test("composeRunOperatorError: non-finalization loop_finished still loses to blocked last-attempt detail", () => {
+  const run = runWith("failed", [attempt("blocked")]);
+  const terminal = loopFinished("blocked");
+
+  expect(composeRunOperatorError(run, terminal)).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {
   expect(composeRunOperatorError(runWith("in-progress"))).toBeUndefined();
   expect(composeRunOperatorError(runWith("completed"), loopFinished("complete"))).toBeUndefined();

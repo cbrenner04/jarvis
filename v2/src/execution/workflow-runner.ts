@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { completeLinkedSubspec, resolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
@@ -35,8 +35,13 @@ import {
   type ReviewDebateRoleBindings,
 } from "./review-debate.ts";
 import { excludeVerdictFromStaging, executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
+import { cycleProfileContext } from "./review-profile-context.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
-import type { ReviewRoleInvocationExecution } from "./review-role-invocation.ts";
+import {
+  invokeReviewRole,
+  type ReviewRoleInvocationExecution,
+  reviewRoleFailureKind,
+} from "./review-role-invocation.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
@@ -1406,6 +1411,7 @@ type ReviewDebateStepOutcome =
       runId: string;
       iterationsConsumed: number;
       resumable: boolean;
+      invocationFailureMessage?: string;
     };
 
 type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
@@ -1428,6 +1434,27 @@ function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeRevi
       ? actuatorExecution.binding.metadata?.agent?.trim()
       : undefined;
   return { kind, failureKind, terminalRole, completionAgent };
+}
+
+function buildReviewRoleTelemetryFields(
+  telemetry: WorkflowTelemetryContext | undefined,
+  params: { runId: string; attemptId: string; project: string; stepId: string; cwd: string; branch: string },
+): { telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds"> } {
+  if (telemetry === undefined) return {};
+  return {
+    telemetry: {
+      sink: buildJsonlSink(telemetry.sinkPath ?? defaultTelemetrySinkPath()),
+      operatorSessionId: telemetry.operatorSessionId,
+      runId: params.runId,
+      attemptId: params.attemptId,
+      project: params.project,
+      workflow: telemetry.workflow,
+      stepId: params.stepId,
+      worktreePath: params.cwd,
+      branch: params.branch,
+      specRef: "",
+    },
+  };
 }
 
 /**
@@ -1465,6 +1492,21 @@ async function runReviewDebateStep(
   }
 
   const resolveBindings = createBinding ?? createResolvedAgentBinding;
+
+  if (!freshDispatch) {
+    const actuatorOnlyRetry = await tryActuatorOnlyReviewDebateRetry(
+      step,
+      stepIndex,
+      invocationId,
+      onProgress,
+      telemetry,
+      onStepRunCreated,
+      store,
+      resolveBindings,
+    );
+    if (actuatorOnlyRetry !== undefined) return actuatorOnlyRetry;
+  }
+
   const runId = store.createRun({
     project,
     specRef: "",
@@ -1484,23 +1526,14 @@ async function runReviewDebateStep(
     ]),
   ) as ReviewDebateRoleBindings;
 
-  const telemetryFields =
-    telemetry !== undefined
-      ? {
-          telemetry: {
-            sink: buildJsonlSink(telemetry.sinkPath ?? defaultTelemetrySinkPath()),
-            operatorSessionId: telemetry.operatorSessionId,
-            runId,
-            attemptId,
-            project,
-            workflow: telemetry.workflow,
-            stepId,
-            worktreePath: step.cwd,
-            branch,
-            specRef: "",
-          },
-        }
-      : {};
+  const telemetryFields = buildReviewRoleTelemetryFields(telemetry, {
+    runId,
+    attemptId,
+    project,
+    stepId,
+    cwd: step.cwd,
+    branch,
+  });
 
   const onRoleStart =
     onProgress !== undefined
@@ -1525,11 +1558,8 @@ async function runReviewDebateStep(
   });
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
-    const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
-    if (landingError !== undefined) {
-      store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
-      return { kind: "invocation_failure", runId, iterationsConsumed: result.cycles.length, resumable: true };
-    }
+    const landingFailure = await landReviewedOutputOrFail(step, landing, attemptId, runId, result.cycles.length, store);
+    if (landingFailure !== undefined) return landingFailure;
   }
 
   if (kind === "invocation_failure") {
@@ -1565,6 +1595,163 @@ async function runReviewDebateStep(
     runId,
     iterationsConsumed: result.cycles.length,
     resumable: retryableFailure,
+    ...(completionAgent ? { completionAgent } : {}),
+  };
+}
+
+/** Lands a review step's deferred publication output, failing the attempt on error. */
+async function landReviewedOutputOrFail(
+  step: Pick<ReviewDebateWorkflowStep, "cwd" | "verdictPath">,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  store: StateStore,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath);
+  if (landingError === undefined) return undefined;
+  store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "invocation_failure" });
+  return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
+}
+
+/**
+ * Re-dispatch admission for a `review-debate` step whose last attempt failed at the
+ * actuator with a post-commit retryable `failureKind` (`timeout` or `stall`). Reuses the
+ * same durable run row and re-invokes only the actuator against the already-adjudicated
+ * `verdictPath`, instead of replaying the adversary/advocate/adjudicator chain. Returns
+ * `undefined` when the step is not eligible, so the caller falls through to a full debate.
+ */
+async function tryActuatorOnlyReviewDebateRetry(
+  step: ReviewDebateWorkflowStep,
+  stepIndex: number,
+  invocationId: string,
+  onProgress: ((invocationId: string, stepId: string, progress: ReviewDebateProgress) => void) | undefined,
+  telemetry: WorkflowTelemetryContext | undefined,
+  onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  store: StateStore,
+  resolveBindings: (binding: ResolvedAgentBinding) => InvocationBinding,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  // Single-cycle admission only: with maxCycles > 1, an actuator failure on an
+  // intermediate cycle would otherwise retry that one actuator and report `complete`,
+  // silently dropping the remaining cycles. This also makes the prompt-context
+  // reconstruction below (pass 1, no prior-cycle verdict) correct by construction.
+  if (step.maxCycles > 1) return undefined;
+  const existingRun = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
+  if (existingRun === null || existingRun.status !== "failed") return undefined;
+  const lastAttempt = existingRun.attempts.at(-1);
+  const detail = lastAttempt?.invocationFailureDetail;
+  if (
+    lastAttempt?.outcomeKind !== "invocation_failure" ||
+    detail?.role !== "actuator" ||
+    detail.failureKind === undefined ||
+    !isPostCommitReviewRetryableFailureKind(detail.failureKind)
+  ) {
+    return undefined;
+  }
+
+  const runId = existingRun.id;
+  onStepRunCreated?.(stepIndex, runId);
+  const attemptId = store.recordAttemptStart(runId);
+
+  const verdict = existsSync(step.verdictPath) ? readFileSync(step.verdictPath, "utf8") : "";
+  if (verdict.trim().length === 0) {
+    const message = `review-debate actuator retry: missing or empty verdict at ${step.verdictPath}`;
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+    });
+    return {
+      kind: "invocation_failure",
+      runId,
+      iterationsConsumed: 0,
+      resumable: false,
+      invocationFailureMessage: message,
+    };
+  }
+
+  const bindings = resolveInvocationBindings(
+    resolveExecutableRole("actuator"),
+    step.agents.actuator,
+    step.agentModelConfig,
+    resolveBindings,
+  );
+
+  const profile = rehydrateReviewPromptProfile(step.profile);
+  const profileContext = cycleProfileContext(step.profileContext, 1, undefined);
+  const prompt = profile?.render.actuator ? await profile.render.actuator(profileContext, verdict) : verdict;
+
+  const telemetryFields = buildReviewRoleTelemetryFields(telemetry, {
+    runId,
+    attemptId,
+    project: step.project,
+    stepId: step.stepId,
+    cwd: step.cwd,
+    branch: step.branch,
+  });
+
+  const onRoleStart =
+    onProgress !== undefined
+      ? { onRoleStart: () => onProgress(invocationId, step.stepId, { status: "in_progress", role: "actuator" }) }
+      : {};
+
+  const execution = await invokeReviewRole(
+    {
+      cwd: step.cwd,
+      ...(step.signal !== undefined ? { signal: step.signal } : {}),
+      ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
+      ...telemetryFields,
+      ...onRoleStart,
+    },
+    "actuator",
+    prompt,
+    bindings,
+  );
+
+  const failureKind = reviewRoleFailureKind(execution);
+
+  onProgress?.(invocationId, step.stepId, {
+    status: failureKind === null ? "completed" : "stopped",
+    role: "actuator",
+    terminalOutcome: failureKind === null ? "complete" : "invocation_failure",
+  });
+
+  if (failureKind !== null) {
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: buildReviewInvocationFailureDetail(failureKind, "actuator", execution),
+    });
+    return {
+      kind: "invocation_failure",
+      runId,
+      iterationsConsumed: 1,
+      resumable: isPostCommitReviewRetryableFailureKind(failureKind),
+    };
+  }
+
+  const completionAgent =
+    execution.final?.result.kind === "ok" ? execution.final.binding.metadata?.agent?.trim() : undefined;
+
+  if (step.landing !== undefined && step.landing.kind !== "none") {
+    const landingFailure = await landReviewedOutputOrFail(step, step.landing, attemptId, runId, 1, store);
+    if (landingFailure !== undefined) return landingFailure;
+  }
+
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(completionAgent ? { completionAgent } : {}),
+  });
+
+  return {
+    kind: "complete",
+    runId,
+    iterationsConsumed: 1,
+    resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
   };
 }
@@ -1764,15 +1951,16 @@ function buildReviewInvocationFailureDetail(
   roleExecution: ReviewRoleInvocationExecution | undefined,
   message?: string,
 ): InvocationFailureDetail {
-  const timeout = roleExecution?.roleTimeout;
+  const roleTimeout = roleExecution?.roleTimeout;
+  const attribution = roleTimeout ?? roleExecution?.idleTimeout;
   return {
     failureKind,
     bindingAttempts: [],
     message:
-      timeout !== undefined
-        ? `review: ${failedRole} exceeded ${timeout.boundMs}ms bound (agent=${timeout.agent ?? "unknown"}, model=${timeout.model ?? "unknown"})`
+      roleTimeout !== undefined
+        ? `review: ${failedRole} exceeded ${roleTimeout.boundMs}ms bound (agent=${roleTimeout.agent ?? "unknown"}, model=${roleTimeout.model ?? "unknown"})`
         : (message ?? `review: ${failedRole} invocation failed (${failureKind})`),
-    ...(timeout !== undefined ? timeout : {}),
+    ...(attribution !== undefined ? attribution : {}),
   };
 }
 

@@ -495,8 +495,24 @@ a role invocation failure is `kind: "invocation_failure"`. Each reached
 and one attempt for all roles and cycles. It commits `completed` only after
 the debate and any deferred landing succeed; role and landing failures commit
 `failed`. The row carries the complete authored workflow snapshot and joins
-workflow rollup like a write row. `resumable` remains `false`: a fresh dispatch
-creates a new row, and mid-cycle debate replay/resume is deliberately deferred.
+workflow rollup like a write row.
+
+A non-fresh re-dispatch whose last attempt failed at the actuator with a
+post-commit retryable `failureKind` (`timeout` or `stall`) is **actuator-only
+retry**: it reuses the same run row, records one new attempt, and re-invokes
+only the actuator against the already-adjudicated `verdictPath` content
+(through the same `profile.render.actuator` path as the first attempt) —
+the adversary/advocate/adjudicator roles and any hidden `~shrink` pass are
+not replayed. Eligibility is read from the last attempt's persisted
+`invocationFailureDetail` (`role: "actuator"` together with the retryable
+`failureKind`); a debate-role failure or any other `failureKind` falls
+through to a full debate cycle on a fresh run row, as before. A missing or
+empty `verdictPath` on an eligible actuator-only retry settles a named
+`invocation_failure` citing the path, with `resumable: false`. `freshDispatch`
+bypasses actuator-only retry admission and always starts a fresh row, as does
+`maxCycles > 1`: multi-cycle review always falls through to a full debate
+cycle, even when the last attempt failed at the actuator, since an
+intermediate cycle's actuator failure is not the step's terminal failure.
 
 Programmatic source loading through `workflow-loader.ts` supports both `write`
 and `review-debate` steps. A `review-debate` step may also be constructed as an

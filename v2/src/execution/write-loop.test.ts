@@ -3343,5 +3343,135 @@ describe("write loop", () => {
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
       }
     });
+
+    test("deadline-killed gate (exit 124) skips repair and emits ready_gate_timeout", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "deadline-gate-124";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              const { ReadyGateError } = await import("./ready-finalize.ts");
+              throw new ReadyGateError("bun run ready", 124, "timeout\n", true);
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("ready_gate_failed");
+        expect(result.resumable).toBe(true);
+
+        const events = sink.getEventsForRun(result.runId);
+        const repairEvents = events.filter((event) => event.kind === "ready_gate_repair");
+        expect(repairEvents).toHaveLength(0);
+
+        const timeoutEvents = events.filter((event) => event.kind === "ready_gate_timeout");
+        expect(timeoutEvents).toHaveLength(1);
+        if (timeoutEvents[0]?.kind === "ready_gate_timeout") {
+          expect(timeoutEvents[0].gateExitCode).toBe(124);
+        }
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("deadline-killed gate (marker in output) skips repair and emits ready_gate_timeout", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "deadline-gate-marker";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              const { ReadyGateError } = await import("./ready-finalize.ts");
+              throw new ReadyGateError(
+                "bun run ready",
+                1,
+                "ready: deadline exceeded after 600000ms; killing child tree\n",
+                true,
+              );
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("ready_gate_failed");
+        expect(result.resumable).toBe(true);
+
+        const events = sink.getEventsForRun(result.runId);
+        const repairEvents = events.filter((event) => event.kind === "ready_gate_repair");
+        expect(repairEvents).toHaveLength(0);
+
+        const timeoutEvents = events.filter((event) => event.kind === "ready_gate_timeout");
+        expect(timeoutEvents).toHaveLength(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("non-timeout gate failure still enters repair path", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "genuine-gate-failure";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {
+              const { ReadyGateError } = await import("./ready-finalize.ts");
+              throw new ReadyGateError("bun run ready", 1, "tests failed\n", false);
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("ready_gate_failed");
+
+        const events = sink.getEventsForRun(result.runId);
+        const repairEvents = events.filter((event) => event.kind === "ready_gate_repair");
+        expect(repairEvents.length).toBeGreaterThan(0);
+
+        const timeoutEvents = events.filter((event) => event.kind === "ready_gate_timeout");
+        expect(timeoutEvents).toHaveLength(0);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
   });
 });

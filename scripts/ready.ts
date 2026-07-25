@@ -9,6 +9,7 @@ export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
 export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
+export const DEADLINE_KILL_MARKER = "ready: deadline exceeded after";
 
 export type ReadyTier = "fast" | "full";
 export type ReadyCommand = { name: string; args: string[] };
@@ -304,7 +305,7 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
 
     const timeoutHandle = setTimeout(() => {
       if (!settled) {
-        process.stderr.write(`ready: deadline exceeded after ${deadlineMs}ms; killing child tree\n`);
+        process.stderr.write(`${DEADLINE_KILL_MARKER} ${deadlineMs}ms; killing child tree\n`);
         requestedExitCode = TIMEOUT_EXIT_CODE;
         killChildTree("SIGTERM");
       }

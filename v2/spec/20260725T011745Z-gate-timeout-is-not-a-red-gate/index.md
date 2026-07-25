@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Deadline-killed gate skips repair](./00-gate-timeout-skips-repair.md)
+- [x] [00 - Deadline-killed gate skips repair](./00-gate-timeout-skips-repair.md)

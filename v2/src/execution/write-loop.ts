@@ -1095,7 +1095,7 @@ export async function publishWithReadyRepair(
 ): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
   let outcome = await publishCompletionArtifacts(args, input);
   let repairAttempt = 0;
-  while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError) {
+  while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut) {
     repairAttempt += 1;
     if (repairAttempt > MAX_READY_GATE_REPAIRS) break;
     if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
@@ -1125,6 +1125,12 @@ export async function publishWithReadyRepair(
         iterationsConsumed,
       };
     }
+  }
+  if (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && outcome.error.timedOut) {
+    args.logSink?.append(result.runId, {
+      kind: "ready_gate_timeout",
+      gateExitCode: outcome.error.exitCode,
+    });
   }
   return outcome.kind === "success"
     ? { success: outcome, iterationsConsumed }

@@ -44,21 +44,21 @@ hand at the same commit, with the run log reporting `gateExitCode: 1`.
 
 ## Acceptance criteria
 
-- [ ] A new `write-loop.test.ts` test drives publication with a ready finalizer that throws a
+- [x] A new `write-loop.test.ts` test drives publication with a ready finalizer that throws a
       deadline-killed `ReadyGateError` and asserts the run settles `ready_gate_failed` with a
       `ready_gate_timeout` log event, no `ready_gate_repair` event, no agent reprompt, and
       `iterationsConsumed` unchanged; it fails against the pre-fix code, which repairs.
-- [ ] The timeout is recognized from either signal: a gate failure with exit `124`, and a gate
+- [x] The timeout is recognized from either signal: a gate failure with exit `124`, and a gate
       failure with exit `1` whose output carries the deadline-kill marker, both skip repair —
       asserted by tests that fail against the pre-fix code.
-- [ ] A new `write-loop.test.ts` test asserts a genuinely failing gate (non-timeout exit, no marker
+- [x] A new `write-loop.test.ts` test asserts a genuinely failing gate (non-timeout exit, no marker
       in output) still enters the repair path and emits `ready_gate_repair`.
-- [ ] A required-integration failure killed by the deadline is classified as timed out, asserted in
+- [x] A required-integration failure killed by the deadline is classified as timed out, asserted in
       `ready-finalize.test.ts`.
-- [ ] Inverting the timeout guard in `publishWithReadyRepair`, and inverting each added
+- [x] Inverting the timeout guard in `publishWithReadyRepair`, and inverting each added
       classification condition, each fails at least one test; the timeout tests prove the absence of
       `ready_gate_repair` and of any consumed iteration.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -1008,14 +1008,19 @@ function failReviewRunAtLanding(runId: string): void {
 }
 
 function landingFailedLogReader(runId: string): LogReader {
-  return loopFinishedLogReader(runId, { loopOutcomeKind: "invocation_failure", iterationsConsumed: 0, resumable: true });
+  return loopFinishedLogReader(runId, {
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
 }
 
 async function listRow(h: Handlers, runId: string): Promise<{ error?: { reason?: string; nextAction?: string } }> {
   const frame = await h.list({ kind: "request", id: "list-intent", method: "list" }, new AbortController().signal);
   expect(frame.kind).toBe("response");
   if (frame.kind !== "response") throw new Error("not a response");
-  const runs = (frame.result as { runs: Array<{ runId: string; error?: { reason?: string; nextAction?: string } }> }).runs;
+  const runs = (frame.result as { runs: Array<{ runId: string; error?: { reason?: string; nextAction?: string } }> })
+    .runs;
   const row = runs.find((candidate) => candidate.runId === runId);
   if (!row) throw new Error(`row ${runId} not found`);
   return row;

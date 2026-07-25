@@ -2562,7 +2562,10 @@ describe("executeWorkflow completion publication", () => {
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
-    const step: WriteWorkflowStep = { ...baseStep, worktree: { ...baseStep.worktree, git: false, localPath: workspace } };
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
 
     await withStateStore(async (store) => {
       // The committer reports no new commit but leaves a stray staged file behind — the same
@@ -2619,7 +2622,10 @@ describe("executeWorkflow completion publication", () => {
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
-    const step: WriteWorkflowStep = { ...baseStep, worktree: { ...baseStep.worktree, git: false, localPath: workspace } };
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
 
     const logSink = new TestLogSink();
     await withStateStore(async (store) => {

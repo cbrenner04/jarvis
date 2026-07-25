@@ -228,7 +228,9 @@ test("composeRunOperatorError never returns an empty failed row when log disagre
 });
 
 test("composeRunOperatorError keeps landing_failed distinct from completion_commit_failed for pending promotion", () => {
-  const landingRun = runWith("failed", [attempt("invocation_failure", { failureKind: "landing", bindingAttempts: [] })]);
+  const landingRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "landing", bindingAttempts: [] }),
+  ]);
   const landingError = composeRunOperatorError(landingRun);
   expect(landingError).toEqual(err("landing_failed", "resume", true));
 

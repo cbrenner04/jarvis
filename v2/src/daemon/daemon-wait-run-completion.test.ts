@@ -501,6 +501,324 @@ test("workflow entry wait and list report surviving_mutation_failed from hidden 
   expect(entry?.error).not.toEqual(expect.objectContaining({ nextAction: "resume" }));
 });
 
+test("workflow entry wait and list report surviving_mutation_failed owned by a durable review step", async () => {
+  const invocationId = "inv-entry-review-surviving-mutation";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-surviving-mutation",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 42,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 42,
+  };
+  const wait = await expectResponse(await waitDirect("entry-review-surviving-mutation", entryRunId));
+  expect(wait).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: false,
+    error: expectedError,
+  });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toEqual(
+    expect.objectContaining({
+      runId: entryRunId,
+      status: "failed",
+      loopOutcomeKind: "surviving_mutation_failed",
+      iterationsConsumed: 2,
+      resumable: false,
+      error: expectedError,
+    }),
+  );
+});
+
+test("workflow entry owner adoption stays confined to a failed rollup", async () => {
+  const invocationId = "inv-entry-non-failed-rollup";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/review-worktree",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  // An orphaned sibling row (stale, no longer part of the current snapshot's step list) still
+  // qualifies as a candidate for the widened owner search, but must not be adopted while the
+  // rollup is not `failed`.
+  const orphanRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-non-failed-rollup",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-audit",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "blocked");
+  stateStore.setRunStatus(orphanRunId, "failed");
+  logSink.append(orphanRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "operator-flip: === → !==",
+    survivingMutationSourceFile: "src/guard.ts",
+    survivingMutationSourceLine: 9,
+  });
+
+  const wait = await expectResponse(await waitDirect("entry-non-failed-rollup", entryRunId));
+  expect(wait.runStatus).toBe("blocked");
+  expect(wait).not.toHaveProperty("survivingMutation");
+  expect(wait).toHaveProperty("worktreePath", "/tmp/test-project");
+  if (wait.error !== undefined) {
+    expect(wait.error).not.toMatchObject({ reason: "surviving_mutation_failed" });
+  }
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry?.status).toBe("blocked");
+  if (entry?.error !== undefined) {
+    expect(entry.error).not.toMatchObject({ reason: "surviving_mutation_failed" });
+  }
+});
+
+test("workflow entry owner adoption picks the chronologically last terminal record among multiple candidates", async () => {
+  const invocationId = "inv-entry-tie-break";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+        agentModelConfig: {
+          codex: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+          },
+        },
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-tie-break",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    survivingMutation: "earlier candidate",
+    survivingMutationSourceFile: "src/earlier.ts",
+    survivingMutationSourceLine: 1,
+  });
+
+  // Force a distinct millisecond boundary so the two terminal records carry different `ts`
+  // values without relying on a fixed sleep duration.
+  const boundary = Date.now();
+  while (Date.now() === boundary) {
+    /* busy-wait for the next millisecond */
+  }
+
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "surviving_mutation_failed",
+    iterationsConsumed: 3,
+    resumable: true,
+    survivingMutation: "later candidate",
+    survivingMutationSourceFile: "src/later.ts",
+    survivingMutationSourceLine: 2,
+  });
+
+  const expectedError = {
+    reason: "surviving_mutation_failed",
+    retryable: false,
+    nextAction: "stop",
+    survivingMutation: "later candidate",
+    survivingMutationSourceFile: "src/later.ts",
+    survivingMutationSourceLine: 2,
+  };
+  const wait = await expectResponse(await waitDirect("entry-tie-break", entryRunId));
+  expect(wait).toMatchObject({ runStatus: "failed", error: expectedError });
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry?.error).toMatchObject(expectedError);
+});
+
+test("workflow entry wait and list preserve complete outcome when a durable review row also succeeds", async () => {
+  const invocationId = "inv-entry-review-complete";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "review rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+    ],
+  };
+  const entryRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot,
+  });
+  const reviewRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-complete",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement-review",
+    workflowSnapshot,
+  });
+  finishLoop(entryRunId, "completed", 1);
+  finishLoop(reviewRunId, "completed", 1);
+
+  const wait = await expectResponse(await waitDirect("entry-review-complete", entryRunId));
+  expect(wait).toMatchObject({ runStatus: "completed", loopOutcomeKind: "complete" });
+  expect(wait).not.toHaveProperty("error");
+
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (row) => row.runId === entryRunId,
+  );
+  expect(entry).toMatchObject({ status: "completed", loopOutcomeKind: "complete" });
+  expect(entry?.error).toBeUndefined();
+});
+
 test("workflow entry wait and list preserve complete outcome after hidden shrink completes", async () => {
   const invocationId = "inv-entry-complete";
   const workflowSnapshot = {

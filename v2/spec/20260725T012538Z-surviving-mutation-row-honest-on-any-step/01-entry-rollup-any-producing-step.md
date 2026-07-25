@@ -23,18 +23,18 @@ mutation/file/line.
 
 ## Acceptance criteria
 
-- [ ] With an entry `implement` row `completed` and a durable `implement-review` row `failed` carrying a
+- [x] With an entry `implement` row `completed` and a durable `implement-review` row `failed` carrying a
       terminal `surviving_mutation_failed` record, entry `run wait` and `run list` report `runStatus:
       "failed"`, `loopOutcomeKind: "surviving_mutation_failed"`, and `error` with `reason:
       "surviving_mutation_failed"` plus mutation/file/line; a new `daemon-wait-run-completion.test.ts`
       case fails against pre-fix code (entry reports no `error`).
-- [ ] A workflow whose review step succeeded and whose durable rows are all `completed` still reports
+- [x] A workflow whose review step succeeded and whose durable rows are all `completed` still reports
       entry `completed` with no `error`.
-- [ ] `daemon-wait-run-completion.test.ts`'s existing hidden-shrink surviving-mutation and
+- [x] `daemon-wait-run-completion.test.ts`'s existing hidden-shrink surviving-mutation and
       complete-after-shrink cases stay green (entry projection unchanged).
-- [ ] Inverting the added owner-match guard fails at least one test; with the guard inverted to match
+- [x] Inverting the added owner-match guard fails at least one test; with the guard inverted to match
       nothing, the negative case proves the entry reports no mutation detail.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

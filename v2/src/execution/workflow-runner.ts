@@ -701,6 +701,30 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const lastStep = args.steps[args.steps.length - 1];
     const isReviewLastStep = lastStep?.behavior === "review" || lastStep?.behavior === "review-debate";
 
+    // The publication tail always writes status/log records against `lastResult.runId`. When the
+    // last step is non-durable (e.g. a light review with no landing), that id is a synthesized
+    // `crypto.randomUUID()` with no durable row. Redirect the tail to settle the completion step's
+    // durable row instead — its hidden `~shrink` row when one exists, else its own row — so the
+    // terminal record lands somewhere `run wait` can actually see.
+    if (lastStep !== undefined && !isDurableWorkflowStep(lastStep) && completionStep !== undefined) {
+      const settleWorktree = completionStep.worktree;
+      const shrinkRun = store.findRunByProjectBranch({
+        project: settleWorktree.projectName,
+        branch: settleWorktree.branchName,
+        stepId: `${completionStep.stepId}${SHRINK_STEP_ID_SUFFIX}`,
+      });
+      const settleRun =
+        shrinkRun ??
+        store.findRunByProjectBranch({
+          project: settleWorktree.projectName,
+          branch: settleWorktree.branchName,
+          stepId: completionStep.stepId,
+        });
+      if (settleRun !== null) {
+        lastResult = { ...lastResult, runId: settleRun.id };
+      }
+    }
+
     // For reviewed workflows, landing is deferred until after review completes.
     // Skip landing if the last step is a review step; it will be handled after review.
     if (

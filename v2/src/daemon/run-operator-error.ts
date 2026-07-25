@@ -139,6 +139,7 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
     case "surviving_mutation_failed":
     case "completion_commit_failed":
     case "iteration_commit_failed":
+    case "landing_failed":
       return true;
     default:
       return false;
@@ -166,6 +167,8 @@ function mapFromLoopFinished(
   if (resumable) return allowResumableLogOutcomes ? resumable : undefined;
 
   switch (event.loopOutcomeKind) {
+    case "landing_failed":
+      return op("landing_failed", "resume", true);
     case "completion_commit_failed":
       return {
         ...op("completion_commit_failed", "resume", true),

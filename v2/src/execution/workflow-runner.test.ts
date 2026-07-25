@@ -26,6 +26,7 @@ import {
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
 } from "../daemon/daemon.ts";
+import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
@@ -2528,6 +2529,120 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("does not record done completion boundary when intent stage remains uncommitted", async () => {
+    // Plain (non-git) workspace: `git status --porcelain` fails here, so `getUncommittedPaths`
+    // alone can't see a leftover staged file — only `remainingStagedIntentPaths` does.
+    const workspace = mkdtempSync(join(tmpdir(), "intent-leftover-stage-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const stagingDir = join(workspace, ".jarvis-intent-stage");
+    const durableDir = join(workspace, "ready-intents");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-leftover-stage",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-leftover-stage",
+        baseRef: "none",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: leftover-stage",
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "alpha.md"),
+          "---\nname: alpha\n---\n\n# Alpha\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const step: WriteWorkflowStep = { ...baseStep, worktree: { ...baseStep.worktree, git: false, localPath: workspace } };
+
+    await withStateStore(async (store) => {
+      // The committer reports no new commit but leaves a stray staged file behind — the same
+      // shape as a commit that silently no-ops while `.jarvis-intent-stage/` is still populated.
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => {
+          mkdirSync(stagingDir, { recursive: true });
+          writeFileSync(join(stagingDir, "leftover.md"), "leftover\n", "utf8");
+          return {};
+        },
+      });
+
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(result.completionCommitError).toContain("leftover.md");
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      expect(store.loadRun(result.runId)?.status).not.toBe("completed");
+    });
+
+    expect(readFileSync(join(durableDir, "alpha.md"), "utf8")).toContain("# Alpha");
+  });
+
+  test("does not emit an empty failed row when log shows loop_finished complete", async () => {
+    // Non-reviewed intent workflow: the write step's own loop settles `loop_finished complete`
+    // on its row (write-loop.ts) before the workflow-completion tail attempts promotion. When
+    // promotion (`landPublication`) then fails on a durable-dir collision, the row's log and its
+    // durable status must agree — `composeRunOperatorError` must not fall through to an empty or
+    // generically-classified row for the split.
+    const workspace = mkdtempSync(join(tmpdir(), "intent-tail-log-disagreement-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-tail-log-disagreement",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-tail-log-disagreement",
+        baseRef: "none",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: tail-log-disagreement",
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(join(cwd, ".jarvis-intent-stage", "example.md"), "staged\n", "utf8");
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const step: WriteWorkflowStep = { ...baseStep, worktree: { ...baseStep.worktree, git: false, localPath: workspace } };
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result.kind).toBe("pre-publication");
+      const run = store.loadRun(result.runId);
+      expect(run?.status).toBe("failed");
+
+      const events = logSink.getEventsForRun(result.runId);
+      const loopFinished = events.filter((event) => event.kind === "loop_finished");
+      // The write step's own `complete` boundary is present, but it must not be the last word:
+      // a distinct finalization-failure record must follow it so log and split agree.
+      expect(loopFinished.at(-1)).toMatchObject({ loopOutcomeKind: "landing_failed", resumable: true });
+
+      const lastEvent = loopFinished.at(-1);
+      if (lastEvent === undefined) throw new Error("expected a loop_finished event");
+      const terminal = findTerminalLogRecord([{ event: lastEvent } as never]);
+      const operatorError = composeRunOperatorError(run ?? { status: "failed" }, terminal);
+      expect(operatorError).toMatchObject({ reason: "landing_failed", retryable: true, nextAction: "resume" });
+    });
+  });
+
   test("publishes reviewed-intent body summary after review-last landing", async () => {
     const { workspace, withExternalWorktree } = createIntentWorktreeHarness("reviewed-intent-body-summary");
     const invocationId = "reviewed-intent-body-summary";
@@ -3251,6 +3366,161 @@ describe("executeWorkflow review-debate dispatch", () => {
       expect(second.runId).not.toBe(first.runId);
       expect(store.listRuns().filter((run) => run.stepId === "debate-durable")).toHaveLength(2);
     });
+  });
+
+  function debateIntentStep(
+    workspace: string,
+    branch: string,
+    overrides: Partial<Omit<ReviewDebateWorkflowStep, "behavior">> = {},
+  ): ReviewDebateWorkflowStep {
+    return createDebateStep({
+      stepId: "review",
+      branch,
+      cwd: workspace,
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: join(workspace, "ready-intents") },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-debate",
+        baseRef: "none",
+      },
+      createBinding: createDebateBindingFactory(
+        async ({ adapterModel }) =>
+          ({ kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" }) as const,
+      ),
+      ...overrides,
+    });
+  }
+
+  test("promotes, cleans up, and traces a debate-last intent workflow the same as light review", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-"));
+    const stage = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
+    const durableDir = join(workspace, "ready-intents");
+    const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
+    const step = debateIntentStep(workspace, "intent/debate-example");
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result).toMatchObject({ kind: "complete" });
+      const finalizationEvents = logSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "intent_finalization");
+      expect(finalizationEvents.length).toBeGreaterThan(0);
+      expect(finalizationEvents[0]).toMatchObject({ phase: "review_landing", branch: "intent/debate-example" });
+    });
+
+    expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(verdictPath)).toBe(false);
+    expect(existsSync(`${verdictPath}.owner`)).toBe(false);
+  });
+
+  test("settles a debate-last intent workflow's landing failure the same as light review, with a trace", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-fail-"));
+    const stage = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    const step = debateIntentStep(workspace, "intent/debate-collision");
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      const finalizationEvents = logSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "intent_finalization");
+      expect(finalizationEvents.length).toBeGreaterThan(0);
+      expect((finalizationEvents.at(-1) as { stopReason?: string }).stopReason).toBeTruthy();
+    });
+    expect(existsSync(join(stage, "example.md"))).toBe(true);
+  });
+
+  test("settles post-review finalization failure without invocation_failure when all roles succeeded", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-landing-detail-"));
+    const stage = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+    const step = debateIntentStep(workspace, "intent/debate-landing-detail");
+
+    await withStateStore(async (store) => {
+      // Every debate role (adversary/advocate/adjudicator) returns "ok"; the failure happens
+      // only in the post-role landing step, so it must not be classified generically.
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      const checkpoint = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent/debate-landing-detail",
+        stepId: "review",
+      });
+      expect(checkpoint?.attempts.at(-1)?.invocationFailureDetail?.failureKind).toBe("landing");
+    });
+  });
+
+  test("settles workflow-tail finalization failure without invocation_failure when all roles succeeded", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-tail-failure-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const stagingDir = join(workspace, ".jarvis-intent-stage");
+    const durableDir = join(workspace, "ready-intents");
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-tail-failure",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir,
+        invocationId: "invocation-debate",
+        baseRef: "none",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: tail-failure",
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "example.md"),
+          "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
+    };
+    const reviewStep = debateIntentStep(workspace, "intent-tail-failure");
+
+    await withStateStore(async (store) => {
+      // All debate roles return "ok" and the review step's own landing succeeds (promotion is
+      // complete); the failure is injected only in the post-review workflow-completion tail
+      // (commit/push/PR), which must not be classified as `invocation_failure`.
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => {
+          throw new Error("commit tail exploded");
+        },
+      });
+
+      expect(result.kind).not.toBe("invocation_failure");
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+    });
+
+    expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
   });
 });
 
@@ -4613,7 +4883,10 @@ describe("executeWorkflow implement patch light review", () => {
 
 describe("executeWorkflow review dispatch", () => {
   const config: AgentModelConfig = {
-    claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+    claude: {
+      critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
+      plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] },
+    },
     codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
   };
 
@@ -5512,6 +5785,288 @@ describe("executeWorkflow review dispatch", () => {
       ).toHaveLength(1);
       expect(calls).toHaveLength(2);
     });
+  });
+
+  /** A git-enabled write step (intent split) feeding a durable reviewed-intent review step. */
+  function twoFileIntentWorkflow(
+    branchName: string,
+    reviewOverrides: {
+      criticStdout: string;
+      actuatorInvoked: boolean;
+    },
+  ): {
+    harness: ReturnType<typeof createIntentWorktreeHarness>;
+    durableDir: string;
+    stagingDir: string;
+    verdictPath: string;
+    calls: string[];
+    writeStep: WriteWorkflowStep;
+    reviewStep: ReviewWorkflowStep;
+  } {
+    const harness = createIntentWorktreeHarness(branchName);
+    const workspace = harness.workspace;
+    const durableDir = join(workspace, "ready-intents");
+    const stagingDir = join(workspace, ".jarvis-intent-stage");
+    const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
+    const splitConfig: AgentModelConfig = {
+      claude: {
+        plan: { rungs: [{ adapterModel: "split", priceKey: "split" }] },
+        critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
+      },
+      codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+    };
+    const calls: string[] = [];
+
+    const writeStep: WriteWorkflowStep = {
+      behavior: "write",
+      stepId: "split",
+      role: "plan",
+      worktree: {
+        projectRoot: workspace,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        git: false,
+        localPath: workspace,
+      },
+      withExternalWorktree: harness.withExternalWorktree,
+      specPath: durableDir,
+      expectedArtifactPath: ".jarvis-intent-stage",
+      stepRules: "Return exactly one terminal token.",
+      agents: ["claude"],
+      agentModelConfig: splitConfig,
+      creationTitle: `intent: ${branchName}`,
+      createBinding: () => ({
+        id: "claude/split",
+        metadata: { agent: "claude", model: "split" },
+        invoke: async ({ cwd }) => {
+          calls.push("split");
+          mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+          writeFileSync(
+            join(cwd, ".jarvis-intent-stage", "one.md"),
+            "---\nname: one\n---\n\n# One\n\n## Prerequisites\n",
+            "utf8",
+          );
+          writeFileSync(
+            join(cwd, ".jarvis-intent-stage", "two.md"),
+            "---\nname: two\n---\n\n# Two\n\n## Prerequisites\n",
+            "utf8",
+          );
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    };
+
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: branchName,
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath,
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: splitConfig,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir,
+        invocationId: "invocation-two-file",
+        baseRef: "HEAD",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          calls.push(agentId);
+          return agentId === "claude"
+            ? { kind: "ok" as const, stdout: reviewOverrides.criticStdout, stderr: "" }
+            : { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    };
+
+    return { harness, durableDir, stagingDir, verdictPath, calls, writeStep, reviewStep };
+  }
+
+  test("promotes two staged intents through a full reviewed intent workflow", async () => {
+    const branchName = "intent-two-file-promote";
+    const { harness, durableDir, stagingDir, verdictPath, writeStep, reviewStep } = twoFileIntentWorkflow(branchName, {
+      criticStdout: "looks good",
+      actuatorInvoked: true,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete" });
+      expect(result.commitSha).toBeDefined();
+    });
+
+    expect(readFileSync(join(durableDir, "one.md"), "utf8")).toContain("# One");
+    expect(readFileSync(join(durableDir, "two.md"), "utf8")).toContain("# Two");
+    expect(existsSync(stagingDir)).toBe(false);
+    expect(existsSync(verdictPath)).toBe(false);
+    expect(existsSync(`${verdictPath}.owner`)).toBe(false);
+
+    const log = execFileSync("git", ["log", "--name-only", "-1", "HEAD"], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    });
+    expect(log).toContain("ready-intents/one.md");
+    expect(log).toContain("ready-intents/two.md");
+  });
+
+  test("promotes staged intents when the critic returns an empty verdict", async () => {
+    const branchName = "intent-empty-verdict-promote";
+    const { harness, durableDir, stagingDir, verdictPath, calls, writeStep, reviewStep } = twoFileIntentWorkflow(
+      branchName,
+      { criticStdout: "", actuatorInvoked: false },
+    );
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete" });
+      expect(result.commitSha).toBeDefined();
+    });
+
+    expect(calls).toEqual(["split", "claude"]);
+    expect(readFileSync(join(durableDir, "one.md"), "utf8")).toContain("# One");
+    expect(readFileSync(join(durableDir, "two.md"), "utf8")).toContain("# Two");
+    expect(existsSync(stagingDir)).toBe(false);
+    expect(existsSync(verdictPath)).toBe(false);
+
+    const log = execFileSync("git", ["log", "--name-only", "-1", "HEAD"], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    });
+    expect(log).toContain("ready-intents/one.md");
+    expect(log).toContain("ready-intents/two.md");
+  });
+
+  test("records intent finalization trace on success and when promotion stops short", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-trace-"));
+    stageReviewedIntent(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    const successStep = reviewedIntentStep(workspace, {
+      branch: "intent/trace-success",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-trace",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    });
+
+    const successLogSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [successStep], stateStore: store, logSink: successLogSink });
+      expect(result).toMatchObject({ kind: "complete" });
+      const finalizationEvents = successLogSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "intent_finalization");
+      expect(finalizationEvents.length).toBeGreaterThan(0);
+      for (const event of finalizationEvents) {
+        expect(event).toMatchObject({ branch: "intent/trace-success" });
+        expect((event as { stopReason?: string }).stopReason).toBeUndefined();
+      }
+    });
+
+    // Short-circuit: durableDir already carries a conflicting file, so landing throws before
+    // promotion and the trace records why.
+    const failWorkspace = mkdtempSync(join(tmpdir(), "reviewed-intent-trace-fail-"));
+    stageReviewedIntent(failWorkspace);
+    const failDurableDir = join(failWorkspace, "ready-intents");
+    mkdirSync(failDurableDir, { recursive: true });
+    writeFileSync(join(failDurableDir, "existing.md"), "different\n", "utf8");
+    const failStep = reviewedIntentStep(failWorkspace, {
+      branch: "intent/trace-fail",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: failDurableDir },
+        stagingDir: join(failWorkspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-trace-fail",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    });
+
+    const failLogSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [failStep], stateStore: store, logSink: failLogSink });
+      expect(result).toMatchObject({ kind: "invocation_failure" });
+      const finalizationEvents = failLogSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "intent_finalization");
+      expect(finalizationEvents.length).toBeGreaterThan(0);
+      expect(finalizationEvents.at(-1)).toMatchObject({ branch: "intent/trace-fail" });
+      expect((finalizationEvents.at(-1) as { stopReason?: string }).stopReason).toBeTruthy();
+    });
+    // Landing failed before promotion: the staged file stays put, nothing is lost.
+    expect(existsSync(join(failWorkspace, ".jarvis-intent-stage", "existing.md"))).toBe(true);
+  });
+
+  test("does not emit done boundary before intent finalization finishes", async () => {
+    // Same landing-conflict shape as the trace test above: landing throws before promotion
+    // completes. The review step's own completion boundary must not already have recorded
+    // `done` / `completed` when that happens — committing that boundary before landing leaves a
+    // stray completed attempt in the run's history even though the run settles
+    // `invocation_failure` with the stage still populated.
+    const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-boundary-order-"));
+    stageReviewedIntent(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "existing.md"), "different\n", "utf8");
+    const step = reviewedIntentStep(workspace, {
+      branch: "intent/boundary-order",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId: "invocation-boundary-order",
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result).toMatchObject({ kind: "invocation_failure" });
+      const run = store.loadRun(result.runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(false);
+    });
+    // Landing failed before promotion: the staged file stays put, nothing is lost.
+    expect(existsSync(join(workspace, ".jarvis-intent-stage", "existing.md"))).toBe(true);
   });
 });
 

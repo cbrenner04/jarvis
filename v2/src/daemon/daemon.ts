@@ -26,8 +26,11 @@ import {
 import {
   type AnyWorkflowStep,
   executeWorkflow,
+  type IntentFinalizationResumeDeps,
   LinkedIndexReadError,
   type ReviewProgress,
+  resolveIntentFinalizationResumeContext,
+  resumePopulatedIntentPublication,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -412,21 +415,36 @@ const UNSUPPORTED_RESUME_ERROR = {
   nextAction: "stop",
 } as const;
 
+/**
+ * A review/review-debate row's `landing_failed` is only resumable through
+ * {@link resumePopulatedIntentPublication}, not the write-loop reconstruction below — it needs a
+ * populated `.jarvis-intent-stage/` and the sibling durable write step's row. Out of scope (empty
+ * or missing stage, non-review rows) falls through to the existing write-step reconstruction,
+ * which still refuses a review-behavior row.
+ */
+function isIntentFinalizationResumable(run: Run & { attempts?: Attempt[] }, store: StateStore): boolean {
+  return resolveIntentFinalizationResumeContext({ ...run, attempts: run.attempts ?? [] }, store).ok;
+}
+
 function resumeContextForRun(
   run: Run & { attempts?: Attempt[] },
+  store: StateStore,
   terminalRecord?: TerminalLogRecord,
 ): ResolvedWriteLoopInput | undefined {
   // Admission is derived from the advertised row contract: if nextAction is
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
-  return isResumeAdmitted(run, terminalRecord) ? reconstructWriteResume(run) : undefined;
+  if (!isResumeAdmitted(run, terminalRecord)) return undefined;
+  if (isIntentFinalizationResumable(run, store)) return undefined;
+  return reconstructWriteResume(run);
 }
 
 function resumeContextForTerminalRecord(
   run: (Run & { attempts?: Attempt[] }) | undefined,
+  store: StateStore,
   terminalRecord: TerminalLogRecord | undefined,
 ): ResolvedWriteLoopInput | undefined {
   if (!run) return undefined;
-  return resumeContextForRun(run, terminalRecord);
+  return resumeContextForRun(run, store, terminalRecord);
 }
 
 function runListRowError(
@@ -480,6 +498,8 @@ export type RunControlHandlerDeps = {
   settleDelayMs?: number;
   /** Test seam for pre-existing daemon-memory ownership. */
   registry?: WorktreeOwnershipRegistry;
+  /** Test seam for {@link resumePopulatedIntentPublication}'s commit/publish/ready-finalize calls. */
+  intentFinalizationResumeDeps?: Omit<IntentFinalizationResumeDeps, "logSink">;
 };
 
 export type WaitRunCompletionResult = {
@@ -642,7 +662,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
   // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
-  const { stateStore: store, logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId } = deps;
+  const {
+    stateStore: store,
+    logReader,
+    writeLoopExecutor,
+    failureReporter,
+    logsPath,
+    operatorSessionId,
+    intentFinalizationResumeDeps,
+  } = deps;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -653,7 +681,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const run = store.loadRun(runId);
-    const resumeContext = run ? resumeContextForRun(run, record) : undefined;
+    const resumeContext = run ? resumeContextForRun(run, store, record) : undefined;
     const error =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
@@ -702,8 +730,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       resumable: isResumeAdmitted(owner.run, owner.terminalRecord),
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
-    const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord);
-    const entryCanResume = entryResumeContext?.ok === true;
+    const entryResumeContext = resumeContextForTerminalRecord(entryRun, store, entryRecord);
+    const entryCanResume = entryResumeContext?.ok === true || isIntentFinalizationResumable(entryRun, store);
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
 
@@ -1052,7 +1080,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
     const error =
       rowOutcome?.error ??
-      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, terminalRecord), terminalRecord);
+      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, store, terminalRecord), terminalRecord);
     const {
       runStatus: _entryRunStatus,
       error: _entryError,
@@ -1174,6 +1202,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { ok: true } };
   };
 
+  /**
+   * Resume dispatch for a review-behavior step's populated-stage `landing_failed` row: replays
+   * finalization (promotion, verdict cleanup, commit, push, draft PR) via
+   * {@link resumePopulatedIntentPublication} directly, never `spawnWriteLoop` — there is no
+   * `WriteLoopInput` for a review step, and re-entering the write loop would risk re-invoking
+   * agents.
+   */
+  const resumeIntentFinalizationPublication = async (
+    run: LoadedRun,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+    const resumeDeps: IntentFinalizationResumeDeps = {
+      ...intentFinalizationResumeDeps,
+      ...(logSink !== undefined ? { logSink } : {}),
+    };
+    const outcome = await resumePopulatedIntentPublication(run, store, resumeDeps);
+    if (!outcome.ok) {
+      return { kind: "error", code: "landing_failed", message: outcome.message };
+    }
+    return { kind: "response", result: { ok: true } };
+  };
+
   function terminalResumeBlocked(
     run: LoadedRun,
     runId: string,
@@ -1211,8 +1261,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return resumePausedRun(run, key, runId);
     }
 
+    if (isIntentFinalizationResumable(run, store)) {
+      return resumeIntentFinalizationPublication(run);
+    }
+
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord);
+    const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord);
     if (!reconstructed?.ok) {
       return {
         kind: "error",

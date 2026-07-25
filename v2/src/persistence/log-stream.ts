@@ -111,6 +111,19 @@ export type CoverageAdvisoryEvent = {
   responseText: string;
 };
 
+/**
+ * Emitted on every reviewed-intent finalization attempt (review-step landing and the
+ * workflow completion publication tail alike), so production can trace which seam ran and
+ * whether it short-circuited before promotion. `stopReason` is set only when finalization
+ * did not complete (e.g. a landing error); absent on the happy path.
+ */
+export type IntentFinalizationEvent = {
+  kind: "intent_finalization";
+  phase: "review_landing" | "completion_publication";
+  branch: string;
+  stopReason?: string;
+};
+
 export type LogEvent =
   | IterationStartedEvent
   | BoundaryCommittedEvent
@@ -126,7 +139,8 @@ export type LogEvent =
   | BlockerRepromptEvent
   | MissingBlockerDetailEvent
   | BlockerTextDetailEvent
-  | CoverageAdvisoryEvent;
+  | CoverageAdvisoryEvent
+  | IntentFinalizationEvent;
 
 /** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;

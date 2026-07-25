@@ -211,6 +211,34 @@ test("composeRunOperatorError resolves failed plus loop_finished complete to sto
   ).toEqual(err("model_config", "fix_config"));
 });
 
+test("composeRunOperatorError never returns an empty failed row when log disagrees with a done boundary", () => {
+  // Split-vs-log disagreement (occurrence #8/#9): the run settled `failed` durably, but its own
+  // log records `loop_finished complete` and the last committed attempt maps to no resumable
+  // reason (`done` isn't a mappable invocation-failure outcome). The row must still name
+  // something non-empty rather than silently return undefined.
+  const doneAttemptRun = runWith("failed", [attempt("done")]);
+  const withLog = composeRunOperatorError(doneAttemptRun, loopFinished("complete"));
+  const withoutLog = composeRunOperatorError(doneAttemptRun);
+  expect(withLog).toBeDefined();
+  expect(withLog?.reason).toBeTruthy();
+  expect(withLog?.nextAction).toBeTruthy();
+  expect(withoutLog).toBeDefined();
+  expect(withoutLog?.reason).toBeTruthy();
+  expect(withoutLog?.nextAction).toBeTruthy();
+});
+
+test("composeRunOperatorError keeps landing_failed distinct from completion_commit_failed for pending promotion", () => {
+  const landingRun = runWith("failed", [attempt("invocation_failure", { failureKind: "landing", bindingAttempts: [] })]);
+  const landingError = composeRunOperatorError(landingRun);
+  expect(landingError).toEqual(err("landing_failed", "resume", true));
+
+  const commitRun = runWith("failed");
+  const commitError = composeRunOperatorError(commitRun, loopFinished("completion_commit_failed", { resumable: true }));
+  expect(commitError).toEqual(err("completion_commit_failed", "resume", true));
+
+  expect(landingError?.reason).not.toEqual(commitError?.reason);
+});
+
 test("composeRunOperatorError prefers resumable ready_gate_failed over blocked last attempt", () => {
   expect(
     composeRunOperatorError(

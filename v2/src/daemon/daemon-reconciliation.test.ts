@@ -1,7 +1,9 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogEvent, LogReader, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import {
@@ -11,7 +13,15 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
-import { reconcileOrphanedRuns, recoverReconciledRuns, startDaemonRuntime } from "./daemon.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import {
+  createRunControlHandlers,
+  reconcileOrphanedRuns,
+  recoverReconciledRuns,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+  startDaemonRuntime,
+} from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
 const orphanedStatuses: readonly RunStatus[] = ["queued", "in-progress", "paused", "budget-soft-stopped"];
@@ -559,4 +569,99 @@ test("automatic recovery records success, isolates admission failures, and prese
       },
     },
   ]);
+});
+
+test("recoverReconciledRuns auto-resume re-resolves write bindings from the edited machine profile", async () => {
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-reconcile-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "reconcile-binding-profile";
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  const codexBundle = (implementModels: string[]) => ({
+    plan: rung("plan"),
+    implement: { rungs: implementModels.map((adapterModel) => ({ adapterModel, priceKey: adapterModel })) },
+    shrink: rung("shrink"),
+    adversary: rung("adv"),
+    critic: rung("crit"),
+    advocate: rung("advoc"),
+    adjudicator: rung("adj"),
+    actuator: rung("act"),
+  });
+  const writeProfile = (implementModels: string[]) => {
+    mkdirSync(machinesDir, { recursive: true });
+    writeFileSync(
+      join(machinesDir, `${machineProfile}.json`),
+      JSON.stringify({ models: { codex: codexBundle(implementModels) } }),
+    );
+    writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["codex"] }));
+    setWriteLoopBindingSourceDepsForTests({
+      machineConfigPath: join(profileHome, "config.json"),
+      machinesDir,
+    });
+  };
+
+  const snapshotConfig: AgentModelConfig = {
+    codex: { implement: { rungs: [{ adapterModel: "snapshot-only-model", priceKey: "snapshot-only-model" }] } },
+  };
+  const recoveryDb = join(tmpdir(), `jarvis-reconcile-binding-${process.pid}-${Date.now()}.db`);
+  removeOrchestrationStore(recoveryDb);
+  const store = openStateStore(recoveryDb);
+  const admitted: string[] = [];
+  const fakeExecutor = createFakeWriteLoopExecutor((input) => {
+    admitted.push(input.bindings[0]?.id ?? "");
+  });
+  const handlers = createRunControlHandlers({
+    stateStore: store,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+
+  try {
+    writeProfile(["recovery-old-model"]);
+    const runId = store.createRun({
+      project: "project",
+      specRef: "main",
+      worktreePath: "/tmp/recovery-worktree",
+      branch: "recovery-branch",
+      specPath: "/tmp/recovery-spec.md",
+      stepId: "step-1",
+      workflowSnapshot: {
+        invocationId: "recovery-workflow",
+        steps: [
+          {
+            stepId: "step-1",
+            role: "implement",
+            stepRules: "rules",
+            expectedArtifactPath: "/tmp/artifact",
+            agents: ["codex"],
+            agentModelConfig: snapshotConfig,
+          },
+        ],
+      },
+    });
+    store.setRunStatus(runId, "killed");
+
+    writeProfile(["recovery-new-model"]);
+
+    const recovery = await recoverReconciledRuns(
+      [runId],
+      store,
+      { append: () => undefined, close: () => undefined },
+      handlers.resume,
+    );
+
+    expect(recovery).toEqual({ resumed: 1 });
+    expect(admitted).toEqual(["codex/recovery-new-model/recovery-new-model"]);
+  } finally {
+    fakeExecutor.abortAll();
+    resetWriteLoopBindingSourceDepsForTests();
+    store.close();
+    removeOrchestrationStore(recoveryDb);
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(profileHome, { recursive: true, force: true });
+  }
 });

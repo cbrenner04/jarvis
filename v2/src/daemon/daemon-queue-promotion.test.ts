@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -13,6 +13,8 @@ import {
   type OwnershipKey,
   type PromoteQueuedRunDeps,
   promoteQueuedRunImpl,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
 
@@ -22,6 +24,51 @@ let stateStore: StateStore;
 let handlers: Handlers;
 let fakeExecutor: FakeWriteLoopExecutor;
 let memoryHeadroom: boolean;
+let profileHome: string;
+let machinesDir: string;
+let previousJarvisHome: string | undefined;
+const MACHINE_PROFILE = "queue-promotion-profile";
+
+function rung(adapterModel: string) {
+  return { rungs: [{ adapterModel, priceKey: adapterModel }] };
+}
+
+function queuePromotionProfileModels(codexImplement: string[]): AgentModelConfig {
+  const bundle = {
+    plan: rung("plan"),
+    implement: { rungs: codexImplement.map((adapterModel) => ({ adapterModel, priceKey: adapterModel })) },
+    shrink: rung("shrink"),
+    adversary: rung("adv"),
+    critic: rung("crit"),
+    advocate: rung("advoc"),
+    adjudicator: rung("adj"),
+    actuator: rung("act"),
+  };
+  return {
+    codex: bundle,
+    cursor: { ...bundle, implement: rung("cursor-fast") },
+  };
+}
+
+function writeQueuePromotionProfile(codexImplement: string[]): void {
+  writeFileSync(
+    join(machinesDir, `${MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: queuePromotionProfileModels(codexImplement) }),
+  );
+}
+
+function installQueuePromotionProfile(codexImplement: string[]): void {
+  mkdirSync(machinesDir, { recursive: true });
+  writeQueuePromotionProfile(codexImplement);
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex", "cursor"] }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+}
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
   codex: {
@@ -57,6 +104,11 @@ function startHandlers(settleDelayMs: number): void {
 }
 
 beforeEach(() => {
+  profileHome = mkdtempSync(join(tmpdir(), `jarvis-queue-promotion-profile-${process.pid}-`));
+  machinesDir = join(profileHome, "machines");
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  installQueuePromotionProfile(["codex-fast", "codex-deep"]);
   stateStore = openStateStore(join(tmpdir(), `jarvis-state-queue-promotion-${process.pid}-${Date.now()}.db`));
   fakeExecutor = createFakeWriteLoopExecutor();
   memoryHeadroom = true;
@@ -65,6 +117,10 @@ beforeEach(() => {
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns(2);
+  resetWriteLoopBindingSourceDepsForTests();
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
+  rmSync(profileHome, { recursive: true, force: true });
   try {
     stateStore.close();
   } catch {
@@ -208,7 +264,7 @@ test("promoteQueuedRunImpl skips a queued run whose key is claimed in favor of t
   }
 });
 
-test("promoteQueuedRunImpl resolves queued workflow bindings from persisted context", () => {
+test("promoteQueuedRunImpl resolves queued workflow bindings from the current machine profile", () => {
   const { store, calls, promote, cleanup } = createPromotionHarness();
   try {
     const runId = queueRun(store, serialized(workflowInput({ projectName: "project-workflow-queued" })));
@@ -219,6 +275,41 @@ test("promoteQueuedRunImpl resolves queued workflow bindings from persisted cont
     expect(calls[0]?.bindingIds).toEqual([
       "codex/codex-fast/codex-fast",
       "codex/codex-deep/codex-deep",
+      "cursor/cursor-fast/cursor-fast",
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("promoteQueuedRunImpl re-resolves bindings after a machine-profile rung edit", () => {
+  const { store, calls, promote, cleanup } = createPromotionHarness();
+  try {
+    const staleConfig: AgentModelConfig = {
+      codex: {
+        implement: { rungs: [{ adapterModel: "queue-stale-model", priceKey: "queue-stale-model" }] },
+      },
+      cursor: {
+        implement: { rungs: [{ adapterModel: "queue-stale-cursor", priceKey: "queue-stale-cursor" }] },
+      },
+    };
+    const input = serialized({
+      ...workflowInput({ projectName: "project-profile-edit" }),
+      bindingResolution: {
+        role: "implement",
+        agents: ["codex", "cursor"],
+        agentModelConfig: staleConfig,
+      },
+    });
+    const runId = queueRun(store, input);
+
+    writeQueuePromotionProfile(["codex-promoted-rung"]);
+
+    promote();
+
+    expect(store.loadRun(runId)?.status).toBe("in-progress");
+    expect(calls[0]?.bindingIds).toEqual([
+      "codex/codex-promoted-rung/codex-promoted-rung",
       "cursor/cursor-fast/cursor-fast",
     ]);
   } finally {

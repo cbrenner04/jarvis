@@ -129,10 +129,12 @@ Top-level harness-global artifact. Maps each agent name to its `ModelsByRole`.
 
 **Relationships:** project config supplies `agents: Agent[]` (outer order).
 `AgentModelConfig[agent][role]` supplies inner `rungs`. Workflow write steps
-persist `role`/`agents`/`agentModelConfig` on their `WriteLoopInput` so daemon
-start, queued promotion, and paused resume can rebuild live bindings after IPC
-or durable-store serialization. Ad-hoc daemon writes still use bare agent-id
-bindings until they gain role/profile context.
+persist `role`/`agents`/`agentModelConfig` on `WriteLoopInput` for step identity
+and IPC/durable-store round-trips; at continuation (`resume`, recovery, queue
+promotion) live bindings come from the current machine profile via
+`resolveWriteLoopBindings`, not from replaying persisted snapshot
+`agentModelConfig`. Ad-hoc daemon writes still use bare agent-id bindings until
+they gain role/profile context.
 
 ## Two-axis resolution
 
@@ -275,7 +277,10 @@ or not steps came from `loadWorkflowSteps`; every step role must resolve for
 every configured agent via an own `(agent, role)` entry. Inherited object
 properties do not count. There is no deferred first-invocation fallback if a
 later configured agent misses the role. After that gate, workflow write steps
-resolve fresh execution bindings from their persisted resolution context.
+resolve execution bindings from the current machine profile at admission and on
+every write-loop continuation (`resume`, daemon recovery, queue promotion) via
+`resolveWriteLoopBindings`; serialized snapshot `agentModelConfig` on the run row
+may lag the profile until a later write updates it.
 
 ## CLI override
 

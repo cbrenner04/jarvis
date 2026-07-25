@@ -322,9 +322,10 @@ A timeout on a role's **last** configured rung reproduces deterministically, so
 `retry_later` is misleading there — a re-dispatch spends ~30 minutes to reach the same
 wall. Escalation is quota-only today (`role-timeout-escalates-then-names-exhausted-rungs`),
 so a declared lower rung is unreachable on a wall-clock overrun; change the rung and
-start a fresh run rather than re-dispatching, and note that a re-dispatch replays the
-binding baked into its snapshot (`persisted-snapshot-replays-a-stale-agent-binding`),
-so the rung change does not reach it.
+start a fresh run rather than re-dispatching. That review re-dispatch path does not
+re-resolve implement write-step bindings — only write-loop `resume`, recovery, queue
+promotion, and fresh write admission pick up a rung edit (confirm via attempt telemetry
+until `jarvis run list` reports binding).
 
 An idle-output
 watchdog on the same role invocation times out when the actuator produces no
@@ -552,8 +553,7 @@ branch if safe. (`jarvis cleanup` handles this automatically once the branch's P
 ### Publication / completion failures
 
 Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then
-`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot before replaying
-publication without re-invoking the write-step agent; daemon-process logs are secondary, and do not delete the worktree or substitute current config.
+`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. Resume reuses the persisted write snapshot for step identity (rules, artifact path, outer agent order) before replaying publication without re-invoking the write-step agent; agent/model bindings come from the current machine profile at continuation time. Confirm the active rung from attempt telemetry until `jarvis run list` shows binding. Daemon-process logs are secondary, and do not delete the worktree.
 
 **Store lock after a completed write step:** when `list` / `wait` report
 `error.reason: "state_store_lock_timeout"` (`retryable: true`, `nextAction: "resume"`)

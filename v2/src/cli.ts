@@ -17,7 +17,7 @@ import { runDaemonCommand } from "./commands/daemon.ts";
 import { runRunCommand } from "./commands/run.ts";
 import { runTuiCommand } from "./commands/tui.ts";
 import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
-import { resolveWriteLoopBindings } from "./daemon/daemon.ts";
+import { resolveWriteLoopBindings, runWithWriteLoopMachineConfigPath } from "./daemon/daemon.ts";
 import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import { daemonPathsByDigest } from "./paths.ts";
 
@@ -43,7 +43,9 @@ async function runWriteCommand(
     return 1;
   }
 
-  const resolved = resolveWriteLoopBindings(parsed.input);
+  const resolved = runWithWriteLoopMachineConfigPath(runtimeDeps.machineConfigPath, () =>
+    resolveWriteLoopBindings(parsed.input),
+  );
   if (!resolved.ok) {
     out.stderr(`${resolved.message}\n`);
     return 1;

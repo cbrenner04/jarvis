@@ -10,8 +10,14 @@ import {
   listRpcRequestIsFiltered,
   runMatchesListRpcParams,
 } from "../commands/run-list-rpc.ts";
-import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
+import {
+  type AgentModelConfig,
+  type LoadError,
+  resolveExecutableRole,
+  resolveInvocationBindings,
+} from "../config/agent-model-config.ts";
 import { readIterationCeilingMs, resolveMachineProfile } from "../config/machine-config-loader.ts";
+import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import {
   getExternalWorktreePath,
   withExternalWorktree as realWithExternalWorktree,
@@ -250,6 +256,56 @@ export function createRunExecutionFailureReporter(logsPath: string): (runId: str
 
 export type ResolvedWriteLoopInput = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
 
+type WriteLoopBindingSourceDeps = {
+  machineConfigPath?: string;
+  machinesDir?: string;
+  /** When true, replay `bindingResolution.agentModelConfig` (guard tests only). */
+  forceSnapshotAgentModelConfig?: boolean;
+};
+
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
+
+export function setWriteLoopBindingSourceDepsForTests(deps: WriteLoopBindingSourceDeps): void {
+  writeLoopBindingSourceDeps = deps;
+}
+
+export function resetWriteLoopBindingSourceDepsForTests(): void {
+  writeLoopBindingSourceDeps = {};
+}
+
+export function runWithWriteLoopMachineConfigPath<T>(machineConfigPath: string | undefined, fn: () => T): T {
+  const prior = writeLoopBindingSourceDeps;
+  writeLoopBindingSourceDeps = machineConfigPath === undefined ? prior : { ...prior, machineConfigPath };
+  try {
+    return fn();
+  } finally {
+    writeLoopBindingSourceDeps = prior;
+  }
+}
+
+function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
+  return "errors" in value && Array.isArray(value.errors);
+}
+
+/** Same loader path as fresh write-step admission (`loadWorkflowSteps` / `jarvis write`). */
+function loadAgentModelConfigForWriteLoopAgents(agents: readonly string[]): AgentModelConfig {
+  const profile = resolveMachineProfile(writeLoopBindingSourceDeps.machineConfigPath);
+  const loaded = loadMachineProfileModels(profile, agents, {
+    machinesDir: writeLoopBindingSourceDeps.machinesDir,
+  });
+  if (isLoadError(loaded)) {
+    throw new Error(`Failed to load agent model config: ${loaded.errors.join(", ")}`);
+  }
+  return loaded;
+}
+
+function resolveWriteLoopAgentModelConfig(context: NonNullable<WriteLoopInput["bindingResolution"]>): AgentModelConfig {
+  if (writeLoopBindingSourceDeps.forceSnapshotAgentModelConfig) {
+    return context.agentModelConfig;
+  }
+  return loadAgentModelConfigForWriteLoopAgents(context.agents);
+}
+
 /**
  * Bindings crossing a JSON boundary must arrive as `bindingResolution` context and be
  * re-resolved here; serialized binding husks (post-JSON objects without `invoke`) are
@@ -259,6 +315,7 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
   const context = input.bindingResolution;
   if (context !== undefined) {
     try {
+      const agentModelConfig = resolveWriteLoopAgentModelConfig(context);
       return {
         ok: true,
         input: {
@@ -266,7 +323,7 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
           bindings: resolveInvocationBindings(
             resolveExecutableRole(context.role),
             context.agents,
-            context.agentModelConfig,
+            agentModelConfig,
             createResolvedAgentBinding,
           ),
         },

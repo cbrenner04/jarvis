@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -9,7 +9,11 @@ import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts"
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import {
+  createRunControlHandlers,
+  resetWriteLoopBindingSourceDepsForTests,
+  setWriteLoopBindingSourceDepsForTests,
+} from "./daemon.ts";
 import {
   composeRunOperatorError,
   isResumeAdmitted,
@@ -24,6 +28,56 @@ let starts: WriteLoopInput[];
 let fakeExecutor: FakeWriteLoopExecutor;
 let handlers: Handlers;
 let dbPath: string;
+let profileHome: string;
+let machinesDir: string;
+let previousJarvisHome: string | undefined;
+const MACHINE_PROFILE = "resume-binding-profile";
+
+function rung(adapterModel: string): { rungs: Array<{ adapterModel: string; priceKey: string }> } {
+  return { rungs: [{ adapterModel, priceKey: adapterModel }] };
+}
+
+function agentRoleBundle(implementRungs: string[]) {
+  return {
+    plan: rung("plan"),
+    implement: { rungs: implementRungs.map((adapterModel) => ({ adapterModel, priceKey: adapterModel })) },
+    shrink: rung("shrink"),
+    adversary: rung("adv"),
+    critic: rung("crit"),
+    advocate: rung("advoc"),
+    adjudicator: rung("adj"),
+    actuator: rung("act"),
+  };
+}
+
+function defaultResumeProfileModels(implementRungs: string[]): AgentModelConfig {
+  return {
+    codex: agentRoleBundle(implementRungs),
+    cursor: agentRoleBundle(["cursor-fast"]),
+  };
+}
+
+function writeResumeProfile(implementRungs: string[]): void {
+  writeFileSync(
+    join(machinesDir, `${MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: defaultResumeProfileModels(implementRungs) }),
+    "utf-8",
+  );
+}
+
+function installResumeProfile(implementRungs: string[]): void {
+  mkdirSync(machinesDir, { recursive: true });
+  writeResumeProfile(implementRungs);
+  writeFileSync(
+    join(profileHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"] }),
+    "utf-8",
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+}
 
 beforeEach(() => {
   dbPath = join(tmpdir(), `jarvis-state-resume-${process.pid}-${Date.now()}.db`);
@@ -32,18 +86,27 @@ beforeEach(() => {
   fakeExecutor = createFakeWriteLoopExecutor((input) => {
     starts.push(input);
   });
+  profileHome = mkdtempSync(join(tmpdir(), "jarvis-resume-profile-home-"));
+  machinesDir = join(profileHome, "machines");
+  previousJarvisHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = profileHome;
+  installResumeProfile(["codex-fast", "codex-deep"]);
   handlers = createHandlers();
 });
 
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
+  resetWriteLoopBindingSourceDepsForTests();
+  if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+  else process.env.JARVIS_HOME = previousJarvisHome;
   try {
     stateStore.close();
   } catch {
     // store may be closed
   }
   rmSync(dbPath, { force: true });
+  rmSync(profileHome, { recursive: true, force: true });
 });
 
 function createHandlers(logReader?: LogReader): Handlers {
@@ -284,9 +347,22 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
 
 test("resume resolves iterationCeilingMs when snapshot step has wall segment only", async () => {
   const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-"));
+  const isolatedMachines = join(isolatedHome, "machines");
   const previousHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = isolatedHome;
-  writeFileSync(join(isolatedHome, "config.json"), JSON.stringify({ iterationCeilingMs: 2_222_222 }));
+  mkdirSync(isolatedMachines, { recursive: true });
+  writeFileSync(
+    join(isolatedMachines, `${MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: defaultResumeProfileModels(["codex-fast", "codex-deep"]) }),
+  );
+  writeFileSync(
+    join(isolatedHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 2_222_222 }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(isolatedHome, "config.json"),
+    machinesDir: isolatedMachines,
+  });
 
   try {
     const pausedRunId = createWorkflowRun({
@@ -309,9 +385,22 @@ test("resume resolves iterationCeilingMs when snapshot step has wall segment onl
 
 test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => {
   const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-persisted-"));
+  const isolatedMachines = join(isolatedHome, "machines");
   const previousHome = process.env.JARVIS_HOME;
   process.env.JARVIS_HOME = isolatedHome;
-  writeFileSync(join(isolatedHome, "config.json"), JSON.stringify({ iterationCeilingMs: 9_999_999 }));
+  mkdirSync(isolatedMachines, { recursive: true });
+  writeFileSync(
+    join(isolatedMachines, `${MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: defaultResumeProfileModels(["codex-fast", "codex-deep"]) }),
+  );
+  writeFileSync(
+    join(isolatedHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 9_999_999 }),
+  );
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(isolatedHome, "config.json"),
+    machinesDir: isolatedMachines,
+  });
 
   try {
     const pausedRunId = createWorkflowRun({
@@ -330,6 +419,21 @@ test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => 
     else process.env.JARVIS_HOME = previousHome;
     rmSync(isolatedHome, { recursive: true, force: true });
   }
+});
+
+test("resume re-resolves write bindings from the current machine profile after a rung edit", async () => {
+  const runId = createWorkflowRun({
+    invocationId: "workflow-rung-edit",
+    agents: ["codex"],
+  });
+  stateStore.setRunStatus(runId, "killed");
+
+  writeResumeProfile(["codex-new-rung"]);
+
+  const response = await resumeDirect(handlers, runId);
+
+  expect(response).toEqual({ kind: "response", result: { ok: true } });
+  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual(["codex/codex-new-rung/codex-new-rung"]);
 });
 
 test("resume on a killed workflow write run uses the persisted step contract", async () => {

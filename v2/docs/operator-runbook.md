@@ -304,29 +304,40 @@ Two valid paths:
 
 Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
 
-A review step whose role invocation exceeds its per-role wall-clock bound settles
-`invocation_failure` with `failureKind: "timeout"` and attribution on the run
-row; `jarvis run list` / `wait` report `error.reason: "role_timeout"` (distinct
-from write-loop `iteration_timeout`). A timeout reports retryable/retry_later, and
-recovery is re-dispatching the same workflow — **not** `jarvis run resume`, which
-hard-errors on a `failed` run that is not publication-retry-eligible. In an
-implement workflow the re-dispatch reuses the completed write step's checkpoint
-without re-invoking the write-step agent; an intent or plan review timeout is
-equally retryable but has no write checkpoint behind it, so its re-dispatch re-runs
-the whole workflow. Inspect the worktree first — the aborted actuator's partial edits
-are still on disk, and they are **not** swept into the next completion commit: the
-dirty-worktree gate refuses the re-dispatch, and `--reset-despite-dirty` discards
-them. Salvage anything worth keeping before re-dispatching.
+A review step whose role invocation exceeds its per-role wall-clock bound escalates
+internally to the next configured rung (agent/model binding) in the flat list — same
+as a quota fallback — before settling anything on the run row. The wall clock and
+idle budget are armed once per escalation **segment** (one `executeWithQuotaFallback`
+call over the remaining binding suffix), not once per rung: a rung reached by
+in-segment quota advancement shares the rest of that segment's clock rather than
+starting a fresh timer; only a rung that starts a new segment (after a prior segment
+timed out) gets a full fresh `roleTimeoutMs`. Worst-case wall time for one role
+invocation is bounded by segment count and is N × bound across N configured rungs
+only when every rung times out with no in-segment quota advancement between them.
 
-A timeout on a role's **last** configured rung reproduces deterministically, so
-`retry_later` is misleading there — a re-dispatch spends ~30 minutes to reach the same
-wall. Escalation is quota-only today (`role-timeout-escalates-then-names-exhausted-rungs`),
-so a declared lower rung is unreachable on a wall-clock overrun; change the rung and
-start a fresh run rather than re-dispatching. That review re-dispatch path does not
-re-resolve implement write-step bindings — only write-loop `resume`, recovery, queue
-promotion, and fresh write admission pick up a rung edit (confirm via attempt telemetry
-until `jarvis run list` reports binding). That ~30-minute full-debate wall is the
-non-actuator case; see below for the actuator-only exception, which is much faster.
+Only after **every** configured rung times out (including a single-binding list) does
+the step settle `invocation_failure` with `failureKind: "timeout"`, `exhaustedRoleTimeout: true`,
+and `bindingAttempts` naming every rung tried in profile order (`bindingId`, `agent`,
+`model`, and `resultKind` — the rung(s) actually aborted by the wall clock report
+`"timeout"`; a rung consumed by quota before the abort reports its real result kind,
+e.g. `"quota"`). A mixed quota/timeout outcome keeps `exhaustedRoleTimeout: false`
+and the retryable `role_timeout`/`retry_later` mapping instead — the deterministic-wall
+argument for `stop` only holds when every rung genuinely timed out; a quota-consumed
+rung may succeed on re-dispatch. An exhausted settle is terminal: `resumable: false`,
+`jarvis run list` / `wait` report `error.reason: "role_timeout"`, `retryable: false`,
+`nextAction: "stop"` (distinct from write-loop `iteration_timeout`). It reproduces
+deterministically — a re-dispatch just spends the same N × bound to reach the same wall
+again — so recovery is changing the rung config (raise the bound, add/reorder rungs) and
+starting a fresh run, **not** re-dispatching the same workflow and **not** `jarvis run
+resume` (which hard-errors on a `failed` run that is not publication-retry-eligible).
+Inspect the worktree first — the aborted actuator's partial edits are still on disk, and
+they are **not** swept into any later completion commit: the dirty-worktree gate refuses
+a fresh run over the same worktree, and `--reset-despite-dirty` discards them. Salvage
+anything worth keeping before starting fresh.
+
+That review re-dispatch path does not re-resolve implement write-step bindings — only
+write-loop `resume`, recovery, queue promotion, and fresh write admission pick up a rung
+edit (confirm via attempt telemetry until `jarvis run list` reports binding).
 
 An idle-output
 watchdog on the same role invocation times out when the actuator produces no
@@ -334,18 +345,22 @@ output for a configured idle budget (default 90_000 ms, v1 parity), settles
 `invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
 Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output;
 unlike `iteration_timeout` (write-loop timeout), it applies only to review-step
-role invocations. `role_timeout` and post-commit `role_stalled` are both retryable/retry_later;
-recovery is re-dispatching the same workflow (see [Gate trust](#gate-trust)).
+role invocations, and does not escalate through rungs. Post-commit `role_stalled` stays
+retryable/retry_later; recovery is re-dispatching the same workflow (see [Gate
+trust](#gate-trust)) — unlike an exhausted `role_timeout`, which is not.
 
-**Actuator-only retry (`review-debate` patch review):** when the failed role was
-specifically the **actuator** on a `review-debate` step — the debate roles already
+**Actuator-only retry (`review-debate` patch review):** admitted only for a
+post-commit retryable failure kind — today that is exhausted-rung-exempt `role_stalled`;
+an exhausted `role_timeout` is not retryable, so it never reaches this path (it settles
+`resumable: false` and falls through to a full debate replay on re-dispatch, same as any
+other non-retryable failure). When the failed role was specifically the **actuator** on a
+`review-debate` step and the failure kind is admitted — the debate roles already
 settled a verdict at `verdictPath` before the actuator ran — re-dispatch does not
 replay the adversary/advocate/adjudicator chain or the hidden `~shrink` pass. It
 reuses the same review run row and re-invokes only the actuator against the
-persisted verdict, so recovery is a single role invocation, not the ~30-minute
-full-debate wall described above. This is distinct from a debate-role failure
-(adversary, advocate, or adjudicator), which still re-dispatches the full debate
-cycle on a fresh run row. If `verdictPath` is missing or empty at retry time (e.g.
+persisted verdict, so recovery is a single role invocation. This is distinct from a
+debate-role failure (adversary, advocate, or adjudicator), which always re-dispatches
+the full debate cycle on a fresh run row. If `verdictPath` is missing or empty at retry time (e.g.
 a worktree reset removed it), the re-dispatch settles a named, non-retryable
 error instead of silently falling back to a full debate or full workflow re-run.
 That settled failure carries no actuator role, so the *next* re-dispatch is no
@@ -367,8 +382,9 @@ bindings" caveat above.
 ## Gate trust
 
 Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
-adjudicated verdict on disk; recovery is the same re-dispatch path as `role_timeout`, not
-`jarvis run resume`.
+adjudicated verdict on disk; recovery is re-dispatching the same workflow, not
+`jarvis run resume`. An exhausted `role_timeout` also preserves the completion commit and
+verdict, but is not resumable and not worth re-dispatching — see above.
 
 `jarvis run list` / `wait` project `resumable` from the same admission predicate as `jarvis run resume`
 (`nextAction: "resume"` on the composed operator error). A row advertising `resumable: true` is admitted;

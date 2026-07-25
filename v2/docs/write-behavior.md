@@ -925,8 +925,10 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
 - `failureKind` — `quota` | `model_config` | `error` | `no_binding` (see
   [`shared-invocation.md`](./shared-invocation.md))
 - `bindingAttempts` — ordered `{ bindingId, resultKind }[]` summarizing each
-  binding tried (`resultKind` is that attempt's `InvocationResult.kind`);
-  production rung bindings use `agentId/adapterModel/priceKey`
+  binding tried (`resultKind` is that attempt's `InvocationResult.kind`, except
+  `"timeout"`, which marks a rung a review-role wall-clock overrun aborted rather
+  than a raw `InvocationResult` variant); production rung bindings use
+  `agentId/adapterModel/priceKey`
 
 `invalid_token` also maps to loop `kind: "invocation_failure"` but **omits**
 `failureKind` and `bindingAttempts`, and finishes `resumable: true`. `missing_blocker`

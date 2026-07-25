@@ -296,6 +296,8 @@ test("a hung adversary is aborted at the role wall clock", async () => {
     agent: "adversary",
     model: "hung",
     boundMs,
+    exhaustedRoleTimeout: true,
+    bindingAttempts: [{ bindingId: "adversary.hung", resultKind: "timeout", agent: "adversary", model: "hung" }],
   });
 });
 

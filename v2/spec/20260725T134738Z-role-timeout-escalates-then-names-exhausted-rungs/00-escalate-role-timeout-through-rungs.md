@@ -54,25 +54,25 @@ walks the flat list; role timeout does not.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/review-role-invocation.test.ts` supplies two
+- [x] A new test in `v2/src/execution/review-role-invocation.test.ts` supplies two
       bindings where the first hangs until `roleTimeoutMs` and the second
       completes with `ok`; it asserts the role succeeds on the second binding and
       records both attempts; it fails against the pre-fix code, which settles
       `roleTimeout` on the first binding.
-- [ ] A new test in `v2/src/execution/review-role-invocation.test.ts` drives the
+- [x] A new test in `v2/src/execution/review-role-invocation.test.ts` drives the
       first binding to `quota` and the second to `ok` in one `invokeReviewRole`
       call (no wall-clock timeout) and asserts success on the second binding with
       both bindings invoked once; it fails if outer timeout escalation breaks
       quota’s in-list walk.
-- [ ] A test in `v2/src/execution/review-role-invocation.test.ts` drives a role
+- [x] A test in `v2/src/execution/review-role-invocation.test.ts` drives a role
       that completes on the first binding and asserts no further binding is
       invoked (single successful attempt); inverting the early-exit guard fails
       the test.
-- [ ] Tests fail when each added or modified guard is inverted; where a guard
+- [x] Tests fail when each added or modified guard is inverted; where a guard
       suppresses escalation (caller abort, success on current rung), the negative
       case proves the next binding is not invoked.
-- [ ] `shared/invocation/execute.test.ts` (`advances only on quota and preserves binding order`) stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `shared/invocation/execute.test.ts` (`advances only on quota and preserves binding order`) stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

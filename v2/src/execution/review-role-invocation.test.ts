@@ -46,22 +46,106 @@ describe("invokeReviewRole", () => {
       agent: "claude",
       model: "opus",
       boundMs,
+      exhaustedRoleTimeout: true,
+      bindingAttempts: [{ bindingId: "critic.hung", resultKind: "timeout", agent: "claude", model: "opus" }],
     });
   });
 
-  test("keeps caller-signal abort as error without timeout attribution", async () => {
+  test("names every rung in bindingAttempts when a two-rung list exhausts on timeout", async () => {
+    const boundMs = 5;
+    const first = hungBinding("critic.rung1", "claude", "opus");
+    const second = hungBinding("critic.rung2", "claude", "sonnet");
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      first,
+      second,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBe("timeout");
+    expect(execution.roleTimeout?.exhaustedRoleTimeout).toBe(true);
+    expect(execution.roleTimeout?.bindingAttempts).toEqual([
+      { bindingId: "critic.rung1", resultKind: "timeout", agent: "claude", model: "opus" },
+      { bindingId: "critic.rung2", resultKind: "timeout", agent: "claude", model: "sonnet" },
+    ]);
+  });
+
+  test("names the single rung in bindingAttempts when a single-binding list exhausts on timeout", async () => {
+    const boundMs = 5;
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      hungBinding("critic.solo", "claude", "opus"),
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBe("timeout");
+    expect(execution.roleTimeout?.exhaustedRoleTimeout).toBe(true);
+    expect(execution.roleTimeout?.bindingAttempts).toEqual([
+      { bindingId: "critic.solo", resultKind: "timeout", agent: "claude", model: "opus" },
+    ]);
+  });
+
+  test("keeps caller-signal abort as error without timeout attribution and does not advance", async () => {
     const caller = new AbortController();
     const hung = hungBinding("critic.hung", "claude", "opus");
+    let nextInvoked = 0;
+    const next: InvocationBinding = {
+      id: "critic.next",
+      metadata: { agent: "claude", model: "sonnet" },
+      invoke: async () => {
+        nextInvoked += 1;
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    };
     const invokePromise = invokeReviewRole(
       { cwd: "/fake", roleTimeoutMs: 5_000, signal: caller.signal },
       "critic",
       "inspect",
-      [hung],
+      [hung, next],
     );
     caller.abort();
     const execution = await invokePromise;
     expect(reviewRoleFailureKind(execution)).toBe("error");
     expect(execution.roleTimeout).toBeUndefined();
+    expect(nextInvoked).toBe(0);
+    expect(execution.attempts).toHaveLength(1);
+  });
+
+  test("keeps mixed quota-then-timeout exhaustion as non-exhausted with real resultKind per rung", async () => {
+    const boundMs = 20;
+    const quotaBinding: InvocationBinding = {
+      id: "critic.quota",
+      metadata: { agent: "claude", model: "opus" },
+      invoke: async () => ({ kind: "quota", stderr: "quota exceeded" }),
+    };
+    const hungRung2 = hungBinding("critic.rung2", "claude", "sonnet");
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      quotaBinding,
+      hungRung2,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBe("timeout");
+    expect(execution.roleTimeout?.exhaustedRoleTimeout).toBe(false);
+    expect(execution.roleTimeout?.bindingAttempts).toEqual([
+      { bindingId: "critic.quota", resultKind: "quota", agent: "claude", model: "opus" },
+      { bindingId: "critic.rung2", resultKind: "timeout", agent: "claude", model: "sonnet" },
+    ]);
+  });
+
+  test("lets a late success win over a concurrently-firing timer without escalating", async () => {
+    const boundMs = 5;
+    let nextInvoked = 0;
+    const raceBinding = emittingBinding("critic.race", "claude", "opus", boundMs * 4);
+    const next: InvocationBinding = {
+      id: "critic.next",
+      metadata: { agent: "claude", model: "sonnet" },
+      invoke: async () => {
+        nextInvoked += 1;
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    };
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      raceBinding,
+      next,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBeNull();
+    expect(execution.final?.result.kind).toBe("ok");
+    expect(execution.roleTimeout).toBeUndefined();
+    expect(nextInvoked).toBe(0);
+    expect(execution.attempts).toHaveLength(1);
   });
 
   test("keeps a genuine agent error without timeout attribution", async () => {
@@ -148,5 +232,70 @@ describe("invokeReviewRole", () => {
       capturingBinding((v) => (capturedIdleOutputMs = v)),
     ]);
     expect(capturedIdleOutputMs).toBe(90_000);
+  });
+
+  test("escalates through a second binding when the first times out", async () => {
+    const boundMs = 5;
+    const first = hungBinding("critic.hung", "claude", "opus");
+    const second = emittingBinding("critic.emit", "claude", "sonnet", 1);
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [
+      first,
+      second,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBeNull();
+    expect(execution.final?.result.kind).toBe("ok");
+    expect(execution.attempts).toHaveLength(2);
+    expect(execution.attempts[0]?.binding).toBe(first);
+    expect(execution.attempts[1]?.binding).toBe(second);
+    expect(execution.roleTimeout).toBeUndefined();
+  });
+
+  test("carries quota advancement across a single invokeReviewRole call without a timeout", async () => {
+    let secondInvoked = 0;
+    const quotaBinding: InvocationBinding = {
+      id: "critic.quota",
+      metadata: { agent: "claude", model: "opus" },
+      invoke: async () => ({ kind: "quota", stderr: "quota exceeded" }),
+    };
+    const okBinding: InvocationBinding = {
+      id: "critic.ok",
+      metadata: { agent: "claude", model: "sonnet" },
+      invoke: async () => {
+        secondInvoked += 1;
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    };
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: 5_000 }, "critic", "inspect", [
+      quotaBinding,
+      okBinding,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBeNull();
+    expect(execution.final?.result.kind).toBe("ok");
+    expect(secondInvoked).toBe(1);
+    expect(execution.attempts).toHaveLength(2);
+  });
+
+  test("stops after success on the first binding without invoking the second", async () => {
+    let secondInvoked = 0;
+    const okBinding: InvocationBinding = {
+      id: "critic.ok",
+      metadata: { agent: "claude", model: "opus" },
+      invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+    };
+    const unreachedBinding: InvocationBinding = {
+      id: "critic.unreached",
+      metadata: { agent: "claude", model: "sonnet" },
+      invoke: async () => {
+        secondInvoked += 1;
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    };
+    const execution = await invokeReviewRole({ cwd: "/fake", roleTimeoutMs: 5_000 }, "critic", "inspect", [
+      okBinding,
+      unreachedBinding,
+    ]);
+    expect(reviewRoleFailureKind(execution)).toBeNull();
+    expect(secondInvoked).toBe(0);
+    expect(execution.attempts).toHaveLength(1);
   });
 });

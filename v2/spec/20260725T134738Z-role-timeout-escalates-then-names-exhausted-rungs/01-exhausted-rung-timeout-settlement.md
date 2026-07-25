@@ -49,36 +49,36 @@ the workflow only sees wall-clock timeout after the binding list is exhausted
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/review-role-invocation.test.ts` times out
+- [x] A new test in `v2/src/execution/review-role-invocation.test.ts` times out
       every binding in a two-rung list and asserts terminal
       `invocationFailureDetail.bindingAttempts` equals the ordered per-rung
       timeout summaries (agent, model, bindingId per rung); it fails against the
       pre-fix code.
-- [ ] A new test in `v2/src/execution/review-role-invocation.test.ts` times out
+- [x] A new test in `v2/src/execution/review-role-invocation.test.ts` times out
       a single-binding list and asserts the same contract with one entry; inverting
       an “exhausted when multiple attempts only” guard fails the test.
-- [ ] A test on the production path (`workflow-runner.test.ts` driving a review step
+- [x] A test on the production path (`workflow-runner.test.ts` driving a review step
       to exhausted wall-clock timeout, or a focused test exported around
       `buildReviewInvocationFailureDetail`) asserts persisted
       `invocationFailureDetail` carries the exhausted gate and full
       `bindingAttempts` before operator compose; hand-built detail alone is not
       sufficient.
-- [ ] A new test in `v2/src/daemon/run-operator-error.test.ts` composes
+- [x] A new test in `v2/src/daemon/run-operator-error.test.ts` composes
       exhausted-gate timeout detail to `reason: "role_timeout"`, `nextAction:
       "stop"`, `retryable: false`; inverting the exhausted guard yields
       `retry_later` and fails the test.
-- [ ] A `workflow-runner.test.ts` test drives a review step whose role exhausts
+- [x] A `workflow-runner.test.ts` test drives a review step whose role exhausts
       every rung on wall-clock timeout and asserts `resumable: false` (via the
       shared exhausted gate, not `isPostCommitReviewRetryableFailureKind("timeout")`
       alone); inverting the gate fails the test.
-- [ ] `run-operator-error.test.ts` `test.each` rows for `quota`, `error`, and
+- [x] `run-operator-error.test.ts` `test.each` rows for `quota`, `error`, and
       `stall` and `composeRunOperatorError differs for stall vs error failureKind`
       stay green.
-- [ ] Tests fail when each added or modified guard is inverted; where a guard
+- [x] Tests fail when each added or modified guard is inverted; where a guard
       suppresses the exhausted settlement shape (success mid-escalation,
       non-timeout failure), the negative case proves no exhausted `bindingAttempts`
       shape and no `stop` mapping.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

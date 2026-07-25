@@ -243,7 +243,8 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `model_config` | binding-chain `invocation_failure` + `failureKind: "model_config"` | `false` | `fix_config` |
 | `no_binding` | binding-chain `invocation_failure` + `failureKind: "no_binding"` | `false` | `fix_config` |
 | `invocation_error` | binding-chain `invocation_failure` + `failureKind: "error"` or legacy null detail | `false` | `stop` |
-| `role_timeout` | review-step `invocation_failure` + `failureKind: "timeout"` | `true` | `retry_later` |
+| `role_timeout` | review-step `invocation_failure` + `failureKind: "timeout"`, not exhausted | `true` | `retry_later` |
+| `role_timeout` (exhausted) | review-step `invocation_failure` + `failureKind: "timeout"` + `exhaustedRoleTimeout: true` (every configured rung timed out) | `false` | `stop` |
 | `role_stalled` | review-step `invocation_failure` + `failureKind: "stall"` | `true` | `retry_later` |
 | `iteration_timeout` | failed `loopOutcomeKind: "iteration_timeout"` | `false` | `stop` |
 | `harness_failure` | terminal `run_execution_failed` without a post-boundary lock message, or `failed` without mappable attempt detail | `false` | `stop` |

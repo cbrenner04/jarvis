@@ -1,3 +1,4 @@
+import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { survivingMutationLogFields } from "../execution/ready-finalize.ts";
 import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
@@ -123,6 +124,7 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
     case "invocation_failure": {
       const detail = attempt.invocationFailureDetail;
       if (detail === null) return op("invocation_error", "stop");
+      if (isExhaustedRoleTimeout(detail)) return op("role_timeout", "stop", false);
       return INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop");
     }
     default:

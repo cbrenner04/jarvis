@@ -153,6 +153,22 @@ test("composeRunOperatorError returns missing_blocker from log and store-only la
   );
 });
 
+test("composeRunOperatorError maps exhausted role-timeout to stop/non-retryable, not retry_later", () => {
+  const storeRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "timeout", bindingAttempts: [], exhaustedRoleTimeout: true }),
+  ]);
+  const expected = err("role_timeout", "stop", false);
+
+  expect(composeRunOperatorError(storeRun, loopFinished("invocation_failure"))).toEqual(expected);
+  expect(composeRunOperatorError(storeRun)).toEqual(expected);
+
+  // Inverting the exhausted guard falls back to the non-exhausted retry_later mapping.
+  const nonExhaustedRun = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "timeout", bindingAttempts: [], exhaustedRoleTimeout: false }),
+  ]);
+  expect(composeRunOperatorError(nonExhaustedRun)).toEqual(err("role_timeout", "retry_later", true));
+});
+
 test("composeRunOperatorError returns invocation_error for legacy detail-free binding-chain invocation_failure", () => {
   const storeRun = runWith("failed", [attempt("invocation_failure", null)]);
   const expected = err("invocation_error", "stop");

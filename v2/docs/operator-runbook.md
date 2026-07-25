@@ -325,7 +325,8 @@ so a declared lower rung is unreachable on a wall-clock overrun; change the rung
 start a fresh run rather than re-dispatching. That review re-dispatch path does not
 re-resolve implement write-step bindings — only write-loop `resume`, recovery, queue
 promotion, and fresh write admission pick up a rung edit (confirm via attempt telemetry
-until `jarvis run list` reports binding).
+until `jarvis run list` reports binding). That ~30-minute full-debate wall is the
+non-actuator case; see below for the actuator-only exception, which is much faster.
 
 An idle-output
 watchdog on the same role invocation times out when the actuator produces no
@@ -335,6 +336,33 @@ Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung outp
 unlike `iteration_timeout` (write-loop timeout), it applies only to review-step
 role invocations. `role_timeout` and post-commit `role_stalled` are both retryable/retry_later;
 recovery is re-dispatching the same workflow (see [Gate trust](#gate-trust)).
+
+**Actuator-only retry (`review-debate` patch review):** when the failed role was
+specifically the **actuator** on a `review-debate` step — the debate roles already
+settled a verdict at `verdictPath` before the actuator ran — re-dispatch does not
+replay the adversary/advocate/adjudicator chain or the hidden `~shrink` pass. It
+reuses the same review run row and re-invokes only the actuator against the
+persisted verdict, so recovery is a single role invocation, not the ~30-minute
+full-debate wall described above. This is distinct from a debate-role failure
+(adversary, advocate, or adjudicator), which still re-dispatches the full debate
+cycle on a fresh run row. If `verdictPath` is missing or empty at retry time (e.g.
+a worktree reset removed it), the re-dispatch settles a named, non-retryable
+error instead of silently falling back to a full debate or full workflow re-run.
+That settled failure carries no actuator role, so the *next* re-dispatch is no
+longer actuator-only eligible — it replays the full debate cycle on a fresh run
+row, which regenerates the verdict itself. No manual verdict recreation is
+needed; just re-dispatch (or abandon and start fresh).
+
+Multi-cycle review (`reviewPasses` > 1) never takes the actuator-only path,
+even when the last attempt failed at the actuator — an intermediate cycle's
+actuator failure would otherwise retry that one actuator and report the step
+complete, silently dropping the remaining cycles. Recovery for multi-cycle
+review is always the full debate cycle described above.
+
+The reused run row keeps the workflow snapshot from the original dispatch, so
+a config edit between dispatches is not picked up by actuator-only retry —
+same trap as the "review re-dispatch does not re-resolve implement write-step
+bindings" caveat above.
 
 ## Gate trust
 

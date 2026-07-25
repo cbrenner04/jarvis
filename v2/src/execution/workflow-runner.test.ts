@@ -1623,7 +1623,6 @@ function createDebateBindingFactory(
 
 function createReviewDebateActuatorFailureBindingFactory(
   actuatorFailure: "timeout" | "stall",
-  onActuatorInvoke?: () => void,
 ): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
     id: `${agentId}/${adapterModel}`,
@@ -1636,7 +1635,6 @@ function createReviewDebateActuatorFailureBindingFactory(
             : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
         );
       }
-      onActuatorInvoke?.();
       if (actuatorFailure === "stall") {
         return Promise.resolve({ kind: "stall", stderr: "no output" } as const);
       }
@@ -3349,6 +3347,7 @@ describe("executeWorkflow implement patch review", () => {
     cwd: string;
     createBinding?: ReviewDebateWorkflowStep["createBinding"];
     roleTimeoutMs?: number;
+    maxCycles?: number;
   }): ReviewDebateWorkflowStep {
     return {
       behavior: "review-debate",
@@ -3362,7 +3361,7 @@ describe("executeWorkflow implement patch review", () => {
         adjudicator: "patch.prompt.review.adjudicator",
       },
       verdictPath: args.verdictPath,
-      maxCycles: 1,
+      maxCycles: args.maxCycles ?? 1,
       agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
       agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
       profile: implementReviewPromptProfile,
@@ -3667,34 +3666,244 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
-  test("re-dispatching after review-debate timeout does not re-run the implement write step", async () => {
-    let implementInvocationCount = 0;
-    const implementStep = createStep({
-      stepId: "implement",
-      role: "implement",
-      branchName: "implement-review-timeout-redispatch",
-      createBinding: createBindingFactory(async ({ cwd }) => {
-        implementInvocationCount += 1;
-        writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
-        return { kind: "ok", stdout: "done", stderr: "" } as const;
-      }),
+  function createTrackedReviewDebateBindingFactory(
+    calls: string[],
+    actuatorFailureKind: "timeout" | "stall" | undefined,
+    actuatorPrompts?: string[],
+  ): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
+    return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: ({ signal, prompt }) => {
+        calls.push(adapterModel);
+        if (adapterModel === "ACT") actuatorPrompts?.push(prompt);
+        if (adapterModel !== "ACT") {
+          return Promise.resolve(
+            adapterModel === "ADJ"
+              ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+              : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+          );
+        }
+        if (actuatorFailureKind === "stall") {
+          return Promise.resolve({ kind: "stall", stderr: "no output" } as const);
+        }
+        if (actuatorFailureKind === "timeout") {
+          return new Promise<InvocationResult>((resolve) => {
+            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+              once: true,
+            });
+          });
+        }
+        return Promise.resolve({ kind: "ok", stdout: "actuated", stderr: "" } as const);
+      },
     });
-    const worktreePath = join(
-      implementStep.worktree.jarvisRoot ?? "",
-      "worktrees",
-      implementStep.worktree.projectName,
-      implementStep.worktree.branchName,
-    );
+  }
+
+  function runActuatorOnlyRetryTest(failureKind: "timeout" | "stall"): void {
+    test(`re-dispatching after review-debate actuator ${failureKind} retries only the actuator, skipping write, shrink, and debate roles`, async () => {
+      const branchName = `implement-review-${failureKind}-actuator-only`;
+      const writeCalls: string[] = [];
+      const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+        writeCalls.push(shrink ? "shrink" : "implement");
+        if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      });
+      const worktreePath = harness.workspace;
+      const boundMs = 5;
+      const debateCalls: string[] = [];
+      const actuatorPrompts: string[] = [];
+      const reviewStep = createPatchReviewDebateStep({
+        branchName,
+        jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+        verdictPath: join(worktreePath, "verdict-patch.md"),
+        cwd: worktreePath,
+        roleTimeoutMs: boundMs,
+        createBinding: createTrackedReviewDebateBindingFactory(debateCalls, failureKind, actuatorPrompts),
+      });
+
+      await withStateStore(async (store) => {
+        const firstResult = await executeWorkflow({
+          steps: [implementStep, reviewStep],
+          stateStore: store,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+
+        expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+        expect(writeCalls).toEqual(["implement", "shrink"]);
+        expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
+
+        const firstReviewRun = store.findRunByProjectBranch({
+          project: "demo",
+          branch: branchName,
+          stepId: "implement-review",
+        });
+        expect(firstReviewRun?.attempts.length).toBe(1);
+        const verdictBefore = readFileSync(join(worktreePath, "verdict-patch.md"), "utf8");
+
+        writeCalls.length = 0;
+        debateCalls.length = 0;
+
+        const secondResult = await executeWorkflow({
+          steps: [implementStep, reviewStep],
+          stateStore: store,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+
+        expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+        expect(writeCalls).toEqual([]);
+        expect(debateCalls).toEqual(["ACT"]);
+        expect(readFileSync(join(worktreePath, "verdict-patch.md"), "utf8")).toBe(verdictBefore);
+
+        const secondReviewRun = store.findRunByProjectBranch({
+          project: "demo",
+          branch: branchName,
+          stepId: "implement-review",
+        });
+        expect(secondReviewRun?.id).toBe(firstReviewRun?.id);
+        expect(secondReviewRun?.attempts.length).toBe(2);
+
+        // Prompt parity: the retried actuator goes through the same configured
+        // `profile.render.actuator` template as the first attempt, fed the unchanged verdict.
+        expect(actuatorPrompts).toHaveLength(2);
+        expect(actuatorPrompts[1]).toBe(actuatorPrompts[0]);
+        expect(actuatorPrompts[1]).toContain(verdictBefore);
+      });
+    });
+  }
+
+  runActuatorOnlyRetryTest("timeout");
+  runActuatorOnlyRetryTest("stall");
+
+  test("re-dispatching after actuator timeout with verdictPath removed fails naming verdictPath", async () => {
+    const branchName = "implement-review-timeout-missing-verdict";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    const verdictPath = join(worktreePath, "verdict-patch.md");
     const boundMs = 5;
-    let actuatorInvocationCount = 0;
     const reviewStep = createPatchReviewDebateStep({
-      branchName: implementStep.worktree.branchName,
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath,
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: createReviewDebateActuatorFailureBindingFactory("timeout"),
+    });
+
+    await withStateStore(async (store) => {
+      const firstResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      rmSync(verdictPath);
+      const secondResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(secondResult).toMatchObject({ kind: "invocation_failure", resumable: false });
+      expect(secondResult.invocationFailureMessage).toContain(verdictPath);
+    });
+  });
+
+  test("re-dispatching after actuator timeout with verdictPath emptied fails naming verdictPath", async () => {
+    const branchName = "implement-review-timeout-empty-verdict";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    const verdictPath = join(worktreePath, "verdict-patch.md");
+    const boundMs = 5;
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath,
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: createReviewDebateActuatorFailureBindingFactory("timeout"),
+    });
+
+    await withStateStore(async (store) => {
+      const firstResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      writeFileSync(verdictPath, "   \n", "utf8");
+      const secondResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(secondResult).toMatchObject({ kind: "invocation_failure", resumable: false });
+      expect(secondResult.invocationFailureMessage).toContain(verdictPath);
+    });
+  });
+
+  test("re-dispatching after review-debate actuator timeout succeeds on retry, completing the step", async () => {
+    const branchName = "implement-review-timeout-actuator-succeeds";
+    const writeCalls: string[] = [];
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      writeCalls.push(shrink ? "shrink" : "implement");
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    const boundMs = 5;
+    const debateCalls: string[] = [];
+    const actuatorPrompts: string[] = [];
+    let actuatorAttempts = 0;
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
       jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
-      createBinding: createReviewDebateActuatorFailureBindingFactory("timeout", () => {
-        actuatorInvocationCount += 1;
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: ({ signal, prompt }) => {
+          debateCalls.push(adapterModel);
+          if (adapterModel !== "ACT") {
+            return Promise.resolve(
+              adapterModel === "ADJ"
+                ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+                : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+            );
+          }
+          actuatorPrompts.push(prompt);
+          actuatorAttempts += 1;
+          if (actuatorAttempts === 1) {
+            return new Promise<InvocationResult>((resolve) => {
+              signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+                once: true,
+              });
+            });
+          }
+          return Promise.resolve({ kind: "ok", stdout: "actuated", stderr: "" } as const);
+        },
       }),
     });
 
@@ -3702,27 +3911,167 @@ describe("executeWorkflow implement patch review", () => {
       const firstResult = await executeWorkflow({
         steps: [implementStep, reviewStep],
         stateStore: store,
-        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+
+      const firstReviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement-review",
+      });
+      const verdictBefore = readFileSync(join(worktreePath, "verdict-patch.md"), "utf8");
+
+      writeCalls.length = 0;
+      debateCalls.length = 0;
+
+      const secondResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
 
-      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
-      expect(implementInvocationCount).toBeGreaterThan(0);
+      expect(secondResult).toMatchObject({
+        kind: "complete",
+        stepIndex: 1,
+        resumable: false,
+      });
+      expect(writeCalls).toEqual([]);
+      expect(debateCalls).toEqual(["ACT"]);
+      expect(readFileSync(join(worktreePath, "verdict-patch.md"), "utf8")).toBe(verdictBefore);
 
-      implementInvocationCount = 0;
-      actuatorInvocationCount = 0;
+      const secondReviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement-review",
+      });
+      expect(secondReviewRun?.id).toBe(firstReviewRun?.id);
+      expect(secondReviewRun?.status).toBe("completed");
+      expect(secondReviewRun?.attempts.length).toBe(2);
+      expect(secondReviewRun?.attempts.at(-1)?.completionAgent).toBe("claude");
+
+      expect(actuatorPrompts).toHaveLength(2);
+      expect(actuatorPrompts[1]).toBe(actuatorPrompts[0]);
+      expect(actuatorPrompts[1]).toContain(verdictBefore);
+    });
+  });
+
+  test("re-dispatching after a debate-role failure replays the full debate, not actuator-only", async () => {
+    const branchName = "implement-review-adversary-timeout-redispatch";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    const boundMs = 5;
+    const debateCalls: string[] = [];
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: ({ signal }) => {
+          debateCalls.push(adapterModel);
+          if (adapterModel !== "ADV") {
+            return Promise.resolve(
+              adapterModel === "ADJ"
+                ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+                : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+            );
+          }
+          return new Promise<InvocationResult>((resolve) => {
+            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+              once: true,
+            });
+          });
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const firstResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+      expect(debateCalls).toEqual(["ADV"]);
+      expect(store.loadRun(firstResult.runId)?.attempts.at(-1)?.invocationFailureDetail?.role).not.toBe("actuator");
+
+      debateCalls.length = 0;
       const secondResult = await executeWorkflow({
         steps: [implementStep, reviewStep],
         stateStore: store,
-        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionCommitter: createCompletionCommitter(),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
 
       expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
-      expect(implementInvocationCount).toBe(0);
-      expect(actuatorInvocationCount).toBe(1);
+      // Debate-role failures are not actuator-only eligible; the full debate replays.
+      expect(debateCalls).toEqual(["ADV"]);
+      // Distinguishing property from the actuator-only path: a fresh run row per re-dispatch.
+      expect(secondResult.runId).not.toBe(firstResult.runId);
+    });
+  });
+
+  test("multi-cycle review never takes actuator-only admission, even on a last-cycle actuator failure", async () => {
+    const branchName = "implement-review-multi-cycle-actuator-timeout";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    const boundMs = 5;
+    const debateCalls: string[] = [];
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      roleTimeoutMs: boundMs,
+      maxCycles: 2,
+      createBinding: createTrackedReviewDebateBindingFactory(debateCalls, "timeout"),
+    });
+
+    await withStateStore(async (store) => {
+      const firstResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+      expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
+      expect(store.loadRun(firstResult.runId)?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+        role: "actuator",
+        failureKind: "timeout",
+      });
+
+      debateCalls.length = 0;
+      const secondResult = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
+      // maxCycles > 1 rules out actuator-only admission; the full debate replays on a fresh row.
+      expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
+      expect(secondResult.runId).not.toBe(firstResult.runId);
     });
   });
 
@@ -3774,63 +4123,6 @@ describe("executeWorkflow implement patch review", () => {
         failureKind: "stall",
         message: "review: actuator invocation failed (stall)",
       });
-    });
-  });
-
-  test("re-dispatching after review-debate stall does not re-run the implement write step", async () => {
-    let implementInvocationCount = 0;
-    const implementStep = createStep({
-      stepId: "implement",
-      role: "implement",
-      branchName: "implement-review-stall-redispatch",
-      createBinding: createBindingFactory(async ({ cwd }) => {
-        implementInvocationCount += 1;
-        writeFileSync(`${cwd}/proof.txt`, "ok\n", "utf8");
-        return { kind: "ok", stdout: "done", stderr: "" } as const;
-      }),
-    });
-    const worktreePath = join(
-      implementStep.worktree.jarvisRoot ?? "",
-      "worktrees",
-      implementStep.worktree.projectName,
-      implementStep.worktree.branchName,
-    );
-    let actuatorInvocationCount = 0;
-    const reviewStep = createPatchReviewDebateStep({
-      branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
-      verdictPath: join(worktreePath, "verdict-patch.md"),
-      cwd: worktreePath,
-      createBinding: createReviewDebateActuatorFailureBindingFactory("stall", () => {
-        actuatorInvocationCount += 1;
-      }),
-    });
-
-    await withStateStore(async (store) => {
-      const firstResult = await executeWorkflow({
-        steps: [implementStep, reviewStep],
-        stateStore: store,
-        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
-        completionPublisher: async () => ({}),
-        readyFinalizer: async () => {},
-      });
-
-      expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
-      expect(implementInvocationCount).toBeGreaterThan(0);
-
-      implementInvocationCount = 0;
-      actuatorInvocationCount = 0;
-      const secondResult = await executeWorkflow({
-        steps: [implementStep, reviewStep],
-        stateStore: store,
-        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
-        completionPublisher: async () => ({}),
-        readyFinalizer: async () => {},
-      });
-
-      expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
-      expect(implementInvocationCount).toBe(0);
-      expect(actuatorInvocationCount).toBe(1);
     });
   });
 

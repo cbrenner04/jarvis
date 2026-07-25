@@ -46,28 +46,28 @@ and the adversary → advocate → adjudicator chain before reaching the actuato
 
 ## Acceptance criteria
 
-- [ ] A new or strengthened `workflow-runner.test.ts` case uses a shrink-exercising implement fixture
+- [x] A new or strengthened `workflow-runner.test.ts` case uses a shrink-exercising implement fixture
       (`createShrinkTestStep` or equivalent) so the first pass runs shrink, drives implement + patch
       `review-debate` to an actuator `timeout` after commit, re-dispatches the same steps on the
       same store, and asserts the second pass invokes no implement write agent, no shrink prompt, no
       adversary/advocate/adjudicator bindings, exactly one actuator against unchanged `verdictPath`
       content, and the same review `runId` with one additional attempt; it fails against the
       pre-fix code.
-- [ ] The same test shape with `failureKind: "stall"` stays green after the change (shares the
+- [x] The same test shape with `failureKind: "stall"` stays green after the change (shares the
       missing/empty `verdictPath` guard with `timeout`).
-- [ ] Re-dispatch after actuator `timeout` with `verdictPath` removed or empty fails with an error
+- [x] Re-dispatch after actuator `timeout` with `verdictPath` removed or empty fails with an error
       message naming `verdictPath`; it fails against the pre-fix code.
-- [ ] Re-dispatch after a debate-role (non-actuator) `timeout` or `stall` on the same
+- [x] Re-dispatch after a debate-role (non-actuator) `timeout` or `stall` on the same
       `review-debate` step does not take actuator-only admission; debate and shrink replay behavior
       stays as today (new negative case; fails against the pre-fix code if mis-wired).
-- [ ] A guard on the actuator-only retry admission path asserts debate roles and shrink are skipped
+- [x] A guard on the actuator-only retry admission path asserts debate roles and shrink are skipped
       when eligible; inverting the guard causes the primary re-dispatch test to fail.
-- [ ] `review-debate.test.ts` stays green.
-- [ ] `workflow-runner.test.ts` cases `re-dispatching after review-debate timeout does not re-run
+- [x] `review-debate.test.ts` stays green.
+- [x] `workflow-runner.test.ts` cases `re-dispatching after review-debate timeout does not re-run
       the implement write step` and `re-dispatching after review-debate stall does not re-run the
       implement write step` are strengthened or replaced so they assert the full skip contract (no
       shrink or debate replay on the second pass), not only zero implement invocations.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

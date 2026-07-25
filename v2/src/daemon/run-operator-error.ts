@@ -20,6 +20,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "role_timeout",
   "role_stalled",
   "harness_failure",
+  "state_store_lock_timeout",
   "not_implemented",
   "completion_commit_failed",
   "iteration_commit_failed",
@@ -96,6 +97,17 @@ function lastCommittedAttempt(attempts: Attempt[]): Attempt | undefined {
     if (attempt?.outcomeKind != null) return attempt;
   }
   return undefined;
+}
+
+/** Classify post-boundary store lock failures that should resume instead of stopping. */
+export function isPostBoundaryStateStoreLockTimeout(
+  terminalRecord: TerminalLogRecord | undefined,
+  run: RunWithAttempts,
+): boolean {
+  if (terminalRecord?.event.kind !== "run_execution_failed") return false;
+  const message = terminalRecord.event.message;
+  if (message === undefined || !message.toLowerCase().includes("database is locked")) return false;
+  return lastCommittedAttempt(run.attempts ?? [])?.outcomeKind === "done";
 }
 
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {
@@ -200,7 +212,12 @@ export function composeRunOperatorError(
   if (resumable) return resumable;
   const allowResumableLogOutcomes = run.status !== "failed" && run.status !== "blocked";
 
-  if (terminalRecord?.event.kind === "run_execution_failed") return op("harness_failure", "stop");
+  if (terminalRecord?.event.kind === "run_execution_failed") {
+    if (isPostBoundaryStateStoreLockTimeout(terminalRecord, run)) {
+      return op("state_store_lock_timeout", "resume", true);
+    }
+    return op("harness_failure", "stop");
+  }
 
   if (run.status === "failed" || run.status === "blocked") {
     const fromAttempt = lastAttempt && mapInvocationFromAttempt(lastAttempt);

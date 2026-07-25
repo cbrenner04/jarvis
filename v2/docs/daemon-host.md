@@ -246,7 +246,8 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `role_timeout` | review-step `invocation_failure` + `failureKind: "timeout"` | `true` | `retry_later` |
 | `role_stalled` | review-step `invocation_failure` + `failureKind: "stall"` | `true` | `retry_later` |
 | `iteration_timeout` | failed `loopOutcomeKind: "iteration_timeout"` | `false` | `stop` |
-| `harness_failure` | terminal `run_execution_failed`, or `failed` without mappable attempt detail | `false` | `stop` |
+| `harness_failure` | terminal `run_execution_failed` without a post-boundary lock message, or `failed` without mappable attempt detail | `false` | `stop` |
+| `state_store_lock_timeout` | terminal `run_execution_failed` whose `message` names SQLite lock contention after a committed write-step `done` boundary | `true` | `resume` |
 | `unsupported_resume_context` | stopped or publication-retry write run whose snapshot cannot reconstruct an executable step | `false` | `stop` |
 | `completion_commit_failed` | `loopOutcomeKind: "completion_commit_failed"` on a `failed` row | `true` | `resume` |
 | `ready_gate_failed` | `loopOutcomeKind: "ready_gate_failed"` on a `failed` row | `true` | `resume` |
@@ -277,7 +278,10 @@ mappable attempt detail, resumable `loopOutcomeKind` values from stale logs
 (typically `harness_failure`). Spawn-boundary failure on resume can demote
 `budget-soft-stopped` to `failed`; after demotion, `error` follows `failed` rules
 and does not regress to `resumable_budget` from an earlier budget `loop_finished`
-when a later `run_execution_failed` is the selected terminal.
+when a later `run_execution_failed` is the selected terminal. Message-less
+`run_execution_failed` records (spawn-boundary reporter) still compose
+`harness_failure`; only a lock message after a committed `done` boundary maps to
+`state_store_lock_timeout`.
 
 **`error.retryable` vs `wait.resumable`:** `error.retryable` is the
 operator-action signal on the error contract. `wait.resumable` remains loop-log

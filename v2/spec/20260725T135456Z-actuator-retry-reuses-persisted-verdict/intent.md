@@ -10,18 +10,19 @@ to reach the same input — pure waste.
 
 ## Decisions
 
-- A retry of a failed actuator reads the persisted verdict and re-invokes only the actuator; rules out re-dispatch as the only actuator retry.
+- Re-dispatching the same workflow after a failed actuator reads the persisted verdict and re-invokes
+  only the actuator; rules out re-dispatch that replays write, shrink, or debate.
 - The retry does not invoke the write or shrink steps, and does not re-run the adversary/advocate/adjudicator roles; rules out a "resume the review cycle" path that repeats the debate.
 - A retry with no persisted verdict on disk fails naming the missing verdict rather than re-deriving it; rules out silently falling back to a full workflow re-run.
 
 ## Acceptance criteria
 
-- [ ] Retrying a timed-out actuator reuses the persisted adjudicated verdict; a test asserts neither the write nor the shrink step is invoked.
+- [ ] Retrying a timed-out actuator via workflow re-dispatch reuses the persisted adjudicated verdict; a test asserts neither the write nor the shrink step is invoked and debate roles are not replayed.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — how to retry a failed actuator without re-dispatching the workflow.
-- `v2/docs/workflow-runner.md` — actuator retry reads the persisted verdict.
+- `v2/docs/operator-runbook.md` — recover a failed actuator by re-dispatching the same workflow; expect actuator-only replay, not write/shrink/debate.
+- `v2/docs/workflow-runner.md` — actuator retry on re-dispatch reads the persisted verdict.
 
 ## Prerequisites
 

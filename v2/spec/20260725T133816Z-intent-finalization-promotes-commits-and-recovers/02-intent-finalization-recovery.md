@@ -32,6 +32,20 @@ command completes publication. Operators recovered by hand-copying staged files 
   re-entry, run finalization + completion publication tail only (snapshot replay, not `freshDispatch`).
 - Add daemon and workflow regressions; document operator recovery steps and which `runId` to resume.
 
+## Complexity budget (added after two failed attempts)
+
+The resume publication tail and its daemon handler are **new** code paths, and the previous attempt
+authored them as monoliths that red-gated `bun run check`: `runIntentPublicationTail` at cognitive
+complexity **41** and the daemon `intent-publication-resume` inline async IIFE at **27**, against a
+limit of 24.
+
+- Author the publication tail as small named helpers — snapshot/step resolution, publication
+  invocation, and settlement are separate units — each under the limit, with the pure parts unit
+  tested directly. Rules out one large tail function.
+- Give the daemon resume handler a named function rather than an inline `(async () => { … })()`
+  block inside the handler body. Rules out growing the IIFE.
+- Rules out raising the `noExcessiveCognitiveComplexity` threshold or suppressing the rule.
+
 ## Acceptance criteria
 
 - [ ] `workflow-runner.test.ts` `"resumes intent finalization from a populated stage without review
@@ -60,6 +74,9 @@ command completes publication. Operators recovered by hand-copying staged files 
   fails, the run settles a visible landing/harness failure rather than returning the prior
   `invocation_failure` stub with no publication work; `nextAction: "resume"` must never pair with a
   no-op resume path.
+- [ ] `bun run check` is green: no `noExcessiveCognitiveComplexity` violation in
+  `v2/src/execution/workflow-runner.ts` or `v2/src/daemon/daemon.ts`, and no rule suppression or
+  threshold change in `biome.json`.
 
 ## Documentation updates
 

@@ -50,6 +50,11 @@ discriminator as genuinely unknown and let the trace identify it.
   pin when the first trace assertion is written.
 - Scope is promotion + tracing only; dishonest `boundary_committed` / `invocation_failure` labels and
   resume admission stay in subspecs 01–02.
+- The shared finalization entry is authored as small named helpers, each under the
+  `noExcessiveCognitiveComplexity` limit of 24 — promotion, sidecar cleanup, and trace emission are
+  separate units. A prior attempt pushed `workflow-runner.ts` to complexity 41 and red-gated
+  `bun run check`. Rules out one monolithic finalization function, and rules out raising the
+  threshold or suppressing the rule.
 
 ## Tasks
 

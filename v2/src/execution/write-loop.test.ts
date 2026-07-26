@@ -3358,9 +3358,7 @@ describe("write loop", () => {
             }),
           }),
         );
-        const events = noGitSink
-          .getEventsForRun(result.runId)
-          .filter((event) => event.kind === "iteration_commit");
+        const events = noGitSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
         expect(events).toHaveLength(1);
         expect(events[0]).toMatchObject({ kind: "iteration_commit", skipReason: "no_git" });
       } finally {

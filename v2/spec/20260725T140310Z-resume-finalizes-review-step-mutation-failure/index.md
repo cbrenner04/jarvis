@@ -1,3 +1,3 @@
 # Resume finalizes a review-step mutation failure without re-running the write step
 
-- [ ] [00 - Resume review-step surviving-mutation finalization](./00-resume-review-step-surviving-mutation.md)
+- [x] [00 - Resume review-step surviving-mutation finalization](./00-resume-review-step-surviving-mutation.md)

@@ -65,20 +65,20 @@ does not red-gate.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` records the post-change aggregate `bun run test` wall clock from a
+- [x] `v2/docs/test-writing.md` records the post-change aggregate `bun run test` wall clock from a
       measured run, alongside the retained 697s pre-change figure and the 574.4s `test:cost` figure,
       each labeled with the command and date that produced it. (Manual)
-- [ ] `v2/docs/test-writing.md` § Ready-gate step budgets cites the new wall clock in the run-ceiling
+- [x] `v2/docs/test-writing.md` § Ready-gate step budgets cites the new wall clock in the run-ceiling
       rationale, recomputes the `JARVIS_READY_TIMEOUT_MS` retry-argument derivation against it, and
       states that `TEST_STEP_BUDGET_MS` and `DEFAULT_TIMEOUT_MS` are deliberately unchanged pending a
       re-sizing follow-up filed as a harness-friction issue.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust states the gate's current aggregate wall clock, that
+- [x] `v2/docs/operator-runbook.md` § Gate trust states the gate's current aggregate wall clock, that
       the runner now saturates the machine by design, names `JARVIS_TEST_CONCURRENCY` as the lever for
       a loaded machine, and that a gate failure on an already-loaded machine is still worth one
       re-run before believing it.
-- [ ] No file in `v2/docs/` presents 697s as the *current* aggregate wall clock (the retained
+- [x] No file in `v2/docs/` presents 697s as the *current* aggregate wall clock (the retained
       pre-change figure stays labeled as historical).
-- [ ] `bun run lint:md` is green.
+- [x] `bun run lint:md` is green.
 - [x] Five consecutive `bun run test` runs on a quiet operator machine pass with identical results.
       Satisfied by the Operator measurement section above: 5/5 pass, 321–330 s, mean 326 s. The
       original "at or below 320s" clause was a projection, not a measurement, and is superseded by

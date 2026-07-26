@@ -11,7 +11,7 @@ export function isSandboxUnrunnable(file: string): boolean {
  * Explicit load-sensitive files that don't match the `.sandbox-unrunnable.test.ts` suffix
  * convention. Each entry names the observed failure that made it flake under concurrent load.
  */
-const LOAD_SENSITIVE_FILES: readonly string[] = [
+export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // "eagerly provisions the managed worktree before dispatch for a linked implement step"
   // asserted 3 provisioning calls, got 2 under load; 26/26 pass idle (2026-07-26).
   "v2/src/daemon/daemon-workflow-start.test.ts",

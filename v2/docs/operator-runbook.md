@@ -407,6 +407,15 @@ and finalization proceeds rather than erroring. Non-test steps (`check`, `typech
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
 insufficient without a green gate on the branch head.
 
+The full aggregate `bun run test` wall clock is currently 326s (mean, 321-330s range, measured
+2026-07-26) — down from a 697s pre-change baseline — because the runner now executes independent
+test files concurrently instead of serially. A gate run's test steps see this figure only when
+`JARVIS_READY_TEST_SCOPE` resolves to `full`; a scoped run (see above) executes a slice subset and
+runs faster. That concurrency means the gate deliberately saturates the machine it runs on by
+design; on an already-loaded operator machine, a gate failure is worth one re-run before trusting
+it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is the suspected cause
+(see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
+
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
 consumes the iteration budget and republishes before the gate is rerun. A deadline-killed gate (exit code 124 or
 `ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair,

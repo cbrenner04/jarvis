@@ -62,11 +62,11 @@ resolved `(project, branch)` is already claimed, retirement can finish and only 
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` `resetStaleWorkspace refuses when worktree key is claimed` asserts refuse before abandonment, worktree/local branch/pushed remote/open PR intact, no retirement subprocess calls; fails against pre-fix ordering.
-- [ ] `workflow.test.ts` `run workflow implement refuses stale reset when worktree is claimed` asserts exit `1`, stderr `worktree_claimed:` (no `Retirement destroyed artifacts:`), worktree/local branch/pushed remote/open PR intact, no retirement subprocess calls; fixture claims admission without tripping live-held; fails against pre-fix ordering.
-- [ ] `workflow.test.ts` `run workflow implement refuses with one pre-mutation error when claimed and dirty` asserts exit `1`, single refusal surface (`worktree_claimed:` only), zero teardown side effects, intact artifacts including pushed remote; fails against pre-fix code.
-- [ ] `cleanup.test.ts` `reset removes stale worktree and draft PR before re-run` stays green.
-- [ ] Guard inversion: test-local `DaemonClient` double with key unclaimed (or claim probe allowing) still runs stale reset retirement (`cleanup.test.ts` or `workflow.test.ts`); fails when the double is inverted to always refuse claim.
+- [x] `cleanup.test.ts` `resetStaleWorkspace refuses when worktree key is claimed` asserts refuse before abandonment, worktree/local branch/pushed remote/open PR intact, no retirement subprocess calls; fails against pre-fix ordering.
+- [x] `workflow.test.ts` `run workflow implement refuses stale reset when worktree is claimed` asserts exit `1`, stderr `worktree_claimed:` (no `Retirement destroyed artifacts:`), worktree/local branch/pushed remote/open PR intact, no retirement subprocess calls; fixture claims admission without tripping live-held; fails against pre-fix ordering.
+- [x] `workflow.test.ts` `run workflow implement refuses with one pre-mutation error when claimed and dirty` asserts exit `1`, single refusal surface (`worktree_claimed:` only), zero teardown side effects, intact artifacts including pushed remote; fails against pre-fix code.
+- [x] `cleanup.test.ts` `reset removes stale worktree and draft PR before re-run` stays green.
+- [x] Guard inversion: test-local `DaemonClient` double with key unclaimed (or claim probe allowing) still runs stale reset retirement (`cleanup.test.ts` or `workflow.test.ts`); fails when the double is inverted to always refuse claim.
 
 ## Documentation updates
 

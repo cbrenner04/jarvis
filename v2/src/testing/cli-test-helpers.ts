@@ -49,6 +49,11 @@ export function makeIpcClient(
   options?: {
     sent?: unknown[];
     statusResult?: { loadedRevision: string; loadedExecutableDigest: string };
+    /** Auto-answer `list` and `check_workflow_start_claim` for stale-reset preflight. */
+    staleResetPreflight?: {
+      listRuns?: unknown[];
+      claim?: "free" | { message: string };
+    };
   },
 ): IpcClient {
   const queue = [...frames] as IpcFrame[];
@@ -76,6 +81,25 @@ export function makeIpcClient(
         deliver({ kind: "response", id: request.id, result: { state: "running", ...options.statusResult } });
         return;
       }
+      if (options?.staleResetPreflight !== undefined && typeof request.id === "string") {
+        if (request.method === "list") {
+          deliver({
+            kind: "response",
+            id: request.id,
+            result: { runs: options.staleResetPreflight.listRuns ?? [] },
+          });
+          return;
+        }
+        if (request.method === "check_workflow_start_claim") {
+          const claim = options.staleResetPreflight.claim ?? "free";
+          if (claim === "free") {
+            deliver({ kind: "response", id: request.id, result: { ok: true } });
+          } else {
+            deliver({ kind: "error", id: request.id, code: "worktree_claimed", message: claim.message });
+          }
+          return;
+        }
+      }
       const response = queue.shift();
       if (response !== undefined) deliver(response);
     },
@@ -96,6 +120,17 @@ export function makeIpcClient(
       waiter = undefined;
     },
   };
+}
+
+/** {@link makeIpcClient} with default stale-reset `list` / `check_workflow_start_claim` preflight answers. */
+export function makeStaleResetIpcClient(
+  frames: unknown[],
+  options?: Parameters<typeof makeIpcClient>[1],
+): IpcClient {
+  return makeIpcClient(frames, {
+    ...options,
+    staleResetPreflight: { claim: "free", ...options?.staleResetPreflight },
+  });
 }
 
 export function tempPaths() {
@@ -161,6 +196,16 @@ export const SESSION_UUID = "00000000-0000-4000-8000-0000000000ff";
 /** Stubs the session/start/wait uuid sequence for a `run workflow` invocation. */
 export function withWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
   return withFixedUuid([SESSION_UUID, startId, waitId], fn);
+}
+
+/** Like {@link withWorkflowUuids} but reserves ids for stale-reset `list` + `check_workflow_start_claim` preflight. */
+export function withStaleResetWorkflowUuids<T>(startId: string, waitId: string, fn: () => Promise<T>): Promise<T> {
+  return withFixedUuid([SESSION_UUID, "preflight-list", "preflight-claim", startId, waitId], fn);
+}
+
+/** Reserves ids for stale-reset preflight when dispatch never reaches `start`. */
+export function withStaleResetPreflightUuids<T>(fn: () => Promise<T>): Promise<T> {
+  return withFixedUuid([SESSION_UUID, "preflight-list", "preflight-claim"], fn);
 }
 
 export const COMPLETED_WAIT_RESULT = {

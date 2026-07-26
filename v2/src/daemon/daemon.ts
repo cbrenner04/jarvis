@@ -30,7 +30,10 @@ import {
   LinkedIndexReadError,
   type ReviewProgress,
   resolveIntentFinalizationResumeContext,
+  resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
+  resumeReviewMutationFinalization,
+  type ReviewMutationResumeDeps,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -426,6 +429,20 @@ function isIntentFinalizationResumable(run: Run & { attempts?: Attempt[] }, stor
   return resolveIntentFinalizationResumeContext({ ...run, attempts: run.attempts ?? [] }, store).ok;
 }
 
+/**
+ * A review/review-debate row's `surviving_mutation_failed` is only resumable through
+ * {@link resumeReviewMutationFinalization}, not the write-loop reconstruction below — the durable
+ * write step already committed, so only mutation re-verification, the ready gate, and publication
+ * need to run again.
+ */
+function isReviewMutationResumable(
+  run: Run & { attempts?: Attempt[] },
+  store: StateStore,
+  terminalRecord: TerminalLogRecord | undefined,
+): boolean {
+  return resolveReviewMutationResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok;
+}
+
 function resumeContextForRun(
   run: Run & { attempts?: Attempt[] },
   store: StateStore,
@@ -436,6 +453,7 @@ function resumeContextForRun(
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
   if (!isResumeAdmitted(run, terminalRecord)) return undefined;
   if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
+  if (isReviewMutationResumable(run, store, terminalRecord)) return undefined;
   return reconstructWriteResume(run);
 }
 
@@ -1244,6 +1262,40 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
   };
 
+  /**
+   * Resume dispatch for a review-behavior row's `surviving_mutation_failed` failure: replays
+   * mutation re-verification, the ready gate, and publication via
+   * {@link resumeReviewMutationFinalization} directly, never `spawnWriteLoop` — the durable write
+   * step already committed, and re-entering the write loop would risk re-invoking its agent.
+   */
+  const resumeReviewMutationPublication = async (
+    run: LoadedRun,
+    terminalRecord: TerminalLogRecord | undefined,
+    key: OwnershipKey,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) return claimError;
+    _registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
+    const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+    try {
+      const resumeDeps: ReviewMutationResumeDeps = {
+        ...intentFinalizationResumeDeps,
+        ...(logSink !== undefined ? { logSink } : {}),
+      };
+      const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps);
+      if (!outcome.ok) {
+        return { kind: "error", code: "internal_error", message: outcome.message };
+      }
+      return { kind: "response", result: { ok: true } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { kind: "error", code: "internal_error", message };
+    } finally {
+      logSink?.close();
+      _registry.release(key);
+    }
+  };
+
   function terminalResumeBlocked(
     run: LoadedRun,
     runId: string,
@@ -1286,6 +1338,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
+
+    if (isReviewMutationResumable(run, store, terminalRecord)) {
+      return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
+    }
+
     const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord);
     if (!reconstructed?.ok) {
       return {

@@ -53,20 +53,20 @@ Distinct from shrink `contract_miss` / text-less shrink `blocked`
 
 ## Acceptance criteria
 
-- [ ] New cases in `v2/src/daemon/daemon-resume.test.ts` drive workflows whose durable
+- [x] New cases in `v2/src/daemon/daemon-resume.test.ts` drive workflows whose durable
       `implement-review` and durable `review-debate` last-step rows each settle
       `surviving_mutation_failed`, call `resume` on that row id, and assert finalization completes
       (`loop_finished` with `loopOutcomeKind: "complete"`, `resumable: false`) after a succeeding
       ready finalizer on the same publication-tail resume code path; they fail against pre-fix code
       with `resume_unsupported`.
-- [ ] The same `daemon-resume.test.ts` end-to-end resume fixture asserts the completed `implement`
+- [x] The same `daemon-resume.test.ts` end-to-end resume fixture asserts the completed `implement`
       write step records no additional `iteration_started` / agent invocation during that resume;
       inverting the skip guard fails the test.
-- [ ] Inverting the review-step `surviving_mutation_failed` resume reconstruction guard fails at
+- [x] Inverting the review-step `surviving_mutation_failed` resume reconstruction guard fails at
       least one test in `v2/src/daemon/daemon-resume.test.ts` by restoring `resume_unsupported` or
       by recording an **implement** `iteration_started` / agent invocation.
-- [ ] `v2/src/execution/workflow-runner.test.ts` `"settles a surviving-mutation failure on the durable review-debate step's own row, not the implement step's"` stays green; `jarvis run resume` on a completed non-resumable workflow row is still refused `terminal_run` per existing `daemon-resume.test.ts` completed-run cases; `resume` on the workflow entry id and on a completed `~shrink` row for the same surviving-mutation scenario still refuses (`terminal_run` or non-resumable), matching the intent problem statement.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/workflow-runner.test.ts` `"settles a surviving-mutation failure on the durable review-debate step's own row, not the implement step's"` stays green; `jarvis run resume` on a completed non-resumable workflow row is still refused `terminal_run` per existing `daemon-resume.test.ts` completed-run cases; `resume` on the workflow entry id and on a completed `~shrink` row for the same surviving-mutation scenario still refuses (`terminal_run` or non-resumable), matching the intent problem statement.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

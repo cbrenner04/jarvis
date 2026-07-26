@@ -17,7 +17,9 @@ import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./writ
 import {
   appendRuntimeSmokeOutcome,
   executeWriteLoop,
+  resolveIterationSettlementKind,
   shouldFailTerminalCompletionForDirtyWorktree,
+  type WallSegmentSchedule,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
 } from "./write-loop.ts";
@@ -52,6 +54,97 @@ class TestLogSink implements LogSink {
   getEventsForRun(runId: string): LogEvent[] {
     return this.events.filter((e) => e.runId === runId).map((e) => e.event);
   }
+}
+
+/**
+ * A `schedule` seam that never auto-fires; the test drives `fire()` explicitly. Tracks every
+ * registration so repeated `bumpWallSegment` cancel/reschedule calls (not just the first
+ * registration) are each independently cancellable and observable.
+ */
+function createManualWallSchedule(): {
+  schedule: WallSegmentSchedule;
+  waitForSchedule: () => Promise<void>;
+  fire: () => void;
+  registrationCount: () => number;
+  cancelledCount: () => number;
+} {
+  type Registration = { fire: () => void; cancelled: boolean };
+  const registrations: Registration[] = [];
+  let notifyRegistered: (() => void) | undefined;
+
+  const schedule: WallSegmentSchedule = (fire) => {
+    const registration: Registration = { fire, cancelled: false };
+    registrations.push(registration);
+    notifyRegistered?.();
+    return { cancel: () => (registration.cancelled = true) };
+  };
+
+  const waitForSchedule = () =>
+    registrations.length > 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          notifyRegistered = resolve;
+        });
+
+  return {
+    schedule,
+    waitForSchedule,
+    fire: () => {
+      const latest = registrations[registrations.length - 1];
+      if (latest !== undefined && !latest.cancelled) latest.fire();
+    },
+    registrationCount: () => registrations.length,
+    cancelledCount: () => registrations.filter((r) => r.cancelled).length,
+  };
+}
+
+/**
+ * Drives one iteration to settlement via the injected schedule seam: no bare setTimeout races the
+ * watchdog. "abort-first" calls abort(), flushes its microtask settlement, then fires the watchdog
+ * synchronously. "watchdog-first" fires the watchdog synchronously, then calls abort().
+ */
+async function runAbortWatchdogOrdering(args: {
+  jarvisRoot: string;
+  stateStore: StateStore;
+  order: "abort-first" | "watchdog-first";
+  branchName: string;
+  invertPrecedence?: boolean;
+}) {
+  const controller = new AbortController();
+  const manual = createManualWallSchedule();
+  const resultPromise = executeWriteLoop({
+    worktree: {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName: args.branchName,
+      baseRef: "HEAD",
+      jarvisRoot: args.jarvisRoot,
+    },
+    specPath: "spec.md",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: "proof.txt",
+    bindings: simulatedBindings(["done"]),
+    stateStore: args.stateStore,
+    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
+    signal: controller.signal,
+    iterationTimeoutMs: 1_000_000,
+    schedule: manual.schedule,
+    ...(args.invertPrecedence !== undefined ? { invertAbortWatchdogPrecedenceForTest: args.invertPrecedence } : {}),
+  });
+  await manual.waitForSchedule();
+  if (args.order === "abort-first") {
+    controller.abort();
+    // Abort settles via a single `queueMicrotask` hop (write-loop.ts `resolveAbort`); two
+    // microtask flushes guarantee that settlement is observable before the watchdog fires.
+    await Promise.resolve();
+    await Promise.resolve();
+    manual.fire();
+  } else {
+    manual.fire();
+    controller.abort();
+  }
+  return resultPromise;
 }
 
 async function runLoop(args: {
@@ -2338,6 +2431,66 @@ describe("write loop", () => {
     expect(timedOut).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
   });
 
+  test("progress output cancels the prior wall-segment schedule and registers a new one via the injected seam", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const manual = createManualWallSchedule();
+    let emitProgress: (() => void) | undefined;
+    let resolveWrite: (() => void) | undefined;
+
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) => {
+        emitProgress = () => input.onInvocationOutputProgress?.();
+        return new Promise((resolve) => {
+          resolveWrite = () =>
+            resolve({
+              worktreePath: join(jarvisRoot, "worktrees", "demo", "bump-seam"),
+              worktreeReused: false,
+              lock: { kind: "acquired" as const },
+              result: {
+                kind: "complete" as const,
+                token: "done" as const,
+                invocation: { attempts: [], final: null, telemetryFailures: [] },
+              },
+            });
+        });
+      },
+    }));
+
+    try {
+      const resultPromise = executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "bump-seam", baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["done"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        iterationTimeoutMs: 1_000_000,
+        schedule: manual.schedule,
+      });
+
+      await manual.waitForSchedule();
+      expect(manual.registrationCount()).toBe(1);
+      expect(manual.cancelledCount()).toBe(0);
+
+      // bumpWallSegment runs synchronously off onInvocationOutputProgress: no await needed
+      // between emitting progress and observing the cancel + re-registration through the seam.
+      emitProgress?.();
+      expect(manual.registrationCount()).toBe(2);
+      expect(manual.cancelledCount()).toBe(1);
+
+      resolveWrite?.();
+      const result = await resultPromise;
+      expect(result).toMatchObject({ kind: "complete" });
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
   test("continuous output cannot extend an iteration past the hard ceiling", async () => {
     const wallMs = 25;
     const ceilingMs = 70;
@@ -2486,43 +2639,69 @@ describe("write loop", () => {
     mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
 
     try {
-      const earlyAbort = new AbortController();
-      setTimeout(() => earlyAbort.abort(), 5);
-      const early = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "abort-first", baseRef: "HEAD", jarvisRoot },
-        specPath: "spec.md",
-        stepRules: "Return exactly one terminal token.",
-        expectedArtifactPath: "proof.txt",
-        bindings: simulatedBindings(["done"]),
-        stateStore: store,
-        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-        sessionsDir: join(jarvisRoot, "sessions"),
-        signal: earlyAbort.signal,
-        iterationTimeoutMs: 40,
-      });
-      expect(early).toMatchObject({ kind: "progress", resumable: true });
-
-      const lateAbort = new AbortController();
-      setTimeout(() => lateAbort.abort(), 40);
-      const late = await executeWriteLoop({
-        worktree: {
-          projectRoot: "/fake",
-          projectName: "demo",
-          branchName: "timeout-first",
-          baseRef: "HEAD",
+      for (let i = 0; i < 50; i++) {
+        const early = await runAbortWatchdogOrdering({
           jarvisRoot,
-        },
-        specPath: "spec.md",
-        stepRules: "Return exactly one terminal token.",
-        expectedArtifactPath: "proof.txt",
-        bindings: simulatedBindings(["done"]),
+          stateStore: store,
+          order: "abort-first",
+          branchName: `abort-first-${i}`,
+        });
+        // Iteration index and subcase label ride along in the compared object so a failure at
+        // iteration 37 reports which subcase and iteration mismatched, not an anonymous object diff.
+        expect({ iteration: i, subcase: "early", ...early }).toMatchObject({
+          iteration: i,
+          subcase: "early",
+          kind: "progress",
+          resumable: true,
+        });
+
+        const late = await runAbortWatchdogOrdering({
+          jarvisRoot,
+          stateStore: store,
+          order: "watchdog-first",
+          branchName: `timeout-first-${i}`,
+        });
+        expect({ iteration: i, subcase: "late", ...late }).toMatchObject({
+          iteration: i,
+          subcase: "late",
+          kind: "iteration_timeout",
+          resumable: false,
+        });
+      }
+    } finally {
+      store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("abort-vs-watchdog precedence predicate: both truth directions, no real-timer wait", () => {
+    expect(resolveIterationSettlementKind("abort", false)).toBe("aborted");
+    expect(resolveIterationSettlementKind("watchdog", false)).toBe("timed_out");
+    expect(resolveIterationSettlementKind("abort", true)).toBe("timed_out");
+    expect(resolveIterationSettlementKind("watchdog", true)).toBe("aborted");
+  });
+
+  test("abort-vs-watchdog guard inversion: watchdog-first flips to progress when precedence is inverted", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+
+    try {
+      const result = await runAbortWatchdogOrdering({
+        jarvisRoot,
         stateStore: store,
-        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-        sessionsDir: join(jarvisRoot, "sessions"),
-        signal: lateAbort.signal,
-        iterationTimeoutMs: 5,
+        order: "watchdog-first",
+        branchName: "inverted-watchdog-first",
+        invertPrecedence: true,
       });
-      expect(late).toMatchObject({ kind: "iteration_timeout", resumable: false });
+
+      // With correct precedence this ordering settles "iteration_timeout" (see the case above).
+      // Inverted, it wrongly settles "progress" — proving the settlement-kind mapping
+      // (resolveIterationSettlementKind's role->kind assignment) is load-bearing. This does not
+      // cover race-ordering regressions (e.g. a dropped watchdogSettled latch, abort settling
+      // synchronously, or reordered Promise.race operands) — those stay invisible to this guard.
+      expect(result).toMatchObject({ kind: "progress", resumable: true });
     } finally {
       store.close();
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

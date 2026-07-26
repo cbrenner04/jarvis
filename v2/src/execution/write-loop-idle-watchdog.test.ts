@@ -25,7 +25,13 @@ describe("write loop idle-output watchdog", () => {
 
     try {
       const result = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "idle-healthy", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "idle-healthy",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",
@@ -104,46 +110,48 @@ describe("write loop idle-output watchdog", () => {
       artifactPath: ".jarvis-intent-stage",
       promptPlaceholders: { WORKDIR: "/tmp/worktree", SEED_LABEL: "inline", SEED_CONTENT: "Rename the plan flag" },
     },
-  ])(
-    "a silent agent on the %s write step settles idle_output_timeout, not iteration_timeout",
-    async ({ promptId, artifactPath, intentSeed, promptPlaceholders }) => {
-      const { jarvisRoot, stateDbPath } = createJarvisHome();
-      roots.push(join(jarvisRoot, ".."));
-      const store = openStateStore(stateDbPath);
+  ])("a silent agent on the %s write step settles idle_output_timeout, not iteration_timeout", async ({
+    promptId,
+    artifactPath,
+    intentSeed,
+    promptPlaceholders,
+  }) => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
 
-      try {
-        const result = await executeWriteLoop({
-          worktree: {
-            projectRoot: "/fake",
-            projectName: "demo",
-            branchName: `idle-${promptId}`,
-            baseRef: "HEAD",
-            jarvisRoot,
-          },
-          specPath: "v2/spec/2099-01-01T00-00-00Z-silent",
-          stepRules: "Return exactly one terminal token.",
-          expectedArtifactPath: artifactPath,
-          promptId,
-          ...(intentSeed !== undefined ? { intentSeed } : {}),
-          ...(promptPlaceholders !== undefined ? { promptPlaceholders } : {}),
-          bindings: simulatedBindings(["stall"]),
-          stateStore: store,
-          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-          sessionsDir: join(jarvisRoot, "sessions"),
-          iterationTimeoutMs: 10_000,
-          idleOutputMs: 20,
-        });
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: `idle-${promptId}`,
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "v2/spec/2099-01-01T00-00-00Z-silent",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: artifactPath,
+        promptId,
+        ...(intentSeed !== undefined ? { intentSeed } : {}),
+        ...(promptPlaceholders !== undefined ? { promptPlaceholders } : {}),
+        bindings: simulatedBindings(["stall"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+      });
 
-        expect(result.kind).toBe("idle_output_timeout");
-        expect(result.agent).toBe("sim-agent-1");
-        expect(result.boundMs).toBe(20);
-        const run = loadRunOnce(stateDbPath, result.runId);
-        expect(run?.attempts[0]?.outcomeKind).toBe("idle_output_timeout");
-      } finally {
-        store.close();
-      }
-    },
-  );
+      expect(result.kind).toBe("idle_output_timeout");
+      expect(result.agent).toBe("sim-agent-1");
+      expect(result.boundMs).toBe(20);
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.attempts[0]?.outcomeKind).toBe("idle_output_timeout");
+    } finally {
+      store.close();
+    }
+  });
 
   test("a disabled watchdog (idleOutputMs omitted) settles a silent iteration on the wall, not idle_output_timeout", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
@@ -153,7 +161,13 @@ describe("write loop idle-output watchdog", () => {
 
     try {
       const result = await executeWriteLoop({
-        worktree: { projectRoot: "/fake", projectName: "demo", branchName: "idle-disabled", baseRef: "HEAD", jarvisRoot },
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "idle-disabled",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
         specPath: "spec.md",
         stepRules: "Return exactly one terminal token.",
         expectedArtifactPath: "proof.txt",

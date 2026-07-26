@@ -78,36 +78,36 @@ create. Any per-iteration commit/skip logic, and the implement step's pre-shrink
 
 ## Acceptance criteria
 
-- [ ] A workflow write step (`publishCompletion: false`) that materializes file changes on a
+- [x] A workflow write step (`publishCompletion: false`) that materializes file changes on a
       `progress` iteration and then fails mid-run leaves a non-empty `git log <base>..HEAD` on a
       real git fixture (not an injected `completionCommitter` double); a new test drives that path
       and fails against the pre-fix code (zero commits).
-- [ ] A `progress` iteration whose worktree changed no files creates no commit; a test asserts
+- [x] A `progress` iteration whose worktree changed no files creates no commit; a test asserts
       zero new commits, and inverting the no-change guard fails it.
-- [ ] A `progress` iteration that follows a committing iteration, and itself changes nothing,
+- [x] A `progress` iteration that follows a committing iteration, and itself changes nothing,
       reports *skipped* (`no_file_changes`) rather than the prior iteration's SHA; a test drives
       two consecutive iterations (commit, then no-change) and fails against a naive
       `commitSha !== undefined` check.
-- [ ] A `progress` iteration that commits emits a per-iteration commit log event reporting the
+- [x] A `progress` iteration that commits emits a per-iteration commit log event reporting the
       commit and its SHA; an iteration skipped for no file changes, and one skipped for a missing
       `.git` (a step with `worktree.git: false`, as used by no-commit intent steps), each emit
       that event naming the skip condition instead. A test asserts all three cases are
       distinguishable and fails against the pre-fix code.
-- [ ] Inverting the `.git`-absent guard fails a test that proves no commit is attempted against a
+- [x] Inverting the `.git`-absent guard fails a test that proves no commit is attempted against a
       `worktree.git: false` step.
-- [ ] A completed implement step whose last progress iteration already committed the final tree
+- [x] A completed implement step whose last progress iteration already committed the final tree
       (clean worktree at implement completion) still leaves the shrink/publication reset anchored
       at pre-implement HEAD, not at the last iteration commit; a test on a real git fixture drives
       this case and fails against a `<sha>^`-based reset.
-- [ ] A git-backed plan or intent workflow run commits its staging-artifact changes in-flight via
+- [x] A git-backed plan or intent workflow run commits its staging-artifact changes in-flight via
       progress iterations, and the landing step's commit still removes those artifacts from the
       final tree; a test on a real git fixture pins this.
-- [ ] Steps with `publishCompletion: false` still skip completion publication (no push, PR, or
+- [x] Steps with `publishCompletion: false` still skip completion publication (no push, PR, or
       ready flip) while committing their progress iterations; an existing or updated test pins this.
-- [ ] Existing completion tests in `v2/src/execution/write-loop.test.ts` and
+- [x] Existing completion tests in `v2/src/execution/write-loop.test.ts` and
       `v2/src/execution/workflow-runner.test.ts` stay green (normal completion publishes unchanged,
       no duplicate or orphaned commits).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

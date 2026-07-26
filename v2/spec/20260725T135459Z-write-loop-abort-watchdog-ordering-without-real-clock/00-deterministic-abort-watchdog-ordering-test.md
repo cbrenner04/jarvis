@@ -46,20 +46,20 @@ subcase can settle `progress` instead of `iteration_timeout`.
 
 ## Acceptance criteria
 
-- [ ] With wall-segment schedules that never auto-fire, `write-loop.test.ts` case `lets an observed
+- [x] With wall-segment schedules that never auto-fire, `write-loop.test.ts` case `lets an observed
       abort win before the watchdog, but not after it` waits on schedule registration before driving
       the harness; early subcase calls `abort()`, flushes abort settlement, then `fire()` and asserts
       `progress`; late subcase calls `fire()` then `abort()` and asserts `iteration_timeout`; it fails
       against pre-fix `setTimeout` wall-clock ordering and passes after the injected-control rewrite.
-- [ ] The same case runs 50 consecutive subcase iterations inside the test (early ordering then late
+- [x] The same case runs 50 consecutive subcase iterations inside the test (early ordering then late
       ordering each iteration) without real-clock synchronization waits and completes with 50 passes.
-- [ ] A committed inversion check on abort-vs-watchdog precedence in `awaitIteration` (or the
+- [x] A committed inversion check on abort-vs-watchdog precedence in `awaitIteration` (or the
       `timed_out` vs `aborted` settlement branch) fails at least one test in `write-loop.test.ts` when
       enabled; `lets an observed abort win before the watchdog, but not after it` late-ordering
       assertions prove wrong `iteration_timeout` when precedence is inverted.
-- [ ] `write-loop.test.ts` cases `progress output resets the iteration wall so a slow emitter completes`
+- [x] `write-loop.test.ts` cases `progress output resets the iteration wall so a slow emitter completes`
       and `continuous output cannot extend an iteration past the hard ceiling` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

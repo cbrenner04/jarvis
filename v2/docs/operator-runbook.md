@@ -578,7 +578,11 @@ for its `run_recovery` outcome. A failed automatic admission becomes `failed` wi
 log diagnostic, without blocking other recoveries. Worktrees and branches survive.
 Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
 and resume while the branch exists; only in-flight edits before that iteration's
-git commit may be lost. Uncommitted work from the killed step itself is left
+git commit may be lost. This now holds for workflow write steps too — a
+`publishCompletion: false` step still commits each `progress` iteration
+in-flight, so a mid-run kill or crash leaves prior iterations' commits on the
+branch rather than an all-dirty worktree; only the interrupted iteration's own
+edits are at risk. Uncommitted work from the killed step itself is left
 dirty in the worktree, and its token spend is lost. **Implement re-run reset**
 (`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
 the branch and unpushed commits; publication remains terminal-`complete` only.

@@ -181,9 +181,10 @@ test("start reports materialization failure before linked routing, run-row creat
 
 test("eagerly provisions the managed worktree before dispatch for a linked implement step", async () => {
   // Pins the daemon eager-materialization guard (behavior === "write" && role === "implement"
-  // && linkedIndexRouting). The daemon provisions once before executeWorkflow; the linked
-  // implement step provisions again inside the workflow loop => exactly two invocations. Break
-  // any conjunct (or drop the eager call) and only the in-loop provisioning runs (count 1).
+  // && linkedIndexRouting). The daemon provisions once before executeWorkflow; executeWorkflow's
+  // implement pre-shrink anchor sampling provisions again before dispatching the step; the linked
+  // implement step provisions a third time inside the workflow loop => exactly three invocations.
+  // Break any conjunct (or drop a provisioning call) and the count changes.
   let calls = 0;
   const step = createWriteStep("step-1", "eager-materialize");
   step.specPath = "missing-index.md";
@@ -196,7 +197,7 @@ test("eagerly provisions the managed worktree before dispatch for a linked imple
 
   const response = await handlers.start(requestFrame("s1", "start", { steps: [step] }), new AbortController().signal);
 
-  expect(calls).toBe(2);
+  expect(calls).toBe(3);
   expect(response.kind).toBe("error");
   if (response.kind === "error") expect(response.code).toBe("routing_read_failed");
 });

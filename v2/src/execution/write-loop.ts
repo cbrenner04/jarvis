@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -93,6 +94,15 @@ export type WriteLoopResult = {
   runtimeSmokeObservation?: string;
 } & Partial<InvocationFailureDetail>;
 
+export type WallSegmentScheduleHandle = { cancel: () => void };
+/** Schedules `fire` after `delayMs`; returns a handle to cancel it. Production default is `setTimeout`. */
+export type WallSegmentSchedule = (fire: () => void, delayMs: number) => WallSegmentScheduleHandle;
+
+const defaultWallSegmentSchedule: WallSegmentSchedule = (fire, delayMs) => {
+  const timer = setTimeout(fire, delayMs);
+  return { cancel: () => clearTimeout(timer) };
+};
+
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
@@ -100,6 +110,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   iterationCeilingMs?: number;
   /** Test seam: when false, stdout/stderr progress does not re-arm the wall segment. */
   resetIterationWallOnOutput?: boolean;
+  /** Test seam: wall-segment scheduling in `awaitIteration`, including `bumpWallSegment` cancel/reschedule. */
+  schedule?: WallSegmentSchedule;
   stateStore?: StateStore;
   logSink?: LogSink;
   pauseSignal?: AbortSignal;
@@ -129,6 +141,12 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  /**
+   * Test seam: when true, flips which settlement kind the abort/watchdog races produce, proving the
+   * abort-vs-watchdog precedence guard is load-bearing rather than vacuous. Carried per-call so no
+   * test can leave a stale setting that alters another run's settlement.
+   */
+  invertAbortWatchdogPrecedenceForTest?: boolean;
 };
 
 /**
@@ -376,8 +394,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "progress") {
+        let commitOutcome: ProgressIterationCommitOutcome;
         try {
-          await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
+          commitOutcome = await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
         } catch (error) {
           return iterationCommitFailed(
             args,
@@ -388,6 +407,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             error instanceof Error ? error : new Error(String(error)),
           );
         }
+
+        args.logSink?.append(runId, {
+          kind: "iteration_commit",
+          attemptId,
+          ...(commitOutcome.kind === "committed"
+            ? { commitSha: commitOutcome.commitSha }
+            : { skipReason: commitOutcome.skipReason }),
+        });
 
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {
@@ -638,6 +665,13 @@ type IterationSettlement =
   | { kind: "timed_out" }
   | { kind: "aborted" };
 
+export type AbortWatchdogRole = "abort" | "watchdog";
+
+/** Pure precedence predicate: which settlement kind a given race role produces. */
+export function resolveIterationSettlementKind(role: AbortWatchdogRole, invert: boolean): "aborted" | "timed_out" {
+  return (role === "abort") !== invert ? "aborted" : "timed_out";
+}
+
 /** Starts after `iteration_started`, so pre-spawn stalls are fenced too. */
 function awaitIteration(
   args: WriteLoopInput,
@@ -650,8 +684,10 @@ function awaitIteration(
   if (args.signal?.aborted) abortExecution();
   args.signal?.addEventListener("abort", abortExecution, { once: true });
 
+  const invertPrecedence = args.invertAbortWatchdogPrecedenceForTest ?? false;
+  const schedule = args.schedule ?? defaultWallSegmentSchedule;
   const wallSegmentMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
-  let wallTimeout: ReturnType<typeof setTimeout> | undefined;
+  let wallSchedule: WallSegmentScheduleHandle | undefined;
   let ceilingTimeout: ReturnType<typeof setTimeout> | undefined;
   let watchdogSettled = false;
   let resolveWatchdog!: (value: IterationSettlement) => void;
@@ -660,13 +696,13 @@ function awaitIteration(
     if (watchdogSettled) return;
     watchdogSettled = true;
     abortExecution();
-    resolveWatchdog({ kind: "timed_out" });
+    resolveWatchdog({ kind: resolveIterationSettlementKind("watchdog", invertPrecedence) });
   };
 
   const bumpWallSegment = () => {
     if (watchdogSettled) return;
-    if (wallTimeout !== undefined) clearTimeout(wallTimeout);
-    wallTimeout = setTimeout(fireWatchdogTimeout, wallSegmentMs);
+    wallSchedule?.cancel();
+    wallSchedule = schedule(fireWatchdogTimeout, wallSegmentMs);
   };
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
@@ -689,7 +725,8 @@ function awaitIteration(
   let removeAbort: (() => void) | undefined;
   const abort = new Promise<IterationSettlement>((resolve) => {
     if (!args.signal) return;
-    const resolveAbort = () => queueMicrotask(() => resolve({ kind: "aborted" }));
+    const resolveAbort = () =>
+      queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort", invertPrecedence) }));
     if (args.signal.aborted) return resolveAbort();
     const onAbort = () => resolveAbort();
     args.signal.addEventListener("abort", onAbort, { once: true });
@@ -697,7 +734,7 @@ function awaitIteration(
   });
   return Promise.race([execution, watchdog, abort]).finally(() => {
     watchdogSettled = true;
-    if (wallTimeout !== undefined) clearTimeout(wallTimeout);
+    wallSchedule?.cancel();
     if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
     args.signal?.removeEventListener("abort", abortExecution);
     removeAbort?.();
@@ -1383,6 +1420,10 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
+export type ProgressIterationCommitOutcome =
+  | { kind: "committed"; commitSha: string }
+  | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" };
+
 async function commitProgressIteration(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
@@ -1390,9 +1431,9 @@ async function commitProgressIteration(
   runId: string,
   worktreePath: string,
   result: Extract<StepRunResult, { kind: "progress" }>,
-): Promise<void> {
-  if (args.publishCompletion === false || !existsSync(join(worktreePath, ".git"))) {
-    return;
+): Promise<ProgressIterationCommitOutcome> {
+  if (!existsSync(join(worktreePath, ".git"))) {
+    return { kind: "skipped", skipReason: "no_git" };
   }
   const agent = result.invocation.final?.binding.metadata?.agent?.trim();
   if (!agent) throw new Error("completion attribution is missing");
@@ -1403,13 +1444,18 @@ async function commitProgressIteration(
   const title = stepTitle
     ? stepTitle
     : resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
-  await (args.completionCommitter ?? createCompletionCommitter())({
+  const headBefore = await getCurrentHeadAsync(worktreePath);
+  const committed = await (args.completionCommitter ?? createCompletionCommitter())({
     worktreePath,
     baseRef: args.worktree.baseRef,
     specPath,
     agent,
     title,
   });
+  if (committed.commitSha === undefined || committed.commitSha === headBefore) {
+    return { kind: "skipped", skipReason: "no_file_changes" };
+  }
+  return { kind: "committed", commitSha: committed.commitSha };
 }
 
 function iterationCommitFailed(

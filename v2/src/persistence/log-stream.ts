@@ -52,6 +52,19 @@ export type RuntimeSmokeOutcomeEvent =
       discoveryReason: string;
     };
 
+/** Emitted on every `progress` iteration: the per-iteration commit made, or why it was skipped. */
+export type IterationCommitEvent =
+  | {
+      kind: "iteration_commit";
+      attemptId: string;
+      commitSha: string;
+    }
+  | {
+      kind: "iteration_commit";
+      attemptId: string;
+      skipReason: "no_git" | "no_file_changes";
+    };
+
 export type RunExecutionFailedEvent = {
   kind: "run_execution_failed";
   message?: string;
@@ -131,6 +144,7 @@ export type LogEvent =
   | ReadyGateTimeoutEvent
   | LoopFinishedEvent
   | RuntimeSmokeOutcomeEvent
+  | IterationCommitEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
   | RunRecoveryEvent

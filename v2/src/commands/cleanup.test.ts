@@ -2459,10 +2459,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       },
     };
 
-    const claimedDaemon = daemonClientWithFreeClaimProbe(async () => [], async () => ({
-      status: "claimed",
-      message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
-    }));
+    const claimedDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => ({
+        status: "claimed",
+        message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
+      }),
+    );
 
     const result = await callReset(branch, mockRunner, claimedDaemon);
 
@@ -2507,9 +2510,12 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(genericRefusalReason(missingProbeResult)).toContain("missing workflow start claim probe");
     expect(teardownCalls).toEqual([]);
 
-    const throwingDaemon = daemonClientWithFreeClaimProbe(async () => [], async () => {
-      throw new Error("rpc down");
-    });
+    const throwingDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => {
+        throw new Error("rpc down");
+      },
+    );
     const throwResult = await callReset(branch, mockRunner, throwingDaemon);
     expect(throwResult.status).toBe("refused");
     expect("code" in throwResult).toBe(false);

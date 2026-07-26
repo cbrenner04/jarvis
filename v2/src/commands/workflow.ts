@@ -4,7 +4,6 @@ import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import type { IpcClient } from "../ipc/client.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
 import { readReviewRoleTimeoutMs, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
@@ -13,9 +12,10 @@ import type {
   WorkflowPresetBuilderInput,
   WorkflowPresetBuilderResult,
 } from "../execution/workflow-presets.ts";
+import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { type DestroyedArtifacts, createStaleResetDaemonClient, resetStaleWorkspace } from "./cleanup.ts";
+import { createStaleResetDaemonClient, type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,

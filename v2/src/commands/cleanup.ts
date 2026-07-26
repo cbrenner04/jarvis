@@ -8,14 +8,14 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
+import { request } from "../cli/ipc.ts";
+import { parseListRuns } from "../daemon/daemon-wire.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
 import { reapDeadDaemonSockets } from "./daemon.ts";
-import type { IpcClient } from "../ipc/client.ts";
-import { RpcError } from "../ipc/rpc-errors.ts";
-import { request } from "../cli/ipc.ts";
-import { parseListRuns } from "../daemon/daemon-wire.ts";
 
 export type DiscoveredWorktree = {
   path: string;

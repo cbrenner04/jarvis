@@ -123,10 +123,7 @@ export function makeIpcClient(
 }
 
 /** {@link makeIpcClient} with default stale-reset `list` / `check_workflow_start_claim` preflight answers. */
-export function makeStaleResetIpcClient(
-  frames: unknown[],
-  options?: Parameters<typeof makeIpcClient>[1],
-): IpcClient {
+export function makeStaleResetIpcClient(frames: unknown[], options?: Parameters<typeof makeIpcClient>[1]): IpcClient {
   return makeIpcClient(frames, {
     ...options,
     staleResetPreflight: { claim: "free", ...options?.staleResetPreflight },

@@ -16,9 +16,9 @@ import {
   makeCliRepoFixture,
   makeIpcClient,
   makeStaleResetIpcClient,
-  withWorkflowUuids,
-  withStaleResetWorkflowUuids,
   withStaleResetPreflightUuids,
+  withStaleResetWorkflowUuids,
+  withWorkflowUuids,
   workflowFrames,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
@@ -1041,7 +1041,8 @@ describe("implement preflight stale workspace reset", () => {
               }
               if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
               if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+                teardownCalls.push("worktree-remove");
               return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
             },
           },
@@ -1090,7 +1091,9 @@ describe("implement preflight stale workspace reset", () => {
         resetImplementDeps({
           subprocessRunner,
           connectIpcClient: async () =>
-            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), { sent }),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
         }),
       ),
     );
@@ -1153,7 +1156,9 @@ describe("implement preflight stale workspace reset", () => {
           connectIpcClient: async () =>
             makeStaleResetIpcClient([], {
               staleResetPreflight: {
-                listRuns: [{ runId: "queued-1", project: "demo", branch: resetBranch, status: "queued", isLive: false }],
+                listRuns: [
+                  { runId: "queued-1", project: "demo", branch: resetBranch, status: "queued", isLive: false },
+                ],
                 claim: { message: claimMessage },
               },
             }),

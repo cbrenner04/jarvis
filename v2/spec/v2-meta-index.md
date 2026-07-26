@@ -10,4 +10,5 @@ Open-phase workflow: write a short build brief for the phase, `jarvis run workfl
 - [ ] Major tui overhaul. It should look good. And I should have a lot more information available to me.
   - Run times are a must
   - Tmux?
+- [ ] Do we need much optimization or is a lot of the slowness specific to Jarvis on Jarvis work?
 - [ ] Natural-language prompt router: prompt-first `jarvis "<intent>"` entry that classifies free text and routes to a workflow (new run) or an existing run (resume); conservative — asks for a sharper prompt when unsure

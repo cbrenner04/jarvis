@@ -9,8 +9,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome } from "../paths.ts";
-import type { Run, StateStore } from "../persistence/state-store.ts";
-import { isBoundaryTerminalRunStatus } from "../persistence/state-store.ts";
+import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
 import { reapDeadDaemonSockets } from "./daemon.ts";
 
@@ -140,7 +139,8 @@ export type DaemonClient = (project: string, branch: string) => Promise<{ isLive
  * 2. No non-terminal durable run references it (via project+branch)
  * 3. The daemon reports no live run for it
  *
- * Fail closed: any error (gh failure, daemon unreachable, store error) → ineligible.
+ * Fail closed: `gh` failure or daemon unreachable → ineligible. `listRuns()` errors propagate
+ * (cleanup aborts rather than marking the worktree ineligible).
  */
 export async function checkEligibility(
   candidate: DiscoveredWorktree,
@@ -162,7 +162,7 @@ export async function checkEligibility(
     .listRuns()
     .find(
       (candidate) =>
-        candidate.project === project && candidate.branch === branch && !isBoundaryTerminalRunStatus(candidate.status),
+        candidate.project === project && candidate.branch === branch && !isTerminalRunStatus(candidate.status),
     );
   if (run !== undefined) {
     return {

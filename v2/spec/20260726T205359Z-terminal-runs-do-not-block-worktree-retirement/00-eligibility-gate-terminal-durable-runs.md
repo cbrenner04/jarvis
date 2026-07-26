@@ -31,38 +31,38 @@ unarchivable until `--abandon`.
 
 ## Tasks
 
-- [ ] In `checkEligibility`, block only when `listRuns()` finds a matching row with
+- [x] In `checkEligibility`, block only when `listRuns()` finds a matching row with
       `!isTerminalRunStatus(status)` (import from `state-store.ts`).
-- [ ] In `eligibility-gate.test.ts`, update **`correctly distinguishes terminal vs non-terminal
+- [x] In `eligibility-gate.test.ts`, update **`correctly distinguishes terminal vs non-terminal
       statuses`**: move **`killed`** and every status in **`TERMINAL_RUN_STATUSES`** to the eligible
       loop; keep `in-progress`, `paused`, `queued`, and `budget-soft-stopped` in the ineligible loop.
       Optionally drop invalid loop entries (`revising`, `awaiting-human`) when touching the test.
       Add **`interrupted`** in the eligible loop only as regression / no-op coverage (not the bug
       narrative). Add cases for live daemon with all terminal durable rows; invert guards per AC.
-- [ ] Add or extend `cleanup.test.ts` so **`runAbandonCommand`** refuses when a live holder owns
+- [x] Add or extend `cleanup.test.ts` so **`runAbandonCommand`** refuses when a live holder owns
       `~/.jarvis/worktree-locks/<project>/<branch>/.jarvis.lock` (mirror the existing daemon
       `isLive` abandon refusal test) — preserves abandon behavior, not evidence for the durable
       predicate change.
-- [ ] Sync `checkEligibility` JSDoc and `v2/docs/operator-runbook.md` § Cleanup: eligibility gate
+- [x] Sync `checkEligibility` JSDoc and `v2/docs/operator-runbook.md` § Cleanup: eligibility gate
       fail-closed text with gh/daemon ineligible vs store throw propagation.
-- [ ] Update documentation listed below.
+- [x] Update documentation listed below.
 
 ## Acceptance criteria
 
-- [ ] `eligibility-gate.test.ts` **`correctly distinguishes terminal vs non-terminal statuses`**
+- [x] `eligibility-gate.test.ts` **`correctly distinguishes terminal vs non-terminal statuses`**
       expects merged + durable **`killed`** → eligible; the test fails against the pre-fix gate that
       uses `isBoundaryTerminalRunStatus`.
-- [ ] The same test asserts each of `in-progress`, `paused`, `queued`, `budget-soft-stopped` →
+- [x] The same test asserts each of `in-progress`, `paused`, `queued`, `budget-soft-stopped` →
       ineligible when merged; inverting the terminal-status guard (treat `killed` as blocking again)
       fails at least one of these cases.
-- [ ] `eligibility-gate.test.ts` asserts merged + only terminal durable rows + daemon client
+- [x] `eligibility-gate.test.ts` asserts merged + only terminal durable rows + daemon client
       returning `isLive: true` → ineligible; inverting the daemon guard makes the case eligible.
-- [ ] `cleanup.test.ts` asserts `runAbandonCommand` refuses with live `.jarvis.lock` held and
+- [x] `cleanup.test.ts` asserts `runAbandonCommand` refuses with live `.jarvis.lock` held and
       removes nothing; inverting the lock-alive guard makes abandon proceed.
-- [ ] `eligibility-gate.test.ts` **`returns ineligible if gh command fails`** stays green.
-- [ ] `eligibility-gate.test.ts` **`returns ineligible if store throws`** stays green (store errors
+- [x] `eligibility-gate.test.ts` **`returns ineligible if gh command fails`** stays green.
+- [x] `eligibility-gate.test.ts` **`propagates when listRuns throws`** stays green (store errors
       propagate; fail-closed via abort).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

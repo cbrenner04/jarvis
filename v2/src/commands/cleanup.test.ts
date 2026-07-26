@@ -961,6 +961,32 @@ describe("cleanup: runAbandonCommand", () => {
     return worktreePath;
   }
 
+  async function expectAbandonRefused(
+    branch: string,
+    worktreePath: string,
+    daemonClient: DaemonClient,
+    stderrNeedle: string,
+  ): Promise<void> {
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stderr = "";
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(stderrNeedle);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  }
+
   beforeEach(async () => {
     tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-abandon-e2e-${Date.now()}-${Math.random()}`);
     mkdirSync(tempRoot, { recursive: true });
@@ -1135,32 +1161,23 @@ describe("cleanup: runAbandonCommand", () => {
     const branch = "feat/live-daemon";
     const worktreePath = await createUnmergedWorktree(branch);
 
-    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
-    const daemonClient: DaemonClient = async (project, b) => {
-      if (project === "project" && b === branch) {
-        return [{ isLive: true }];
-      }
-      return [];
-    };
-
-    let stderr = "";
-    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+    await expectAbandonRefused(
       branch,
-      { promptConfirm: async () => true },
-      registry,
-      jarvisRoot,
-      realAsyncSubprocessRunner,
-      daemonClient,
-      { stdout: () => {}, stderr: (s) => (stderr += s) },
+      worktreePath,
+      async (project, b) => (project === "project" && b === branch ? [{ isLive: true }] : []),
+      "daemon reports live run",
     );
+  });
 
-    expect(code).toBe(1);
-    expect(stderr).toContain("Cannot abandon");
-    expect(stderr).toContain("daemon reports live run");
+  test("abandon refuses a workspace held by a live worktree lock", async () => {
+    const branch = "feat/live-lock";
+    const worktreePath = await createUnmergedWorktree(branch);
 
-    // Verify worktree still exists
-    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
-    expect(listOutput).toContain(worktreePath);
+    const lockPath = join(jarvisRoot, "worktree-locks", "project", branch, ".jarvis.lock");
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
+
+    await expectAbandonRefused(branch, worktreePath, async () => [], `process ${process.pid} holds worktree lock`);
   });
 
   test("abandon refuses a missing worktree", async () => {

@@ -692,14 +692,19 @@ A worktree is eligible iff:
 
 - **PR merged**: `gh pr view <branch> --json state,mergedAt` reports `state: "MERGED"` and
   `mergedAt` is set.
-- **No non-terminal durable run**: the run store has no `in-progress`, `paused`,
-  `queued`, `budget-soft-stopped`, or `killed` run for the `(project, branch)`.
+- **No non-terminal durable run**: the run store has no `(project, branch)` row whose status is
+  outside `TERMINAL_RUN_STATUSES`. Before this shipped, reconciled `killed` rows blocked retirement
+  until `jarvis cleanup --abandon`.
 - **No live daemon run**: the daemon reports no live run for the `(project, branch)`.
 
-**Fail closed**: if `gh` fails, the daemon is unreachable, the run store is inaccessible, or any
-other error occurs, the worktree is marked ineligible and skipped. This prevents accidental deletion
-of an operator's in-flight work. Worktrees ineligible for this session remain untouched; the operator
-can retry `jarvis cleanup` later if issues are resolved.
+Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.lock`. A live lock
+does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is
+held (see [§ `--abandon`](#v2-debris-blocks-the-jarvis1-fallback)).
+
+**Fail closed**: if `gh` fails or the daemon is unreachable, the worktree is marked ineligible and
+skipped. If the run store is inaccessible (`listRuns()` throws), cleanup aborts with that error
+rather than skipping individual worktrees. Worktrees ineligible for this session remain untouched;
+the operator can retry `jarvis cleanup` later if issues are resolved.
 
 Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
 is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;

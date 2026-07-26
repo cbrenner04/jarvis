@@ -22,6 +22,7 @@
     "typecheck": "tsc --noEmit -p v1/tsconfig.json && tsc --noEmit -p v2/tsconfig.json && tsc --noEmit -p shared/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
     "install-opencode-permissions": "bun run scripts/install-opencode-permissions.ts",
     "test": "bun run scripts/run-tests.ts",
+    "test:cost": "bun run scripts/measure-test-cost.ts",
     "test:v1": "bun run scripts/run-v1-tests.ts agent",
     "test:integration:v1": "bun run scripts/run-v1-tests.ts integration",
     "test:v2": "bun run scripts/run-v2-tests.ts agent",

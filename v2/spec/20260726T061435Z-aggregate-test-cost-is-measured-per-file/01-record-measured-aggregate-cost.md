@@ -41,20 +41,20 @@ or tests?") is still answered by extrapolation from the v2 slice.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` records measured aggregate totals — wall clock, summed in-file
+- [x] `v2/docs/test-writing.md` records measured aggregate totals — wall clock, summed in-file
       execution time, and the residual between them — dated and attributed to operator hardware,
       naming every file whose in-file time was unparsed or timed out (not just a count).
-- [ ] That section retains the 697 s `bun run test` runner-path wall clock alongside the new
+- [x] That section retains the 697 s `bun run test` runner-path wall clock alongside the new
       `test:cost` totals, labels which command produced each, and states the caveat that
       `test:cost` captures output and does not fail-fast, so its totals are not a `bun run test`
       transcript.
-- [ ] That section names `bun run test:cost` as the command that reproduces the figures, lists the
+- [x] That section names `bun run test:cost` as the command that reproduces the figures, lists the
       top 5 files by residual, and points to the committed `v2/docs/test-cost-baseline.txt` as the
       raw output the totals were derived from.
-- [ ] The existing ready-gate budget prose in `v2/docs/test-writing.md` still cites the 697 s
+- [x] The existing ready-gate budget prose in `v2/docs/test-writing.md` still cites the 697 s
       aggregate wall clock it sizes `TEST_STEP_BUDGET_MS` against, and a staleness instruction
       covers both that figure and the newly recorded `test:cost` totals.
-- [ ] `bun run lint:md` passes.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

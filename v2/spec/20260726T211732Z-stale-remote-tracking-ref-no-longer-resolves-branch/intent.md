@@ -44,8 +44,11 @@ remote-tracking ref behind.
 
 ## Prerequisites
 
-- Preflight reset removes the worktree and deletes the local branch for a re-dispatched run
-- Worktree materialization checks for an existing remote branch before falling back to `--base`
+- Incomplete re-dispatch preflight calls `resetStaleWorkspace`, which retires via
+  `performAbandonmentSteps` (worktree + local branch + remote delete today).
+- Worktree materialization calls `branchExistsOnOriginAsync` before choosing `--base` vs
+  `origin/<branch>` (today implemented as local `rev-parse` on `origin/<branch>` — corrected in
+  this spec).
 
 ## Sequencing
 

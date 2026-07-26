@@ -1,7 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
+import {
+  branchExistsLocal,
+  branchExistsOnOrigin,
+  getCurrentBranch,
+  originTrackingRefResolves,
+} from "../../shared/git.ts";
 import { getBaseBranch, type SyncTransientRetryOptions, withSyncTransientRetry } from "./gh.ts";
 
 function getCommitCountAheadOfBase(projectRoot: string, branchName: string, baseBranch: string): number {
@@ -59,7 +64,7 @@ export function getPatchWorktreePath(projectRoot: string, specName: string): str
 }
 
 function getBranchCreationArgs(projectRoot: string, branchName: string, baseBranch: string): string[] {
-  if (branchExistsOnOrigin(projectRoot, baseBranch)) {
+  if (originTrackingRefResolves(projectRoot, baseBranch)) {
     return ["--no-track", branchName, `origin/${baseBranch}`];
   }
   return [branchName, baseBranch];

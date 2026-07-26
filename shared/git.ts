@@ -103,6 +103,20 @@ export async function branchExistsLocalAsync(
 }
 
 /** True when `origin/<branchName>` resolves locally (may be stale vs `ls-remote`). */
+export function originTrackingRefResolves(
+  projectRoot: string,
+  branchName: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): boolean {
+  try {
+    runner.run("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when `origin/<branchName>` resolves locally (may be stale vs `ls-remote`). */
 export async function originTrackingRefResolvesAsync(
   projectRoot: string,
   branchName: string,

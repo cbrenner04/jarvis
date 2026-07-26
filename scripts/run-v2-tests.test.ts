@@ -92,16 +92,12 @@ describe("resolveConcurrency", () => {
 });
 
 describe("defaultSpawn", () => {
-  test(
-    "prints then exceeds a small injected timeout: timedOut true with pre-kill output preserved",
-    async () => {
-      const outcome = await defaultSpawn("bash", ["-c", "echo hi; sleep 5"], { timeout: 200 });
+  test("prints then exceeds a small injected timeout: timedOut true with pre-kill output preserved", async () => {
+    const outcome = await defaultSpawn("bash", ["-c", "echo hi; sleep 5"], { timeout: 200 });
 
-      expect(outcome.timedOut).toBe(true);
-      expect(outcome.stdout).toBe("hi\n");
-    },
-    3_000,
-  );
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.stdout).toBe("hi\n");
+  }, 3_000);
 
   test("a within-budget kill is reported as a failure, not a timeout", async () => {
     const outcome = await defaultSpawn("bash", ["-c", "kill -9 $$"], { timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS });
@@ -271,7 +267,13 @@ describe("runV2TestFiles", () => {
     const spawn = async (_cmd: string, args: string[]) => {
       const file = args[1] ?? "";
       if (file === "enoent.test.ts") {
-        return { status: 1, signal: null, stdout: "", stderr: 'error: failed to spawn "bun": Error: spawn ENOENT\n', timedOut: false };
+        return {
+          status: 1,
+          signal: null,
+          stdout: "",
+          stderr: 'error: failed to spawn "bun": Error: spawn ENOENT\n',
+          timedOut: false,
+        };
       }
       return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
     };

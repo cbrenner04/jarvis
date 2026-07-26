@@ -239,6 +239,27 @@ export function checkWorktreeClaimed(
   };
 }
 
+/** Same workflow `start` claim predicate as after stale workflow reclaim, without registry mutation. */
+export function previewWorkflowStartClaimAdmissionRefusal(
+  store: Pick<StateStore, "hasQueuedRun">,
+  registry: WorktreeOwnershipRegistry,
+  activeRuns: Map<string, ActiveRun>,
+  key: OwnershipKey,
+): { kind: "error"; code: "worktree_claimed"; message: string } | undefined {
+  if (store.hasQueuedRun(key)) {
+    return {
+      kind: "error",
+      code: "worktree_claimed",
+      message: worktreeClaimedMessage(key),
+    };
+  }
+  const existingWorkflowClaim = registry.get(key);
+  if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
+    return undefined;
+  }
+  return checkWorktreeClaimed(registry, key);
+}
+
 /** Terminal or paused — any status with no live write loop to disturb. */
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
@@ -942,18 +963,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
     }
     const workflowKey = workflowStartOwnershipKey(steps);
-    if (store.hasQueuedRun(workflowKey)) {
-      return {
-        kind: "error",
-        code: "worktree_claimed",
-        message: worktreeClaimedMessage(workflowKey),
-      };
-    }
     const existingWorkflowClaim = _registry.get(workflowKey);
     if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
       _registry.release(workflowKey);
     }
-    const workflowClaimError = checkWorktreeClaimed(_registry, workflowKey);
+    const workflowClaimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, workflowKey);
     if (workflowClaimError) {
       return workflowClaimError;
     }
@@ -1031,6 +1045,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     promoteQueuedRun();
 
     return { kind: "response", result: { runId } };
+  };
+
+  const checkWorkflowStartClaimHandler: RpcHandler = (frame) => {
+    const params = frame.params as { project?: string; branch?: string } | undefined;
+    if (typeof params?.project !== "string" || typeof params?.branch !== "string") {
+      return { kind: "error", code: "invalid_params", message: "project and branch required" };
+    }
+    const key: OwnershipKey = { project: params.project, branch: params.branch };
+    const refusal = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, key);
+    if (refusal) {
+      return refusal;
+    }
+    return { kind: "response", result: { ok: true } };
   };
 
   const startHandler: RpcHandler = (frame) => {
@@ -1439,6 +1466,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   return {
     start: startHandler,
+    check_workflow_start_claim: checkWorkflowStartClaimHandler,
     list: listHandler,
     pause: pauseHandler,
     resume: resumeHandler,

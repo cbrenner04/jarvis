@@ -3,13 +3,11 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { CLEANUP_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { formatConnectionError, request } from "../cli/ipc.ts";
+import { formatConnectionError } from "../cli/ipc.ts";
 import { CLEANUP_USAGE } from "../cli/usage.ts";
-import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import type { DaemonClient } from "./cleanup.ts";
-import { runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
+import { createStaleResetDaemonClient, type DaemonClient, runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
 
 type PromptStdin = {
   isTTY?: boolean;
@@ -97,16 +95,7 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
   let daemonClient: DaemonClient;
   try {
     const client = await deps.connectIpcClient(deps.socketPath);
-    daemonClient = async (project: string, branch: string) => {
-      try {
-        const result = await request(client, "list");
-        const list = parseListRuns(result);
-        if (list === undefined) return [];
-        return list.runs.filter((r) => r.project === project && r.branch === branch).map((r) => ({ isLive: r.isLive }));
-      } catch (error) {
-        throw new Error(`Daemon query failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    };
+    daemonClient = createStaleResetDaemonClient(client);
   } catch (error) {
     io.stderr(formatConnectionError(error));
     return 1;

@@ -15,6 +15,9 @@ import {
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
+  makeStaleResetIpcClient,
+  withStaleResetPreflightUuids,
+  withStaleResetWorkflowUuids,
   withWorkflowUuids,
   workflowFrames,
   writeMachineConfig,
@@ -815,6 +818,12 @@ describe("implement preflight stale workspace reset", () => {
     return worktreePath;
   }
 
+  async function setupOriginForResetProject(): Promise<void> {
+    const originRoot = join(resetTmp, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], resetProjectRoot);
+  }
+
   function staleResetSubprocessRunner(
     intercept?: (cmd: string, args: string[]) => string | undefined | Promise<string | undefined>,
     closedPrs?: number[],
@@ -863,14 +872,14 @@ describe("implement preflight stale workspace reset", () => {
     const closedPrs: number[] = [];
     const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
 
-    const code = await withWorkflowUuids("start", "wait", () =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
         cap.io,
         resetImplementDeps({
           subprocessRunner,
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-reset", COMPLETED_WAIT_RESULT), { sent }),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset", COMPLETED_WAIT_RESULT), { sent }),
         }),
       ),
     );
@@ -880,7 +889,7 @@ describe("implement preflight stale workspace reset", () => {
     expect(cap.read().stderr).not.toContain("Retirement destroyed artifacts:");
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).not.toContain(worktreePath);
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(4);
   });
 
   test("run workflow implement prints destroyed-artifact summary when retirement succeeds and dispatch fails", async () => {
@@ -889,14 +898,14 @@ describe("implement preflight stale workspace reset", () => {
 
     const subprocessRunner = staleResetSubprocessRunner();
 
-    const code = await withWorkflowUuids("start", "wait", () =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
         cap.io,
         resetImplementDeps({
           subprocessRunner,
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-reset-fail", { runStatus: "failed" })),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-fail", { runStatus: "failed" })),
         }),
       ),
     );
@@ -921,13 +930,15 @@ describe("implement preflight stale workspace reset", () => {
       return undefined;
     });
 
-    const code = await main(
-      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
-      cap.io,
-      resetImplementDeps({
-        subprocessRunner,
-        connectIpcClient: async () => makeIpcClient([]),
-      }),
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
     );
 
     expect(code).toBe(1);
@@ -961,7 +972,7 @@ describe("implement preflight stale workspace reset", () => {
       },
     };
 
-    const code = await withWorkflowUuids("start", "wait", () =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "plan", "--ready-intent", "index.md"],
         cap.io,
@@ -971,7 +982,7 @@ describe("implement preflight stale workspace reset", () => {
           },
           subprocessRunner,
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-reset-plan", COMPLETED_WAIT_RESULT), { sent }),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-plan", COMPLETED_WAIT_RESULT), { sent }),
         }),
       ),
     );
@@ -989,20 +1000,22 @@ describe("implement preflight stale workspace reset", () => {
     writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
     const cap = captureIo();
 
-    const code = await main(
-      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
-      cap.io,
-      resetImplementDeps({
-        subprocessRunner: {
-          runAsync: async (cmd, args) => {
-            if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-              return JSON.stringify([{ number: 77, isDraft: true }]);
-            }
-            return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: {
+            runAsync: async (cmd, args) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+                return JSON.stringify([{ number: 77, isDraft: true }]);
+              }
+              return realAsyncSubprocessRunner.runAsync(cmd, args, resetProjectRoot);
+            },
           },
-        },
-        connectIpcClient: async () => makeIpcClient([]),
-      }),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
     );
 
     expect(code).toBe(1);
@@ -1016,23 +1029,26 @@ describe("implement preflight stale workspace reset", () => {
     const cap = captureIo();
     const teardownCalls: string[] = [];
 
-    const code = await main(
-      ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
-      cap.io,
-      resetImplementDeps({
-        subprocessRunner: {
-          runAsync: async (cmd, args, cwd) => {
-            if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
-              return JSON.stringify([{ number: 88, isDraft: true }]);
-            }
-            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
-            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
-            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: {
+            runAsync: async (cmd, args, cwd) => {
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+                return JSON.stringify([{ number: 88, isDraft: true }]);
+              }
+              if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+              if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+                teardownCalls.push("worktree-remove");
+              return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+            },
           },
-        },
-        connectIpcClient: async () => makeIpcClient([]),
-      }),
+          connectIpcClient: async () => makeStaleResetIpcClient([]),
+        }),
+      ),
     );
 
     expect(code).toBe(1);
@@ -1057,7 +1073,7 @@ describe("implement preflight stale workspace reset", () => {
     const closedPrs: number[] = [];
     const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
 
-    const code = await withWorkflowUuids("start", "wait", () =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         [
           "run",
@@ -1075,7 +1091,9 @@ describe("implement preflight stale workspace reset", () => {
         resetImplementDeps({
           subprocessRunner,
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), { sent }),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-reset-dirty", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
         }),
       ),
     );
@@ -1084,7 +1102,7 @@ describe("implement preflight stale workspace reset", () => {
     expect(closedPrs).toEqual([55]);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).not.toContain(worktreePath);
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(4);
   });
 
   test("run workflow implement performs no reset teardown on a fresh run", async () => {
@@ -1104,7 +1122,7 @@ describe("implement preflight stale workspace reset", () => {
             },
           },
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-fresh", COMPLETED_WAIT_RESULT)),
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-fresh", COMPLETED_WAIT_RESULT)),
         }),
       ),
     );
@@ -1112,6 +1130,100 @@ describe("implement preflight stale workspace reset", () => {
     expect(code).toBe(0);
     expect(teardownCalls).toEqual([]);
     expect(cap.read().stderr).not.toContain("Retirement destroyed artifacts:");
+  });
+
+  test("run workflow implement refuses stale reset when worktree is claimed", async () => {
+    await setupOriginForResetProject();
+    const worktreePath = await materializeStaleWorktree();
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], worktreePath);
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const claimMessage = `Worktree already claimed for project=demo, branch=${resetBranch}`;
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+              teardownCalls.push("remote-delete");
+            }
+            return undefined;
+          }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient([], {
+              staleResetPreflight: {
+                listRuns: [
+                  { runId: "queued-1", project: "demo", branch: resetBranch, status: "queued", isLive: false },
+                ],
+                claim: { message: claimMessage },
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain(`worktree_claimed: ${claimMessage}`);
+    expect(stderr).not.toContain("Retirement destroyed artifacts:");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${resetBranch}`],
+      resetProjectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${resetBranch}`);
+  });
+
+  test("run workflow implement refuses with one pre-mutation error when claimed and dirty", async () => {
+    await setupOriginForResetProject();
+    const worktreePath = await materializeStaleWorktree();
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], worktreePath);
+    writeFileSync(join(worktreePath, "dirty.txt"), "leftover\n", "utf8");
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const claimMessage = `Worktree already claimed for project=demo, branch=${resetBranch}`;
+
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+            return undefined;
+          }),
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient([], {
+              staleResetPreflight: {
+                listRuns: [],
+                claim: { message: claimMessage },
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toBe(`worktree_claimed: ${claimMessage}\n`);
+    expect(stderr).not.toContain("Cannot re-run incomplete spec:");
+    expect(teardownCalls).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${resetBranch}`],
+      resetProjectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${resetBranch}`);
   });
 
   test("run workflow implement prints no destroyed-artifact summary when dispatch is unreachable", async () => {

@@ -393,6 +393,25 @@ test("start with steps is rejected worktree_claimed when a live bare run holds t
   expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
 });
 
+test("check_workflow_start_claim matches start worktree_claimed for a queued (project, branch)", async () => {
+  memoryHeadroom = false;
+  await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));
+
+  const response = await handlers.check_workflow_start_claim(
+    requestFrame("probe-1", "check_workflow_start_claim", { project: "demo", branch: "workflow-branch" }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
+});
+
+test("check_workflow_start_claim admits an unclaimed (project, branch)", async () => {
+  const response = await handlers.check_workflow_start_claim(
+    requestFrame("probe-2", "check_workflow_start_claim", { project: "demo", branch: "fresh-branch" }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "response", result: { ok: true } });
+});
+
 test("start with steps is rejected worktree_claimed when the (project, branch) already has a queued run", async () => {
   memoryHeadroom = false;
   await startRunDirect(handlers, mockWriteLoopInput({ projectName: "demo", branchName: "workflow-branch" }));

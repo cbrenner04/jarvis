@@ -8,6 +8,10 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
+import { request } from "../cli/ipc.ts";
+import { parseListRuns } from "../daemon/daemon-wire.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
@@ -130,7 +134,34 @@ async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessR
 
 export type EligibilityResult = { status: "eligible" } | { status: "ineligible"; reason: string };
 
-export type DaemonClient = (project: string, branch: string) => Promise<{ isLive: boolean }[]>;
+export type DaemonClient = ((project: string, branch: string) => Promise<{ isLive: boolean }[]>) & {
+  checkWorkflowStartClaim?: (
+    project: string,
+    branch: string,
+  ) => Promise<{ status: "free" } | { status: "claimed"; message: string }>;
+};
+
+export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
+  const listRuns = async (project: string, branch: string) => {
+    const result = await request(client, "list");
+    const list = parseListRuns(result);
+    if (list === undefined) return [];
+    return list.runs.filter((r) => r.project === project && r.branch === branch).map((r) => ({ isLive: r.isLive }));
+  };
+  const daemonClient = listRuns as DaemonClient;
+  daemonClient.checkWorkflowStartClaim = async (project, branch) => {
+    try {
+      await request(client, "check_workflow_start_claim", { project, branch });
+      return { status: "free" };
+    } catch (error) {
+      if (error instanceof RpcError && error.code === "worktree_claimed") {
+        return { status: "claimed", message: error.message };
+      }
+      throw error;
+    }
+  };
+  return daemonClient;
+}
 
 /**
  * Determine whether a discovered worktree is eligible for retirement.
@@ -763,6 +794,7 @@ export async function resetStaleWorkspace(
   options: ResetStaleWorkspaceOptions = {},
 ): Promise<
   | { status: "reset" | "no-op"; destroyed?: DestroyedArtifacts }
+  | { status: "refused"; code: "worktree_claimed"; message: string }
   | { status: "refused"; reason: string; destroyed?: DestroyedArtifacts }
 > {
   const worktreePath = join(jarvisRoot, "worktrees", project, branch);
@@ -773,6 +805,22 @@ export async function resetStaleWorkspace(
 
   const prGate = await gateOnOpenPrs(branch, runner);
   if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+
+  const claimProbe = daemonClient.checkWorkflowStartClaim;
+  if (claimProbe === undefined) {
+    return { status: "refused", reason: "daemon client missing workflow start claim probe" };
+  }
+  try {
+    const claimResult = await claimProbe(project, branch);
+    if (claimResult.status === "claimed") {
+      return { status: "refused", code: "worktree_claimed", message: claimResult.message };
+    }
+  } catch (error) {
+    return {
+      status: "refused",
+      reason: `daemon claim check failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 
   const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
   const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.skipDirtyWorktreeGate === true);

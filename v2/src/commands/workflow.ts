@@ -15,7 +15,7 @@ import type {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
+import { createStaleResetDaemonClient, type DestroyedArtifacts, resetStaleWorkspace } from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -158,6 +158,7 @@ async function maybeResetStaleWorkspace(
   deps: CliDeps,
   io: Io,
   parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
+  client: IpcClient,
   onDestroyed?: (destroyed: DestroyedArtifacts) => void,
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
@@ -177,7 +178,7 @@ async function maybeResetStaleWorkspace(
       worktree.projectRoot,
       deps.jarvisRoot ?? jarvisHome(),
       deps.subprocessRunner ?? realAsyncSubprocessRunner,
-      async () => [],
+      createStaleResetDaemonClient(client),
       io,
       { skipDirtyWorktreeGate },
     );
@@ -185,9 +186,13 @@ async function maybeResetStaleWorkspace(
     io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   }
-  if (resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
+  if ("destroyed" in resetResult && resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
   if (resetResult.status === "refused") {
-    io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
+    if ("code" in resetResult && resetResult.code === "worktree_claimed") {
+      io.stderr(`worktree_claimed: ${resetResult.message}\n`);
+    } else if ("reason" in resetResult) {
+      io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
+    }
     return 1;
   }
   return undefined;
@@ -265,6 +270,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
       deps,
       io,
       parsed,
+      client,
       (destroyed) => {
         destroyedArtifacts = destroyed;
       },

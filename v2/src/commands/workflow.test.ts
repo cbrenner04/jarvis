@@ -1303,7 +1303,7 @@ describe("implement preflight stale workspace reset", () => {
       },
     ];
 
-    const code = await withWorkflowUuids("start", "wait", () =>
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
         ["run", "workflow", "implement", "--branch", resetBranch, "--base", baseHead, "--spec", "index.md"],
         cap.io,
@@ -1313,7 +1313,9 @@ describe("implement preflight stale workspace reset", () => {
             implement: () => ({ ok: true as const, steps: stepsWithBase }),
           },
           connectIpcClient: async () =>
-            makeIpcClient(workflowFrames("start", "wait", "run-redispatch-stale-origin", COMPLETED_WAIT_RESULT)),
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-redispatch-stale-origin", COMPLETED_WAIT_RESULT),
+            ),
         }),
       ),
     );

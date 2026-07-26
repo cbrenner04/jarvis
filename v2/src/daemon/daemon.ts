@@ -92,7 +92,31 @@ type ActiveRun =
   | {
       kind: "workflow";
       runId: string;
+      abortController: AbortController;
     };
+
+let invertWorkflowKillAuthorizationForTests = false;
+
+const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
+
+/** Test seam: lookup a live run row for a specific handler instance. */
+export function activeRunForHandler(handlers: object, id: string): ActiveRun | undefined {
+  return activeRunsByHandler.get(handlers)?.get(id);
+}
+
+export function setInvertWorkflowKillAuthorizationForTests(value: boolean): void {
+  invertWorkflowKillAuthorizationForTests = value;
+}
+
+/** Whether `kill` may abort the named durable run id (write-loop or live workflow row). */
+export function activeRunAcceptsKill(
+  activeRun: ActiveRun | undefined,
+  runId: string,
+): activeRun is ActiveRun & { abortController: AbortController } {
+  if (!activeRun || activeRun.runId !== runId) return false;
+  if (activeRun.kind === "write-loop") return true;
+  return activeRun.kind === "workflow" && !invertWorkflowKillAuthorizationForTests;
+}
 
 export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
@@ -860,6 +884,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     steps: AnyWorkflowStep[],
     workflowKey: OwnershipKey,
     claimRunId: string,
+    abortController: AbortController,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
@@ -871,13 +896,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
       const telemetry =
         operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
+      const stepsForExecution = steps.map((step) => ({ ...step, signal: abortController.signal }));
       const execute = async () => {
-        const firstStep = steps[0];
+        const firstStep = stepsForExecution[0];
         if (firstStep?.behavior === "write" && firstStep.role === "implement" && firstStep.linkedIndexRouting) {
           await (firstStep.withExternalWorktree ?? realWithExternalWorktree)(firstStep.worktree, () => undefined);
         }
         return executeWorkflow({
-          steps,
+          steps: stepsForExecution,
           stateStore: store,
           freshDispatch: true,
           ...(logSink !== undefined ? { logSink } : {}),
@@ -885,7 +911,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           onReviewDebateProgress: reportReviewProgress,
           onStepRunCreated: (stepIndex, runId) => {
             workflowRunIds.add(runId);
-            activeRuns.set(runId, { kind: "workflow", runId });
+            activeRuns.set(runId, { kind: "workflow", runId, abortController });
             if (stepIndex === 0) {
               entryRunId = runId;
               workflowPromisesByEntryRunId.set(runId, trackPromise);
@@ -980,9 +1006,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
     const claimRunId = crypto.randomUUID();
+    const abortController = new AbortController();
     _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
-    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId });
-    return startWorkflowRun(steps, workflowKey, claimRunId);
+    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId, abortController });
+    return startWorkflowRun(steps, workflowKey, claimRunId, abortController);
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
@@ -1102,15 +1129,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { fullRuns, workflowRuns };
   };
 
-  /** Status reported for a listed row: workflow entry rows roll up, everything else is durable. */
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
+    const workflowStillLive =
+      workflowPromisesByEntryRunId.has(run.id) &&
+      [...activeRuns.values()].some((row) => row.kind === "workflow");
     return rollupWorkflowRunStatus({
       entryRun: run,
       workflowSnapshot: entrySnapshot,
       siblingRuns: store.findRunsByInvocationId(entrySnapshot.invocationId),
-      isLive: workflowPromisesByEntryRunId.has(run.id),
+      isLive: workflowStillLive,
     });
   };
 
@@ -1227,7 +1256,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const ks = ownershipKeyString({ project: run.project, branch: run.branch });
     const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
-    if (activeRun && activeRun.runId === runId && activeRun.kind === "write-loop") {
+    if (activeRunAcceptsKill(activeRun, runId)) {
       activeRun.abortController.abort();
       store.commitGuardedKill(runId);
       return { kind: "response", result: { ok: true } };
@@ -1464,7 +1493,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const isRetiring = (): boolean => retiring;
 
-  return {
+  const handlersOut = {
     start: startHandler,
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
     list: listHandler,
@@ -1488,6 +1517,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     /** Whether daemon is currently retiring. */
     isRetiring,
   };
+  activeRunsByHandler.set(handlersOut, activeRuns);
+  return handlersOut;
 }
 
 /**

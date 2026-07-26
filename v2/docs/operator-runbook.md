@@ -258,8 +258,10 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` /
-`resume` on the active run. Workflow-started implement does **not**. See
-[first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement).
+`resume` on the active run. Workflow-started implement supports live `kill` only;
+`pause` / `resume` remain write-loop-only. See
+[first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement)
+and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
 
 ### Observe
 
@@ -311,8 +313,8 @@ still registers it, or Git ownership/validation is inconclusive; inspect that st
 
 Two valid paths:
 
-1. **`jarvis run workflow implement`** — the primary path; no live kill; verify
-   preflight and gates independently.
+1. **`jarvis run workflow implement`** — the primary path; live `jarvis run kill`
+   stops an in-flight write step; verify preflight and gates independently.
 2. **`jarvis1 run <spec>`** — v1 maintenance fallback (patch loop, triage,
    cleanup integration).
 
@@ -670,9 +672,11 @@ historically threw before agent invoke (fixed in shipped PRs); similar failures
 may still exit without `iteration_started` follow-up until
 `write-loop-iteration-timeout-on-stall` lands.
 
-### `run kill` ineffective on workflow runs
+### Stopping a live workflow implement run
 
-Workflow-started runs reject live kill/pause ([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
+`jarvis run kill <run-id>` (or `k` in `jarvis tui`) aborts a live workflow-started write step
+and records durable `killed`; `pause` / `resume` still refuse workflow rows
+([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
 
 **A daemon restart does not orphan in-flight work** (corrected 2026-07-25). This entry previously
 said "stop the daemon only as a last resort — it orphans every in-flight run"; that predates the
@@ -988,16 +992,11 @@ Operators add bullets here; delete when fixed.
   **Most `DaemonStopRefusedError: active durable runs` is not this bug (2026-07-26).** The deadlock
   needs rows that are non-terminal **and** not-live. A refusal naming rows that `run list` reports
   `in-progress` + **`live`** is the guard working correctly — real work is in flight. Check the
-  named IDs in `run list` before reaching for `kill -9`; with in-flight iteration commits not
-  engaging (see § Orphaned non-terminal runs), killing the daemon over a genuinely live run
-  discards that run's entire worktree of uncommitted work. On 2026-07-26 a stop refusal named two
-  IDs, both genuinely live, holding 14 modified files between them and one commit.
-- **`run kill` does not work on workflow-started runs (2026-07-16):** it refuses `run_not_active`
-  even while `run list` reports the row `live`. Combined with the deadlock above there is no
-  jarvis-native way to stop a workflow implement; kill the agent process tree directly
-  (`ps aux | grep <branch>` → the `claude`/`codex` child, the `v2/src/cli.ts` parent). The durable
-  row stays `live` afterwards until a daemon restart reconciles it. See
-  [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
+  named IDs in `run list` before reaching for `kill -9`; prefer `jarvis run kill <run-id>` on live
+  rows (including workflow-started write steps). With in-flight iteration commits not engaging
+  (see § Orphaned non-terminal runs), killing the daemon over a genuinely live run discards that
+  run's entire worktree of uncommitted work. On 2026-07-26 a stop refusal named two IDs, both
+  genuinely live, holding 14 modified files between them and one commit.
 - **`JARVIS_READY_TIER` is stomped, not inherited (2026-07-16):** `ready-finalize.ts:54` spreads
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown

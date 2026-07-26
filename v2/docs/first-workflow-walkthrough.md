@@ -14,10 +14,10 @@ verdict handling, boundaries, and the existing workflow-worktree cwd. Reviewed
 intent retains diagnostics and resumes landing without rerunning roles; plan
 keeps its in-tree verdict, while implement protects the completed spec tree.
 
-The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) rather
-than `jarvis run workflow implement` so live `pause` and `kill` work on the active run.
-See [Workflow-started implement](#workflow-started-implement) for launching
-via workflow preset without live control.
+The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) so live
+`pause` and `resume` are exercised on the active run. Workflow-started implement
+supports live `kill` but not `pause`/`resume` — see
+[Workflow-started implement](#workflow-started-implement).
 
 ## Prerequisites
 
@@ -432,9 +432,11 @@ See [`workflow-runner.md`](./workflow-runner.md) for preset composition and
 
 ## Workflow-started implement
 
-The implement workflow preset launches a write loop against an `index.md` spec
-without the live `pause`, `resume`, or `kill` control available in direct
-`jarvis run start` mode. Review runs by default (one debate pass); pass
+The implement workflow preset launches a write loop against an `index.md` spec.
+Live `pause` and `resume` remain unsupported on workflow-started rows; live
+`kill` uses the same `jarvis run kill <run-id>` contract as ad-hoc runs (see
+[`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
+Review runs by default (one debate pass); pass
 `--review-passes 0` to skip it. Like `jarvis run start`, this command
 automatically starts or reuses the daemon keyed by the invoking executable.
 
@@ -474,10 +476,14 @@ The CLI sends one IPC `start` request and prints the run ID on stdout:
 7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f
 ```
 
-Observe the run with `jarvis tui` or `jarvis run log <run-id>`. The run cannot be
-paused or killed live; the workflow step executes atomically to completion within
-its step timeout. Pausing/resuming/killing are not supported for
-workflow-started implement runs.
+Observe the run with `jarvis tui` or `jarvis run log <run-id>`. Abort a live
+workflow implement step immediately (durable `killed`, dirty worktree):
+
+```bash
+jarvis run kill <run-id>
+```
+
+`pause` and `resume` are not supported on workflow-started implement rows.
 
 See [`write-behavior.md`](./write-behavior.md#run-control-cli) for the full CLI
 contract and [`workflow-runner.md`](./workflow-runner.md) for workflow composition.

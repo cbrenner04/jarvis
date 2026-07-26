@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Live workflow kill runtime](./00-workflow-kill-runtime.md)
-- [ ] [01 - Operator docs for workflow kill](./01-workflow-kill-operator-docs.md)
+- [x] [00 - Live workflow kill runtime](./00-workflow-kill-runtime.md)
+- [x] [01 - Operator docs for workflow kill](./01-workflow-kill-operator-docs.md)

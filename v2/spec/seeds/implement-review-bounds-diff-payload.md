@@ -4,6 +4,9 @@ name: implement-review-bounds-diff-payload
 
 # Implement review bounds diff payload with production-first ordering
 
+**Moved from `ready-intents/` 2026-07-26.** It has no acceptance criteria, so it is a seed, not a
+ready intent. Budget hygiene, deferred — see issue #2181.
+
 Large implement branches can exceed review context. When unified diff output exceeds
 a budget, include production-source hunks before test, fixture, and lockfile hunks and
 state explicitly what was omitted.

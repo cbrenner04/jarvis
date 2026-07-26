@@ -28,8 +28,6 @@ branch is then permanently unarchivable, since a materialized worktree owns it.
 - [ ] A live daemon run still refuses retirement when every durable row is terminal; a test asserts
       the probe is independent of durable status.
 - [ ] A `.jarvis.lock`-held worktree still refuses.
-- [ ] Retiring such a worktree archives its completed spec in the same invocation; a test drives the
-      merged-PR-plus-`killed`-row case end to end and asserts the spec lands in `completed/`.
 - [ ] Fail-closed paths (`gh` error, daemon unreachable, store error) still mark ineligible;
       `eligibility-gate.test.ts` "fail closed" tests (`returns ineligible if gh command fails`,
       `returns ineligible if store throws`) stay green.
@@ -44,4 +42,8 @@ branch is then permanently unarchivable, since a materialized worktree owns it.
 ## Prerequisites
 
 - Cleanup's worktree eligibility gate consults durable run status for the `(project, branch)`
-- Retiring a worktree archives its completed spec in the same cleanup invocation
+
+## Out of scope
+
+Same-invocation archival after retirement — owned by `cleanup-archives-in-the-invocation-that-retires`.
+This intent fixes eligibility only; a retired-but-unarchived spec is archived on the next cleanup.

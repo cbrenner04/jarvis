@@ -20,7 +20,7 @@ before the daemon is ever asked. The claim condition was already true before ret
 
 - The `(project, branch)` claim is consulted before `resetStaleWorkspace` mutates anything, alongside the other pre-mutation refusals (live-held, non-draft PR, multiple open PRs, dirty worktree). Rules out keeping the ordering and only improving the error text.
 - Ordering only: every existing refusal and destructive step keeps its behavior; this changes when the claim is consulted, not what it permits. Rules out relaxing the claim check so retirement can proceed past it.
-- Out of scope: the wedged durable row (`in-progress` + `live`, zero agent processes) that held the claim — `ready-intents/workflow-stall-is-observable-and-kill-reaps-it` owns that.
+- Out of scope: the wedged durable row (`in-progress` + `live`, zero agent processes) that held the claim — `ready-intents/every-live-workflow-is-killable` owns that.
 
 ## Acceptance criteria
 

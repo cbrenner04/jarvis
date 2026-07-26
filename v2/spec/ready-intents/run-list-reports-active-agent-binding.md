@@ -31,4 +31,4 @@ the run finishes — too late when debugging a rung change that did not apply.
 ## Prerequisites
 
 - Daemon `list` returns durable run rows with status and per-run workflow metadata.
-- Snapshot continuation re-resolves agent binding from the current machine profile for the active attempt (not the persisted snapshot binding); land `snapshot-continue-resolves-current-agent-binding` before planning or implementing this intent.
+- Snapshot continuation re-resolves agent binding from the current machine profile for the active attempt (not the persisted snapshot binding); land `snapshot-continue-resolves-current-agent-binding` before planning or implementing this intent. **Satisfied 2026-07-26** — that spec is in `v2/spec/completed/20260725T134744Z-snapshot-continue-resolves-current-agent-binding`.

@@ -4,6 +4,10 @@ name: materialization-base-drift-guard
 
 # Materialization fails loudly when the worktree base drifts from `--base`
 
+**Demoted to seed 2026-07-26.** Defense-in-depth against a symptom whose known mechanism is the
+stale `origin/<branch>` tracking ref — owned by `stale-remote-tracking-ref-no-longer-resolves-branch`,
+which removes it. Reassess only if base drift is observed again *after* that intent ships.
+
 ## Problem
 
 On 2026-07-25 a `jarvis run workflow implement --base main` re-dispatch materialized a worktree at

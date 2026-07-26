@@ -2099,6 +2099,42 @@ function findDurableWriteStepId(steps: readonly WorkflowSnapshotStep[]): string 
   return steps.find((step) => step.behavior === undefined)?.stepId;
 }
 
+/** Reconstructed head shared by every review-behavior-row resume resolver. */
+type ReviewRowHead = {
+  snapshot: WorkflowSnapshot;
+  writeStep: WorkflowSnapshotStep | undefined;
+  writeRun: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>;
+  completionAgent: string | undefined;
+};
+
+type ReviewRowHeadResolution = { ok: true; head: ReviewRowHead } | { ok: false; message: string };
+
+/**
+ * Shared admission head for review-behavior-row finalization resume: the row must be a failed
+ * review/review-debate step, and its sibling durable write step's own row must exist — the only
+ * row carrying the resolved `specPath` and a fallback completion agent.
+ */
+function resolveReviewRowHead(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+): ReviewRowHeadResolution {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
+  if (!snapshot || !stepId || !step || (step.behavior !== "review" && step.behavior !== "review-debate")) {
+    return { ok: false, message: "run is not a review-behavior step" };
+  }
+  if (run.status !== "failed") return { ok: false, message: "run is not in a failed state" };
+  const writeStepId = findDurableWriteStepId(snapshot.steps);
+  const writeRun = writeStepId
+    ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
+    : null;
+  if (!writeRun) return { ok: false, message: "durable write step row not found" };
+  const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
+  const completionAgent = reviewCompletionAgent(run) ?? reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
+  return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent } };
+}
+
 /** True when `.jarvis-intent-stage/` exists under `worktreePath` and holds at least one file. */
 export function hasPopulatedIntentStage(worktreePath: string): boolean {
   const stageDir = join(worktreePath, INTENT_STAGE_DIR);
@@ -2120,13 +2156,9 @@ export function resolveIntentFinalizationResumeContext(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
   store: StateStore,
 ): IntentFinalizationResumeResolution {
-  const snapshot = run.workflowSnapshot;
-  const stepId = run.stepId;
-  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
-  if (!snapshot || !stepId || !step || (step.behavior !== "review" && step.behavior !== "review-debate")) {
-    return { ok: false, message: "run is not a review-behavior step" };
-  }
-  if (run.status !== "failed") return { ok: false, message: "run is not in a failed state" };
+  const head = resolveReviewRowHead(run, store);
+  if (!head.ok) return head;
+  const { snapshot, writeRun, completionAgent } = head.head;
   const lastAttempt = run.attempts.at(-1);
   if (
     lastAttempt?.outcomeKind !== "invocation_failure" ||
@@ -2137,16 +2169,6 @@ export function resolveIntentFinalizationResumeContext(
   if (!hasPopulatedIntentStage(run.worktreePath)) {
     return { ok: false, message: "the intent stage is empty or missing" };
   }
-  const writeStepId = findDurableWriteStepId(snapshot.steps);
-  const writeRun = writeStepId
-    ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
-    : null;
-  if (!writeRun) return { ok: false, message: "durable write step row not found" };
-
-  const completionAgent =
-    reviewCompletionAgent(run) ??
-    reviewCompletionAgent(writeRun) ??
-    snapshot.steps.find((candidate) => candidate.stepId === writeStepId)?.agents?.[0];
 
   return {
     ok: true,
@@ -2213,7 +2235,8 @@ function settleIntentResumeFailure(
 /** Stub `WriteLoopInput` for `publishWithReadyRepair`: `maxIterations: 0` forbids the agent-driven
  * ready-gate repair branch (no agent bindings exist on resume) so any gate failure surfaces directly. */
 function inertResumeWriteLoopInput(
-  context: IntentFinalizationResumeContext,
+  context: { worktreePath: string; project: string; branch: string; baseRef: string },
+  specPath: string,
   deps: IntentFinalizationResumeDeps,
 ): WriteLoopInput {
   return {
@@ -2223,7 +2246,7 @@ function inertResumeWriteLoopInput(
       branchName: context.branch,
       baseRef: context.baseRef,
     },
-    specPath: context.durableDir,
+    specPath,
     stepRules: "",
     expectedArtifactPath: "",
     bindings: [],
@@ -2288,14 +2311,20 @@ async function runIntentResumeCommitAndPublish(
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
   store.setRunStatus(context.runId, "in-progress");
-  const publication = await publishWithReadyRepair(inertResumeWriteLoopInput(context, deps), store, result, 0, {
-    worktreePath: context.worktreePath,
-    baseRef: context.baseRef,
-    specPath: context.durableDir,
-    branch: context.branch,
-    creationTitle,
-    ...(bodySummary !== undefined ? { bodySummary } : {}),
-  });
+  const publication = await publishWithReadyRepair(
+    inertResumeWriteLoopInput(context, context.durableDir, deps),
+    store,
+    result,
+    0,
+    {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.durableDir,
+      branch: context.branch,
+      creationTitle,
+      ...(bodySummary !== undefined ? { bodySummary } : {}),
+    },
+  );
   if (publication.failure !== undefined) {
     const failure = publication.failure;
     const isFlip = failure.kind === "ready_flip_failed";
@@ -2400,6 +2429,19 @@ export async function resumePopulatedIntentPublication(
   }
 }
 
+/**
+ * Terminal outcome kinds admitted for review-mutation finalization resume: `surviving_mutation_failed`
+ * is the row's original failure, and the other three are outcomes this same resume path can itself
+ * settle as resumable — admitting them is self-consistency, not scope creep, since only this path
+ * (never a fresh review pass) ever writes them onto a review-behavior row.
+ */
+const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
+  "surviving_mutation_failed",
+  "ready_gate_failed",
+  "completion_commit_failed",
+  "runtime_smoke_failed",
+]);
+
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
 export type ReviewMutationResumeContext = {
   runId: string;
@@ -2408,6 +2450,9 @@ export type ReviewMutationResumeContext = {
   branch: string;
   baseRef: string;
   specPath: string;
+  invocationId: string;
+  /** `intent-stage` when the sibling write step lands to `.jarvis-intent-stage/`; `plain` otherwise. */
+  landingKind: "intent-stage" | "plain";
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
 };
@@ -2427,29 +2472,15 @@ export function resolveReviewMutationResumeContext(
   store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
-  const snapshot = run.workflowSnapshot;
-  const stepId = run.stepId;
-  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
-  if (!snapshot || !stepId || !step || (step.behavior !== "review" && step.behavior !== "review-debate")) {
-    return { ok: false, message: "run is not a review-behavior step" };
-  }
-  if (run.status !== "failed") return { ok: false, message: "run is not in a failed state" };
+  const head = resolveReviewRowHead(run, store);
+  if (!head.ok) return head;
+  const { snapshot, writeStep, writeRun, completionAgent } = head.head;
   if (
     terminalRecord?.event.kind !== "loop_finished" ||
-    terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed"
+    !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(terminalRecord.event.loopOutcomeKind)
   ) {
     return { ok: false, message: "run did not fail with a surviving mutation" };
   }
-  const writeStepId = findDurableWriteStepId(snapshot.steps);
-  const writeRun = writeStepId
-    ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
-    : null;
-  if (!writeRun) return { ok: false, message: "durable write step row not found" };
-
-  const completionAgent =
-    reviewCompletionAgent(run) ??
-    reviewCompletionAgent(writeRun) ??
-    snapshot.steps.find((candidate) => candidate.stepId === writeStepId)?.agents?.[0];
 
   return {
     ok: true,
@@ -2460,6 +2491,11 @@ export function resolveReviewMutationResumeContext(
       branch: run.branch,
       baseRef: run.specRef,
       specPath: writeRun.specPath,
+      invocationId: snapshot.invocationId,
+      // `role: "plan"` alone is ambiguous: `plan`/`plan-reviewed` workflows share it with `intent`
+      // but land to `.jarvis-plan-stage/` (plan-tree, spec-template shape), not `.jarvis-intent-stage/`.
+      // `expectedArtifactPath` is the snapshot field that actually distinguishes them.
+      landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
     },
@@ -2470,87 +2506,138 @@ export type ReviewMutationResumeOutcome =
   | { ok: true; prNumber?: number; prUrl?: string }
   | { ok: false; message: string };
 
-export type ReviewMutationResumeDeps = {
-  logSink?: LogSink;
-  completionCommitter?: CompletionCommitter;
-  completionPublisher?: CompletionPublisher;
-  readyFinalizer?: ReadyFinalizer;
-};
+export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps;
 
-/** Stub `WriteLoopInput` for `publishWithReadyRepair`: `maxIterations: 0` forbids agent-driven
- * ready-gate repair (no agent bindings on resume) so any gate failure surfaces directly. */
-function inertReviewMutationWriteLoopInput(
+/** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
+function settleReviewMutationResumeFailure(
+  store: StateStore,
   context: ReviewMutationResumeContext,
+  attemptId: string,
+  loopOutcomeKind: WriteLoopOutcomeKind,
+  message: string,
   deps: ReviewMutationResumeDeps,
-): WriteLoopInput {
-  return {
-    worktree: {
-      projectRoot: context.worktreePath,
-      projectName: context.project,
-      branchName: context.branch,
-      baseRef: context.baseRef,
-    },
-    specPath: context.specPath,
-    stepRules: "",
-    expectedArtifactPath: "",
-    bindings: [],
-    maxIterations: 0,
-    ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
-    ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
-    ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
-    ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
-  };
+): ReviewMutationResumeOutcome {
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+  });
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind,
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+  return { ok: false, message };
 }
 
 /**
- * Daemon-callable resume for a review-behavior row's `surviving_mutation_failed` failure: replays
- * only mutation re-verification, the ready gate, and publication via `publishWithReadyRepair` — the
- * durable write step already committed, so this never re-commits or re-invokes an agent. Callers
- * must gate on {@link resolveReviewMutationResumeContext} first; this never returns a no-op stub —
- * an admitted resume always settles success or a visible failure.
+ * Commit uncommitted worktree changes (the natural "fix coverage, then resume" operator gesture)
+ * before re-verification; settles a visible `completion_commit_failed` naming the offending paths
+ * rather than letting an uncommitted fix silently re-fail the same way.
  */
-export async function resumeReviewMutationFinalization(
-  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+async function commitReviewMutationResumeChanges(
+  context: ReviewMutationResumeContext,
   store: StateStore,
-  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
-  deps: ReviewMutationResumeDeps = {},
-): Promise<ReviewMutationResumeOutcome> {
-  const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
-  if (!resolved.ok) return { ok: false, message: resolved.message };
-  const { context } = resolved;
-
-  if (context.completionAgent === undefined) {
-    const message = "no completion agent available to attribute the publication commit";
-    store.setRunStatus(context.runId, "failed");
-    deps.logSink?.append(context.runId, {
-      kind: "loop_finished",
-      loopOutcomeKind: "invocation_failure",
-      iterationsConsumed: 0,
-      resumable: true,
+  attemptId: string,
+  creationTitle: string,
+  deps: ReviewMutationResumeDeps,
+): Promise<ReviewMutationResumeOutcome | undefined> {
+  const committer = deps.completionCommitter ?? createCompletionCommitter();
+  let published: Awaited<ReturnType<CompletionCommitter>>;
+  try {
+    published = await committer({
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      agent: context.completionAgent as string,
+      title: creationTitle,
+      forceDistinctCommit: true,
     });
-    return { ok: false, message };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return settleReviewMutationResumeFailure(store, context, attemptId, "completion_commit_failed", message, deps);
   }
+  if (published.commitSha === undefined) {
+    const uncommitted = await getUncommittedPaths(context.worktreePath);
+    if (uncommitted.length > 0) {
+      return settleReviewMutationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "completion_commit_failed",
+        `Uncommitted changes: ${uncommitted.join(", ")}`,
+        deps,
+      );
+    }
+  }
+  return undefined;
+}
 
+/**
+ * Publication shape (spec-template vs derived intent body summary) follows
+ * {@link ReviewMutationResumeContext.landingKind} the same way the primary completion tail
+ * branches on `completionStep.landing`.
+ */
+async function deriveReviewMutationResumeBodySummary(
+  context: ReviewMutationResumeContext,
+): Promise<{ bodySummary: string | undefined; specTemplate: boolean }> {
+  if (context.landingKind === "intent-stage") {
+    const bodySummary = deriveIntentRunBodySummary({
+      creationTitle: context.creationTitleHint,
+      intentFiles: await listLandedIntentFiles(context.worktreePath, context.invocationId),
+    });
+    return { bodySummary, specTemplate: false };
+  }
+  const bodySummary = await deriveSpecRunBodySummary({
+    worktreePath: context.worktreePath,
+    specPath: context.specPath,
+    baseRef: context.baseRef,
+  });
+  return { bodySummary, specTemplate: true };
+}
+
+/**
+ * Commit any uncommitted worktree changes and run the shared mutation-reverification / ready-gate /
+ * publication tail.
+ */
+async function runReviewMutationCommitAndPublish(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  deps: ReviewMutationResumeDeps,
+): Promise<ReviewMutationResumeOutcome> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
-  store.setRunStatus(context.runId, "in-progress");
+  const commitFailure = await commitReviewMutationResumeChanges(context, store, attemptId, creationTitle, deps);
+  if (commitFailure !== undefined) return commitFailure;
+
+  const { bodySummary, specTemplate } = await deriveReviewMutationResumeBodySummary(context);
 
   const result: WriteLoopResult = {
     kind: "complete",
     runId: context.runId,
     iterationsConsumed: 0,
     resumable: false,
-    completionAgent: context.completionAgent,
+    completionAgent: context.completionAgent as string,
   };
-
-  const publication = await publishWithReadyRepair(inertReviewMutationWriteLoopInput(context, deps), store, result, 0, {
-    worktreePath: context.worktreePath,
-    baseRef: context.baseRef,
-    specPath: context.specPath,
-    branch: context.branch,
-    creationTitle,
-    specTemplate: true,
-  });
+  store.setRunStatus(context.runId, "in-progress");
+  const publication = await publishWithReadyRepair(
+    inertResumeWriteLoopInput(context, context.specPath, deps),
+    store,
+    result,
+    0,
+    {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      branch: context.branch,
+      creationTitle,
+      ...(bodySummary !== undefined ? { bodySummary } : {}),
+      ...(specTemplate ? { specTemplate } : {}),
+    },
+  );
 
   if (publication.failure !== undefined) {
     const failure = publication.failure;
@@ -2558,7 +2645,13 @@ export async function resumeReviewMutationFinalization(
     const message = failure.error?.message ?? failure.kind;
     const publicationFailure = publicationFailureFor(failure.error);
     appendRuntimeSmokeOutcome(deps.logSink, context.runId, failure.runtimeSmokeOutcome);
-    store.setRunStatus(context.runId, isFlip ? "completed" : "failed");
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: isFlip ? "completed" : "failed",
+      outcomeKind: isFlip ? "done" : "invocation_failure",
+      ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
+      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+    });
     deps.logSink?.append(context.runId, {
       kind: "loop_finished",
       loopOutcomeKind: failure.kind,
@@ -2571,7 +2664,12 @@ export async function resumeReviewMutationFinalization(
   }
 
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  store.setRunStatus(context.runId, "completed");
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+  });
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "complete",
@@ -2583,6 +2681,46 @@ export async function resumeReviewMutationFinalization(
     ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
     ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
   };
+}
+
+/**
+ * Daemon-callable resume for a review-behavior row's `surviving_mutation_failed` failure: replays
+ * only mutation re-verification, the ready gate, and publication via `publishWithReadyRepair` — the
+ * durable write step already committed, so this never re-invokes an agent. Callers must gate on
+ * {@link resolveReviewMutationResumeContext} first; this never returns a no-op stub — an admitted
+ * resume always settles success or a visible, terminal failure (never a throw that strands the row
+ * at `in-progress`).
+ */
+export async function resumeReviewMutationFinalization(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+  deps: ReviewMutationResumeDeps = {},
+): Promise<ReviewMutationResumeOutcome> {
+  const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
+  if (!resolved.ok) return { ok: false, message: resolved.message };
+  const { context } = resolved;
+
+  const attemptId = store.recordAttemptStart(context.runId);
+  deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
+
+  try {
+    if (context.completionAgent === undefined) {
+      return settleReviewMutationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "invocation_failure",
+        "no completion agent available to attribute the publication commit",
+        deps,
+      );
+    }
+
+    return await runReviewMutationCommitAndPublish(context, store, attemptId, deps);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return settleReviewMutationResumeFailure(store, context, attemptId, "invocation_failure", message, deps);
+  }
 }
 
 type ReviewStepExecutionIds = {

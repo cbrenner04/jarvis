@@ -33,7 +33,6 @@ import {
   resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
-  type ReviewMutationResumeDeps,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
@@ -1229,15 +1228,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /**
-   * Resume dispatch for a review-behavior step's populated-stage `landing_failed` row: replays
-   * finalization (promotion, verdict cleanup, commit, push, draft PR) via
-   * {@link resumePopulatedIntentPublication} directly, never `spawnWriteLoop` — there is no
-   * `WriteLoopInput` for a review step, and re-entering the write loop would risk re-invoking
-   * agents.
+   * Shared dispatch for a review-behavior row's finalization-only resume: claims the worktree,
+   * runs `execute` with a fresh log sink layered onto the shared resume deps, and never
+   * `spawnWriteLoop` — there is no write-step re-entry on either of these paths.
    */
-  const resumeIntentFinalizationPublication = async (
+  const resumeFinalizationOnly = async (
     run: LoadedRun,
     key: OwnershipKey,
+    execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(_registry, key);
     if (claimError) return claimError;
@@ -1248,7 +1246,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         ...intentFinalizationResumeDeps,
         ...(logSink !== undefined ? { logSink } : {}),
       };
-      const outcome = await resumePopulatedIntentPublication(run, store, resumeDeps);
+      const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
         return { kind: "error", code: "internal_error", message: outcome.message };
       }
@@ -1263,38 +1261,27 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /**
+   * Resume dispatch for a review-behavior step's populated-stage `landing_failed` row: replays
+   * finalization (promotion, verdict cleanup, commit, push, draft PR) via
+   * {@link resumePopulatedIntentPublication}.
+   */
+  const resumeIntentFinalizationPublication = (
+    run: LoadedRun,
+    key: OwnershipKey,
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
+    resumeFinalizationOnly(run, key, (deps) => resumePopulatedIntentPublication(run, store, deps));
+
+  /**
    * Resume dispatch for a review-behavior row's `surviving_mutation_failed` failure: replays
    * mutation re-verification, the ready gate, and publication via
-   * {@link resumeReviewMutationFinalization} directly, never `spawnWriteLoop` — the durable write
-   * step already committed, and re-entering the write loop would risk re-invoking its agent.
+   * {@link resumeReviewMutationFinalization}.
    */
-  const resumeReviewMutationPublication = async (
+  const resumeReviewMutationPublication = (
     run: LoadedRun,
     terminalRecord: TerminalLogRecord | undefined,
     key: OwnershipKey,
-  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
-    const claimError = checkWorktreeClaimed(_registry, key);
-    if (claimError) return claimError;
-    _registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
-    const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
-    try {
-      const resumeDeps: ReviewMutationResumeDeps = {
-        ...intentFinalizationResumeDeps,
-        ...(logSink !== undefined ? { logSink } : {}),
-      };
-      const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps);
-      if (!outcome.ok) {
-        return { kind: "error", code: "internal_error", message: outcome.message };
-      }
-      return { kind: "response", result: { ok: true } };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { kind: "error", code: "internal_error", message };
-    } finally {
-      logSink?.close();
-      _registry.release(key);
-    }
-  };
+  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
+    resumeFinalizationOnly(run, key, (deps) => resumeReviewMutationFinalization(run, store, terminalRecord, deps));
 
   function terminalResumeBlocked(
     run: LoadedRun,
@@ -1323,16 +1310,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    const terminalError = terminalResumeBlocked(run, runId);
-    if (terminalError) {
-      return terminalError;
-    }
-
-    if (run.status === "paused") {
-      const key: OwnershipKey = { project: run.project, branch: run.branch };
-      return resumePausedRun(run, key, runId);
-    }
-
+    // Checked ahead of the generic terminal-resume gate below: these two admission predicates carry
+    // their own `status === "failed"` + row-shape checks, and some outcomes they themselves settle
+    // (e.g. `runtime_smoke_failed`) are not resumable under the generic operator-error mapping —
+    // deferring to that gate first would wrongly strand a row this code can actually resume.
     if (isIntentFinalizationResumable(run, store)) {
       return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
     }
@@ -1341,6 +1322,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     if (isReviewMutationResumable(run, store, terminalRecord)) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
+    }
+
+    const terminalError = terminalResumeBlocked(run, runId);
+    if (terminalError) {
+      return terminalError;
+    }
+
+    if (run.status === "paused") {
+      const key: OwnershipKey = { project: run.project, branch: run.branch };
+      return resumePausedRun(run, key, runId);
     }
 
     const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord);

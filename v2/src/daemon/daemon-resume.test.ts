@@ -1184,7 +1184,7 @@ function createReviewMutationRuns(overrides: {
   invocationId: string;
   branch: string;
   reviewBehavior: "review" | "review-debate";
-}): { writeRunId: string; reviewRunId: string } {
+}): { writeRunId: string; reviewRunId: string; entryRunId: string } {
   const workflowSnapshot = {
     invocationId: overrides.invocationId,
     creationTitle: "implement: example",
@@ -1218,7 +1218,9 @@ function createReviewMutationRuns(overrides: {
     completionAgent: "codex",
   });
   const reviewRunId = stateStore.createRun({ ...base, stepId: "implement-review" });
-  return { writeRunId, reviewRunId };
+  // The workflow entry row: carries the snapshot but no `stepId`, the id `start { steps }` returns.
+  const entryRunId = stateStore.createRun(base);
+  return { writeRunId, reviewRunId, entryRunId };
 }
 
 function failReviewRunAtSurvivingMutation(runId: string): void {
@@ -1236,56 +1238,65 @@ function survivingMutationLoopEvent(): Omit<LoopFinishedEvent, "kind"> {
   };
 }
 
-test.each(["review", "review-debate"] as const)(
-  "resumes a %s row's surviving_mutation_failed: finalization completes without re-invoking the implement write step",
-  async (reviewBehavior) => {
-    const logsPath = join(tmpdir(), `jarvis-review-mutation-logs-${process.pid}-${Date.now()}-${reviewBehavior}.jsonl`);
-    try {
-      const { reviewRunId } = createReviewMutationRuns({
-        invocationId: `review-mutation-${reviewBehavior}`,
-        branch: `review-mutation/${reviewBehavior}`,
-        reviewBehavior,
-      });
-      failReviewRunAtSurvivingMutation(reviewRunId);
-      const seedSink = openLogSink(logsPath);
-      seedSink.append(reviewRunId, { kind: "loop_finished", ...survivingMutationLoopEvent() });
-      seedSink.close();
+/** Creates a fresh on-disk log file seeded with a `surviving_mutation_failed` terminal record for `runId`. */
+function seedSurvivingMutationLogsPath(prefix: string, runId: string): string {
+  const logsPath = join(tmpdir(), `jarvis-${prefix}-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, { kind: "loop_finished", ...survivingMutationLoopEvent() });
+  seedSink.close();
+  return logsPath;
+}
 
-      const localHandlers = createRunControlHandlers({
-        stateStore,
-        logReader: openLogReader(logsPath),
-        logsPath,
-        writeLoopExecutor: fakeExecutor.executor,
-        failureReporter: () => {},
-        hasMemoryHeadroom: () => true,
-        settleDelayMs: 0,
-        intentFinalizationResumeDeps: {
-          completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
-          readyFinalizer: async () => undefined,
-        },
-      });
+test.each([
+  "review",
+  "review-debate",
+] as const)("resumes a %s row's surviving_mutation_failed: finalization completes without re-invoking the implement write step", async (reviewBehavior) => {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: `review-mutation-${reviewBehavior}`,
+    branch: `review-mutation/${reviewBehavior}`,
+    reviewBehavior,
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath(`review-mutation-logs-${reviewBehavior}`, reviewRunId);
+  try {
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
 
-      const response = await resumeDirect(localHandlers, reviewRunId);
-      expect(response.kind).toBe("response");
-      expect(fakeExecutor.pendingCount()).toBe(0);
-      expect(starts).toHaveLength(0);
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
 
-      expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
 
-      const records = openLogReader(logsPath).tail(reviewRunId);
-      expect(records.some((record) => record.event.kind === "iteration_started")).toBe(false);
-      const last = records.at(-1);
-      expect(last?.event.kind).toBe("loop_finished");
-      if (last?.event.kind === "loop_finished") {
-        expect(last.event.loopOutcomeKind).toBe("complete");
-        expect(last.event.resumable).toBe(false);
-      }
-    } finally {
-      rmSync(logsPath, { force: true });
+    // The completed implement write step must record no additional agent invocation on this
+    // resume — only the review row's own finalization attempt is allowed to run.
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+
+    const records = openLogReader(logsPath).tail(reviewRunId);
+    const last = records.at(-1);
+    expect(last?.event.kind).toBe("loop_finished");
+    if (last?.event.kind === "loop_finished") {
+      expect(last.event.loopOutcomeKind).toBe("complete");
+      expect(last.event.resumable).toBe(false);
     }
-  },
-);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
 
 test("rejects resume_unsupported for a review-behavior row failed for a reason other than surviving mutation (predicate inversion)", async () => {
   const { reviewRunId } = createReviewMutationRuns({
@@ -1293,9 +1304,14 @@ test("rejects resume_unsupported for a review-behavior row failed for a reason o
     branch: "review-mutation/wrong-reason",
     reviewBehavior: "review-debate",
   });
-  stateStore.setRunStatus(reviewRunId, "completed");
+  // `failed` (not `completed`) so the status guard passes and inverting the
+  // `surviving_mutation_failed`-outcome-kind guard specifically is what fails this test.
+  // `landing_failed` is excluded from the admitted outcome-kind set (unlike `ready_gate_failed`,
+  // which this same resume path itself settles as resumable and must not be mistaken for the
+  // "wrong reason" this test pins).
+  stateStore.setRunStatus(reviewRunId, "failed");
   const logReader = loopFinishedLogReader(reviewRunId, {
-    loopOutcomeKind: "ready_gate_failed",
+    loopOutcomeKind: "landing_failed",
     iterationsConsumed: 1,
     resumable: true,
   });
@@ -1309,7 +1325,7 @@ test("rejects resume_unsupported for a review-behavior row failed for a reason o
 });
 
 test("resume on the workflow entry id and a completed hidden ~shrink row for the same surviving-mutation scenario still refuses", async () => {
-  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+  const { writeRunId, reviewRunId, entryRunId } = createReviewMutationRuns({
     invocationId: "review-mutation-entry-and-shrink",
     branch: "review-mutation/entry-and-shrink",
     reviewBehavior: "review-debate",
@@ -1326,12 +1342,8 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
   });
   stateStore.setRunStatus(shrinkRunId, "completed");
 
-  const logsPath = join(tmpdir(), `jarvis-review-mutation-refusal-logs-${process.pid}-${Date.now()}.jsonl`);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-refusal-logs", reviewRunId);
   try {
-    const seedSink = openLogSink(logsPath);
-    seedSink.append(reviewRunId, { kind: "loop_finished", ...survivingMutationLoopEvent() });
-    seedSink.close();
-
     const localHandlers = createRunControlHandlers({
       stateStore,
       logReader: openLogReader(logsPath),
@@ -1342,10 +1354,17 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
       settleDelayMs: 0,
     });
 
-    const entryResponse = await resumeDirect(localHandlers, writeRunId);
+    // The real workflow entry row (snapshot, no stepId) — the id an operator copies from launch.
+    const entryResponse = await resumeDirect(localHandlers, entryRunId);
     expect(entryResponse.kind).toBe("error");
     if (entryResponse.kind === "error") {
       expect(entryResponse.code).toBe("terminal_run");
+    }
+
+    const writeResponse = await resumeDirect(localHandlers, writeRunId);
+    expect(writeResponse.kind).toBe("error");
+    if (writeResponse.kind === "error") {
+      expect(writeResponse.code).toBe("terminal_run");
     }
 
     const shrinkResponse = await resumeDirect(localHandlers, shrinkRunId);

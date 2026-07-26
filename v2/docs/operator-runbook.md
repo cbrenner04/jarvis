@@ -843,7 +843,13 @@ Operators add bullets here; delete when fixed.
   `run resume` previously hard-errored `resume_unsupported` despite advertising `nextAction:
   "resume"` — fixed: resume on that row's own id now replays mutation re-verification, the ready
   gate, and publication without re-invoking the completed write step's agent. The workflow entry id
-  and a completed `~shrink` row still refuse for that scenario.
+  and a completed `~shrink` row still refuse for that scenario. **Commit first:** mutation
+  verification and body-summary derivation are diff-derived against the base ref; fix coverage in the
+  worktree and let `run resume` commit it (or `git commit` it yourself first) — an uncommitted fix
+  either gets committed by the resume tail or settles a named `completion_commit_failed` failure, it
+  is never silently re-verified against the stale diff. A resumed row that itself settles
+  `ready_gate_failed`, `completion_commit_failed`, or `runtime_smoke_failed` (not just a repeat
+  `surviving_mutation_failed`) is admitted by a further `run resume` on the same row.
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Test doubles must not call production behavior (shipped 2026-07-22):** Fixtures under `v2/src/testing/**` are statically guarded by `scripts/guard-test-double-production-calls.ts` (runs as part of `bun run check`). Test doubles that compute responses by calling production behavior violate the guard and must be refactored to use direct value returns or allowlisted entry points (state-store, daemon-lifecycle, CLI main). Type-only imports, unused constants, and calls to allowlisted builders are permitted. See [`v2/docs/test-writing.md` § Test doubles must not call production behavior](./test-writing.md#test-doubles-must-not-call-production-behavior).
 - **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding

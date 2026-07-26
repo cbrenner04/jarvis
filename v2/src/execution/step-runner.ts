@@ -42,6 +42,7 @@ type StepRunInput = {
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
+  idleOutputMs?: number;
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -70,6 +71,12 @@ export type StepRunResult = {
   | {
       kind: "invocation_failure";
       failureKind: InvocationFailureKind;
+    }
+  | {
+      kind: "stall";
+      boundMs?: number;
+      agent?: string;
+      model?: string;
     }
 );
 
@@ -105,6 +112,7 @@ function sharedInvocationExtras(args: StepRunInput) {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
     ...(args.onInvocationOutputProgress !== undefined ? { onOutputProgress: args.onInvocationOutputProgress } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
   };
 }
 
@@ -140,6 +148,24 @@ function requestBlockerReprompt(args: StepRunInput): Promise<InvocationExecution
       ? { telemetry: { ...args.telemetry, invocationIds: args.bindings.map(() => crypto.randomUUID()) } }
       : {}),
   });
+}
+
+/** Classifies a stalled reprompt invocation the same way the primary step invocation is classified. */
+function repromptStallResult(
+  originalInvocation: InvocationExecution,
+  stalledInvocation: InvocationExecution,
+  args: StepRunInput,
+  extra: { reprompt?: StepReprompt; blockerReprompt?: BlockerReprompt },
+): StepRunResult {
+  const stalledBinding = stalledInvocation.final?.binding;
+  return {
+    kind: "stall",
+    invocation: originalInvocation,
+    ...extra,
+    ...(args.idleOutputMs !== undefined ? { boundMs: args.idleOutputMs } : {}),
+    ...(stalledBinding?.metadata?.agent !== undefined ? { agent: stalledBinding.metadata.agent } : {}),
+    ...(stalledBinding?.metadata?.model !== undefined ? { model: stalledBinding.metadata.model } : {}),
+  };
 }
 
 function evaluateBlockerTextContract(contract: BlockerTextContract): { satisfied: boolean; blockerText?: string } {
@@ -226,6 +252,10 @@ async function resolveBlockedResult(
   const responseText = repromptResult?.kind === "ok" ? repromptResult.stdout.trim() : "";
   const blockerReprompt: BlockerReprompt = { responseText, invocation: blockerRepromptInvocation };
 
+  if (repromptResult?.kind === "stall") {
+    return repromptStallResult(invocation, blockerRepromptInvocation, args, { ...repromptField, blockerReprompt });
+  }
+
   const secondEval = evaluateBlockerTextContract(contract);
   if (secondEval.satisfied) {
     return {
@@ -268,6 +298,9 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   }
 
   const result: InvocationResult = final.result;
+  if (result.kind === "stall") {
+    return repromptStallResult(invocation, invocation, args, {});
+  }
   if (result.kind !== "ok") {
     return {
       kind: "invocation_failure",
@@ -279,6 +312,10 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   const resolved = await resolveStepToken(args, result.stdout);
   const repromptField = resolved.reprompt !== undefined ? { reprompt: resolved.reprompt } : {};
   const token = resolved.token;
+
+  if (resolved.reprompt?.invocation.final?.result.kind === "stall") {
+    return repromptStallResult(invocation, resolved.reprompt.invocation, args, repromptField);
+  }
 
   if (token === "blocked") {
     return resolveBlockedResult(args, invocation, repromptField);

@@ -81,11 +81,33 @@ after machine-config resolution) counts elapsed time since `iteration_started`
 without reset; continuous output cannot extend past it. Direct `jarvis write` and
 workflow write steps always run under wall + ceiling once bounds are resolved at
 dispatch or resume; optional `iterationCeilingMs` on `WriteLoopInput` is for
-direct/test injection, not an unbounded production iteration. Silent stalls (no
-stdout/stderr progress) still terminate when the wall segment elapses.
+direct/test injection, not an unbounded production iteration.
+
+A separate **idle-output budget** (`idleOutputMs`, resolved from machine config
+`idleOutputTimeoutMs`, default 90 s; `0` disables) is passed to the invocation's
+underlying binding. Unlike the wall segment, the idle budget fires on a lack of
+*any* stdout/stderr — a silent agent settles `idle_output_timeout` well before the
+wall could elapse, giving `run list`/`run wait` a distinct signal from a
+genuinely-slow-but-emitting iteration. `idleOutputMs` is resolved once alongside
+`iterationTimeoutMs`/`iterationCeilingMs` by `resolveWritePathIterationBounds` and
+stamped onto every write-behavior step (and its persisted workflow-snapshot entry,
+so a resumed step stays armed). With `idleOutputTimeoutMs: 0`, the bound is
+omitted entirely — no idle watchdog is armed, and a silent iteration falls back to
+the wall segment.
+
 Wall-segment expiry and ceiling overrun both commit `iteration_timeout` with
-failed run status. Idle-output bounds on the write path are separate (see the
-write-path idle-watchdog intent).
+failed run status; an idle-output firing commits `idle_output_timeout` with failed
+run status instead, attributing the settled binding's agent, model, and the idle
+bound that fired.
+
+The token and blocker-text re-prompt invocations share the same `idleOutputMs`
+budget as the primary step invocation: a re-prompt that goes silent settles
+`idle_output_timeout`, not `invalid_token`/`missing_blocker`.
+
+On resume, a snapshot step missing `iterationCeilingMs` falls back to the current
+machine config's value, but a step missing `idleOutputMs` does not — the loader
+already omits the key when `idleOutputTimeoutMs: 0` disabled the watchdog, so a
+machine-config fallback would silently re-arm a run the operator explicitly disabled.
 
 On a successful standalone write, the terminal SQLite boundary is committed before
 the runner publishes completion to the external worktree. Publication is one

@@ -131,6 +131,7 @@ export type WriteExecuteInput = {
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
+  idleOutputMs?: number;
 };
 
 type WriteExecuteResult = {
@@ -168,6 +169,7 @@ function runWriteStep(
     ...(write.onInvocationOutputProgress !== undefined
       ? { onInvocationOutputProgress: write.onInvocationOutputProgress }
       : {}),
+    ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
   });
 }
 

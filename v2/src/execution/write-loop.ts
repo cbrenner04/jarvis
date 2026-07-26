@@ -1,7 +1,11 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
-import { executeWithQuotaFallback, type InvocationBinding } from "../../../shared/invocation/execute.ts";
+import {
+  executeWithQuotaFallback,
+  type InvocationBinding,
+  type InvocationExecution,
+} from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
@@ -45,6 +49,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "contract_miss",
   "invocation_failure",
   "iteration_timeout",
+  "idle_output_timeout",
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
@@ -454,16 +459,25 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       const terminal = terminalMapping(result);
+      const bindingAttempts = (invocation: InvocationExecution) =>
+        invocation.attempts.map((attempt) => ({ bindingId: attempt.binding.id, resultKind: attempt.result.kind }));
       const detail =
         result.kind === "invocation_failure"
-          ? {
-              failureKind: result.failureKind,
-              bindingAttempts: result.invocation.attempts.map((attempt) => ({
-                bindingId: attempt.binding.id,
-                resultKind: attempt.result.kind,
-              })),
-            }
-          : undefined;
+          ? { failureKind: result.failureKind, bindingAttempts: bindingAttempts(result.invocation) }
+          : result.kind === "stall"
+            ? {
+                // Reuses the invocation_failure-shaped detail record (not a parallel one) for
+                // idle_output_timeout attribution, even though "stall" isn't an InvocationFailureKind
+                // routed through INVOCATION_BY_FAILURE_KIND: the persisted/operator-visible shape
+                // (bindingAttempts, agent, model, boundMs) is identical, so a consumer switching on
+                // failureKind must treat "stall" as its own case, not a stand-in for invocation_failure.
+                failureKind: "stall" as const,
+                bindingAttempts: bindingAttempts(result.invocation),
+                ...(result.boundMs !== undefined ? { boundMs: result.boundMs } : {}),
+                ...(result.agent !== undefined ? { agent: result.agent } : {}),
+                ...(result.model !== undefined ? { model: result.model } : {}),
+              }
+            : undefined;
       const completionAgent =
         result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       store.commitCompletionBoundary({
@@ -919,6 +933,7 @@ function buildWriteExecuteInput(
     signal,
     sessionLog,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
   };
 }
 
@@ -949,6 +964,9 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
   if (result.kind === "missing_blocker") {
     return { kind: "invocation_failure", runStatus: "paused", outcomeKind: "missing_blocker" };
   }
+  if (result.kind === "stall") {
+    return { kind: "idle_output_timeout", runStatus: "failed", outcomeKind: "idle_output_timeout" };
+  }
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }
 
@@ -972,7 +990,10 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     const outcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
-      kind: outcomeKind === "iteration_timeout" ? "iteration_timeout" : "invocation_failure",
+      kind:
+        outcomeKind === "iteration_timeout" || outcomeKind === "idle_output_timeout"
+          ? outcomeKind
+          : "invocation_failure",
       runId: run.id,
       iterationsConsumed: 0,
       resumable: false,

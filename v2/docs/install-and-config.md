@@ -104,12 +104,17 @@ Direct `jarvis write` and workflow write steps resolve three optional machine ke
 | --- | --- | --- | --- |
 | `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
 | `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
-| `idleOutputTimeoutMs` | Idle-output watchdog budget (write-path ordering today) | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `idleOutputTimeoutMs` | Idle-output watchdog budget | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
 
 Inverted idle/wall or wall/ceiling ordering fails at load with a message naming both
-compared keys and numeric values. `idleOutputTimeoutMs` is validated on the write path
-today but is not yet armed on write invocations (idle watchdog is a separate follow-on).
-Resolved `iterationTimeoutMs` and `iterationCeilingMs` are stamped on workflow write
+compared keys and numeric values. `idleOutputTimeoutMs` is armed on the iteration's
+step invocation and its token/blocker reprompts: a silent invocation settles
+`idle_output_timeout` well before the wall segment or ceiling could fire,
+distinguishing a stalled agent from a genuinely slow one. (The post-iteration
+coverage-advisory invocation is unarmed — no wall, ceiling, or idle bound.)
+`0` disables the watchdog outright (no `idleOutputMs` bound is resolved), leaving the
+wall segment and ceiling as the only bounds. Resolved `iterationTimeoutMs`,
+`iterationCeilingMs`, and `idleOutputMs` (when armed) are stamped on workflow write
 steps and persisted in workflow snapshots for resume and revise.
 
 An explicit `jarvis run workflow implement --review-passes <n>` overrides the

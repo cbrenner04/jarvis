@@ -2,5 +2,4 @@
 
 - [x] [00 - Instrument and promote intent finalization](./00-intent-finalization-instrument-and-promote.md)
 - [x] [01 - Honest intent finalization settlement](./01-intent-finalization-honest-settlement.md)
-- [ ] [02 - Admit a populated intent stage for resume](./02-intent-finalization-resume-admission.md)
-- [ ] [03 - Resume republishes a populated intent stage](./03-intent-finalization-resume-publication.md)
+- [ ] [02 - Recover populated intent stage without re-review](./02-intent-finalization-recovery.md)

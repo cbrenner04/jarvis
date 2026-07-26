@@ -649,15 +649,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const archiveLine = `archive: ${join(home, specName)} -> ${join(home, "completed", specName)}`;
     let dryStdout = "";
     expect(
-      await runCleanupCommand(
-        { dryRun: true },
-        registry,
-        jarvisRoot,
-        mockRunner,
-        async () => [],
-        store,
-        { stdout: (s) => (dryStdout += s), stderr: () => {} },
-      ),
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, {
+        stdout: (s) => (dryStdout += s),
+        stderr: () => {},
+      }),
     ).toBe(0);
     expect(dryStdout).toContain(archiveLine);
     expect(existsSync(join(home, specName))).toBe(true);

@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { executeWithQuotaFallback, type InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
@@ -388,8 +389,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "progress") {
+        let commitOutcome: ProgressIterationCommitOutcome;
         try {
-          await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
+          commitOutcome = await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
         } catch (error) {
           return iterationCommitFailed(
             args,
@@ -400,6 +402,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             error instanceof Error ? error : new Error(String(error)),
           );
         }
+
+        args.logSink?.append(runId, {
+          kind: "iteration_commit",
+          attemptId,
+          ...(commitOutcome.kind === "committed"
+            ? { commitSha: commitOutcome.commitSha }
+            : { skipReason: commitOutcome.skipReason }),
+        });
 
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {
@@ -1389,6 +1399,10 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
+export type ProgressIterationCommitOutcome =
+  | { kind: "committed"; commitSha: string }
+  | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" };
+
 async function commitProgressIteration(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
@@ -1396,9 +1410,9 @@ async function commitProgressIteration(
   runId: string,
   worktreePath: string,
   result: Extract<StepRunResult, { kind: "progress" }>,
-): Promise<void> {
-  if (args.publishCompletion === false || !existsSync(join(worktreePath, ".git"))) {
-    return;
+): Promise<ProgressIterationCommitOutcome> {
+  if (!existsSync(join(worktreePath, ".git"))) {
+    return { kind: "skipped", skipReason: "no_git" };
   }
   const agent = result.invocation.final?.binding.metadata?.agent?.trim();
   if (!agent) throw new Error("completion attribution is missing");
@@ -1409,13 +1423,18 @@ async function commitProgressIteration(
   const title = stepTitle
     ? stepTitle
     : resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
-  await (args.completionCommitter ?? createCompletionCommitter())({
+  const headBefore = await getCurrentHeadAsync(worktreePath);
+  const committed = await (args.completionCommitter ?? createCompletionCommitter())({
     worktreePath,
     baseRef: args.worktree.baseRef,
     specPath,
     agent,
     title,
   });
+  if (committed.commitSha === undefined || committed.commitSha === headBefore) {
+    return { kind: "skipped", skipReason: "no_file_changes" };
+  }
+  return { kind: "committed", commitSha: committed.commitSha };
 }
 
 function iterationCommitFailed(

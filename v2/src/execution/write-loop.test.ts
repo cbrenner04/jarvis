@@ -1977,17 +1977,20 @@ describe("write loop", () => {
     expect(result.iterationsConsumed).toBe(3);
 
     const events = sink.getEventsForRun(result.runId);
-    expect(events.length).toBe(7); // 3 iteration_started, 3 boundary_committed, 1 loop_finished
+    // 3 iteration_started, 2 iteration_commit (progress iterations only), 3 boundary_committed, 1 loop_finished
+    expect(events.length).toBe(9);
 
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("boundary_committed");
-    expect(events[2]?.kind).toBe("iteration_started");
-    expect(events[3]?.kind).toBe("boundary_committed");
-    expect(events[4]?.kind).toBe("iteration_started");
+    expect(events[1]?.kind).toBe("iteration_commit");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("iteration_started");
+    expect(events[4]?.kind).toBe("iteration_commit");
     expect(events[5]?.kind).toBe("boundary_committed");
-    expect(events[6]?.kind).toBe("loop_finished");
-    expect(events[6]?.kind === "loop_finished" && events[6].loopOutcomeKind).toBe("complete");
-    expect(events[6]?.kind === "loop_finished" && events[6].iterationsConsumed).toBe(3);
+    expect(events[6]?.kind).toBe("iteration_started");
+    expect(events[7]?.kind).toBe("boundary_committed");
+    expect(events[8]?.kind).toBe("loop_finished");
+    expect(events[8]?.kind === "loop_finished" && events[8].loopOutcomeKind).toBe("complete");
+    expect(events[8]?.kind === "loop_finished" && events[8].iterationsConsumed).toBe(3);
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for each outcome", async () => {
@@ -2078,14 +2081,15 @@ describe("write loop", () => {
     expect(result.kind).toBe("budget-exhausted");
 
     const events = sink.getEventsForRun(result.runId);
-    // Should be: iteration_started, boundary_committed (progress), iteration_started, boundary_committed (progress), loop_finished
-    expect(events.length).toBe(5);
+    // Should be: iteration_started, iteration_commit, boundary_committed (progress),
+    // iteration_started, iteration_commit, boundary_committed (progress), loop_finished
+    expect(events.length).toBe(7);
 
-    const lastBoundary = events[3];
+    const lastBoundary = events[5];
     expect(lastBoundary?.kind === "boundary_committed" && lastBoundary.outcomeKind).toBe("progress");
     expect(lastBoundary?.kind === "boundary_committed" && lastBoundary.runStatus).toBe("in-progress");
 
-    const finished = events[4];
+    const finished = events[6];
     expect(finished?.kind === "loop_finished" && finished.loopOutcomeKind).toBe("budget-exhausted");
     expect(finished?.kind === "loop_finished" && finished.resumable).toBe(true);
     expect(finished?.kind === "loop_finished" && finished.iterationsConsumed).toBe(2);
@@ -2105,7 +2109,7 @@ describe("write loop", () => {
 
     expect(first.kind).toBe("budget-exhausted");
     const firstEventCount = sink.getEventsForRun(first.runId).length;
-    expect(firstEventCount).toBe(3); // iteration_started, boundary_committed, loop_finished
+    expect(firstEventCount).toBe(4); // iteration_started, iteration_commit, boundary_committed, loop_finished
 
     const second = await runLoop({
       jarvisRoot,
@@ -2120,8 +2124,8 @@ describe("write loop", () => {
 
     const allEvents = sink.getEventsForRun(second.runId);
     expect(allEvents.length).toBeGreaterThan(firstEventCount);
-    // Should have: first run's 3 events + second run's 3 events = 6 total
-    expect(allEvents.length).toBe(6);
+    // Should have: first run's 4 events + second run's 3 events (iteration_started, boundary_committed, loop_finished) = 7 total
+    expect(allEvents.length).toBe(7);
   });
 
   test("abort/cancellation stops the loop without committing the in-flight boundary, emitting matching events and state", async () => {
@@ -2153,14 +2157,16 @@ describe("write loop", () => {
     expect(result.resumable).toBe(true);
 
     const events = sink.getEventsForRun(result.runId);
-    // Should have: iteration_started, boundary_committed (completed), iteration_started (aborted, no boundary), loop_finished
-    expect(events.length).toBe(4);
+    // Should have: iteration_started, iteration_commit, boundary_committed (completed),
+    // iteration_started (aborted, no boundary), loop_finished
+    expect(events.length).toBe(5);
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("boundary_committed");
-    expect(events[2]?.kind).toBe("iteration_started");
-    expect(events[3]?.kind).toBe("loop_finished");
-    expect(events[3]?.kind === "loop_finished" && events[3].loopOutcomeKind).toBe("progress");
-    expect(events[3]?.kind === "loop_finished" && events[3].iterationsConsumed).toBe(2);
+    expect(events[1]?.kind).toBe("iteration_commit");
+    expect(events[2]?.kind).toBe("boundary_committed");
+    expect(events[3]?.kind).toBe("iteration_started");
+    expect(events[4]?.kind).toBe("loop_finished");
+    expect(events[4]?.kind === "loop_finished" && events[4].loopOutcomeKind).toBe("progress");
+    expect(events[4]?.kind === "loop_finished" && events[4].iterationsConsumed).toBe(2);
 
     const run = loadRunOnce(stateDbPath, result.runId);
     expect(run?.attempts).toHaveLength(2);
@@ -3407,6 +3413,160 @@ describe("write loop", () => {
         expect(result.kind).toBe("budget-exhausted");
         expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount);
         expect(calls).toBe(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("a workflow step (publishCompletion: false) commits progress iterations and leaves commits after a mid-run failure", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-workflow-step-mid-run-failure";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      let calls = 0;
+      let publisherCalled = false;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          return {
+            worktreePath,
+            worktreeReused: false as const,
+            lock: { kind: "acquired" as const },
+            result: {
+              kind: "invocation_failure" as const,
+              failureKind: "error" as const,
+              invocation: progressInvocation,
+            },
+          };
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["progress", "progress", "error"]),
+            publishCompletion: false,
+            completionPublisher: async () => {
+              publisherCalled = true;
+              return {};
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("invocation_failure");
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 2);
+        expect(publisherCalled).toBe(false);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("a no-change iteration following a committing iteration reports skipped, not the prior sha", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-no-change-after-commit";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls === 1) writeFileSync(join(worktreePath, "iter-1.txt"), "x\n");
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 2, logSink: sink }),
+        );
+
+        expect(result.kind).toBe("budget-exhausted");
+        const commitEvents = sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
+        expect(commitEvents).toHaveLength(2);
+        expect(commitEvents[0]?.kind === "iteration_commit" && "commitSha" in commitEvents[0]).toBe(true);
+        expect(commitEvents[1]).toMatchObject({ kind: "iteration_commit", skipReason: "no_file_changes" });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("iteration_commit event distinguishes committed, no_file_changes, and no_git skips", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+
+      // no_git: no .git directory under the worktree, using the git: false + localPath shape
+      // production no-commit intent steps use.
+      const noGitBranch = "iter-no-git";
+      const noGitWorktreePath = join(jarvisRoot, "no-commit-intent-stage");
+      mkdirSync(noGitWorktreePath, { recursive: true });
+      const noGitStore = openStateStore(stateDbPath);
+      const noGitSink = new TestLogSink();
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => progressWrite(noGitWorktreePath),
+      }));
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, noGitBranch, noGitStore, {
+            maxIterations: 1,
+            logSink: noGitSink,
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName: noGitBranch,
+              baseRef: "HEAD",
+              git: false,
+              localPath: noGitWorktreePath,
+            },
+            withExternalWorktree: async (_args, run) => ({
+              worktree: { path: noGitWorktreePath, reused: false },
+              lock: { kind: "acquired" },
+              value: await run({ path: noGitWorktreePath, reused: false }),
+            }),
+          }),
+        );
+        const events = noGitSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({ kind: "iteration_commit", skipReason: "no_git" });
+      } finally {
+        noGitStore.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+
+      // committed vs no_file_changes: real git worktree, first iteration changes a file, second doesn't.
+      const branchName = "iter-commit-vs-no-change";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let calls = 0;
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls === 1) writeFileSync(join(worktreePath, "iter-1.txt"), "x\n");
+          return progressWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { maxIterations: 2, logSink: sink }),
+        );
+        const events = sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_commit");
+        expect(events).toHaveLength(2);
+        expect(events[0]?.kind === "iteration_commit" && "commitSha" in events[0]).toBe(true);
+        expect(events[1]).toMatchObject({ kind: "iteration_commit", skipReason: "no_file_changes" });
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

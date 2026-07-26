@@ -201,6 +201,36 @@ function createIntentWorktreeHarness(branchName: string) {
   };
 }
 
+// Path is allocated but not materialized: the directory (and its git repo) is created lazily on
+// the first `withExternalWorktree` call, mirroring a non-index implement step whose worktree
+// doesn't pre-exist when the workflow starts.
+function createLazyIntentWorktreeHarness(branchName: string) {
+  const workspace = mkdtempSync(join(tmpdir(), `lazy-workflow-${branchName}-`));
+  rmSync(workspace, { recursive: true, force: true });
+  let materialized = false;
+  const withExternalWorktree = async <T>(
+    _args: { branchName: string; projectName: string },
+    run: (worktree: ExternalWorktree) => Promise<T> | T,
+  ): Promise<WithExternalWorktreeResult<T>> => {
+    if (!materialized) {
+      mkdirSync(workspace, { recursive: true });
+      execFileSync("git", ["init", "-q"], { cwd: workspace });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: workspace });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: workspace });
+      writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      materialized = true;
+    }
+    return {
+      worktree: { path: workspace, reused: materialized },
+      lock: { kind: "acquired" },
+      value: await run({ path: workspace, reused: true }),
+    };
+  };
+  return { workspace, withExternalWorktree };
+}
+
 const IMPLEMENT_BODY_SPEC_PATH = "spec/2026-01-01-implement-body";
 
 function createImplementBodySummaryStep(branchName: string) {
@@ -1201,6 +1231,117 @@ describe("executeWorkflow", () => {
         "implemented\n",
       );
       expect(() => execFileSync("git", ["diff", "--quiet"], { cwd: harness.workspace })).not.toThrow();
+    });
+  });
+
+  test("shrink/publication reset anchors at pre-implement HEAD when the last progress iteration already committed the clean tree", async () => {
+    const branchName = "shrink-reset-pre-implement-anchor";
+    let calls = 0;
+    const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) return { kind: "ok", stdout: "done", stderr: "" };
+      calls += 1;
+      if (calls === 1) {
+        writeFileSync(join(cwd, "iter-1.txt"), "x\n", "utf8");
+        return { kind: "ok", stdout: "progress", stderr: "" };
+      }
+      if (calls === 2) {
+        writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+        return { kind: "ok", stdout: "progress", stderr: "" };
+      }
+      // Third call: worktree is already clean (both prior iterations committed themselves).
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+
+    const preImplementHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    }).trim();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      // The two progress-iteration commits are collapsed by the publication reset: only the
+      // single publication commit remains on top of preImplementHead.
+      expect(
+        Number(
+          execFileSync("git", ["rev-list", "--count", `${preImplementHead}..HEAD`], {
+            cwd: harness.workspace,
+            encoding: "utf8",
+          }).trim(),
+        ),
+      ).toBe(1);
+      const publishedParent = execFileSync("git", ["rev-parse", "HEAD^"], {
+        cwd: harness.workspace,
+        encoding: "utf8",
+      }).trim();
+      expect(publishedParent).toBe(preImplementHead);
+    });
+  });
+
+  test("shrink/publication reset anchors at pre-implement HEAD when the worktree is materialized lazily by the implement step's first iteration", async () => {
+    const branchName = "shrink-reset-lazy-worktree";
+    const harness = createLazyIntentWorktreeHarness(branchName);
+    let calls = 0;
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: ({ cwd, prompt }) => {
+          if (prompt.includes("Post-completion Shrink")) {
+            return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" } as const);
+          }
+          calls += 1;
+          if (calls === 1) {
+            writeFileSync(join(cwd, "iter-1.txt"), "x\n", "utf8");
+            return Promise.resolve({ kind: "ok", stdout: "progress", stderr: "" } as const);
+          }
+          if (calls === 2) {
+            writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+            return Promise.resolve({ kind: "ok", stdout: "progress", stderr: "" } as const);
+          }
+          // Third call: worktree is already clean (both prior iterations committed themselves).
+          return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" } as const);
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    step.worktree = {
+      projectRoot: harness.workspace,
+      projectName: "demo",
+      branchName,
+      baseRef: "HEAD",
+      git: false,
+      localPath: harness.workspace,
+    };
+    step.withExternalWorktree = harness.withExternalWorktree;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(calls).toBeGreaterThan(0);
+      const preImplementHead = execFileSync("git", ["rev-list", "--max-parents=0", "HEAD"], {
+        cwd: harness.workspace,
+        encoding: "utf8",
+      }).trim();
+      const publishedParent = execFileSync("git", ["rev-parse", "HEAD^"], {
+        cwd: harness.workspace,
+        encoding: "utf8",
+      }).trim();
+      expect(publishedParent).toBe(preImplementHead);
     });
   });
 
@@ -6757,6 +6898,86 @@ describe("executeWorkflow plan review dispatch", () => {
       if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
       else process.env.JARVIS_HOME = previousJarvisHome;
     }
+  });
+
+  test("a git-backed plan workflow commits staged progress in-flight and the landing commit removes staging artifacts", async () => {
+    const branchName = "plan-git-backed-staging";
+    const harness = createIntentWorktreeHarness(branchName);
+    const stage = join(harness.workspace, ".jarvis-plan-stage");
+    const durable = join(harness.workspace, "spec", "git-backed-plan");
+    let calls = 0;
+
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName,
+      specPath: "spec/git-backed-plan",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: "spec/git-backed-plan",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        calls += 1;
+        mkdirSync(join(cwd, ".jarvis-plan-stage"), { recursive: true });
+        writeFileSync(join(cwd, ".jarvis-plan-stage", "index.md"), "# Index\n", "utf8");
+        writeFileSync(join(cwd, ".jarvis-plan-stage", "intent.md"), "Intent\n", "utf8");
+        if (calls === 1) return { kind: "ok", stdout: "progress", stderr: "" } as const;
+        writeFileSync(join(cwd, ".jarvis-plan-stage", "00-first.md"), "# First\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+    step.worktree = {
+      projectRoot: harness.workspace,
+      projectName: "demo",
+      branchName,
+      baseRef: "HEAD",
+      git: false,
+      localPath: harness.workspace,
+    };
+    step.withExternalWorktree = harness.withExternalWorktree;
+
+    const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: harness.workspace, encoding: "utf8" }).trim();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    // The progress iteration committed the partially-staged files in-flight, ahead of the
+    // landing/publication commit, which removes the staging dir. Only an in-flight commit
+    // can leave the staging dir present in a commit's tree.
+    const commitsInRange = execFileSync("git", ["rev-list", `${preRunHead}..HEAD`], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    const stagedInSomeCommit = commitsInRange.some((sha) =>
+      execFileSync("git", ["ls-tree", "-r", "--name-only", sha], {
+        cwd: harness.workspace,
+        encoding: "utf8",
+      })
+        .split("\n")
+        .some((path) => path.startsWith(".jarvis-plan-stage/")),
+    );
+    expect(stagedInSomeCommit).toBe(true);
+
+    expect(existsSync(stage)).toBe(false);
+    expect(existsSync(join(durable, "index.md"))).toBe(true);
+    const trackedFiles = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    });
+    expect(trackedFiles).not.toContain(".jarvis-plan-stage");
   });
 
   test("retains the staged plan and verdict when a review-debate deferred landing fails", async () => {

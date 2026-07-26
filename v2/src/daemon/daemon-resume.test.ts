@@ -900,6 +900,38 @@ test("failed row with stale paused or budget-exhausted loop_finished reports res
   }
 });
 
+test("split-vs-log disagreement never projects an empty failed row through the list/wait projection", async () => {
+  // Split-vs-log disagreement (occurrence #8/#9): the run settled `failed` durably, but its own
+  // log records `loop_finished complete` and the last committed attempt is `done` (not a mappable
+  // invocation-failure outcome). The row's `list`/`wait` projection must still name something
+  // non-empty rather than silently omit `error` or mask it into an empty shape.
+  const runId = createWorkflowRun({ invocationId: "split-log-disagreement" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "done" });
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "complete",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const row = await listRow(localHandlers, runId);
+  expect(row.error?.reason).toBeTruthy();
+  expect(row.error?.nextAction).toBeTruthy();
+
+  const waitFrame = await localHandlers.wait(
+    { kind: "request", id: "wait-split-log-disagreement", method: "wait", params: { runId } },
+    new AbortController().signal,
+  );
+  expect(waitFrame.kind).toBe("response");
+  if (waitFrame.kind === "response") {
+    const result = waitFrame.result as { error?: { reason?: string; nextAction?: string } };
+    expect(result.error?.reason).toBeTruthy();
+    expect(result.error?.nextAction).toBeTruthy();
+  }
+});
+
 test("wait and list resumable agrees for non-entry workflow step row", async () => {
   const invocationId = "agreement-non-entry-step";
   const workflowSnapshot = {
@@ -1040,7 +1072,19 @@ test("admits a populated-stage intent finalization landing_failed row instead of
       durableDir: "ready-intents",
     });
     failReviewRunAtLanding(reviewRunId);
-    const localHandlers = createHandlers(landingFailedLogReader(reviewRunId));
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: landingFailedLogReader(reviewRunId),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
 
     const row = await listRow(localHandlers, reviewRunId);
     expect(row.error?.reason).toBe("landing_failed");
@@ -1048,10 +1092,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
     expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
 
     const response = await resumeDirect(localHandlers, reviewRunId);
-    if (response.kind === "error") {
-      expect(response.code).not.toBe("resume_unsupported");
-      expect(response.code).not.toBe("terminal_run");
-    }
+    expect(response.kind).toBe("response");
   } finally {
     rmSync(worktreePath, { recursive: true, force: true });
   }

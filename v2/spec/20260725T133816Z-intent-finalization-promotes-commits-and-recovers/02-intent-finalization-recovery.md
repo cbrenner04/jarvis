@@ -48,33 +48,33 @@ limit of 24.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` `"resumes intent finalization from a populated stage without review
+- [x] `workflow-runner.test.ts` `"resumes intent finalization from a populated stage without review
   re-invocation"` drives an intent workflow to a finalization failure with staged files, runs daemon
   resume on the authoritative completion `runId`, asserts `durableDir` publication, stage and verdict
   sidecar cleanup, commit, and the same push/PR publication hooks as git-enabled happy-path intent
   tests, with zero split/review agent invocations on resume; fails against pre-fix code.
-- [ ] The same test asserts resume does not set `freshDispatch` and does not mint a new review
+- [x] The same test asserts resume does not set `freshDispatch` and does not mint a new review
   invocation (aligned with `"daemon resume retries landing failure without re-invoking write step"`);
   inverting `freshDispatch` replay fails the test.
-- [ ] `daemon-resume.test.ts` regression admits the populated-stage intent `landing_failed` row with
+- [x] `daemon-resume.test.ts` regression admits the populated-stage intent `landing_failed` row with
   `nextAction: "resume"` on the authoritative completion id and rejects
   `unsupported_resume_context` for that row; inverting admission restores `terminal_run` refusal and
   fails `"resumes intent finalization from a populated stage without review re-invocation"`.
-- [ ] `run wait` / list projection for that `runId` reports `landing_failed` with `retryable: true` and
+- [x] `run wait` / list projection for that `runId` reports `landing_failed` with `retryable: true` and
   `nextAction: "resume"` before resume, and `completed` after successful republication.
-- [ ] The admission-inversion proof is in `daemon-resume.test.ts`: flipping the populated-stage
+- [x] The admission-inversion proof is in `daemon-resume.test.ts`: flipping the populated-stage
   finalization admission gate makes resume refuse (`terminal_run` or equivalent) **and** breaks
   `"resumes intent finalization from a populated stage without review re-invocation"`. Admission
   plus operator projection alone do not satisfy this.
-- [ ] At least one path drives daemon resume through the **write-loop entry that actually calls**
+- [x] At least one path drives daemon resume through the **write-loop entry that actually calls**
   `resumePopulatedIntentPublication` (real or a fake executor that invokes it), asserting promotion,
   cleanup, commit, and git publication hooks with no new split/review invocations. A second
   `executeWorkflow` call is not accepted as the primary republication proof.
-- [ ] When resume admits a populated-stage `landing_failed` row but completion-agent resolution
+- [x] When resume admits a populated-stage `landing_failed` row but completion-agent resolution
   fails, the run settles a visible landing/harness failure rather than returning the prior
   `invocation_failure` stub with no publication work; `nextAction: "resume"` must never pair with a
   no-op resume path.
-- [ ] `bun run check` is green: no `noExcessiveCognitiveComplexity` violation in
+- [x] `bun run check` is green: no `noExcessiveCognitiveComplexity` violation in
   `v2/src/execution/workflow-runner.ts` or `v2/src/daemon/daemon.ts`, and no rule suppression or
   threshold change in `biome.json`.
 

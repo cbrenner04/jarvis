@@ -430,11 +430,12 @@ function resumeContextForRun(
   run: Run & { attempts?: Attempt[] },
   store: StateStore,
   terminalRecord?: TerminalLogRecord,
+  intentFinalizationResumable?: boolean,
 ): ResolvedWriteLoopInput | undefined {
   // Admission is derived from the advertised row contract: if nextAction is
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
   if (!isResumeAdmitted(run, terminalRecord)) return undefined;
-  if (isIntentFinalizationResumable(run, store)) return undefined;
+  if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
   return reconstructWriteResume(run);
 }
 
@@ -442,9 +443,10 @@ function resumeContextForTerminalRecord(
   run: (Run & { attempts?: Attempt[] }) | undefined,
   store: StateStore,
   terminalRecord: TerminalLogRecord | undefined,
+  intentFinalizationResumable?: boolean,
 ): ResolvedWriteLoopInput | undefined {
   if (!run) return undefined;
-  return resumeContextForRun(run, store, terminalRecord);
+  return resumeContextForRun(run, store, terminalRecord, intentFinalizationResumable);
 }
 
 function runListRowError(
@@ -730,8 +732,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       resumable: isResumeAdmitted(owner.run, owner.terminalRecord),
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
-    const entryResumeContext = resumeContextForTerminalRecord(entryRun, store, entryRecord);
-    const entryCanResume = entryResumeContext?.ok === true || isIntentFinalizationResumable(entryRun, store);
+    const entryIntentFinalizationResumable = isIntentFinalizationResumable(entryRun, store);
+    const entryResumeContext = resumeContextForTerminalRecord(
+      entryRun,
+      store,
+      entryRecord,
+      entryIntentFinalizationResumable,
+    );
+    const entryCanResume = entryResumeContext?.ok === true || entryIntentFinalizationResumable;
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
 
@@ -1211,17 +1219,29 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    */
   const resumeIntentFinalizationPublication = async (
     run: LoadedRun,
+    key: OwnershipKey,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
+    const claimError = checkWorktreeClaimed(_registry, key);
+    if (claimError) return claimError;
+    _registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
-    const resumeDeps: IntentFinalizationResumeDeps = {
-      ...intentFinalizationResumeDeps,
-      ...(logSink !== undefined ? { logSink } : {}),
-    };
-    const outcome = await resumePopulatedIntentPublication(run, store, resumeDeps);
-    if (!outcome.ok) {
-      return { kind: "error", code: "landing_failed", message: outcome.message };
+    try {
+      const resumeDeps: IntentFinalizationResumeDeps = {
+        ...intentFinalizationResumeDeps,
+        ...(logSink !== undefined ? { logSink } : {}),
+      };
+      const outcome = await resumePopulatedIntentPublication(run, store, resumeDeps);
+      if (!outcome.ok) {
+        return { kind: "error", code: "internal_error", message: outcome.message };
+      }
+      return { kind: "response", result: { ok: true } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { kind: "error", code: "internal_error", message };
+    } finally {
+      logSink?.close();
+      _registry.release(key);
     }
-    return { kind: "response", result: { ok: true } };
   };
 
   function terminalResumeBlocked(
@@ -1262,7 +1282,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     if (isIntentFinalizationResumable(run, store)) {
-      return resumeIntentFinalizationPublication(run);
+      return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
     }
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;

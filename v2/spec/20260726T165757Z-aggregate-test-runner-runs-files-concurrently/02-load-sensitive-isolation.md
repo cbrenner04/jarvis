@@ -48,28 +48,28 @@ isolation rule these three become routine failures rather than occasional operat
 
 ## Acceptance criteria
 
-- [ ] Every `*.sandbox-unrunnable.test.ts` file and every file on the explicit load-sensitive list is
+- [x] Every `*.sandbox-unrunnable.test.ts` file and every file on the explicit load-sensitive list is
       scheduled with no co-runners: a test drives a mixed fixture roster and asserts observed overlap
       is exactly 1 for the whole duration of each isolated file, while the remaining files overlap up
       to the limit. It fails against subspec 01's runner, which schedules them into the pool.
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` and
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` and
       `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` are both classified load-sensitive:
       a test asserts each is isolated when present in a roster.
-- [ ] `isLoadSensitive` is distinct from `isSandboxUnrunnable`: a test asserts a file matched by the
+- [x] `isLoadSensitive` is distinct from `isSandboxUnrunnable`: a test asserts a file matched by the
       suffix convention but not on the explicit list is both sandbox-unrunnable and load-sensitive,
       and that the two predicates are independently callable.
-- [ ] Isolated files run after the concurrent files: a test asserts no isolated file starts while any
+- [x] Isolated files run after the concurrent files: a test asserts no isolated file starts while any
       pooled file is in flight.
-- [ ] `agent` mode continues past a timed-out isolated file and stops on a plain failure exactly as
+- [x] `agent` mode continues past a timed-out isolated file and stops on a plain failure exactly as
       it does for pooled files (subspec 01); a non-`agent` mode starts nothing after either: a test
       asserts both, and the roster's failing file is still reported by name.
-- [ ] Inverting the isolation predicate fails a test: treating a load-sensitive file as poolable, and
+- [x] Inverting the isolation predicate fails a test: treating a load-sensitive file as poolable, and
       treating a poolable file as load-sensitive, each break at least one test; the predicate's
       negative case asserts the suppressed effect — that no co-runner is spawned during an isolated
       file's window — not merely that the run passed.
-- [ ] Roster equivalence holds: `test/test-slices.test.ts` stays green, including its slice-partition
+- [x] Roster equivalence holds: `test/test-slices.test.ts` stays green, including its slice-partition
       assertions (isolation reorders execution, it does not change the roster).
-- [ ] `bun run check` is green.
+- [x] `bun run check` is green.
 
 ## Documentation updates
 

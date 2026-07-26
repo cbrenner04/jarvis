@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn, type SpawnSyncReturns } from "node:child_process";
 import { availableParallelism } from "node:os";
-import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
+import { isLoadSensitive, sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
 /** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
 export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
@@ -119,6 +119,11 @@ export function resolveConcurrency(
  *
  * Each file's captured stdout/stderr is flushed as one contiguous block, headed by its
  * file name, as soon as that file settles (including output captured before a kill).
+ *
+ * Load-sensitive files (`isLoadSensitive`) are excluded from the pool and instead run one at a
+ * time after the pool has fully drained, with no co-runners in either direction. The same mode
+ * semantics (agent keeps admitting past a timeout, every other mode stops on either a timeout
+ * or a plain failure) apply to the isolated phase.
  */
 export async function runV2TestFiles(
   mode: string,
@@ -128,15 +133,17 @@ export async function runV2TestFiles(
   concurrency = resolveConcurrency(),
 ): Promise<FileResult[]> {
   const results: FileResult[] = [];
+  const poolable = files.filter((file) => !isLoadSensitive(file));
+  const isolated = files.filter((file) => isLoadSensitive(file));
   let nextIndex = 0;
   let stopAdmitting = false;
 
   async function worker(): Promise<void> {
     for (;;) {
-      if (stopAdmitting || nextIndex >= files.length) {
+      if (stopAdmitting || nextIndex >= poolable.length) {
         return;
       }
-      const file = files[nextIndex];
+      const file = poolable[nextIndex];
       nextIndex += 1;
       if (file === undefined) {
         return;
@@ -158,8 +165,29 @@ export async function runV2TestFiles(
     }
   }
 
-  const workerCount = Math.max(1, Math.min(concurrency, files.length));
+  const workerCount = Math.max(1, Math.min(concurrency, poolable.length));
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  for (const file of isolated) {
+    if (stopAdmitting) {
+      break;
+    }
+    const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
+    process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
+    if (result.timedOut) {
+      process.stderr.write(spawnTimeoutMessage(mode, file, label));
+      results.push({ file, timedOut: true, status: result.status });
+      if (mode !== "agent") {
+        stopAdmitting = true;
+      }
+    } else {
+      results.push({ file, timedOut: false, status: result.status });
+      if (result.status !== 0) {
+        stopAdmitting = true;
+      }
+    }
+  }
+
   return results;
 }
 

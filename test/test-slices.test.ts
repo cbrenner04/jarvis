@@ -6,7 +6,7 @@ import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { aggregateTestFiles } from "../scripts/run-tests.ts";
 import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
-import { isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
+import { isLoadSensitive, isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -107,6 +107,21 @@ describe("Test slice boundaries", () => {
 
     expect(agent).toEqual(["v2/example/foo.test.ts", "v2/other/bar.test.ts"]);
     expect(integration).toEqual(["v2/example/foo.sandbox-unrunnable.test.ts"]);
+  });
+
+  it("known load-sensitive daemon files are classified load-sensitive", () => {
+    expect(isLoadSensitive("v2/src/daemon/daemon-workflow-start.test.ts")).toBeTrue();
+    expect(isLoadSensitive("v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts")).toBeTrue();
+  });
+
+  it("isLoadSensitive is distinct from isSandboxUnrunnable", () => {
+    const suffixMatchedNotListed = "v2/example/other.sandbox-unrunnable.test.ts";
+    expect(isSandboxUnrunnable(suffixMatchedNotListed)).toBeTrue();
+    expect(isLoadSensitive(suffixMatchedNotListed)).toBeTrue();
+
+    const poolable = "v2/example/other.test.ts";
+    expect(isSandboxUnrunnable(poolable)).toBeFalse();
+    expect(isLoadSensitive(poolable)).toBeFalse();
   });
 
   it("shared integration slice includes preload real-process test", () => {

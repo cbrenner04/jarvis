@@ -75,6 +75,23 @@ file by name; a timeout in any other mode stops admission the same as a plain fa
 per-file timeout is armed independently at its own spawn, so a slow sibling never shortens another
 file's budget. Output blocks print in settle order, not roster order, once files can overlap.
 
+### Load-sensitive isolation
+
+Some files are known to flake under concurrent load though they pass reliably alone — a test that is
+green idle and red under load is a candidate for this list. `isLoadSensitive` in
+`scripts/test-slice.ts` covers two declaration mechanisms: every `*.sandbox-unrunnable.test.ts` file
+by default, plus an exported explicit `LOAD_SENSITIVE_FILES` list for files outside that suffix
+convention. Each explicit-list entry carries a comment naming the observed failure. This predicate is
+distinct from `isSandboxUnrunnable` (the slice-partition key deciding which `test:*` script runs a
+file) — a suffix-matched file is always both, but a file can be load-sensitive without being
+sandbox-unrunnable.
+
+`runV2TestFiles` excludes `isLoadSensitive` files from the bounded pool and runs them one at a time
+after the pool has fully drained, with no co-runners in either direction — the pool finishes before
+an isolated file starts, and no other file starts while it runs. Mode semantics are unchanged for the
+isolated phase: `agent` mode keeps admitting past an isolated file's timeout and stops on a plain
+failure, matching pooled-file behavior; every other mode stops admitting further files after either.
+
 ### Ready-gate step budgets
 
 `bun run ready` (`scripts/ready.ts`) arms each step with its own fixed budget, not a shared

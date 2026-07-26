@@ -52,8 +52,10 @@ import {
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
   resolveIntentFinalizationResumeContext,
+  resolveReviewMutationResumeContext,
   resolveWorkflowPreset,
   resumePopulatedIntentPublication,
+  resumeReviewMutationFinalization,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -5832,6 +5834,85 @@ describe("executeWorkflow review dispatch", () => {
       expect(settled?.status).toBe("failed");
       expect(settled?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("completion agent");
     });
+  });
+
+  test("resuming a review row's surviving_mutation_failed actually re-runs the ready finalizer (mutation reverification)", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "review-mutation-resume-reverify-"));
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      await withStateStore(async (store) => {
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/reverify",
+          workflowSnapshot: {
+            invocationId: "review-mutation-reverify",
+            creationTitle: "implement: reverify",
+            steps: [
+              {
+                stepId: "implement",
+                role: "implement",
+                stepRules: "implement rules",
+                expectedArtifactPath: "artifact",
+                agents: ["codex"],
+                agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+              },
+              { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
+            ],
+          },
+        };
+        const writeRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement" });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+
+        const reviewRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
+        expect(resolved.ok).toBe(true);
+
+        let finalizerCalls = 0;
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          readyFinalizer: async (input) => {
+            finalizerCalls += 1;
+            expect(input.worktreePath).toBe(workspace);
+            expect(input.baseRef).toBe("main");
+            return undefined;
+          },
+        });
+
+        expect(finalizerCalls).toBe(1);
+        expect(outcome).toMatchObject({ ok: true });
+        expect(store.loadRun(reviewRunId)?.status).toBe("completed");
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   test("aggregates missing critic and actuator bindings before durable state", async () => {

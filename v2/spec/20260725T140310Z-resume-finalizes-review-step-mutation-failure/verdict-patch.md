@@ -1,0 +1,25 @@
+## Verdict — required outcomes
+
+Upheld findings, in priority order. All must be true before this spec is done; re-tick AC5 only after the final tree passes.
+
+1. **The gate is red as committed.** `bun run check` fails on formatter violations in `v2/src/execution/workflow-runner.ts` (the two `publishWithReadyRepair(...)` call sites at ~2292 and ~2517 exceed biome's 120-col width and get reformatted). AC5 was ticked against a tree that no longer exists. Outcome: formatting clean, and `typecheck` / `test:v2` / `test:integration:v2` re-run on the final tree.
+
+2. **A throw during the resumed tail must not strand the row `in-progress`.** `resumeReviewMutationFinalization` sets `in-progress` and then awaits publication with no error containment; the daemon's outer catch converts the throw to `internal_error` but leaves the durable row non-terminal and non-live, which hangs `run wait` — the exact failure mode the code comment near `workflow-runner.ts:976` warns against, and the guarantee the sibling intent-resume path documents in `v1-behaviors.md`. Outcome: any thrown error on this path settles a visible terminal failure on the row, same as the sibling.
+
+3. **Outcomes this path itself settles must stay recoverable.** When the resumed tail settles `ready_gate_failed`, `completion_commit_failed`, or `runtime_smoke_failed` on a review row, it writes `resumable: true` / `nextAction: "resume"` while `run resume` then refuses `resume_unsupported` — reintroducing the strand this spec exists to remove. Admitting the outcome kinds this code writes is self-consistency, not the scope creep the "only `surviving_mutation_failed`" decision rules out (that decision blocks *pre-existing* review failures such as landing `invocation_failure` and timeouts). Outcome: a row that this resume path settles as resumable is admissible by a subsequent `run resume`. If the actuator judges this out of scope, it owes a `## Blocker` — not silence.
+
+4. **The documented recovery must not silently no-op on the natural operator gesture.** Mutation verification is diff-derived (`git diff <baseRef>...HEAD`), the publisher pushes but never commits, and `maxIterations: 0` disables repair-loop commits — so an operator who fixes coverage and resumes *without committing* gets an identical re-failure with no explanation, while the runbook and `v1-behaviors.md` now advertise this as the working recovery. Spec decision 2 puts commit under existing finalizer/idempotency rules, so this is in scope. Outcome: uncommitted work in the worktree is either committed by the tail or settles a failure naming the offending paths (as the sibling does), and the runbook states the commit-first requirement.
+
+5. **Tests must pin what the ACs claim.**
+   - The "entry id still refuses" case resumes the durable *write* row; `createReviewMutationRuns` never creates a workflow entry row, so the AC4 entry-id clause is unverified. Keep the write-row case and add a real entry row.
+   - AC2 claims the completed **implement** write step records no extra `iteration_started`/invocation, but the assertion tails the review row. Retarget at the write row (the `starts`/`pendingCount` assertions are good supporting evidence, not the claim itself).
+   - The "predicate inversion" case sets status `completed` *and* `ready_gate_failed`, so the `status !== "failed"` guard fires first and the outcome-kind guard is never exercised. Make it `failed` + a non-mutation outcome so inverting the `surviving_mutation_failed` check is what fails the test (AC3).
+   - Nothing at any level exercises the headline behavior — mutation **re**-verification actually running on resume. Add coverage (workflow-runner level is the natural home) where a finalizer surfaces a surviving mutation and then succeeds.
+
+6. **Record an attempt boundary for the resumed work.** The path mutates run status and publishes without `recordAttemptStart`/`commitCompletionBoundary`, leaving stale `finishedAtMs` and no persisted `completionAgent` — the sibling records one. Outcome: attempt/telemetry record matches the sibling's shape, without emitting an `iteration_started` that would contradict the write-step non-invocation assertion.
+
+7. **Publication shape must match the row's landing kind.** Hardcoding `specTemplate: true`, dropping `bodySummary`, and taking `specPath` from the write row are correct only for a plain implement row; a landing-bearing (`intent-stage`) review row's tail uses `specTemplate: false`, a derived body summary, and the publication spec path. Outcome: either branch on the snapshot step's landing kind as the tail does, or exclude landing-bearing rows from this admission.
+
+8. **Deduplicate the resolver head** shared with the intent-finalization resolver (the daemon dispatch side is already shared).
+
+Not upheld, no action: `setPrEvidence` absence (pre-existing across the completion tail and the sibling), the resolver's cost on ordinary list rows (it short-circuits before any store lookup), `runtime_smoke_failed` outcome mapping (matches the existing tail convention), and the unused `prNumber`/`prUrl` result fields (mirrors the sibling's shape deliberately).

@@ -6,7 +6,7 @@ import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { aggregateTestFiles } from "../scripts/run-tests.ts";
 import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
-import { isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
+import { isLoadSensitive, isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
@@ -109,6 +109,21 @@ describe("Test slice boundaries", () => {
     expect(integration).toEqual(["v2/example/foo.sandbox-unrunnable.test.ts"]);
   });
 
+  it("known load-sensitive daemon files are classified load-sensitive", () => {
+    expect(isLoadSensitive("v2/src/daemon/daemon-workflow-start.test.ts")).toBeTrue();
+    expect(isLoadSensitive("v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts")).toBeTrue();
+  });
+
+  it("isLoadSensitive is distinct from isSandboxUnrunnable", () => {
+    const suffixMatchedNotListed = "v2/example/other.sandbox-unrunnable.test.ts";
+    expect(isSandboxUnrunnable(suffixMatchedNotListed)).toBeTrue();
+    expect(isLoadSensitive(suffixMatchedNotListed)).toBeTrue();
+
+    const poolable = "v2/example/other.test.ts";
+    expect(isSandboxUnrunnable(poolable)).toBeFalse();
+    expect(isLoadSensitive(poolable)).toBeFalse();
+  });
+
   it("shared integration slice includes preload real-process test", () => {
     expect(sharedTests("integration")).toEqual(["shared/preload.sandbox-unrunnable.test.ts"]);
     expect(sharedTests("agent").some((file) => file.endsWith("git.test.ts"))).toBeTrue();
@@ -164,16 +179,24 @@ describe("Test slice boundaries", () => {
     expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS");
     expect(runV2TestsScript).toContain('spawn("bun", ["test", file]');
     expect(runV2TestsScript).toContain("timeout: PER_FILE_TIMEOUT_MS");
-    expect(runV2TestsScript).toContain('killSignal: "SIGKILL"');
+    expect(runV2TestsScript).toContain('child.kill("SIGKILL")');
 
     expect(runTestsScript).toMatch(/runV2TestFiles\([^)]*\)/);
   });
 
-  it("policy parity: agent-mode timeout diagnostics vs integration-mode fail-fast behavior", async () => {
+  it("policy parity: agent-mode timeout diagnostics vs stop-admitting-on-failure behavior", async () => {
     const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
 
     expect(runV2TestsScript).toContain('if (mode !== "agent")');
-    expect(runV2TestsScript).toContain("return results");
+    expect(runV2TestsScript).toContain("stopAdmitting = true");
     expect(runV2TestsScript).toContain("continue");
+  });
+
+  it("policy parity: the integration phase routes through the shared pooled seam, not a bare spawnSync loop", async () => {
+    const runTestsScript = await Bun.file("scripts/run-tests.ts").text();
+
+    expect(runTestsScript).not.toContain("spawnSync");
+    expect((runTestsScript.match(/runV2TestFiles\(/g) ?? []).length).toBe(2);
+    expect(runTestsScript).toContain('runV2TestFiles("integration", integration');
   });
 });

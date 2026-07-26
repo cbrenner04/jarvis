@@ -80,41 +80,41 @@ on the 18-core reference box) is past that knee.
 
 ## Acceptance criteria
 
-- [ ] The runner executes independent pooled files concurrently under a bounded worker limit: a test
+- [x] The runner executes independent pooled files concurrently under a bounded worker limit: a test
       drives a fixture roster through the injected spawn seam, records observed overlap, and asserts
       at most N files are in flight at once; it fails against subspec 00's still-serial runner (which
       never exceeds 1).
-- [ ] The limit defaults to a value derived from `availableParallelism()` with reserved headroom
+- [x] The limit defaults to a value derived from `availableParallelism()` with reserved headroom
       (half, floor 1): a test asserts the derivation for a stubbed parallelism value.
-- [ ] An explicit override wins over `JARVIS_TEST_CONCURRENCY`, which wins over the default; a
+- [x] An explicit override wins over `JARVIS_TEST_CONCURRENCY`, which wins over the default; a
       malformed or `0` env value falls back to the derived default: a test asserts all three
       precedence cases.
-- [ ] A limit of 1 reproduces serial execution: a test asserts observed overlap never exceeds 1 and
+- [x] A limit of 1 reproduces serial execution: a test asserts observed overlap never exceeds 1 and
       files settle in roster order.
-- [ ] `scripts/run-tests.ts`'s integration phase runs through the shared concurrent seam instead of
+- [x] `scripts/run-tests.ts`'s integration phase runs through the shared concurrent seam instead of
       its own `spawnSync` loop: a test asserts an integration-phase file is subject to the same
       per-file timeout and captured-output attribution as a `test:v2` file.
-- [ ] A file exceeding its own timeout is killed and reported by name while its pooled co-runners
+- [x] A file exceeding its own timeout is killed and reported by name while its pooled co-runners
       keep running to completion: a test drives a timing-out fixture alongside healthy pooled files
       and asserts both the named timeout diagnostic and the co-runners' results.
-- [ ] A slow co-runner does not shorten another file's budget: a test asserts each child is armed
+- [x] A slow co-runner does not shorten another file's budget: a test asserts each child is armed
       with the full per-file timeout independently of sibling runtime.
-- [ ] `agent` mode continues past a timed-out file and reports every timed-out file across concurrent
+- [x] `agent` mode continues past a timed-out file and reports every timed-out file across concurrent
       workers by name; a plain (non-timeout) failure stops every mode, including `agent`, from
       starting new files while still reporting results of files already in flight: a test asserts no
       post-failure start and that in-flight results survive, matching subspec 00's preserved
       fail-fast contract under a pool.
-- [ ] `aggregateExitCode` is non-zero when any result failed or timed out regardless of settle order:
+- [x] `aggregateExitCode` is non-zero when any result failed or timed out regardless of settle order:
       a test asserts a healthy file settling last does not mask an earlier failure, and it fails
       against the pre-change last-result logic.
-- [ ] Roster equivalence holds — `test/test-slices.test.ts` stays green, including its policy-parity
+- [x] Roster equivalence holds — `test/test-slices.test.ts` stays green, including its policy-parity
       assertions updated to the concurrent runner's literals.
-- [ ] Inverting each added guard fails a test: inverting the pool's admission check (allowing an
+- [x] Inverting each added guard fails a test: inverting the pool's admission check (allowing an
       extra in-flight file), the non-`agent`/plain-failure stop check (starting new files after a
       failure), and the per-file timeout arming each break at least one test; the stop-check negative
       case asserts the suppressed effect — that no further spawn occurs — rather than only that the
       run exits non-zero.
-- [ ] `bun run check` is green, including `scripts/guard-deterministic-daemon-tests.ts`.
+- [x] `bun run check` is green, including `scripts/guard-deterministic-daemon-tests.ts`.
 
 ## Documentation updates
 

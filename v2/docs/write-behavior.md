@@ -117,20 +117,53 @@ run records `completion_commit_failed` (resumable) and names the uncommitted pat
 `completionCommitError`; a clean worktree still records `complete`. This guarantees a
 reported `complete` always implies a commit exists.
 
-**Per-iteration commits (`progress` only):** On git-backed loops with
-`publishCompletion !== false`, each settled `progress` step runs the same
-completion committer seam after the step settles and before the SQLite
-`progress` boundary. The committer no-ops when the isolated index tree matches
-`HEAD^{tree}` (reprompt-only or advisory-only iterations with no materialized
-diff). Iteration commits use the step binding's `Jarvis-Agent` label, a `Spec:`
-line for the active subspec path (`expectedArtifactPath` when that file exists
-in the worktree, otherwise the run `specPath`), and a subject from binding
-metadata `title` when set, else the same creation-title fallback as terminal
-completion. A throwing committer or missing agent label stops the run
-`failed` with `iteration_commit_failed` (resumable); the loop does not advance
-to another iteration. `iteration_timeout` and other terminal outcomes do not
-trigger per-iteration git commits. Push and PR publication remain on terminal
-`complete` only.
+**Per-iteration commits (`progress` only):** On every git-backed loop —
+including workflow write steps, whose `publishCompletion: false` gates only
+completion publication (push/PR/ready), not in-flight committing — each
+settled `progress` step runs the same completion committer seam after the
+step settles and before the SQLite `progress` boundary. A worktree with no
+`.git` directory — typically `worktree.git: false` steps pointed at a
+non-repo staging dir — is skipped the same as before; the guard is on `.git`
+presence, not on the `git: false` flag itself. The committer no-ops when the isolated index
+tree matches `HEAD^{tree}` (reprompt-only or advisory-only iterations with no
+materialized diff). Iteration commits use the step binding's `Jarvis-Agent`
+label, a `Spec:` line for the active subspec path (`expectedArtifactPath` when
+that file exists in the worktree, otherwise the run `specPath`), and a subject
+from binding metadata `title` when set, else the same creation-title fallback
+as terminal completion. A throwing committer or missing agent label stops the
+run `failed` with `iteration_commit_failed` (resumable); the loop does not
+advance to another iteration — this failure now reaches a path that was
+previously unreachable (the guard used to skip the call entirely), and resumes
+like any other write-loop failure. `iteration_timeout` and other terminal
+outcomes do not trigger per-iteration git commits. Push and PR publication
+remain on terminal `complete` only.
+
+Every `progress` iteration appends a distinct `iteration_commit` log event
+(`v2/src/persistence/log-stream.ts`), separate from the SQLite-only
+`boundary_committed` event that follows it — one is a git commit, the other a
+state-store boundary, and they must stay distinguishable. The event carries
+`commitSha` when this iteration produced a new commit, or `skipReason` (`no_git`
+| `no_file_changes`) when it did not. The discriminator: capture
+`headBefore = git rev-parse HEAD` before invoking the committer, then classify
+its result as `no_git` (no `.git`), `no_file_changes` (committer returned no
+sha, or returned `headBefore` unchanged — a reused HEAD, not a fresh commit),
+or a fresh `commitSha` otherwise. A no-change iteration that follows a
+committing iteration reports `no_file_changes`, never the prior iteration's
+stale sha.
+
+Git-backed plan/intent workflow steps commit their staging-artifact changes
+(e.g. `.jarvis-intent-stage/`) in-flight the same as any other step; the
+landing step's own subsequent commit still removes those artifacts from the
+final tree, same as today's terminal-commit behavior.
+
+The implement step's pre-shrink commit (workflow-runner.ts) anchors its
+shrink/publication reset at the true pre-implement HEAD, not at whatever this
+step's own progress iterations already committed: the worktree is materialized
+first, then `headBefore` is sampled unconditionally before the step's write
+loop starts, and publication resets `--mixed` to that value directly — not to
+`<createdCommitSha>^`, which would land one iteration commit short of
+pre-implement HEAD once a clean tree at implement completion makes the
+pre-shrink committer call reuse HEAD instead of creating fresh.
 
 **Push+PR phase:** (when commit succeeds, or resume finds an already-committed
 HEAD) starts at upstream detection: a branch without upstream tracking uses

@@ -27,6 +27,11 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("outcomeKind", event.outcomeKind);
       add("runStatus", event.runStatus);
       break;
+    case "iteration_commit":
+      add("attemptId", event.attemptId);
+      if ("commitSha" in event) add("commitSha", event.commitSha);
+      else add("skipReason", event.skipReason);
+      break;
     case "loop_finished":
       add("loopOutcomeKind", event.loopOutcomeKind);
       add("iterationsConsumed", event.iterationsConsumed);

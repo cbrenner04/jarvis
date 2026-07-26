@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { completeLinkedSubspec, resolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
@@ -608,7 +609,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastStepId = "";
     let completionAgent: string | undefined;
     let shrinkNarrative: string | undefined;
-    let preShrinkCommit: { worktreePath: string; sha: string } | undefined;
+    let preImplementResetAnchor: { worktreePath: string; sha: string } | undefined;
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
@@ -625,6 +626,19 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         !implementReviewEligible
       ) {
         continue;
+      }
+
+      // Per-iteration commits during this step's own write loop can advance HEAD before we ever
+      // reach the pre-shrink commit below, so the pre-implement anchor must be sampled here, before
+      // any of this step's iterations run — not read back out of HEAD after the fact. The worktree
+      // is materialized first so the sample never depends on lazy creation happening inside the step.
+      let headBeforeImplementStep: string | undefined;
+      if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
+        const worktreePathForStep = getExternalWorktreePath(step.worktree);
+        await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
+        if (existsSync(join(worktreePathForStep, ".git"))) {
+          headBeforeImplementStep = await getCurrentHeadAsync(worktreePathForStep);
+        }
       }
 
       const stepResult = await runWorkflowStep(
@@ -678,7 +692,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           agent: completionAgent ?? step.agents[0] ?? "implement",
           title,
         });
-        if (committed.commitSha !== undefined) preShrinkCommit = { worktreePath, sha: committed.commitSha };
+        if (committed.commitSha !== undefined) {
+          // Same guard (write/implement/!suppressShrink) as the sampling block above, so this is always set.
+          preImplementResetAnchor = { worktreePath, sha: headBeforeImplementStep as string };
+        }
         const shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
@@ -846,11 +863,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const worktreePath = getExternalWorktreePath(worktree);
         const publicationPath = publicationSpecPath ?? completionStep.specPath;
         try {
-          if (preShrinkCommit !== undefined) {
+          if (preImplementResetAnchor !== undefined) {
             await realAsyncSubprocessRunner.runAsync(
               "git",
-              ["reset", "--mixed", `${preShrinkCommit.sha}^`],
-              preShrinkCommit.worktreePath,
+              ["reset", "--mixed", preImplementResetAnchor.sha],
+              preImplementResetAnchor.worktreePath,
             );
           }
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);

@@ -6,10 +6,12 @@ import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
+  createStaleResetDaemonClient,
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
@@ -21,6 +23,15 @@ import {
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
+
+function daemonClientWithFreeClaimProbe(
+  listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],
+  claimProbe?: DaemonClient["checkWorkflowStartClaim"],
+): DaemonClient {
+  const daemonClient = listRuns as DaemonClient;
+  daemonClient.checkWorkflowStartClaim = claimProbe ?? (async () => ({ status: "free" }));
+  return daemonClient;
+}
 
 describe("cleanup: end-to-end via runCleanupCommand", () => {
   let tempRoot: string;
@@ -2094,6 +2105,38 @@ describe("cleanup: dead daemon socket reaping", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
+
+  socketTest("createStaleResetDaemonClient returns only runs matching both project and branch", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000013.sock");
+    rmSync(socket, { force: true });
+    const server = await startIpcServer(socket, {
+      list: () => ({
+        kind: "response",
+        result: {
+          runs: [
+            { project: "wanted", branch: "wanted-branch", isLive: true },
+            { project: "wanted", branch: "other-branch", isLive: false },
+            { project: "other", branch: "wanted-branch", isLive: false },
+            { project: "other", branch: "other-branch", isLive: false },
+          ],
+        },
+      }),
+    });
+
+    try {
+      const client = await connectIpcClient(socket);
+      try {
+        const rows = await createStaleResetDaemonClient(client)("wanted", "wanted-branch");
+        // Exactly the both-fields match. An inverted comparison on either field selects
+        // the other three rows instead, so this fails if the filter flips.
+        expect(rows).toEqual([{ isLive: true }]);
+      } finally {
+        client.close();
+      }
+    } finally {
+      await server.close();
+    }
+  });
 });
 
 describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
@@ -2102,7 +2145,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   let jarvisRoot: string;
 
   const silentIo = { stdout: () => {}, stderr: () => {} };
-  const noLiveDaemon: DaemonClient = async () => [];
+  const noLiveDaemon = daemonClientWithFreeClaimProbe();
 
   type OpenPr = { number: number; isDraft: boolean };
 
@@ -2132,6 +2175,11 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     options?: ResetStaleWorkspaceOptions,
   ) {
     return resetStaleWorkspace("project", branch, projectRoot, jarvisRoot, runner, daemonClient, io, options);
+  }
+
+  function genericRefusalReason(result: Awaited<ReturnType<typeof resetStaleWorkspace>>): string {
+    if (result.status !== "refused" || "code" in result) return "";
+    return result.reason;
   }
 
   function ghPrListRunner(prs: OpenPr[]): AsyncSubprocessRunner {
@@ -2211,7 +2259,11 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const branch = "impl/live-held";
     const worktreePath = await setupWorktreeAndBranch(branch);
 
-    const result = await callReset(branch, realAsyncSubprocessRunner, async () => [{ isLive: true }]);
+    const result = await callReset(
+      branch,
+      realAsyncSubprocessRunner,
+      daemonClientWithFreeClaimProbe(async () => [{ isLive: true }]),
+    );
 
     expect(result).toEqual({ status: "refused", reason: expect.stringContaining("live run") });
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -2354,8 +2406,8 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, mockRunner);
 
     expect(result.status).toBe("refused");
-    expect(result.status === "refused" ? result.reason : "").toContain("remote branch deletion");
-    expect(result.status === "refused" ? result.reason : "").toContain("worktree and local branch removed");
+    expect(genericRefusalReason(result)).toContain("remote branch deletion");
+    expect(genericRefusalReason(result)).toContain("worktree and local branch removed");
   });
 
   test("reset succeeds when the branch was never pushed to origin", async () => {
@@ -2403,7 +2455,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, mockRunner);
 
     expect(result.status).toBe("refused");
-    if (result.status !== "refused") throw new Error("expected refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
     expect(result.reason).toContain("worktree has uncommitted changes");
     expect(result.reason).toContain(trackedRel);
     expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
@@ -2421,7 +2473,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, ghPrListRunner([{ number: 802, isDraft: true }]));
 
     expect(result.status).toBe("refused");
-    if (result.status !== "refused") throw new Error("expected refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
     expect(result.reason).toContain("leftover.txt");
     expect(result.reason).toContain("discard local changes");
     expect(result.reason).toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
@@ -2446,7 +2498,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, mockRunner);
 
     expect(result.status).toBe("refused");
-    if (result.status !== "refused") throw new Error("expected refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
     expect(result.reason).toContain("worktree has uncommitted changes");
     expect(result.reason).toContain("unparseable git status output");
     expect(result.reason).toContain("jarvis cleanup --abandon");
@@ -2468,14 +2520,14 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     const result = await callReset(branch, mockRunner);
     expect(result.status).toBe("refused");
-    if (result.status !== "refused") throw new Error("expected refused");
+    if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
     expect(result.reason).toContain("could not list worktree changes");
     expect(result.reason).toContain("git status unavailable");
     expect(result.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
 
     const overrideResult = await callReset(branch, mockRunner, noLiveDaemon, silentIo, { skipDirtyWorktreeGate: true });
     expect(overrideResult.status).toBe("refused");
-    if (overrideResult.status !== "refused") throw new Error("expected refused");
+    if (overrideResult.status !== "refused" || "code" in overrideResult) throw new Error("expected generic refused");
     expect(overrideResult.reason).toContain("could not list worktree changes");
     expect(overrideResult.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
 
@@ -2578,6 +2630,106 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     };
     const listed = await listDirtyWorktreePathsForStaleReset("/unused", runner);
     expect(listed).toEqual({ status: "dirty", paths: [] });
+  });
+
+  // Guard inversion pair: positive case is `resetStaleWorkspace still retires when claim probe reports unclaimed`.
+  test("resetStaleWorkspace refuses when worktree key is claimed", async () => {
+    const branch = "impl/daemon-claimed";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", branch], projectRoot);
+
+    const teardownCalls: string[] = [];
+    const openDraftPr = { number: 901, isDraft: true };
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([openDraftPr]);
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("remote-delete");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const claimedDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => ({
+        status: "claimed",
+        message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
+      }),
+    );
+
+    const result = await callReset(branch, mockRunner, claimedDaemon);
+
+    expect(result).toEqual({
+      status: "refused",
+      code: "worktree_claimed",
+      message: "Worktree already claimed for project=project, branch=impl/daemon-claimed",
+    });
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const localBranches = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(localBranches.trim()).toContain(branch);
+    const remoteBranches = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["branch", "-r", "--list", `origin/${branch}`],
+      projectRoot,
+    );
+    expect(remoteBranches.trim()).toContain(`origin/${branch}`);
+    const prListAfter = await mockRunner.runAsync("gh", ["pr", "list"], projectRoot);
+    expect(JSON.parse(prListAfter)).toEqual([openDraftPr]);
+  });
+
+  test("resetStaleWorkspace refuses fail-closed when claim probe is missing or throws", async () => {
+    const branch = "impl/claim-probe-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const listOnlyDaemon = (async () => []) as DaemonClient;
+    const missingProbeResult = await callReset(branch, mockRunner, listOnlyDaemon);
+    expect(missingProbeResult.status).toBe("refused");
+    expect("code" in missingProbeResult).toBe(false);
+    expect(genericRefusalReason(missingProbeResult)).toContain("missing workflow start claim probe");
+    expect(teardownCalls).toEqual([]);
+
+    const throwingDaemon = daemonClientWithFreeClaimProbe(
+      async () => [],
+      async () => {
+        throw new Error("rpc down");
+      },
+    );
+    const throwResult = await callReset(branch, mockRunner, throwingDaemon);
+    expect(throwResult.status).toBe("refused");
+    expect("code" in throwResult).toBe(false);
+    expect(genericRefusalReason(throwResult)).toContain("daemon claim check failed");
+    expect(genericRefusalReason(throwResult)).toContain("rpc down");
+    expect(teardownCalls).toEqual([]);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace still retires when claim probe reports unclaimed", async () => {
+    const branch = "impl/claim-gate-inversion";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 804, isDraft: true }]), noLiveDaemon);
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
   });
 
   test("listDirtyWorktreePathsForStaleReset reports porcelain paths", async () => {

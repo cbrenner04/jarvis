@@ -224,7 +224,12 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 - **Pre-mutation refusal** — nothing was touched. Raised when the workspace is
   live-held, the matching PR is ready (non-draft), multiple open PRs match the
-  branch, or the materialized worktree has uncommitted tracked or untracked paths;
+  branch, the daemon already holds the `(project, branch)` claim that would
+  refuse workflow `start` (`worktree_claimed:` on stderr; worktree, local and
+  remote branches, and open PR stay intact), the daemon claim-check RPC fails
+  (generic `Cannot re-run incomplete spec:` wrapper — not `worktree_claimed:`;
+  no retirement), or the materialized worktree has uncommitted tracked or
+  untracked paths;
   stderr names the blocking state (for a dirty worktree, paths and recovery:
   commit, discard local changes, pass `--reset-despite-dirty` on the incomplete
   re-run to retire despite local edits (listing failure still refuses), or run
@@ -522,11 +527,41 @@ shows its terminal status. Telemetry remains the per-role audit trail.
 
 ### Workflow reports a stale worktree claim
 
+Distinguish five cases:
+
+1. **Pre-mutation claim refusal** — incomplete implement/plan re-run refused
+   before stale retirement with `worktree_claimed:` (not the `Cannot re-run
+   incomplete spec:` wrapper). Worktree, branches, remote, and PR are untouched.
+   Wait for the owning run to finish or release the key, then re-run.
+2. **Pre-mutation claim-check failure** — daemon claim probe missing or RPC
+   error; refused with `Cannot re-run incomplete spec:` (not `worktree_claimed:`).
+   No retirement. Restore daemon IPC and retry.
+3. **Post-retirement `start` failure** — retirement already ran, then `start`
+   returned `worktree_claimed`. This is the bug class pre-mutation claim gating
+   prevents; if you still see it on an older build, inspect partial teardown
+   before re-invoking.
+4. **Claim acquired after retirement but before `start`** — another dispatcher
+   claimed the key in the gap; artifacts may already be gone. Finish any partial
+   teardown by hand before re-running.
+5. **Partial teardown already happened** — use the `Retirement destroyed
+   artifacts:` summary and [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback)
+   remnants table; re-invoke is not always safe.
+
+The pre-mutation client probe uses the same admission predicate as workflow
+`start` (queued rows and registry claims, not `list` `isLive` alone). Stale
+in-memory workflow claims that `start` would reclaim at admission match the
+probe too — retirement may proceed when post-reclaim admission would succeed.
+The probe still refuses before retirement when `start` would refuse without
+reclaim (queued rows or a live registry-held claim), which prevents destruction.
+A missing claim probe or claim-check RPC error refuses with the generic
+incomplete-spec wrapper and performs no retirement (distinct from
+`worktree_claimed:` and from live-held’s tolerant `list` behavior).
+
 If a workflow start returns `worktree_claimed` after its prior owner is no longer
-live, invoke the workflow again. The daemon drops that in-memory workflow claim
-at admission and preserves all worktree and branch state; do not restart the daemon
-or remove a worktree for this case. A genuinely live owner remains protected and
-continues to reject the same `(project, branch)`.
+live and retirement did not run, invoke the workflow again. The daemon drops that
+in-memory workflow claim at admission and preserves all worktree and branch state;
+do not restart the daemon or remove a worktree for this case. A genuinely live
+owner remains protected and continues to reject the same `(project, branch)`.
 
 ### v2 debris blocks the `jarvis1` fallback
 

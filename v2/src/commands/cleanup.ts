@@ -1,6 +1,6 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { getCurrentBranchAsync } from "../../../shared/git.ts";
+import { getCurrentBranchAsync, originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import {
   AsyncSubprocessError,
@@ -907,13 +907,19 @@ async function resolveName(
 }
 
 /** Retirement steps, in execution order. */
-type RetirementStep = "worktree removal" | "local branch deletion" | "remote branch deletion" | "PR closure";
+type RetirementStep =
+  | "worktree removal"
+  | "local branch deletion"
+  | "remote branch deletion"
+  | "remote tracking ref deletion"
+  | "PR closure";
 
 export type DestroyedArtifacts = {
   closedPrNumber?: number;
   worktreePath?: string;
   localBranch?: string;
   remoteBranch?: string;
+  remoteTrackingRef?: string;
 };
 
 type AbandonOutcome =
@@ -929,8 +935,32 @@ function remainingArtifactsAfter(step: RetirementStep): string {
       return "local branch, remote branch, and PR remain (worktree removed)";
     case "remote branch deletion":
       return "remote branch and PR remain (worktree and local branch removed)";
+    case "remote tracking ref deletion":
+      return "remote-tracking ref and PR remain (worktree, local branch, and remote branch removed)";
     case "PR closure":
-      return "PR remains open (worktree, local branch, and remote branch removed)";
+      return "PR remains open (worktree, local branch, remote branch, and remote-tracking ref removed)";
+  }
+}
+
+async function pruneStaleOriginRemoteTrackingRef(
+  branch: string,
+  cwd: string,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void },
+): Promise<{ ok: true; pruned?: string } | { ok: false; message: string }> {
+  if (!(await originTrackingRefResolvesAsync(cwd, branch, runner))) {
+    return { ok: true };
+  }
+  try {
+    await runner.runAsync("git", ["update-ref", "-d", `refs/remotes/origin/${branch}`], cwd);
+    if (await originTrackingRefResolvesAsync(cwd, branch, runner)) {
+      return { ok: false, message: "remote-tracking ref still resolves after prune" };
+    }
+    const label = `origin/${branch}`;
+    io.stdout(`Pruned stale remote-tracking ref: ${label}\n`);
+    return { ok: true, pruned: label };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -1021,6 +1051,15 @@ async function performAbandonmentSteps(
   }
   destroyed.remoteBranch = branch;
 
+  const pruneTracking = await pruneStaleOriginRemoteTrackingRef(branch, cwd, runner, io);
+  if (!pruneTracking.ok) {
+    io.stderr(`Failed to prune remote-tracking ref origin/${branch}: ${pruneTracking.message}\n`);
+    return { ok: false, step: "remote tracking ref deletion", destroyed };
+  }
+  if (pruneTracking.pruned !== undefined) {
+    destroyed.remoteTrackingRef = pruneTracking.pruned;
+  }
+
   if (prNumber !== undefined) {
     try {
       await runner.runAsync("gh", ["pr", "close", String(prNumber)], cwd);
@@ -1086,6 +1125,9 @@ export async function runAbandonCommand(
   io.stdout(`  remove: worktree at ${worktreePath}\n`);
   io.stdout(`  delete: local branch ${branch}\n`);
   io.stdout(`  delete: remote branch ${branch}\n`);
+  if (projectRoot !== undefined && (await originTrackingRefResolvesAsync(projectRoot, branch, runner))) {
+    io.stdout(`  prune: stale remote-tracking ref origin/${branch}\n`);
+  }
   if (prNumber !== undefined) {
     io.stdout(`  close: PR #${prNumber}\n`);
   }

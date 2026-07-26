@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch, isWorktreeDirty } from "./git.ts";
 import type { SubprocessRunner } from "./subprocess.ts";
 
@@ -36,20 +40,62 @@ describe("branchExistsLocal", () => {
 });
 
 describe("branchExistsOnOrigin", () => {
-  test("true only after the branch is fetched into a remote-tracking ref", () => {
-    const beforeFetch = fakeRunner({
-      "git rev-parse --verify origin/main": new Error("not a valid ref"),
+  test("true only when ls-remote reports a head", () => {
+    const exists = fakeRunner({
+      "git ls-remote --heads origin main": "abc123\trefs/heads/main\n",
+      "git ls-remote --heads origin nope": "",
     });
-    expect(branchExistsOnOrigin("/repo", "main", beforeFetch)).toBe(false);
+    expect(branchExistsOnOrigin("/repo", "main", exists)).toBe(true);
+    expect(branchExistsOnOrigin("/repo", "nope", exists)).toBe(false);
+    expect(exists.calls).toEqual([
+      { args: ["git", "ls-remote", "--heads", "origin", "main"], cwd: "/repo" },
+      { args: ["git", "ls-remote", "--heads", "origin", "nope"], cwd: "/repo" },
+    ]);
 
-    const afterFetch = fakeRunner({
-      "git rev-parse --verify origin/main": "def456\n",
-      "git rev-parse --verify origin/nope": new Error("not a valid ref"),
+    const lsRemoteFails = fakeRunner({
+      "git ls-remote --heads origin main": new Error("no origin"),
     });
-    expect(branchExistsOnOrigin("/repo", "main", afterFetch)).toBe(true);
-    expect(branchExistsOnOrigin("/repo", "nope", afterFetch)).toBe(false);
+    expect(branchExistsOnOrigin("/repo", "main", lsRemoteFails)).toBe(false);
+  });
+
+  const fixtureRoots: string[] = [];
+
+  afterEach(() => {
+    for (const root of fixtureRoots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("false when only a stale origin tracking ref remains", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-git-stale-origin-"));
+    fixtureRoots.push(root);
+    const bare = join(root, "origin.git");
+    const repo = join(root, "repo");
+    mkdirSync(repo, { recursive: true });
+    execSync(`git init --bare ${bare}`);
+    execSync("git init -b main", { cwd: repo });
+    execSync('git config user.email "t@example.com"', { cwd: repo });
+    execSync('git config user.name "t"', { cwd: repo });
+    execSync(`git remote add origin ${bare}`, { cwd: repo });
+    writeFileAndCommit(repo, "README.md", "seed\n", "init");
+    execSync("git push -u origin main", { cwd: repo });
+    execSync("git checkout -b feature", { cwd: repo });
+    writeFileAndCommit(repo, "feature.txt", "x\n", "feature");
+    execSync("git push -u origin feature", { cwd: repo });
+    execSync("git update-ref -d refs/heads/feature", { cwd: bare });
+    execSync("git checkout main", { cwd: repo });
+
+    expect(execSync("git rev-parse --verify origin/feature", { cwd: repo, encoding: "utf8" }).trim()).toMatch(
+      /^[0-9a-f]{40}$/,
+    );
+    expect(branchExistsOnOrigin(repo, "feature")).toBe(false);
   });
 });
+
+function writeFileAndCommit(repo: string, relPath: string, body: string, message: string): void {
+  writeFileSync(join(repo, relPath), body);
+  execSync(`git add ${relPath} && git commit -m ${message}`, { cwd: repo });
+}
 
 describe("getCurrentBranch", () => {
   test("returns the checked-out branch", () => {

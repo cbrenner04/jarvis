@@ -38,9 +38,22 @@ export function branchExistsLocal(
   }
 }
 
+function originHeadListedInLsRemote(output: string, branchName: string): boolean {
+  const want = `refs/heads/${branchName}`;
+  for (const line of output.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) continue;
+    const tab = trimmed.indexOf("\t");
+    if (tab === -1) continue;
+    if (trimmed.slice(tab + 1) === want) return true;
+  }
+  return false;
+}
+
 /**
- * True when `origin/<branchName>` resolves in `projectRoot`. Reads the local
- * remote-tracking ref only; callers that need freshness fetch first.
+ * True when `origin` has branch `branchName` per `git ls-remote --heads`. Fails closed
+ * (false) when `ls-remote` errors or returns no matching head; a local remote-tracking
+ * ref alone does not count.
  */
 export function branchExistsOnOrigin(
   projectRoot: string,
@@ -48,8 +61,8 @@ export function branchExistsOnOrigin(
   runner: SubprocessRunner = realSubprocessRunner,
 ): boolean {
   try {
-    runner.run("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
-    return true;
+    const output = runner.run("git", ["ls-remote", "--heads", "origin", branchName], projectRoot);
+    return originHeadListedInLsRemote(output, branchName);
   } catch {
     return false;
   }
@@ -89,8 +102,22 @@ export async function branchExistsLocalAsync(
   }
 }
 
-/** Async version: True when `origin/<branchName>` resolves in `projectRoot`. */
-export async function branchExistsOnOriginAsync(
+/** True when `origin/<branchName>` resolves locally (may be stale vs `ls-remote`). */
+export function originTrackingRefResolves(
+  projectRoot: string,
+  branchName: string,
+  runner: SubprocessRunner = realSubprocessRunner,
+): boolean {
+  try {
+    runner.run("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when `origin/<branchName>` resolves locally (may be stale vs `ls-remote`). */
+export async function originTrackingRefResolvesAsync(
   projectRoot: string,
   branchName: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
@@ -98,6 +125,20 @@ export async function branchExistsOnOriginAsync(
   try {
     await runner.runAsync("git", ["rev-parse", "--verify", `origin/${branchName}`], projectRoot);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Async version: True when `origin` lists `branchName` per `git ls-remote --heads`. */
+export async function branchExistsOnOriginAsync(
+  projectRoot: string,
+  branchName: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    const output = await runner.runAsync("git", ["ls-remote", "--heads", "origin", branchName], projectRoot);
+    return originHeadListedInLsRemote(output, branchName);
   } catch {
     return false;
   }

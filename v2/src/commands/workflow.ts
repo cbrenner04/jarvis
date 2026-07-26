@@ -239,6 +239,7 @@ function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string 
   if (destroyed.worktreePath) lines.push(`  worktree: ${destroyed.worktreePath}`);
   if (destroyed.localBranch) lines.push(`  local branch: ${destroyed.localBranch}`);
   if (destroyed.remoteBranch) lines.push(`  remote branch: ${destroyed.remoteBranch}`);
+  if (destroyed.remoteTrackingRef) lines.push(`  remote-tracking ref: ${destroyed.remoteTrackingRef}`);
   if (destroyed.closedPrNumber) lines.push(`  PR: #${destroyed.closedPrNumber}`);
   return lines.join("\n");
 }

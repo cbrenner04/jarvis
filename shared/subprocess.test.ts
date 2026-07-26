@@ -139,10 +139,10 @@ describe("predicate parity", () => {
   });
 
   test("branchExistsOnOrigin and branchExistsOnOriginAsync agree on success and failure", async () => {
-    const syncExists = fakeRunner({ "git rev-parse --verify origin/main": "def456\n" });
-    const syncMissing = fakeRunner({ "git rev-parse --verify origin/nope": new Error("not a valid ref") });
-    const asyncExists = fakeAsyncRunner({ "git rev-parse --verify origin/main": "def456\n" });
-    const asyncMissing = fakeAsyncRunner({ "git rev-parse --verify origin/nope": new Error("not a valid ref") });
+    const syncExists = fakeRunner({ "git ls-remote --heads origin main": "def456\trefs/heads/main\n" });
+    const syncMissing = fakeRunner({ "git ls-remote --heads origin nope": "" });
+    const asyncExists = fakeAsyncRunner({ "git ls-remote --heads origin main": "def456\trefs/heads/main\n" });
+    const asyncMissing = fakeAsyncRunner({ "git ls-remote --heads origin nope": "" });
 
     expect(branchExistsOnOrigin("/repo", "main", syncExists)).toBe(true);
     expect(await branchExistsOnOriginAsync("/repo", "main", asyncExists)).toBe(true);

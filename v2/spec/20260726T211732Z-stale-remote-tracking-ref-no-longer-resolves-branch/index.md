@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Remote branch existence via `ls-remote`](./00-remote-branch-existence-via-ls-remote.md)
-- [ ] [01 - Reset prunes stale remote-tracking ref](./01-reset-prunes-stale-remote-tracking-ref.md)
+- [x] [00 - Remote branch existence via `ls-remote`](./00-remote-branch-existence-via-ls-remote.md)
+- [x] [01 - Reset prunes stale remote-tracking ref](./01-reset-prunes-stale-remote-tracking-ref.md)

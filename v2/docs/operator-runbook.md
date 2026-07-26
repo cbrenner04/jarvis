@@ -201,6 +201,12 @@ the checkout problem and retry: no routing read, run row, or agent invocation
 occurred. A later routing index read returns `routing_read_failed`; its message
 names the resolved index path and underlying read reason.
 
+Remote branch presence for materialization uses `git ls-remote --heads origin
+<branch>` (`branchExistsOnOriginAsync` in `shared/git.ts`), not a local
+`origin/<branch>` tracking ref alone. `ls-remote` errors or empty output are
+treated as absent on the remote (fail-closed false), so offline or auth failure
+can bias recreation toward `--base` even when a remote branch still exists.
+
 Before daemon contact, `jarvis run workflow implement` reads the requested spec
 tree. If all non-human-only criteria are checked, it exits `1` with
 `implement.already_complete`; no worktree, agent invocation, or run row exists.
@@ -209,7 +215,8 @@ Linked-index checkboxes are not the completion source of truth.
 On an incomplete re-run with git enabled, preflight retires a stale workspace for
 the resolved `(project, branch)` after daemon connect and before the write step
 starts, in this order: remove the materialized worktree, delete the local branch,
-delete the remote branch, then close the matching open draft PR (when exactly one
+delete the remote branch, prune a stale `origin/<branch>` remote-tracking ref when
+it still resolves locally, then close the matching open draft PR (when exactly one
 exists), so materialization recreates from `--base`. The sequence aborts at the
 first failing step. First runs with no existing worktree skip this path.
 
@@ -239,7 +246,7 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
   and commands), then re-run. When any retirement step destroyed artifacts before
   the invocation exits non-zero, stderr also prints a `Retirement destroyed
   artifacts:` block listing each destruction event from this invocation (closed PR
-  number, worktree path, local branch, remote branch) — not a live re-probe of git
+  number, worktree path, local branch, remote branch, pruned remote-tracking ref) — not a live re-probe of git
   or GitHub. A started run may have recreated the worktree and branch after
   retirement; treat the summary as a teardown log, not current state. Because the
   guard now runs after connect, a refused re-run leaves behind the daemon it
@@ -470,6 +477,14 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
 
+### Stale `origin/<branch>` after hand-merge
+
+Hand-pushed or hand-merged run branches often leave `refs/remotes/origin/<branch>` on disk
+after GitHub deletes the remote head. Incomplete git-enabled `jarvis run workflow implement`
+or `plan` re-runs (`resetStaleWorkspace` preflight) now prune that remote-tracking ref during
+retirement and print `Pruned stale remote-tracking ref: origin/<branch>` on success stdout when
+one was removed. `jarvis cleanup --abandon` uses the same retirement sequence.
+
 ### Intent finalization failed with staged files remaining
 
 A reviewed intent workflow can fail after critic/actuator succeed but landing
@@ -570,7 +585,7 @@ jarvis cleanup --abandon <name> && answer 'y'  # confirm removal
 jarvis cleanup --yes --abandon <name>  # agent/scripted removal
 ```
 
-`--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions in order (remove worktree, delete local branch, delete remote branch, close PR), prompts for confirmation, then executes them sequentially. Remote deletion is a no-op success when the branch was never pushed or the repo has no `origin`; a real remote failure (auth, network, protected ref) aborts. If any step fails, the operation stops immediately and exits nonzero. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
+`--abandon <name>` resolves the workspace name to its branch, worktree path, and matching open PR. It previews the planned actions in order (remove worktree, delete local branch, delete remote branch, prune stale remote-tracking ref when present, close PR), prompts for confirmation, then executes them sequentially. Remote deletion is a no-op success when the branch was never pushed or the repo has no `origin`; a real remote failure (auth, network, protected ref) aborts. Successful retirement stdout names each step, including a pruned `origin/<branch>` remote-tracking ref when one was removed. If any step fails, the operation stops immediately and exits nonzero. It leaves source spec files and durable run rows intact. It refuses before touching anything if the worktree is missing or held by a live run (daemon `isLive` or locked by `.jarvis.lock`).
 
 **Partial retirement.** An abort leaves everything from the failed step onward, and stderr names both the step and the remnants. `--abandon` cannot resume once the worktree is gone (name resolution only sees materialized worktrees), so finish by hand from the project root:
 

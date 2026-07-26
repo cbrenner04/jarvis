@@ -30,29 +30,29 @@ origin” for materialization.
 
 ## Task checklist
 
-- [ ] After the remote-delete step in `performAbandonmentSteps`, delete a resolving
+- [x] After the remote-delete step in `performAbandonmentSteps`, delete a resolving
   `refs/remotes/origin/<branch>` when present; extend `DestroyedArtifacts` (e.g.
   `remoteTrackingRef`) and summary/stdout formatting; abort retirement on delete failure.
-- [ ] Add `cleanup.test.ts` coverage: fixture with worktree, local branch, and stale
+- [x] Add `cleanup.test.ts` coverage: fixture with worktree, local branch, and stale
   `origin/<branch>` tracking ref while bare `origin` lacks the head; `resetStaleWorkspace` removes
   all three classes of refs.
-- [ ] Add `workflow.test.ts` regression `redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref`:
+- [x] Add `workflow.test.ts` regression `redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref`:
   seed stale local branch + stale `refs/remotes/origin/<branch>` + external worktree, run incomplete
   `run workflow implement` re-run, assert the new worktree's branch tip matches `--base`, not the
   stale pre-merge tip.
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` `resetStaleWorkspace prunes stale origin tracking ref when remote head is absent`
+- [x] `cleanup.test.ts` `resetStaleWorkspace prunes stale origin tracking ref when remote head is absent`
   (or the implemented test name) fails against the pre-fix code and passes after the change.
-- [ ] `workflow.test.ts` `redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref`
+- [x] `workflow.test.ts` `redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref`
   fails against the pre-fix code and passes after subspecs 00 and 01 land.
-- [ ] Reset reporting names the pruned remote-tracking ref when one was removed (assert via
+- [x] Reset reporting names the pruned remote-tracking ref when one was removed (assert via
   `destroyed` record and/or abandonment stdout in `cleanup.test.ts`); fails against the pre-fix code.
-- [ ] Guard-inversion on the prune step fails when inverted: stale `origin/<branch>` survives
+- [x] Guard-inversion on the prune step fails when inverted: stale `origin/<branch>` survives
   `resetStaleWorkspace` when the remote head is absent.
-- [ ] `cleanup.test.ts` `abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR` stays green (extend ordering/reporting assertions if the prune step is inserted).
-- [ ] `cleanup.test.ts` describe `resetStaleWorkspace: incomplete implement re-run reset` stays green.
+- [x] `cleanup.test.ts` `abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR` stays green (extend ordering/reporting assertions if the prune step is inserted).
+- [x] `cleanup.test.ts` describe `resetStaleWorkspace: incomplete implement re-run reset` stays green.
 
 ## Documentation updates
 

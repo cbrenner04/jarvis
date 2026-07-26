@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { withExternalWorktree } from "../execution/external-worktree.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
@@ -1263,6 +1265,84 @@ describe("implement preflight stale workspace reset", () => {
     expect(list).toContain(worktreePath);
     const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch"], resetProjectRoot);
     expect(branchList).toContain(resetBranch);
+  });
+
+  test("redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref", async () => {
+    const cap = captureIo();
+    const originRoot = join(resetTmp, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
+    await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], resetProjectRoot);
+    mkdirSync(join(resetProjectRoot, "node_modules"), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", "HEAD"], resetProjectRoot);
+
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", resetBranch], resetProjectRoot);
+    writeFileSync(join(resetProjectRoot, "stale-advance.md"), "stale\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "stale advance"], resetProjectRoot);
+    const staleTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    expect(staleTip).not.toBe(baseHead);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${resetBranch}`], originRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", baseHead], resetProjectRoot);
+
+    const worktreePath = join(resetJarvisRoot, "worktrees", "demo", resetBranch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, resetBranch], resetProjectRoot);
+    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(true);
+
+    const subprocessRunner = staleResetSubprocessRunner();
+    const baseStep = resetImplementSteps()[0];
+    if (baseStep === undefined || baseStep.behavior !== "write") {
+      throw new Error("expected implement write step");
+    }
+    const stepsWithBase: AnyWorkflowStep[] = [
+      {
+        ...baseStep,
+        worktree: { ...baseStep.worktree, baseRef: baseHead },
+      },
+    ];
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", baseHead, "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner,
+          workflowPresetBuilders: {
+            implement: () => ({ ok: true as const, steps: stepsWithBase }),
+          },
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(
+              workflowFrames("start", "wait", "run-redispatch-stale-origin", COMPLETED_WAIT_RESULT),
+            ),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    expect(await originTrackingRefResolvesAsync(resetProjectRoot, resetBranch, realAsyncSubprocessRunner)).toBe(false);
+
+    await withExternalWorktree(
+      {
+        projectRoot: resetProjectRoot,
+        projectName: "demo",
+        branchName: resetBranch,
+        baseRef: baseHead,
+        jarvisRoot: resetJarvisRoot,
+      },
+      async (worktree) => {
+        const branchTip = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+        ).trim();
+        expect(branchTip).toBe(baseHead);
+        const worktreeHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktree.path)
+        ).trim();
+        expect(worktreeHead).toBe(baseHead);
+      },
+      subprocessRunner,
+    );
   });
 });
 

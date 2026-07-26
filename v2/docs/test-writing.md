@@ -36,6 +36,45 @@ The v2 integration slice is derived from the filename convention: a `*.sandbox-u
 
 Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
+`runV2TestFiles` (`scripts/run-v2-tests.ts`) spawns each file asynchronously and captures its
+stdout/stderr instead of inheriting the parent's stdio; each file's captured output is flushed as
+one contiguous block, headed by a `--- <file> ---` line, as soon as that file settles — including
+output captured before a kill, which is never dropped. Per-file timeout is classified from the
+timer that fired the kill, not inferred from `signal`/`status` on the result, so an
+externally-delivered `SIGKILL` within budget is reported as an ordinary failure rather than a
+timeout.
+
+### Bounded concurrency pool
+
+`runV2TestFiles` runs files under a bounded pool of concurrent `bun test <file>` children instead
+of one at a time. `test:v2` and `test:integration:v2` inherit the pool because both route through
+this shared seam; `scripts/run-tests.ts`'s integration phase is routed onto the same seam (not a
+separate `spawnSync` loop) so it gets the same per-file timeout and captured-output attribution.
+`test:cost` (`scripts/measure-test-cost.ts`) stays serial — it is a measurement tool, not the gate.
+
+The concurrency limit defaults to half of `availableParallelism()` (floor 1) — `defaultConcurrency`
+in `scripts/run-v2-tests.ts`. This is deliberately headroom-driven, not tuned to the pooled phase's
+performance knee: the pooled phase plateaus around 4 concurrent files (bounded by the slowest
+pooled file, `v1/test/run.test.ts` at 108.8s), well below half of an 18-core box's parallelism. The
+extra headroom guards against self-saturation, the condition under which known load-dependent test
+flakes reproduce — trading a wider margin for less contention risk, not chasing peak throughput.
+
+`resolveConcurrency` resolves the limit with this precedence: an explicit override argument wins
+over the `JARVIS_TEST_CONCURRENCY` env var, which wins over the derived default. A malformed or `0`
+env value falls back to the derived default rather than throwing.
+
+Wall clock: theoretical floor is `158.7 + max(pooled / N, 108.8)` ≈ 267s (158.7s is the isolated
+sandbox-unrunnable phase from subspec 02, 108.8s is the pooled-phase floor set by
+`v1/test/run.test.ts`). The concrete target is aggregate `bun run test` at or below 320s, leaving
+margin above the floor for run-to-run variance.
+
+Stop semantics under the pool: a plain (non-timeout) failure stops every mode, including `agent`,
+from admitting new files — files already in flight are still awaited and reported, not discarded.
+A timeout does not stop `agent` mode, which keeps admitting new files and reports every timed-out
+file by name; a timeout in any other mode stops admission the same as a plain failure. Each child's
+per-file timeout is armed independently at its own spawn, so a slow sibling never shortens another
+file's budget. Output blocks print in settle order, not roster order, once files can overlap.
+
 ### Ready-gate step budgets
 
 `bun run ready` (`scripts/ready.ts`) arms each step with its own fixed budget, not a shared

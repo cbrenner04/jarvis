@@ -1,4 +1,5 @@
-import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { spawn as nodeSpawn, type SpawnSyncReturns } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
 /** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
@@ -24,6 +25,7 @@ export function v2Tests(mode: TestSliceMode): string[] {
   return sliceTestFiles(walkV2TestFiles(), mode);
 }
 
+/** Used only by `measure-test-cost.ts`'s own `spawnSync`-based measurement path, which infers timeout from signal/status. */
 export function isSpawnTimeout(result: Pick<SpawnSyncReturns<unknown>, "signal" | "status">): boolean {
   return result.signal === "SIGKILL" && result.status === null;
 }
@@ -34,11 +36,44 @@ export function spawnTimeoutMessage(mode: string, file?: string, label = "v2"): 
   return `error: ${prefix}"${mode}" test run timed out or was killed${suffix}\n`;
 }
 
-type Spawn = (
-  command: string,
-  args: string[],
-  options: { stdio: "inherit"; timeout: number; killSignal: "SIGKILL" },
-) => SpawnSyncReturns<unknown>;
+/** Header line preceding a settled file's contiguous captured-output block. */
+export function fileOutputHeader(file: string): string {
+  return `--- ${file} ---\n`;
+}
+
+export interface SpawnOutcome {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  /** Set by the timer that fired the kill, not inferred from signal/status. */
+  timedOut: boolean;
+}
+
+type Spawn = (command: string, args: string[], options: { timeout: number }) => Promise<SpawnOutcome>;
+
+function defaultSpawn(command: string, args: string[], options: { timeout: number }): Promise<SpawnOutcome> {
+  return new Promise((resolve) => {
+    const child = nodeSpawn(command, args);
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, options.timeout);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("close", (status, signal) => {
+      clearTimeout(timer);
+      resolve({ status, signal, stdout, stderr, timedOut });
+    });
+  });
+}
 
 export interface FileResult {
   file: string;
@@ -46,45 +81,90 @@ export interface FileResult {
   status: number | null;
 }
 
+/** Concurrency limit derived from available parallelism, reserving headroom (half, floor 1). */
+export function defaultConcurrency(parallelism: number): number {
+  return Math.max(1, Math.floor(parallelism / 2));
+}
+
 /**
- * Runs each file serially under its own per-file timeout. On a timeout, "agent" mode
- * names the file and continues to the next one; every other mode stops the run, matching
- * integration mode's existing fail-fast-on-timeout behavior. An ordinary non-zero exit
- * always stops the run. Returns one result per file actually run.
+ * Resolves the pool's concurrency limit: an explicit override wins over
+ * `JARVIS_TEST_CONCURRENCY`, which wins over the derived default. A malformed or `0` env
+ * value falls back to the derived default instead of throwing.
  */
-export function runV2TestFiles(mode: string, files: string[], spawn: Spawn = spawnSync, label = "v2"): FileResult[] {
-  const results: FileResult[] = [];
-  for (const file of files) {
-    const result = spawn("bun", ["test", file], {
-      stdio: "inherit",
-      timeout: PER_FILE_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-    });
-    if (isSpawnTimeout(result)) {
-      process.stderr.write(spawnTimeoutMessage(mode, file, label));
-      results.push({ file, timedOut: true, status: result.status });
-      if (mode !== "agent") {
-        return results;
-      }
-      continue;
-    }
-    results.push({ file, timedOut: false, status: result.status });
-    if (result.status !== 0) {
-      return results;
+export function resolveConcurrency(
+  explicit?: number,
+  envValue = process.env.JARVIS_TEST_CONCURRENCY,
+  parallelism = availableParallelism(),
+): number {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+  if (envValue !== undefined) {
+    const parsed = Number(envValue);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
     }
   }
+  return defaultConcurrency(parallelism);
+}
+
+/**
+ * Runs files under a bounded pool of at most `concurrency` concurrent workers, each
+ * spawning under its own independently-armed per-file timeout. On a timeout, "agent" mode
+ * names the file and keeps admitting new files; every other mode stops admitting new files,
+ * matching integration mode's existing fail-fast-on-timeout behavior. An ordinary non-zero
+ * exit stops every mode from admitting new files, regardless of mode. In both stop cases,
+ * files already in flight are awaited and their results reported. Returns one result per
+ * file actually run, in settle order (not roster order).
+ *
+ * Each file's captured stdout/stderr is flushed as one contiguous block, headed by its
+ * file name, as soon as that file settles (including output captured before a kill).
+ */
+export async function runV2TestFiles(
+  mode: string,
+  files: string[],
+  spawn: Spawn = defaultSpawn,
+  label = "v2",
+  concurrency = resolveConcurrency(),
+): Promise<FileResult[]> {
+  const results: FileResult[] = [];
+  let nextIndex = 0;
+  let stopAdmitting = false;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (stopAdmitting || nextIndex >= files.length) {
+        return;
+      }
+      const file = files[nextIndex];
+      nextIndex += 1;
+      if (file === undefined) {
+        return;
+      }
+      const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
+      process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
+      if (result.timedOut) {
+        process.stderr.write(spawnTimeoutMessage(mode, file, label));
+        results.push({ file, timedOut: true, status: result.status });
+        if (mode !== "agent") {
+          stopAdmitting = true;
+        }
+        continue;
+      }
+      results.push({ file, timedOut: false, status: result.status });
+      if (result.status !== 0) {
+        stopAdmitting = true;
+      }
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(concurrency, files.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
   return results;
 }
 
 export function aggregateExitCode(results: FileResult[]): number {
-  const last = results.at(-1);
-  if (last === undefined) {
-    return 0;
-  }
-  if (last.timedOut || last.status !== 0) {
-    return last.status ?? 1;
-  }
-  return results.some((r) => r.timedOut) ? 1 : 0;
+  return results.some((r) => r.timedOut || r.status !== 0) ? 1 : 0;
 }
 
 if (import.meta.main) {
@@ -96,5 +176,6 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  process.exit(aggregateExitCode(runV2TestFiles(mode ?? "", files)));
+  const results = await runV2TestFiles(mode ?? "", files);
+  process.exit(aggregateExitCode(results));
 }

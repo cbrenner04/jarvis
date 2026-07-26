@@ -164,16 +164,24 @@ describe("Test slice boundaries", () => {
     expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS");
     expect(runV2TestsScript).toContain('spawn("bun", ["test", file]');
     expect(runV2TestsScript).toContain("timeout: PER_FILE_TIMEOUT_MS");
-    expect(runV2TestsScript).toContain('killSignal: "SIGKILL"');
+    expect(runV2TestsScript).toContain('child.kill("SIGKILL")');
 
     expect(runTestsScript).toMatch(/runV2TestFiles\([^)]*\)/);
   });
 
-  it("policy parity: agent-mode timeout diagnostics vs integration-mode fail-fast behavior", async () => {
+  it("policy parity: agent-mode timeout diagnostics vs stop-admitting-on-failure behavior", async () => {
     const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
 
     expect(runV2TestsScript).toContain('if (mode !== "agent")');
-    expect(runV2TestsScript).toContain("return results");
+    expect(runV2TestsScript).toContain("stopAdmitting = true");
     expect(runV2TestsScript).toContain("continue");
+  });
+
+  it("policy parity: the integration phase routes through the shared pooled seam, not a bare spawnSync loop", async () => {
+    const runTestsScript = await Bun.file("scripts/run-tests.ts").text();
+
+    expect(runTestsScript).not.toContain("spawnSync");
+    expect((runTestsScript.match(/runV2TestFiles\(/g) ?? []).length).toBe(2);
+    expect(runTestsScript).toContain('runV2TestFiles("integration", integration');
   });
 });

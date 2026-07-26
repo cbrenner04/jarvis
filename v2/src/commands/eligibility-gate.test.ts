@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
-import { TERMINAL_RUN_STATUSES, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { type RunStatus, type StateStore, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { checkEligibility, type DaemonClient, type DiscoveredWorktree } from "./cleanup.ts";
 
 const mergedPrRunner: AsyncSubprocessRunner = {
@@ -194,24 +194,12 @@ describe("checkEligibility: eligibility gate", () => {
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test" };
 
       for (const status of ["in-progress", "paused", "queued", "budget-soft-stopped"] as const) {
-        const result = await checkEligibility(
-          candidate,
-          "project",
-          mergedPrRunner,
-          daemonClient,
-          storeWithRun(status),
-        );
+        const result = await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, storeWithRun(status));
         expect(result.status).toBe("ineligible");
       }
 
       for (const status of TERMINAL_RUN_STATUSES) {
-        const result = await checkEligibility(
-          candidate,
-          "project",
-          mergedPrRunner,
-          daemonClient,
-          storeWithRun(status),
-        );
+        const result = await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, storeWithRun(status));
         expect(result.status).toBe("eligible");
       }
 

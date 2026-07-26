@@ -14,10 +14,10 @@ than as an idle failure.
 
 ## Acceptance criteria
 
-- [ ] A write-loop test drives a silent token reprompt (first response carries no terminal token, reprompt emits nothing) and asserts `idle_output_timeout`, not `invalid_token`; omitting `idleOutputMs` on the token-reprompt call site fails it.
-- [ ] A write-loop test drives a silent blocker reprompt (blocked token, unsatisfied blocker contract, silent reprompt) and asserts `idle_output_timeout`, not `missing_blocker`; omitting `idleOutputMs` on the blocker-reprompt call site fails it.
-- [ ] A test drives a healthy reprompt that emits a terminal token and asserts the step settles on that token with no idle outcome.
-- [ ] With `idleOutputTimeoutMs: 0`, a silent reprompt produces no `idle_output_timeout` — inverting the disable guard fails this test.
+- [x] A write-loop test drives a silent token reprompt (first response carries no terminal token, reprompt emits nothing) and asserts `idle_output_timeout`, not `invalid_token`; omitting `idleOutputMs` on the token-reprompt call site fails it.
+- [x] A write-loop test drives a silent blocker reprompt (blocked token, unsatisfied blocker contract, silent reprompt) and asserts `idle_output_timeout`, not `missing_blocker`; omitting `idleOutputMs` on the blocker-reprompt call site fails it.
+- [x] A test drives a healthy reprompt that emits a terminal token and asserts the step settles on that token with no idle outcome.
+- [x] With `idleOutputTimeoutMs: 0`, a silent reprompt produces no `idle_output_timeout` — inverting the disable guard fails this test.
 
 ## Documentation updates
 

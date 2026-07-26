@@ -10,6 +10,7 @@ export const DEFAULT_REVIEW_ROLE_TIMEOUT_MS = 1_800_000;
 export type WritePathIterationBounds = {
   iterationTimeoutMs: number;
   iterationCeilingMs: number;
+  idleOutputMs?: number;
 };
 
 function readPositiveNumberField(configPath: string, field: string, defaultValue: number): number {
@@ -61,7 +62,11 @@ export function resolveWritePathIterationBounds(configPath: string = MACHINE_CON
       `Machine config 'iterationTimeoutMs' (${iterationTimeoutMs}) must not exceed 'iterationCeilingMs' (${iterationCeilingMs})`,
     );
   }
-  return { iterationTimeoutMs, iterationCeilingMs };
+  return {
+    iterationTimeoutMs,
+    iterationCeilingMs,
+    ...(idleOutputTimeoutMs > 0 ? { idleOutputMs: idleOutputTimeoutMs } : {}),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

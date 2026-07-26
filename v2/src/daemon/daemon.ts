@@ -390,6 +390,7 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
     workflowSnapshot: snapshot,
     ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
     iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
+    ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
   });
 }
 

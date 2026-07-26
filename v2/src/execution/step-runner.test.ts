@@ -623,6 +623,73 @@ describe("step runner token re-prompt", () => {
     expect(rows[0]?.invocation_id).toBe("step-inv-1");
     expect(rows[1]?.invocation_id).not.toBe("step-inv-1");
   });
+
+  // Simulates a real agent's own idle-output watchdog: it only stalls the reprompt call when
+  // it actually received an armed (positive) idleOutputMs, same as shared/invocation/agents.ts.
+  function armedStallOnRepromptBinding(): InvocationBinding {
+    let call = 0;
+    return {
+      id: "agent",
+      metadata: { agent: "claude", model: "opus" },
+      invoke: async ({ idleOutputMs }) => {
+        call += 1;
+        if (call === 1) return { kind: "ok", stdout: "no token here", stderr: "" };
+        if (idleOutputMs !== undefined && idleOutputMs > 0) return { kind: "stall", stderr: "no output" };
+        return { kind: "ok", stdout: "still no token", stderr: "" };
+      },
+    };
+  }
+
+  test("a silent token reprompt settles idle_output_timeout, not invalid_token", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [armedStallOnRepromptBinding()],
+      contracts: [],
+      idleOutputMs: 5,
+    });
+
+    expect(result.kind).toBe("stall");
+    if (result.kind === "stall") {
+      expect(result.boundMs).toBe(5);
+      expect(result.agent).toBe("claude");
+      expect(result.model).toBe("opus");
+    }
+  });
+
+  test("a healthy token reprompt that emits a terminal token settles on that token, no idle outcome", async () => {
+    let call = 0;
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            call += 1;
+            return { kind: "ok", stdout: call === 1 ? "no token here" : "done", stderr: "" };
+          },
+        },
+      ],
+      contracts: [{ id: "pass", check: () => true }],
+      idleOutputMs: 5,
+    });
+
+    expect(result.kind).toBe("complete");
+    if (result.kind === "complete") expect(result.token).toBe("done");
+  });
+
+  test("idleOutputTimeoutMs 0 disables the watchdog: a silent token reprompt settles invalid_token, not idle_output_timeout", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [armedStallOnRepromptBinding()],
+      contracts: [{ id: "fail", check: () => false }],
+      idleOutputMs: 0,
+    });
+
+    expect(result.kind).toBe("invalid_token");
+  });
 });
 
 describe("step runner blocker-text contract", () => {
@@ -691,6 +758,44 @@ describe("step runner blocker-text contract", () => {
       }
       expect(result.blockerReprompt?.responseText).toBe("still stuck");
       expect(result.reprompt).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a silent blocker reprompt settles idle_output_timeout, not missing_blocker", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "- [ ] work\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            metadata: { agent: "claude", model: "opus" },
+            invoke: async ({ idleOutputMs }) => {
+              invocations += 1;
+              if (invocations === 1) return { kind: "ok", stdout: "blocked", stderr: "" };
+              if (idleOutputMs !== undefined && idleOutputMs > 0) return { kind: "stall", stderr: "no output" };
+              return { kind: "ok", stdout: "still stuck", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+        idleOutputMs: 5,
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("stall");
+      if (result.kind === "stall") {
+        expect(result.boundMs).toBe(5);
+        expect(result.agent).toBe("claude");
+        expect(result.model).toBe("opus");
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -918,7 +1023,7 @@ describe("step runner blocker-text contract", () => {
     }
   });
 
-  test("write-step invocation does not receive idleOutputMs", async () => {
+  test("idleOutputMs omitted from args leaves the invocation unarmed", async () => {
     let capturedIdleOutputMs: number | undefined;
     const result = await runStep({
       prompt: "p",
@@ -938,5 +1043,28 @@ describe("step runner blocker-text contract", () => {
 
     expect(result.kind).toBe("complete");
     expect(capturedIdleOutputMs).toBeUndefined();
+  });
+
+  test("the primary invocation receives idleOutputMs when the caller passes it", async () => {
+    let capturedIdleOutputMs: number | undefined;
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "agent",
+          metadata: { agent: "claude", model: "opus" },
+          invoke: async ({ idleOutputMs }) => {
+            capturedIdleOutputMs = idleOutputMs;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      contracts: [],
+      idleOutputMs: 5,
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(capturedIdleOutputMs).toBe(5);
   });
 });

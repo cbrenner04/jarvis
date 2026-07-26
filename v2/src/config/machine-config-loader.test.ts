@@ -132,6 +132,20 @@ describe("write-path iteration bounds", () => {
     expect(resolveWritePathIterationBounds(configPath)).toEqual({
       iterationTimeoutMs: 600_000,
       iterationCeilingMs: 1_800_000,
+      idleOutputMs: 90_000,
+    });
+  });
+
+  test("omits idleOutputMs when idleOutputTimeoutMs is 0 (disabled)", () => {
+    const configPath = writeConfig({
+      agents: ["claude"],
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+      idleOutputTimeoutMs: 0,
+    });
+    expect(resolveWritePathIterationBounds(configPath)).toEqual({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
     });
   });
 
@@ -156,6 +170,7 @@ describe("write-path iteration bounds", () => {
     expect(resolveWritePathIterationBounds(configPath)).toEqual({
       iterationTimeoutMs: 600_000,
       iterationCeilingMs: 1_800_000,
+      idleOutputMs: 90_000,
     });
   });
 });

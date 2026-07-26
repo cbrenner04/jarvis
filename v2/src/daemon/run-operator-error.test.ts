@@ -108,6 +108,18 @@ test("composeRunOperatorError maps iteration_timeout as a failed terminal", () =
   ).toEqual(err("iteration_timeout", "stop"));
 });
 
+test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal", () => {
+  expect(
+    composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]), loopFinished("idle_output_timeout")),
+  ).toEqual(err("idle_output_timeout", "stop"));
+});
+
+test("composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)", () => {
+  expect(composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]))).toEqual(
+    err("idle_output_timeout", "stop"),
+  );
+});
+
 test("composeRunOperatorError returns agent_blocked and contract_miss from store-only blocked status and outcome_kind", () => {
   expect(composeRunOperatorError(runWith("blocked", [attempt("blocked")]))).toEqual(
     err("agent_blocked", "inspect_spec"),

@@ -343,11 +343,13 @@ An idle-output
 watchdog on the same role invocation times out when the actuator produces no
 output for a configured idle budget (default 90_000 ms, v1 parity), settles
 `invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
-Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output;
-unlike `iteration_timeout` (write-loop timeout), it applies only to review-step
-role invocations, and does not escalate through rungs. Post-commit `role_stalled` stays
-retryable/retry_later; recovery is re-dispatching the same workflow (see [Gate
-trust](#gate-trust)) — unlike an exhausted `role_timeout`, which is not.
+Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output,
+does not escalate through rungs, and is retryable (`retry_later`); recovery is
+re-dispatching the same workflow (see [Gate trust](#gate-trust)) — unlike an exhausted
+`role_timeout`, which is not. The write path's own idle-output watchdog settles a
+distinct, non-retryable `idle_output_timeout` (`error.reason: "idle_output_timeout"`,
+`nextAction: "stop"`) on write-step/reprompt invocations; see the 2026-07-25 entry
+above.
 
 **Actuator-only retry (`review-debate` patch review):** admitted only for a
 post-commit retryable failure kind — today that is exhausted-rung-exempt `role_stalled`;
@@ -719,24 +721,25 @@ section when it ships.
 
 **v2's claude output now streams (shared adapter change, 2026-07-13).** `shared/invocation/`
 now spawns claude with `--output-format stream-json --verbose`, making claude output
-visible mid-invocation (not buffered until exit). However, **v2 still has no idle-output
-watchdog** — only a wall-clock `iterationTimeoutMs` in `v2/src/execution/write-loop.ts`.
-Stream-json output availability does not change v2's stall detection: a silent claude
-mid-invocation still rides `iterationTimeoutMs` wall-clock to terminate, not an
-idle-output escalation. The "claude is safe as primary" claim from v1 rests
-partly on v1's idle watchdog infrastructure; v2 lacks that layer. Operator discipline
-and CI guardrails replace it. Consider a future idle-output watchdog for v2 if
-claude primary stalls become a concern.
+visible mid-invocation (not buffered until exit).
 
-**Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Scope note for
-the paragraph above: v2 has an idle-output watchdog on *review-role* invocations only
-(`v2/src/execution/review-role-invocation.ts` passes `idleOutputMs` into
-`shared/invocation/`); the write loop still rides wall-clock `iterationTimeoutMs`. Under
-`--output-format text` cursor emitted nothing until its final response, so a
-silently-editing review role produced zero stdout and settled `stall` at exactly the idle
-budget — observed 2026-07-24 at `dur=90003`, twice, with edits already on disk. This was
-the shared/v2 invocation path, not v1; `v1/src/agents/cursor.ts` is unchanged and still
-uses `text` mode.
+**v2's write path now arms an idle-output watchdog (2026-07-25).** `resolveWritePathIterationBounds`
+resolves `idleOutputMs` from machine config `idleOutputTimeoutMs` (default 90 s; `0` disables)
+and threads it onto every write-behavior step, alongside the existing wall segment
+(`iterationTimeoutMs`) and hard ceiling (`iterationCeilingMs`). A silent invocation now settles
+`idle_output_timeout` well before the wall would fire; see
+[`write-behavior.md`](./write-behavior.md) for ordering and
+[`daemon-host.md`](./daemon-host.md) for the operator-facing outcome. Resumed write steps
+rehydrate the persisted `idleOutputMs` bound from the workflow snapshot, so a paused/resumed
+run stays armed.
+
+**Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Review-role
+invocations (`v2/src/execution/review-role-invocation.ts`) have carried their own idle-output
+budget since before the write path did. Under `--output-format text` cursor emitted nothing
+until its final response, so a silently-editing review role produced zero stdout and settled
+`stall` at exactly the idle budget — observed 2026-07-24 at `dur=90003`, twice, with edits
+already on disk. This was the shared/v2 invocation path, not v1; `v1/src/agents/cursor.ts` is
+unchanged and still uses `text` mode.
 
 What changed: `shared/invocation/agents.ts` now spawns cursor with `--output-format
 stream-json --stream-partial-output`, and `shared/invocation/cursor-json.ts` renders the

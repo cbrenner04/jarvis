@@ -3,13 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { WriteLoopInput, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { simulatedBindings } from "../testing/bindings.ts";
 import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
@@ -23,6 +25,8 @@ import {
 } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
+
+const { roots } = trackedTempRoots();
 
 let stateStore: StateStore;
 let starts: WriteLoopInput[];
@@ -184,6 +188,7 @@ function createWorkflowRun(overrides: {
   agents?: readonly string[];
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
+  idleOutputMs?: number;
   stepRules?: string;
 }): string {
   return stateStore.createRun({
@@ -205,6 +210,7 @@ function createWorkflowRun(overrides: {
           agentModelConfig: AGENT_MODEL_CONFIG,
           ...(overrides.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: overrides.iterationTimeoutMs } : {}),
           ...(overrides.iterationCeilingMs !== undefined ? { iterationCeilingMs: overrides.iterationCeilingMs } : {}),
+          ...(overrides.idleOutputMs !== undefined ? { idleOutputMs: overrides.idleOutputMs } : {}),
         },
       ],
     },
@@ -344,6 +350,39 @@ test("resume on a workflow paused run respawns with resolved bindings", async ()
   expect(starts[0]?.stepRules).toBe("resume rules");
   expect(starts[0]?.stepId).toBe("step-1");
   expect(starts[0]?.iterationTimeoutMs).toBe(123);
+});
+
+test("resume rehydrates the persisted idle-output watchdog bound and a silent agent on resume settles idle_output_timeout", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const pausedRunId = createWorkflowRun({
+    invocationId: "workflow-idle",
+    agents: ["codex"],
+    iterationTimeoutMs: 10_000,
+    idleOutputMs: 20,
+  });
+  stateStore.setRunStatus(pausedRunId, "paused");
+
+  const response = await resumeDirect(handlers, pausedRunId);
+
+  expect(response).toEqual({ kind: "response", result: { ok: true } });
+  expect(starts).toHaveLength(1);
+  const resumedInput = starts[0];
+  if (resumedInput === undefined) throw new Error("expected a captured resume input");
+  expect(resumedInput.idleOutputMs).toBe(20);
+
+  // Drives the exact input resume reconstructed through the real write loop (silent
+  // binding standing in for a stalled agent) to prove idleOutputMs actually arms the
+  // watchdog on resume, not just that it reaches the dispatched input.
+  const result = await executeWriteLoop({
+    ...resumedInput,
+    bindings: simulatedBindings(["stall"]),
+    stateStore,
+    withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    sessionsDir: join(jarvisRoot, "sessions"),
+  });
+
+  expect(result.kind).toBe("idle_output_timeout");
 });
 
 test("resume resolves iterationCeilingMs when snapshot step has wall segment only", async () => {

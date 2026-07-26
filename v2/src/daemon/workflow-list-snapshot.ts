@@ -9,6 +9,7 @@ export type WorkflowStepTerminalOutcome =
   | "contract_miss"
   | "invocation_failure"
   | "iteration_timeout"
+  | "idle_output_timeout"
   | "budget-exhausted"
   | "paused"
   | "invalid_token"
@@ -123,6 +124,7 @@ export function stoppedOutcomeForRun(run: LoadedRun): Exclude<WorkflowStepTermin
   }
   if (run.status === "killed") return "killed";
   if (run.status === "interrupted") return "interrupted";
-  if (run.attempts[run.attempts.length - 1]?.outcomeKind === "iteration_timeout") return "iteration_timeout";
+  const lastOutcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
+  if (lastOutcomeKind === "iteration_timeout" || lastOutcomeKind === "idle_output_timeout") return lastOutcomeKind;
   return "invocation_failure";
 }

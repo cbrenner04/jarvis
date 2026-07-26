@@ -247,6 +247,7 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `role_timeout` (exhausted) | review-step `invocation_failure` + `failureKind: "timeout"` + `exhaustedRoleTimeout: true` (every configured rung timed out) | `false` | `stop` |
 | `role_stalled` | review-step `invocation_failure` + `failureKind: "stall"` | `true` | `retry_later` |
 | `iteration_timeout` | failed `loopOutcomeKind: "iteration_timeout"` | `false` | `stop` |
+| `idle_output_timeout` | write-step attempt `outcome_kind: "idle_output_timeout"` or failed `loopOutcomeKind: "idle_output_timeout"` | `false` | `stop` |
 | `harness_failure` | terminal `run_execution_failed` without a post-boundary lock message, or `failed` without mappable attempt detail | `false` | `stop` |
 | `state_store_lock_timeout` | terminal `run_execution_failed` whose `message` names SQLite lock contention after a committed write-step `done` boundary | `true` | `resume` |
 | `unsupported_resume_context` | stopped or publication-retry write run whose snapshot cannot reconstruct an executable step | `false` | `stop` |

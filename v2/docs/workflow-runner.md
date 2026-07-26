@@ -24,6 +24,15 @@ Each write step resolves `iterationTimeoutMs` from `~/.jarvis/config.json`
 budget is retained in the workflow snapshot, so resume uses it.
 Timeout ends the step as non-resumable `iteration_timeout`.
 
+Each write step also resolves `idleOutputMs` from `idleOutputTimeoutMs`
+(default `90,000` ms; `0` disables — the key is then omitted, not resolved as
+zero). When armed, a step or reprompt invocation that produces no output for
+that budget ends the step as non-resumable `idle_output_timeout`, well before
+`iterationTimeoutMs` could fire. The resolved bound (when armed) is retained in
+the workflow snapshot alongside `iterationTimeoutMs`/`iterationCeilingMs`, so a
+resumed step stays armed with the same budget; see
+[`write-behavior.md`](write-behavior.md).
+
 Each `review` and `review-debate` step resolves `reviewRoleTimeoutMs` from
 `~/.jarvis/config.json` (default `1,800,000` ms) and stamps it on the step's
 `roleTimeoutMs`, bounding every critic/actuator/debate-role invocation within

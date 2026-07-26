@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 
 /** A scripted outcome for one simulated invocation pass. */
-type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" | "blocked" | "progress";
+type SimulatedOutcome = "quota" | "model_config" | "error" | "done" | "no-work" | "blocked" | "progress" | "stall";
 
 /**
  * Build deterministic bindings that replay a scripted outcome sequence.
@@ -29,6 +29,9 @@ export function simulatedBindings(
       }
       if (outcome === "error") {
         return { kind: "error", exitCode: 1, stderr: "error" };
+      }
+      if (outcome === "stall") {
+        return { kind: "stall", stderr: "no output" };
       }
       if (opts.emitArtifact && opts.artifactPath !== undefined && (outcome === "done" || outcome === "no-work")) {
         writeFileSync(join(cwd, opts.artifactPath), "ok\n", "utf8");

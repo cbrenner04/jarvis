@@ -20,12 +20,12 @@ implement / plan-draft / intent-split agent rides the full progress-extended wal
 
 ## Acceptance criteria
 
-- [ ] A write-loop test drives a silent agent under an idle budget far below the iteration wall and asserts the iteration settles `idle_output_timeout` (not `iteration_timeout`) before the wall could elapse; it fails against the pre-fix code.
-- [ ] `run list` / `run wait` report `outcomeKind` and `error.reason` `idle_output_timeout` with `retryable: false` and `nextAction: "stop"`, and the attempt carries the settled agent, model, and the idle bound that fired.
-- [ ] A plan-draft workflow test and an intent-split workflow test each drive a silent agent and assert `idle_output_timeout`, not `iteration_timeout`.
-- [ ] A write-loop test drives a healthy iteration that emits output and completes, and asserts no stall and no timeout outcome.
-- [ ] With `idleOutputTimeoutMs: 0` in machine config, a silent write iteration produces no `idle_output_timeout`: the watchdog is absent and the run settles on the wall instead — inverting the disable guard (arming anyway) fails this test.
-- [ ] A resumed workflow write step rehydrated from its snapshot is still armed: a silent agent on resume settles `idle_output_timeout`.
+- [x] A write-loop test drives a silent agent under an idle budget far below the iteration wall and asserts the iteration settles `idle_output_timeout` (not `iteration_timeout`) before the wall could elapse; it fails against the pre-fix code.
+- [x] `run list` / `run wait` report `outcomeKind` and `error.reason` `idle_output_timeout` with `retryable: false` and `nextAction: "stop"`, and the attempt carries the settled agent, model, and the idle bound that fired.
+- [x] A plan-draft workflow test and an intent-split workflow test each drive a silent agent and assert `idle_output_timeout`, not `iteration_timeout`.
+- [x] A write-loop test drives a healthy iteration that emits output and completes, and asserts no stall and no timeout outcome.
+- [x] With `idleOutputTimeoutMs: 0` in machine config, a silent write iteration produces no `idle_output_timeout`: the watchdog is absent and the run settles on the wall instead — inverting the disable guard (arming anyway) fails this test.
+- [x] A resumed workflow write step rehydrated from its snapshot is still armed: a silent agent on resume settles `idle_output_timeout`.
 
 ## Documentation updates
 

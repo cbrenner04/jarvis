@@ -69,6 +69,7 @@ export type WorkflowSnapshotStep = {
   agentModelConfig?: AgentModelConfig;
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
+  idleOutputMs?: number;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */
@@ -94,6 +95,7 @@ export type OutcomeKind =
   | "contract_miss"
   | "invocation_failure"
   | "iteration_timeout"
+  | "idle_output_timeout"
   | "invalid_token"
   | "missing_blocker";
 
@@ -518,7 +520,8 @@ class StateStoreImpl implements StateStore {
       if (attempt.outcomeKind !== null) return; // already committed: idempotent no-op
 
       const detailJson =
-        args.outcomeKind === "invocation_failure" && args.invocationFailureDetail !== undefined
+        (args.outcomeKind === "invocation_failure" || args.outcomeKind === "idle_output_timeout") &&
+        args.invocationFailureDetail !== undefined
           ? JSON.stringify(args.invocationFailureDetail)
           : null;
 

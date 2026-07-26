@@ -1175,6 +1175,7 @@ function buildWorkflowSnapshot(
           agentModelConfig: step.agentModelConfig,
           iterationTimeoutMs: step.iterationTimeoutMs,
           iterationCeilingMs: step.iterationCeilingMs,
+          idleOutputMs: step.idleOutputMs,
         }
       : {}),
   }));
@@ -1380,6 +1381,7 @@ function prepareWorkflowStep(
       },
       ...(step.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: step.iterationTimeoutMs } : {}),
       ...(step.iterationCeilingMs !== undefined ? { iterationCeilingMs: step.iterationCeilingMs } : {}),
+      ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
       stateStore: store,
       ...(logSink !== undefined ? { logSink } : {}),
       ...(telemetry !== undefined

@@ -29,6 +29,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "ready_flip_failed",
   "surviving_mutation_failed",
   "iteration_timeout",
+  "idle_output_timeout",
   "unsupported_resume_context",
 ] as const;
 
@@ -127,6 +128,8 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
       if (isExhaustedRoleTimeout(detail)) return op("role_timeout", "stop", false);
       return INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop");
     }
+    case "idle_output_timeout":
+      return op("idle_output_timeout", "stop");
     default:
       return undefined;
   }
@@ -199,6 +202,8 @@ function mapFromLoopFinished(
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
     case "iteration_timeout":
       return op("iteration_timeout", "stop");
+    case "idle_output_timeout":
+      return op("idle_output_timeout", "stop");
     default:
       return undefined;
   }
@@ -230,6 +235,7 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
   surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume",
   iteration_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  idle_output_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",
 } satisfies Record<RunOperatorErrorReason, string>;
 

@@ -16,6 +16,7 @@ function runWrite(args: {
   invocationTelemetry?: Parameters<typeof executeWrite>[0]["invocationTelemetry"];
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
+  idleOutputMs?: number;
 }) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -35,6 +36,7 @@ function runWrite(args: {
     ...(args.invocationTelemetry !== undefined ? { invocationTelemetry: args.invocationTelemetry } : {}),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }

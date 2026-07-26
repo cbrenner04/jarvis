@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { withExternalWorktree } from "../execution/external-worktree.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
@@ -20,9 +22,7 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
-import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
-import { withExternalWorktree } from "../execution/external-worktree.ts";
 
 let fx: CliRepoFixture;
 
@@ -1171,11 +1171,7 @@ describe("implement preflight stale workspace reset", () => {
     const staleTip = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
     expect(staleTip).not.toBe(baseHead);
     await realAsyncSubprocessRunner.runAsync("git", ["push", "-u", "origin", resetBranch], resetProjectRoot);
-    await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["update-ref", "-d", `refs/heads/${resetBranch}`],
-      originRoot,
-    );
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${resetBranch}`], originRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["checkout", baseHead], resetProjectRoot);
 
     const worktreePath = join(resetJarvisRoot, "worktrees", "demo", resetBranch);
@@ -1226,7 +1222,9 @@ describe("implement preflight stale workspace reset", () => {
           await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
         ).trim();
         expect(branchTip).toBe(baseHead);
-        const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktree.path)).trim();
+        const worktreeHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktree.path)
+        ).trim();
         expect(worktreeHead).toBe(baseHead);
       },
       subprocessRunner,

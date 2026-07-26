@@ -123,11 +123,7 @@ export async function branchExistsOnOriginAsync(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<boolean> {
   try {
-    const output = await runner.runAsync(
-      "git",
-      ["ls-remote", "--heads", "origin", branchName],
-      projectRoot,
-    );
+    const output = await runner.runAsync("git", ["ls-remote", "--heads", "origin", branchName], projectRoot);
     return originHeadListedInLsRemote(output, branchName);
   } catch {
     return false;

@@ -587,12 +587,20 @@ for its `run_recovery` outcome. A failed automatic admission becomes `failed` wi
 log diagnostic, without blocking other recoveries. Worktrees and branches survive.
 Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
 and resume while the branch exists; only in-flight edits before that iteration's
-git commit may be lost. This now holds for workflow write steps too — a
-`publishCompletion: false` step still commits each `progress` iteration
-in-flight, so a mid-run kill or crash leaves prior iterations' commits on the
-branch rather than an all-dirty worktree; only the interrupted iteration's own
-edits are at risk. Uncommitted work from the killed step itself is left
-dirty in the worktree, and its token spend is lost. **Implement re-run reset**
+git commit may be lost.
+
+**Do not rely on in-flight iteration commits (corrected 2026-07-26).** This paragraph previously
+said a `publishCompletion: false` workflow write step "still commits each `progress` iteration
+in-flight, so a mid-run kill or crash leaves prior iterations' commits on the branch rather than an
+all-dirty worktree." **That guarantee does not engage on implement runs.** `write-loop.ts:396`
+commits only when the agent returns `result.kind === "progress"`; an agent that finishes its subspec
+returns `done`, so `commitProgressIteration` is never called. Five run rows on 2026-07-26 each
+consumed exactly one iteration, settled `outcomeKind: "done"`, and produced zero `iteration_commit`
+records. A run killed inside that single iteration loses **everything** — observed the same day:
+`idle_output_timeout` at 948s left 9 modified files and 0 commits, non-retryable. Seed:
+`write-iteration-commits-never-engage`. Cleanup: restore an accurate durability claim here when it
+ships. Uncommitted work from the killed step is left dirty in the worktree, and its token spend is
+lost. **Implement re-run reset**
 (`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
 the branch and unpushed commits; publication remains terminal-`complete` only.
 
@@ -765,14 +773,19 @@ terminal `result` event (or concatenated text frames) back into result text. Any
 chunk re-arms the idle timer, so a cursor run that emits frames mid-invocation no longer
 trips the watchdog.
 
-**Unverified premise — do not treat this as a confirmed fix.** No real cursor stream-json
-transcript was captured on this branch (the sandbox denies cursor's `~/.cursor` state dir).
-The frame shapes the reader accepts (`text_delta`/`assistant` with `text` or `delta`) are
-inferred, and it is *not* established that cursor emits frames during a silent
-edit/tool-call phase — the exact window that stalled. If frames only accompany assistant
-prose, this change is inert against the reported failure. Confirm by capturing one
-`cursor agent -p --output-format stream-json --stream-partial-output` transcript from a
-trivial edit task and pinning it as a fixture.
+**Confirmed by observation (2026-07-26).** This entry previously carried an "unverified premise —
+do not treat this as a confirmed fix" caveat, on the grounds that no real cursor stream-json
+transcript had been captured and it was not established that cursor emits frames during a silent
+edit phase. **It does.** A cursor `implement` role on a v2 workflow ran **948s** before settling
+`stall` — the idle timer was re-armed by cursor's frames for roughly 14 minutes before the fatal
+pause. A run that emitted nothing would have died at the idle budget, not fifteen minutes in.
+
+The residual lesson is about the *budget*, not the adapter: `DEFAULT_IDLE_OUTPUT_TIMEOUT_MS` is
+90_000 (v1 patch-loop parity) and is too tight for v2 implement work, where an ordinary pause
+between frames exceeds it. `config/machines/home.json` now sets `idleOutputTimeoutMs: 240000`.
+Bounds resolve CLI-side per invocation (`v2/src/commands/workflow.ts:136`), so changing them needs
+no daemon bounce. Treat a `role_stalled` / `idle_output_timeout` on a long-running role as a budget
+question first and an agent question second.
 
 ### v2 takes its agent order from a different config key than v1
 
@@ -903,6 +916,14 @@ Operators add bullets here; delete when fixed.
   from reaching. Do **not** hand-edit `~/.jarvis/state/v2.sqlite`. Confirm no run is genuinely live
   first — this orphans anything that is. Seed: `a-daemon-lost-run-row-deadlocks-the-daemon`.
   Cleanup: delete when it ships.
+
+  **Most `DaemonStopRefusedError: active durable runs` is not this bug (2026-07-26).** The deadlock
+  needs rows that are non-terminal **and** not-live. A refusal naming rows that `run list` reports
+  `in-progress` + **`live`** is the guard working correctly — real work is in flight. Check the
+  named IDs in `run list` before reaching for `kill -9`; with in-flight iteration commits not
+  engaging (see § Orphaned non-terminal runs), killing the daemon over a genuinely live run
+  discards that run's entire worktree of uncommitted work. On 2026-07-26 a stop refusal named two
+  IDs, both genuinely live, holding 14 modified files between them and one commit.
 - **`run kill` does not work on workflow-started runs (2026-07-16):** it refuses `run_not_active`
   even while `run list` reports the row `live`. Combined with the deadlock above there is no
   jarvis-native way to stop a workflow implement; kill the agent process tree directly
@@ -958,11 +979,15 @@ Operators add bullets here; delete when fixed.
   `jarvis run log <id>` for a `loop_finished` and wait out the gate** — a genuinely stranded run
   never settles at all, and `daemon.log` names its failure. See also the `run wait` caveat below: a
   terminal run id does not mean the workflow is done.
-- **The daemon goes deaf while a run is active (2026-07-12):** `jarvis run list` and
-  `jarvis run log` both hung past 60s while an `intent-reviewed` run was publishing
-  — the daemon blocks on sync git in the publication path. You lose all
-  observability exactly when you need it. Wait it out; the calls return once the run
-  finishes. Seeds: the P4 responsive-daemon set + `nonblocking-ready-gate-and-guard`.
+- **`run log` blocks on a live run — and it is not the daemon (corrected 2026-07-26):** this entry
+  previously read "the daemon goes deaf while a run is active," blaming sync git in the publication
+  path and reporting that `jarvis run list` hung too. Measured during one live implement run:
+  `run list --limit 3` returned in **0.246s**, `run log <terminal-run>` in **0.295s**, while
+  `run log <live-run>` hung past 120s printing nothing — and returned the instant the run went
+  terminal. The daemon is responsive. `runLogSubcommand` (`v2/src/commands/run.ts:326-356`) loops
+  until `stream-end`, which the daemon sends only for terminal runs, so `run log` is an unbounded
+  follow with no dump-and-exit. Use `jarvis run list` (fast) or `jarvis tui log <id>` while a run is
+  live. Seed: `run-log-blocks-on-live-runs`. Cleanup: delete this bullet when it ships.
 - **A `completed` P0 may not be fixed (2026-07-12):** two P0 seeds were archived as
   complete while the bug they named still reproduced on first launch — the fix
   landed one layer away (CLI preflight, not the runner; prompt text, not the

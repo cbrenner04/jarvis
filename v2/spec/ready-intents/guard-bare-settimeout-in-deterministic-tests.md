@@ -42,6 +42,6 @@ through, so flaky wall-clock tests can return after a one-off test fix.
 
 ## Prerequisites
 
-- Plan and land `write-loop-abort-watchdog-ordering-without-real-clock` first (same seam).
-- The write-loop abort-vs-watchdog test drives ordering through injected control, not bare
-  `setTimeout` wall-clock races in a guarded file.
+Both satisfied on `main`: `write-loop-abort-watchdog-ordering-without-real-clock` shipped and is in
+`v2/spec/completed/20260725T135459Z-write-loop-abort-watchdog-ordering-without-real-clock`, so the
+write-loop abort-vs-watchdog test already drives ordering through injected control.

@@ -27,16 +27,20 @@ a runner change would be optimizing against a guess.
 
 ## Acceptance criteria
 
-- [ ] A command reports, per aggregate test file, wall clock and in-file reported execution time,
+Superseded by the subspecs and delivered in full by PR #2177 (`scripts/measure-test-cost.ts`,
+`v2/docs/test-writing.md`). Retained as the source intent; ticked 2026-07-26 so the completed dir
+carries no unchecked work.
+
+- [x] A command reports, per aggregate test file, wall clock and in-file reported execution time,
       plus roster totals for both and the overhead between them.
-- [ ] A test drives the reporter over fixture spawn results and asserts the per-file and total
+- [x] A test drives the reporter over fixture spawn results and asserts the per-file and total
       overhead figures; it fails against the pre-change code (no reporter exists).
-- [ ] Inverting the overhead computation fails that test.
-- [ ] A file whose in-file time cannot be parsed from `bun test` output is reported as unparsed
+- [x] Inverting the overhead computation fails that test.
+- [x] A file whose in-file time cannot be parsed from `bun test` output is reported as unparsed
       rather than counted as zero execution time.
-- [ ] `v2/docs/test-writing.md` records the measured aggregate totals: wall clock, summed in-file
+- [x] `v2/docs/test-writing.md` records the measured aggregate totals: wall clock, summed in-file
       execution time, and spawn overhead, dated and attributed to operator hardware.
-- [ ] `bun run test` still runs the same roster and returns the same exit code (`test/test-slices.test.ts`
+- [x] `bun run test` still runs the same roster and returns the same exit code (`test/test-slices.test.ts`
       and `scripts/run-v2-tests.test.ts` stay green).
 
 ## Documentation updates

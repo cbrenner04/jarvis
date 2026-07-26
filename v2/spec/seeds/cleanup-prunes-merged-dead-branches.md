@@ -4,6 +4,10 @@ name: cleanup-prunes-merged-dead-branches
 
 # `jarvis cleanup` prunes local and remote-tracking refs for merged branches
 
+**Demoted to seed 2026-07-26.** Its own acceptance criteria admit the premise is unverified, and it
+sits on the `origin/<branch>` seam that `stale-remote-tracking-ref-no-longer-resolves-branch` owns —
+that intent must land first regardless. Promote when someone demonstrates the leftover-ref gap.
+
 ## Problem
 
 Operator suggestion, 2026-07-25: cleanup deletes local branches for merged worktrees it retires, but

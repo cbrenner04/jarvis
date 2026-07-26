@@ -46,7 +46,10 @@ puts an unbounded cost inside every review pass.
   scope, and its budget. Rules out lifting the ban without giving the role a bounded thing to run,
   and rules out keeping a ban the command contradicts.
 - Depends on `review-roles-never-receive-the-diff`: a role that cannot see the change has nothing
-  to point the command at.
+  to point the command at. **Dangling as of 2026-07-26** — no intent, spec, or completed spec of
+  that name exists anywhere under `v2/spec/`. Before promoting this seed, either author that intent
+  or re-derive the "roles never receive the diff" claim against current
+  `v2/src/execution/review-role-invocation.ts`; do not plan against the name alone.
 
 ## Acceptance criteria
 

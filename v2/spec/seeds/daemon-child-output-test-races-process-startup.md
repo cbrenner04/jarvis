@@ -36,6 +36,22 @@ A ~1-in-3 failure rate in isolation on an otherwise-idle-ish machine, and it red
 independent local gates during one session. Both times it read as a real regression before the
 re-run cleared it.
 
+## Partially mitigated 2026-07-26 — seed stays open
+
+An operator hand-fix landed the cheap half, because this flake was actively blocking implement runs
+(it stranded the `every-live-workflow-is-killable` P0 by making its agent append a `## Blocker`) and
+every jarvis path to fixing it runs the same integration slice.
+
+Done: the `setImmediate` spin is gone (25 ms sleep), a missing log file no longer throws, and the
+budget is 30 s with the reasoning written down. 6/6 consecutive passes after the change; breaking
+`setupLogFile`'s `openSync` still fails 4 tests, so it has not been weakened into a test that cannot
+fail.
+
+**Still open, and the reason this seed is not closed:** the assertion is still a deadline poll, not
+a wait on an observable child event. A generous bound lowers the flake probability; it does not
+remove the race. It also costs ~60 s to fail when capture is genuinely broken (two tests × the
+budget). The event-based wait below is still the fix.
+
 ## Decisions
 
 - The assertion waits on an observable event — child exit, or the log file becoming non-empty —

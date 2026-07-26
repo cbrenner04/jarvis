@@ -2,16 +2,28 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 3_000): Promise<string> {
+/**
+ * Waits for a real spawned child to cold-start, print, and flush into `logPath`.
+ *
+ * The budget bounds a hang; it is not an estimate of expected latency. The aggregate suite
+ * deliberately saturates the machine, so a `bun` cold start here can take seconds — the previous
+ * 3 s budget made this a race and it failed roughly one run in three under load.
+ *
+ * Sleeps between reads rather than spinning on `setImmediate`: a busy loop steals CPU from the very
+ * process being waited on, which made the race worse the more loaded the machine was. Tolerates the
+ * log file not existing yet, which is its own startup race.
+ */
+async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs = 30_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
+  let content = "";
   while (Date.now() < deadline) {
-    const content = readFileSync(logPath, "utf-8");
+    content = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
     if (markers.every((marker) => content.includes(marker))) {
       return content;
     }
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  return readFileSync(logPath, "utf-8");
+  return content;
 }
 
 import type { Run } from "../persistence/state-store";

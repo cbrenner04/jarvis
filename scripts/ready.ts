@@ -4,15 +4,37 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import type { ScopedTests } from "./ci-test-scope.ts";
 
-export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+// 30 minutes — run ceiling (JARVIS_READY_TIMEOUT_MS), a backstop rather than the normal bound.
+// Sized so a flake-retry still arms a fresh full test budget on a *measured* run: aggregate
+// `bun run test` is 697s on operator hardware (2026-07-26) and install/check/typecheck/lint:md are
+// seconds each, so a run with one serial test retry is ~24 min. This leaves ~25% headroom over that.
+// It does not cover the budget worst case (every step consuming its full budget plus a retry, ~38
+// min) — if the suite ever grows into that range the retry's budget gets clamped by the ceiling and
+// the kill is attributed to "run ceiling" in stderr. Raise this constant (or cut suite duration —
+// see the process-spawn seed) if that starts happening. See v2/docs/test-writing.md.
+export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
 export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
 export const DEADLINE_KILL_MARKER = "ready: deadline exceeded after";
 
+// Per-step budgets: sized to what each step does, armed fresh per step (not shrunk by prior
+// steps' consumption). See v2/docs/test-writing.md for the aggregate test-step measurement.
+export const INSTALL_STEP_BUDGET_MS = 3 * 60 * 1000; // 3 minutes
+export const CHECK_STEP_BUDGET_MS = 2 * 60 * 1000; // 2 minutes
+export const TYPECHECK_STEP_BUDGET_MS = 2 * 60 * 1000; // 2 minutes
+// 15 minutes — the aggregate `bun run test` has been observed to take ~9 minutes on operator
+// hardware (v2/spec/20260725T140129Z-ready-gate-per-step-budgets/intent.md); this budget carries
+// ~65% headroom above that measurement. Raise this constant if measured full-suite duration drifts
+// closer to it. See v2/docs/test-writing.md.
+export const TEST_STEP_BUDGET_MS = 15 * 60 * 1000;
+export const LINT_MD_STEP_BUDGET_MS = 60 * 1000; // 1 minute
+export const DEFAULT_STEP_BUDGET_MS = 2 * 60 * 1000; // fallback for unrecognized steps
+
 export type ReadyTier = "fast" | "full";
 export type ReadyCommand = { name: string; args: string[] };
+export type ArmedBound = "step" | "ceiling";
 
 const SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
   SIGINT: 130,
@@ -208,6 +230,29 @@ export function shouldRunInstall(repoRoot: string): boolean {
   return currentDigest !== recordedDigest;
 }
 
+/** Resolve a step's own budget from its command args (unaffected by prior steps' elapsed time). */
+export function resolveStepBudgetMs(args: string[]): number {
+  if (args[0] === "install") {
+    return INSTALL_STEP_BUDGET_MS;
+  }
+
+  const script = args[1];
+  if (script === "check") {
+    return CHECK_STEP_BUDGET_MS;
+  }
+  if (script === "typecheck") {
+    return TYPECHECK_STEP_BUDGET_MS;
+  }
+  if (script === "lint:md") {
+    return LINT_MD_STEP_BUDGET_MS;
+  }
+  if (script?.startsWith("test") === true) {
+    return TEST_STEP_BUDGET_MS;
+  }
+
+  return DEFAULT_STEP_BUDGET_MS;
+}
+
 /** Ordered subprocess steps for the requested ready tier. */
 export function getReadyCommands(
   tier: ReadyTier,
@@ -235,7 +280,7 @@ export function getReadyCommands(
   return commands;
 }
 
-export function runCommand(name: string, args: string[], deadlineMs: number, elapsedMs: number): Promise<number> {
+export function runCommand(name: string, args: string[], armedMs: number, bound: ArmedBound): Promise<number> {
   return new Promise((resolve) => {
     // Heartbeat so a silent long step (e.g. `bun test` runs ~80s with no output
     // under bunfig `onlyFailures`) doesn't look like a hang.
@@ -261,7 +306,6 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
       resolve(code);
     };
 
-    const remainingMs = Math.max(0, deadlineMs - elapsedMs);
     let forceKillHandle: NodeJS.Timeout | undefined;
 
     const killChildTree = (signal: NodeJS.Signals) => {
@@ -305,11 +349,14 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
 
     const timeoutHandle = setTimeout(() => {
       if (!settled) {
-        process.stderr.write(`${DEADLINE_KILL_MARKER} ${deadlineMs}ms; killing child tree\n`);
+        const boundLabel = bound === "step" ? "step budget" : "run ceiling";
+        process.stderr.write(
+          `${DEADLINE_KILL_MARKER} ${armedMs}ms (${boundLabel}, step: ${name} ${args.join(" ")}); killing child tree\n`,
+        );
         requestedExitCode = TIMEOUT_EXIT_CODE;
         killChildTree("SIGTERM");
       }
-    }, remainingMs);
+    }, armedMs);
 
     process.on("SIGINT", onSigint);
     process.on("SIGTERM", onSigterm);
@@ -335,25 +382,39 @@ function isTestStep(args: string[]): boolean {
   return args[0] === "run" && args[1]?.startsWith("test") === true && args.length === 2;
 }
 
-export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof runCommand }): Promise<void> {
+export async function runReady(opts?: {
+  repoRoot?: string;
+  runCommandFn?: typeof runCommand;
+  clock?: () => number;
+}): Promise<void> {
   const repoRoot = opts?.repoRoot ?? process.cwd();
   const runCommandFn = opts?.runCommandFn ?? runCommand;
+  const clock = opts?.clock ?? Date.now;
   const tier = parseReadyTier();
   const runInstall = tier === "full" && shouldRunInstall(repoRoot);
   const testScope = parseReadyTestScope();
   const commands = getReadyCommands(tier, { runInstall, ...(testScope !== undefined ? { testScope } : {}) });
-  const timeoutMs = parseTimeout();
-  const startTime = Date.now();
+  const ceilingMs = parseTimeout();
+  const startTime = clock();
+
+  const armStep = (args: string[]): { armedMs: number; bound: ArmedBound } => {
+    const stepBudgetMs = resolveStepBudgetMs(args);
+    const ceilingRemainingMs = Math.max(0, ceilingMs - (clock() - startTime));
+    if (stepBudgetMs <= ceilingRemainingMs) {
+      return { armedMs: stepBudgetMs, bound: "step" };
+    }
+    return { armedMs: ceilingRemainingMs, bound: "ceiling" };
+  };
 
   for (const { name, args } of commands) {
-    const elapsed = Date.now() - startTime;
-    let code = await runCommandFn(name, args, timeoutMs, elapsed);
+    const { armedMs, bound } = armStep(args);
+    let code = await runCommandFn(name, args, armedMs, bound);
 
     // Retry only the identical failed test step; a narrower command cannot clear it.
     if (code !== 0 && isTestStep(args) && isGenuineTestFailure(code)) {
       process.stderr.write(`ready: test step failed (code ${code}); retrying\n`);
-      const serialElapsed = Date.now() - startTime;
-      code = await runCommandFn(name, args, timeoutMs, serialElapsed);
+      const retryArm = armStep(args);
+      code = await runCommandFn(name, args, retryArm.armedMs, retryArm.bound);
       if (code === 0) {
         process.stderr.write(`ready: test flake recovered (retry passed); continuing\n`);
       } else {

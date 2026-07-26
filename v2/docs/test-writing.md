@@ -36,6 +36,33 @@ The v2 integration slice is derived from the filename convention: a `*.sandbox-u
 
 Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
+### Ready-gate step budgets
+
+`bun run ready` (`scripts/ready.ts`) arms each step with its own fixed budget, not a shared
+remainder of one deadline. `TEST_STEP_BUDGET_MS` is **15 minutes** (900000ms), sized with ~65%
+headroom above the ~9-minute aggregate `bun run test` duration observed on operator hardware. Each
+scoped test step (`test:v1`, `test:v2`, `test:integration:v2`, …) is its own step with this same
+budget — a `shared/**` diff that scopes to all three slices runs three separate steps, and it is
+the **run ceiling**, not this per-step budget, that must have enough headroom to cover their sum.
+Non-test steps get smaller fixed budgets (`INSTALL_STEP_BUDGET_MS`, `CHECK_STEP_BUDGET_MS`,
+`TYPECHECK_STEP_BUDGET_MS`, `LINT_MD_STEP_BUDGET_MS`). A step's budget does not shrink because
+prior steps ran long — it is armed fresh, capped only by `min(stepBudgetMs, ceilingMs -
+runElapsedMs)`.
+
+`JARVIS_READY_TIMEOUT_MS` (default `DEFAULT_TIMEOUT_MS`, 30 minutes) is the **run ceiling only** —
+a backstop over the whole `bun run ready` invocation, not a per-step timeout. It is sized so a
+flake-retry still arms a fresh full test budget on a measured run: aggregate `bun run test` is 697s
+on operator hardware (2026-07-26) and the other steps are seconds each, so a run with one serial
+test retry is ~24 minutes. It deliberately does not cover the budget worst case (~38 minutes, every
+step consuming its full budget plus a retry); if the suite grows into that range the retry's budget
+is clamped by the ceiling and the kill is attributed to "run ceiling" in stderr. When the ceiling binds before a step's own budget would, the kill is attributed to "run
+ceiling" in stderr instead of "step budget". When a step budget itself is the binding limit, raise
+the relevant `*_STEP_BUDGET_MS` constant in `scripts/ready.ts` — there is no per-step env knob.
+Update `TEST_STEP_BUDGET_MS` (and `DEFAULT_TIMEOUT_MS` accordingly) if measured full-suite duration
+drifts.
+
+Sources: `scripts/ready.ts`, `v1/test/ready-script.sandbox-unrunnable.test.ts`
+
 ## Shared socket fixtures
 
 Socket-backed v2 tests import `canUseUnixSockets` from [`v2/src/testing/unix-socket.ts`](../src/testing/unix-socket.ts). Register socket-dependent tests with `test.skipIf(!canUseUnixSockets(), ...)` — do not use silent-return skip wrappers that report pass. Guard hooks with `canUseUnixSockets()`. Emit file-local stderr gated on `socketProbeErrored` when the suite needs operator-visible skip context — the shared probe does not write on failure.

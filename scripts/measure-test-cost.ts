@@ -88,9 +88,7 @@ export function summarizeTotals(files: FileCostResult[]): CostTotals {
   const okFiles = files.filter((f) => f.status === "ok");
   const totalInFileMs = okFiles.reduce((sum, f) => sum + (f.inFileMs ?? 0), 0);
   const totalResidualMs = okFiles.reduce((sum, f) => sum + (f.residualMs ?? 0), 0);
-  const excludedWallClockMs = files
-    .filter((f) => f.status !== "ok")
-    .reduce((sum, f) => sum + f.wallClockMs, 0);
+  const excludedWallClockMs = files.filter((f) => f.status !== "ok").reduce((sum, f) => sum + f.wallClockMs, 0);
   return {
     totalWallClockMs,
     totalInFileMs,

@@ -49,10 +49,13 @@ Non-test steps get smaller fixed budgets (`INSTALL_STEP_BUDGET_MS`, `CHECK_STEP_
 prior steps ran long — it is armed fresh, capped only by `min(stepBudgetMs, ceilingMs -
 runElapsedMs)`.
 
-`JARVIS_READY_TIMEOUT_MS` (default `DEFAULT_TIMEOUT_MS`, 45 minutes) is the **run ceiling only** —
-a backstop over the whole `bun run ready` invocation, not a per-step timeout, sized so it is not the
-binding constraint on a normal run (a full-tier run with one test-step serial retry sums to ~38
-minutes). When the ceiling binds before a step's own budget would, the kill is attributed to "run
+`JARVIS_READY_TIMEOUT_MS` (default `DEFAULT_TIMEOUT_MS`, 30 minutes) is the **run ceiling only** —
+a backstop over the whole `bun run ready` invocation, not a per-step timeout. It is sized so a
+flake-retry still arms a fresh full test budget on a measured run: aggregate `bun run test` is 697s
+on operator hardware (2026-07-26) and the other steps are seconds each, so a run with one serial
+test retry is ~24 minutes. It deliberately does not cover the budget worst case (~38 minutes, every
+step consuming its full budget plus a retry); if the suite grows into that range the retry's budget
+is clamped by the ceiling and the kill is attributed to "run ceiling" in stderr. When the ceiling binds before a step's own budget would, the kill is attributed to "run
 ceiling" in stderr instead of "step budget". When a step budget itself is the binding limit, raise
 the relevant `*_STEP_BUDGET_MS` constant in `scripts/ready.ts` — there is no per-step env knob.
 Update `TEST_STEP_BUDGET_MS` (and `DEFAULT_TIMEOUT_MS` accordingly) if measured full-suite duration

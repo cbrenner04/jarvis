@@ -4,11 +4,15 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from "node:path";
 import type { ScopedTests } from "./ci-test-scope.ts";
 
-// 45 minutes — run ceiling (JARVIS_READY_TIMEOUT_MS). Must exceed the worst plausible single
-// full-tier run (install + check + typecheck + a full-budget test step + one serial test retry +
-// lint:md ≈ 38 min below) with headroom; a ceiling below the step budgets it backstops makes it
-// the binding constraint on every normal run. See v2/docs/test-writing.md.
-export const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
+// 30 minutes — run ceiling (JARVIS_READY_TIMEOUT_MS), a backstop rather than the normal bound.
+// Sized so a flake-retry still arms a fresh full test budget on a *measured* run: aggregate
+// `bun run test` is 697s on operator hardware (2026-07-26) and install/check/typecheck/lint:md are
+// seconds each, so a run with one serial test retry is ~24 min. This leaves ~25% headroom over that.
+// It does not cover the budget worst case (every step consuming its full budget plus a retry, ~38
+// min) — if the suite ever grows into that range the retry's budget gets clamped by the ceiling and
+// the kill is attributed to "run ceiling" in stderr. Raise this constant (or cut suite duration —
+// see the process-spawn seed) if that starts happening. See v2/docs/test-writing.md.
+export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps

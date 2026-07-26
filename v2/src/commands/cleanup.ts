@@ -390,7 +390,7 @@ function hasStrandedOwner(
   });
 }
 
-async function inspectStrandedArtifacts(
+export async function inspectStrandedArtifacts(
   artifacts: readonly DiscoveredStrandedArtifact[],
   registry: Record<string, ProjectRegistryEntry>,
   allWorktrees: readonly DiscoveredWorktree[],
@@ -619,10 +619,12 @@ export async function runCleanupCommand(
     daemonClient,
     store,
   );
+  const strandedArtifacts = discoverStrandedArtifacts(registry);
+  const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
   const stranded = await inspectStrandedArtifacts(
-    discoverStrandedArtifacts(registry),
+    strandedArtifacts,
     registry,
-    discovered,
+    discovered.filter((worktree) => !retiringPaths.has(worktree.path)),
     jarvisRoot,
     store,
     runner,
@@ -661,7 +663,16 @@ export async function runCleanupCommand(
   const socketRemoval = removeDeadDaemonSockets(reaperResult.dead, io);
   if (socketRemoval !== 0) return socketRemoval;
 
-  await retireStrandedArtifacts(stranded, registry, jarvisRoot, runner, io);
+  const strandedAfterRetirement = await inspectStrandedArtifacts(
+    strandedArtifacts,
+    registry,
+    await discoverMaterializedWorktrees(registry, jarvisRoot, runner),
+    jarvisRoot,
+    store,
+    runner,
+    io,
+  );
+  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
   if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
   return result;
 }

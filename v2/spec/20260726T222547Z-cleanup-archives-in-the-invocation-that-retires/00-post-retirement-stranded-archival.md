@@ -50,36 +50,36 @@ with what apply archives or refuses for those specs.
 
 ## Task checklist
 
-- [ ] After `retireEligibleWorktrees`, re-discover materialized worktrees and inspect
+- [x] After `retireEligibleWorktrees`, re-discover materialized worktrees and inspect
   plus archive open-home stranded artifacts against that list (reuse
   `inspectStrandedArtifacts` / `retireStrandedArtifacts` or equivalent).
-- [ ] Stop passing the pre-retirement snapshot into the apply-time stranded ownership
+- [x] Stop passing the pre-retirement snapshot into the apply-time stranded ownership
   gate; pre-retirement inspect may remain only for early exit/preview inputs that do not
   claim apply-time archive outcomes.
-- [ ] Adjust `--dry-run` stranded preview to use effective materialized worktrees (exclude
+- [x] Adjust `--dry-run` stranded preview to use effective materialized worktrees (exclude
   preview-retire candidates) and align `hasNothingToClean` / stranded preview counts with
   that view.
-- [ ] Add `cleanup.test.ts` regression fixture: complete spec at the **open** spec home
+- [x] Add `cleanup.test.ts` regression fixture: complete spec at the **open** spec home
   (stranded-discoverable); pre-retirement stranded inspect refuses with the ownership
   message while the owner worktree is still materialized; retirement-path archival does
   **not** move that tree; one apply pass retires the owner and archives via
   post-retirement stranded inspect into `completed/`.
-- [ ] Add guard-inversion test: materialized owner not retired this invocation → refusal
+- [x] Add guard-inversion test: materialized owner not retired this invocation → refusal
   with existing ownership message and no archival; inverted guard allows archive.
-- [ ] Add or extend test: `--dry-run` stranded archive lines for open-home specs match apply
+- [x] Add or extend test: `--dry-run` stranded archive lines for open-home specs match apply
   archival for the same state when the owning worktree is in the retire preview set.
-- [ ] Update docs per documentation updates below.
+- [x] Update docs per documentation updates below.
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` `archives open-home spec when retiring its owning worktree in one invocation` (or equivalent) uses the pinned fixture: open-home complete spec, pre-retirement stranded ownership refusal, no retirement-path move, single apply retires owner and archives via post-retirement stranded path; fails against pre-fix ordering.
-- [ ] The new regression test's immediate second `runCleanupCommand` apply reports nothing to clean.
-- [ ] Guard inversion: with a materialized owner this invocation does not retire, open-home archival is refused with stdout containing `another materialized worktree owns this spec` and the spec stays at open home; test fails if archival succeeds while the owner remains.
-- [ ] `cleanup.test.ts` `archives eligible stranded specs without retiring a worktree and retains refused siblings` stays green.
-- [ ] `cleanup.test.ts` dry-run vs apply parity test for open-home stranded archival when owners are in the retire preview set passes; fails when dry-run uses the pre-retirement ownership snapshot.
-- [ ] `v2/docs/operator-runbook.md` § Cleanup documents same-invocation open-home archival and bounded `--dry-run` stranded prediction (not full-command equivalence).
-- [ ] `v2/docs/write-behavior.md` § Cleanup and `v2/docs/v1-behaviors.md` cleanup stranded entries document post-retirement materialized list for apply stranded ownership and retire-preview-adjusted list for dry-run stranded preview.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `cleanup.test.ts` `archives open-home spec when retiring its owning worktree in one invocation` (or equivalent) uses the pinned fixture: open-home complete spec, pre-retirement stranded ownership refusal, no retirement-path move, single apply retires owner and archives via post-retirement stranded path; fails against pre-fix ordering.
+- [x] The new regression test's immediate second `runCleanupCommand` apply reports nothing to clean.
+- [x] Guard inversion: with a materialized owner this invocation does not retire, open-home archival is refused with stdout containing `another materialized worktree owns this spec` and the spec stays at open home; test fails if archival succeeds while the owner remains.
+- [x] `cleanup.test.ts` `archives eligible stranded specs without retiring a worktree and retains refused siblings` stays green.
+- [x] `cleanup.test.ts` dry-run vs apply parity test for open-home stranded archival when owners are in the retire preview set passes; fails when dry-run uses the pre-retirement ownership snapshot.
+- [x] `v2/docs/operator-runbook.md` § Cleanup documents same-invocation open-home archival and bounded `--dry-run` stranded prediction (not full-command equivalence).
+- [x] `v2/docs/write-behavior.md` § Cleanup and `v2/docs/v1-behaviors.md` cleanup stranded entries document post-retirement materialized list for apply stranded ownership and retire-preview-adjusted list for dry-run stranded preview.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

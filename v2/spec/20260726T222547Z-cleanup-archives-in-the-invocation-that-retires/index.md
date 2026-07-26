@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Post-retirement stranded archival and dry-run parity](./00-post-retirement-stranded-archival.md)
+- [x] [00 - Post-retirement stranded archival and dry-run parity](./00-post-retirement-stranded-archival.md)

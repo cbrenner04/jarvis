@@ -64,7 +64,13 @@ The operation renames the entire source tree into the same spec home's
 match archived `intent.md`; a different queued intent remains. A prune failure
 rolls the archive rename back. Cleanup never mutates durable run rows.
 
-For `jarvis cleanup`, workspace retirement precedes this operation. Cleanup derives
+For `jarvis cleanup`, workspace retirement precedes open-home stranded archival on apply.
+Apply-time stranded ownership uses materialized worktrees after successful retirements in that
+invocation. `--dry-run` stranded ownership for open-home specs excludes worktrees in the retire
+preview set so stranded archive lines match apply for that slice when those owners are the only
+blockers and apply actually removes those worktrees (same assumption as the post-retirement
+materialized list); if a previewed retirement fails, dry-run can still list stranded archives
+apply refuses. Other cleanup slices are not fully predictable from dry-run. Cleanup derives
 the timestamped artifact identity from the retired run's recorded spec path, previews
 the retirement, archive destination, and proven intent prune under `--dry-run`, and
 prints a specific skip reason if the artifact stays at the root after retirement.
@@ -1192,6 +1198,9 @@ owns them. When the jarvis home cannot be enumerated, no sockets are removed in 
 cleanup run.
 
 `jarvis cleanup` with `--dry-run` previews worktrees, artifacts, and dead sockets
-without removal. The confirmation prompt counts all removal candidates; a cleanup run
+without removal. Open-home stranded archival preview adjusts materialized-worktree
+ownership by excluding retire-preview worktrees; apply re-inspects stranded ownership
+after successful retirements only (failed retirements leave owners materialized, so stranded
+dry-run can overshoot apply). The confirmation prompt counts all removal candidates; a cleanup run
 whose only work is dead sockets still prompts and proceeds rather than reporting
 nothing to clean up.

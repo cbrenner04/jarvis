@@ -7,19 +7,26 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CHECK_STEP_BUDGET_MS,
   computeInstallDigest,
   computeNodeModulesIdentityDigest,
+  DEADLINE_KILL_MARKER,
   DEFAULT_TIMEOUT_MS,
   getReadyCommands,
+  INSTALL_STEP_BUDGET_MS,
+  LINT_MD_STEP_BUDGET_MS,
   parseReadyTestScope,
   parseReadyTier,
   parseTimeout,
   readRecordedInstallDigest,
+  resolveStepBudgetMs,
   runCommand,
   runReady,
   sha256Hex,
   shouldRunInstall,
+  TEST_STEP_BUDGET_MS,
   TIMEOUT_EXIT_CODE,
+  TYPECHECK_STEP_BUDGET_MS,
   writeRecordedInstallDigest,
 } from "../../scripts/ready.ts";
 
@@ -89,6 +96,22 @@ function writePackage(repoRoot: string, pkgPath: string, name: string, version: 
   writeFileSync(fullPath, JSON.stringify({ name, version }), "utf8");
 }
 
+async function captureStderr<T>(fn: () => Promise<T>): Promise<{ result: T; stderr: string }> {
+  const stderrLines: string[] = [];
+  const origWrite = process.stderr.write;
+  process.stderr.write = function (this: typeof process.stderr, chunk, ...args) {
+    stderrLines.push(String(chunk));
+    return origWrite.apply(this, [chunk, ...args] as Parameters<typeof origWrite>);
+  };
+
+  try {
+    const result = await fn();
+    return { result, stderr: stderrLines.join("") };
+  } finally {
+    process.stderr.write = origWrite;
+  }
+}
+
 const FULL_TIER_STEP_NAMES = ["check", "typecheck", "test", "lint:md"];
 
 // This file's own `bun run test:integration:v1` may be invoked as a step of an enclosing
@@ -145,17 +168,153 @@ describe("ready script deadline enforcement", () => {
 
   // These test the spawn boundary (runCommand) itself — deadline enforcement, exit code propagation, and
   // error handling require real subprocess semantics and are not mockable through the runCommandFn seam.
-  test("runCommand exits with 124 when the deadline is exceeded", async () => {
-    const code = await runCommand("sleep", ["2"], 50, 0);
+  test("runCommand exits with 124 when the step budget binds", async () => {
+    const { result: code, stderr } = await captureStderr(() => runCommand("sleep", ["2"], 50, "step"));
     expect(code).toBe(TIMEOUT_EXIT_CODE);
+    expect(stderr).toContain(`${DEADLINE_KILL_MARKER} 50ms (step budget, step: sleep 2)`);
+  });
+
+  test("runCommand exits with 124 when the run ceiling binds", async () => {
+    const { result: code, stderr } = await captureStderr(() => runCommand("sleep", ["2"], 50, "ceiling"));
+    expect(code).toBe(TIMEOUT_EXIT_CODE);
+    expect(stderr).toContain(`${DEADLINE_KILL_MARKER} 50ms (run ceiling, step: sleep 2)`);
   });
 
   test("runCommand exits normally when commands complete", async () => {
-    expect(await runCommand("true", [], 5000, 0)).toBe(0);
+    expect(await runCommand("true", [], 5000, "step")).toBe(0);
   });
 
   test("when a command exits non-zero, runCommand returns its exit code", async () => {
-    expect(await runCommand("false", [], 5000, 0)).toBe(1);
+    expect(await runCommand("false", [], 5000, "step")).toBe(1);
+  });
+});
+
+describe("ready per-step budgets and run ceiling", () => {
+  test("resolveStepBudgetMs attributes budgets by step", () => {
+    expect(resolveStepBudgetMs(["install", "--frozen-lockfile"])).toBe(INSTALL_STEP_BUDGET_MS);
+    expect(resolveStepBudgetMs(["run", "check"])).toBe(CHECK_STEP_BUDGET_MS);
+    expect(resolveStepBudgetMs(["run", "typecheck"])).toBe(TYPECHECK_STEP_BUDGET_MS);
+    expect(resolveStepBudgetMs(["run", "test"])).toBe(TEST_STEP_BUDGET_MS);
+    expect(resolveStepBudgetMs(["run", "test:v1"])).toBe(TEST_STEP_BUDGET_MS);
+    expect(resolveStepBudgetMs(["run", "lint:md"])).toBe(LINT_MD_STEP_BUDGET_MS);
+  });
+
+  test("later ready step arms full step budget when run elapsed is large", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-step-arm-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-content", "utf8");
+    writePackage(repoRoot, "pkg", "pkg", "1.0.0");
+    const digest = computeInstallDigest(repoRoot);
+    if (digest) {
+      writeRecordedInstallDigest(repoRoot, digest);
+    }
+
+    const armedByStep: Record<string, number> = {};
+    let now = 0;
+    const clock = () => now;
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
+        await runReady({
+          repoRoot,
+          clock,
+          runCommandFn: async (_name, args, armedMs) => {
+            const step = args.join(" ");
+            armedByStep[step] = armedMs;
+            // Advance run elapsed well into the default run ceiling before the last step, without
+            // letting any single step's own remaining-budget math shrink below its size.
+            if (step === "run check") {
+              now += 8 * 60 * 1000;
+            }
+            return 0;
+          },
+        });
+      });
+
+      // Pre-fix, every step shared one deadline: remainingMs = ceilingMs - elapsedMs, so lint:md
+      // would have armed with (ceilingMs - 480000) instead of its own smaller step budget.
+      expect(armedByStep["run lint:md"]).toBe(LINT_MD_STEP_BUDGET_MS);
+      expect(armedByStep["run lint:md"]).not.toBe(DEFAULT_TIMEOUT_MS - 8 * 60 * 1000);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("flake-retry arms a fresh step budget not the first attempt remainder", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-flake-arm-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-content", "utf8");
+    writePackage(repoRoot, "pkg", "pkg", "1.0.0");
+    const digest = computeInstallDigest(repoRoot);
+    if (digest) {
+      writeRecordedInstallDigest(repoRoot, digest);
+    }
+
+    const testArmed: number[] = [];
+    let now = 0;
+    const clock = () => now;
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
+        await runReady({
+          repoRoot,
+          clock,
+          runCommandFn: async (_name, args, armedMs) => {
+            const step = args.join(" ");
+            if (step === "run test") {
+              testArmed.push(armedMs);
+              // Advance run elapsed by a realistic per-attempt duration (the observed ~9-minute
+              // aggregate suite run), staying within the run ceiling's headroom so the retry still
+              // arms a genuinely fresh full step budget rather than an artifact of a tiny delta.
+              now += 9 * 60 * 1000;
+              return testArmed.length === 1 ? 1 : 0;
+            }
+            return 0;
+          },
+        });
+      });
+
+      expect(testArmed).toHaveLength(2);
+      expect(testArmed[0]).toBe(TEST_STEP_BUDGET_MS);
+      expect(testArmed[1]).toBe(TEST_STEP_BUDGET_MS);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  // Real subprocess: spawns the actual ready.ts script (cwd = repoRoot) so per-step budgets are
+  // generous (real defaults) but the run ceiling is tiny, proving the ceiling backstop fires and
+  // is attributed correctly even though no single step's own budget would have bound first.
+  test("run ceiling terminates before per-step budgets would fully sum", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-ceiling-"));
+    try {
+      writeFileSync(
+        join(repoRoot, "package.json"),
+        JSON.stringify({ scripts: { typecheck: "sleep 5", test: "true" } }),
+        "utf8",
+      );
+
+      const result = spawnSync("bun", [join(process.cwd(), "scripts/ready.ts")], {
+        cwd: repoRoot,
+        env: { ...process.env, JARVIS_READY_TIER: "fast", JARVIS_READY_TIMEOUT_MS: "100" },
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(TIMEOUT_EXIT_CODE);
+      // Allow a few ms of process-startup jitter between the 100ms ceiling and when runReady's
+      // clock actually starts; assert the allotted ms is attributed and near the configured ceiling.
+      const match = result.stderr.match(
+        new RegExp(`${DEADLINE_KILL_MARKER} (\\d+)ms \\(run ceiling, step: bun run typecheck\\)`),
+      );
+      expect(match).not.toBeNull();
+      const allottedMs = Number(match?.[1]);
+      expect(allottedMs).toBeGreaterThan(0);
+      expect(allottedMs).toBeLessThanOrEqual(100);
+      // Only the typecheck step's "running" line should appear — proving the run stopped before
+      // the test step started, not merely that "run test" text is absent for some other reason.
+      const runningLines = result.stderr.match(/ready: running/g) ?? [];
+      expect(runningLines).toHaveLength(1);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 

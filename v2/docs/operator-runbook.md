@@ -407,12 +407,16 @@ insufficient without a green gate on the branch head.
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
 consumes the iteration budget and republishes before the gate is rerun. A deadline-killed gate (exit code 124 or
-`ready: deadline exceeded after Nms; killing child tree` in the captured output) skips repair, logs `ready_gate_timeout`,
-and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate: the gate passed locally and
-timed out under gate resource constraints (shared tests hit the deadline from `shared/**` changes). Resume to re-run
-the gate with more time or decomposed in narrower scope. Flip failures are not repaired; resume a `ready_gate_failed`
-or `surviving_mutation_failed` run after fixing coverage. For `ready_flip_failed`, manually fix the PR draft → ready
-transition (see [Publication / completion failures](#publication--completion-failures)); do not `jarvis run resume`.
+`ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair,
+logs `ready_gate_timeout`, and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate:
+the gate passed locally and timed out against either a per-step budget or the overall run ceiling (see
+[test-writing.md § Ready-gate step budgets](./test-writing.md#ready-gate-step-budgets); `shared/**` changes can hit
+this from running all three test slices). Because per-step budgets are fixed constants in `scripts/ready.ts`
+(no per-step env knob), a step-budget kill needs that constant raised, not a resume — resume only helps when the
+**run ceiling** (`JARVIS_READY_TIMEOUT_MS`) bound instead. Flip failures are not repaired; resume a
+`ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage. For `ready_flip_failed`, manually fix
+the PR draft → ready transition (see [Publication / completion failures](#publication--completion-failures)); do
+not `jarvis run resume`.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 

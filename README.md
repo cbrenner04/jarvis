@@ -383,6 +383,7 @@ bun run ready
 ```
 
 `ready` runs install (when required), `check`, `typecheck`, `test`, and
-`lint:md` under a 10-minute wall clock (override with
-`JARVIS_READY_TIMEOUT_MS`); on timeout it kills the process tree and exits
-124. `JARVIS_READY_TIER=fast` runs just `typecheck` + `test`.
+`lint:md`, each under its own fixed step budget, with a 45-minute overall run
+ceiling as backstop (override with `JARVIS_READY_TIMEOUT_MS`); on timeout it
+kills the process tree and exits 124. `JARVIS_READY_TIER=fast` runs just
+`typecheck` + `test`.

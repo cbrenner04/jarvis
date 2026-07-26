@@ -52,16 +52,38 @@ export interface SpawnOutcome {
 
 type Spawn = (command: string, args: string[], options: { timeout: number }) => Promise<SpawnOutcome>;
 
-function defaultSpawn(command: string, args: string[], options: { timeout: number }): Promise<SpawnOutcome> {
+/** Bound on how long a post-kill "close" wait may run before settling with whatever was captured. */
+const POST_KILL_GRACE_MS = 500;
+
+export function defaultSpawn(command: string, args: string[], options: { timeout: number }): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
     const child = nodeSpawn(command, args);
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const settle = (outcome: SpawnOutcome) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+      }
+      resolve(outcome);
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
+      graceTimer = setTimeout(() => {
+        settle({ status: null, signal: "SIGKILL", stdout, stderr, timedOut });
+      }, POST_KILL_GRACE_MS);
     }, options.timeout);
+
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
@@ -69,8 +91,11 @@ function defaultSpawn(command: string, args: string[], options: { timeout: numbe
       stderr += chunk.toString("utf8");
     });
     child.on("close", (status, signal) => {
-      clearTimeout(timer);
-      resolve({ status, signal, stdout, stderr, timedOut });
+      settle({ status, signal, stdout, stderr, timedOut });
+    });
+    child.on("error", (err) => {
+      stderr += `error: failed to spawn "${command}": ${String(err)}\n`;
+      settle({ status: 1, signal: null, stdout, stderr, timedOut: false });
     });
   });
 }
@@ -89,7 +114,10 @@ export function defaultConcurrency(parallelism: number): number {
 /**
  * Resolves the pool's concurrency limit: an explicit override wins over
  * `JARVIS_TEST_CONCURRENCY`, which wins over the derived default. A malformed or `0` env
- * value falls back to the derived default instead of throwing.
+ * value falls back to the derived default instead of throwing. An explicit override must be a
+ * non-negative integer — `0` clamps to serial execution (via the worker-count floor of 1); a
+ * non-integer or negative explicit value throws rather than silently producing a zero-worker
+ * pool that reports success without running files.
  */
 export function resolveConcurrency(
   explicit?: number,
@@ -97,6 +125,9 @@ export function resolveConcurrency(
   parallelism = availableParallelism(),
 ): number {
   if (explicit !== undefined) {
+    if (!Number.isInteger(explicit) || explicit < 0) {
+      throw new Error(`explicit concurrency must be a non-negative integer, got ${explicit}`);
+    }
     return explicit;
   }
   if (envValue !== undefined) {
@@ -165,7 +196,8 @@ export async function runV2TestFiles(
     }
   }
 
-  const workerCount = Math.max(1, Math.min(concurrency, poolable.length));
+  const safeConcurrency = Number.isFinite(concurrency) ? concurrency : 1;
+  const workerCount = Math.max(1, Math.min(safeConcurrency, poolable.length));
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
   for (const file of isolated) {

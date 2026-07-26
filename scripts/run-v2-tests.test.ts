@@ -2,6 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   aggregateExitCode,
   defaultConcurrency,
+  defaultSpawn,
   fileOutputHeader,
   isSpawnTimeout,
   resolveConcurrency,
@@ -71,6 +72,52 @@ describe("resolveConcurrency", () => {
 
   test("an unset env var falls back to the derived default", () => {
     expect(resolveConcurrency(undefined, undefined, 18)).toBe(9);
+  });
+
+  test("an explicit zero is accepted (clamps to serial elsewhere)", () => {
+    expect(resolveConcurrency(0, "3", 18)).toBe(0);
+  });
+
+  test("throws on a NaN explicit override instead of silently producing a zero-worker pool", () => {
+    expect(() => resolveConcurrency(Number.NaN, "3", 18)).toThrow();
+  });
+
+  test("throws on a fractional explicit override", () => {
+    expect(() => resolveConcurrency(1.5, "3", 18)).toThrow();
+  });
+
+  test("throws on a negative explicit override", () => {
+    expect(() => resolveConcurrency(-1, "3", 18)).toThrow();
+  });
+});
+
+describe("defaultSpawn", () => {
+  test(
+    "prints then exceeds a small injected timeout: timedOut true with pre-kill output preserved",
+    async () => {
+      const outcome = await defaultSpawn("bash", ["-c", "echo hi; sleep 5"], { timeout: 200 });
+
+      expect(outcome.timedOut).toBe(true);
+      expect(outcome.stdout).toBe("hi\n");
+    },
+    3_000,
+  );
+
+  test("a within-budget kill is reported as a failure, not a timeout", async () => {
+    const outcome = await defaultSpawn("bash", ["-c", "kill -9 $$"], { timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS });
+
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.signal).toBe("SIGKILL");
+  });
+
+  test("a spawn error (e.g. ENOENT) settles as a failure instead of hanging", async () => {
+    const outcome = await defaultSpawn("definitely-not-a-real-command-xyz", [], {
+      timeout: SUPPORTED_HEALTHY_FILE_BUDGET_MS,
+    });
+
+    expect(outcome.timedOut).toBe(false);
+    expect(outcome.status).not.toBe(0);
+    expect(outcome.stderr).toContain("definitely-not-a-real-command-xyz");
   });
 });
 
@@ -206,6 +253,36 @@ describe("runV2TestFiles", () => {
     await runV2TestFiles("agent", files, spawn, "v2", 3);
 
     expect(maxInFlight).toBe(3);
+  });
+
+  test("a non-finite concurrency never yields a zero-worker pool that reports success without running files", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 0, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    const results = await runV2TestFiles("agent", ["a.test.ts", "b.test.ts"], spawn, "v2", Number.NaN);
+
+    expect(results.map((r) => r.file).sort()).toEqual(["a.test.ts", "b.test.ts"]);
+  });
+
+  test("a spawn error is reported as a failure for that file, and other pooled files still complete", async () => {
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const spawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      if (file === "enoent.test.ts") {
+        return { status: 1, signal: null, stdout: "", stderr: 'error: failed to spawn "bun": Error: spawn ENOENT\n', timedOut: false };
+      }
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runV2TestFiles("agent", ["enoent.test.ts", "ok.test.ts"], spawn, "v2", 2);
+
+    expect(results.find((r) => r.file === "enoent.test.ts")).toEqual({
+      file: "enoent.test.ts",
+      timedOut: false,
+      status: 1,
+    });
   });
 
   test("a concurrency limit of 1 reproduces serial execution and roster-order settlement", async () => {

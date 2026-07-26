@@ -99,7 +99,9 @@ Adapted from v1; v2 session close-out is the same obligation:
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
 6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees and scans each registered
-   `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). It retains
+   `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). When the
+   owning worktree is retired in the same apply run, open-home stranded specs archive in that pass.
+   It retains
    unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)). A stranded spec is owned only by
    a discovered managed worktree in the same registered project on its recorded implementation branch; primary
    checkouts and other resolved branches do not own it. Cleanup rechecks ownership immediately before archival,
@@ -726,10 +728,26 @@ The same completeness, open-PR, ownership, intent-proof, and move/rollback check
 stdout (including `--dry-run`) names candidates and refusals for unchecked criteria, open
 matching PRs, and materialized owners. It never changes durable run rows.
 
-**`--dry-run` is a plan, not an outcome.** It lists an archive destination based on the state it
-sees; the apply-time recheck runs again and can correctly refuse every archival the preview
-listed. Do not read a dry-run listing as "these will be archived" — read it as "these are
-candidates". Confirm against the apply run's stdout.
+When a completed open-home spec's owning worktree is retired in the same `jarvis cleanup`
+apply invocation, stranded archival runs after retirement against a freshly discovered
+materialized-worktree list (successful retirements only), so one pass archives the spec
+into `completed/` without a second cleanup.
+
+**`--dry-run` stranded prediction (bounded).** For open-home stranded archival,
+`--dry-run` evaluates materialized-worktree ownership as if worktrees in the retire
+preview set were already gone, so stranded archive lines match apply for that slice when
+those owners are the only blockers and apply successfully retires those worktrees (the
+same assumption behind apply's post-retirement materialized list). If a previewed
+worktree is not removed, dry-run may still show stranded `archive:` while apply keeps
+an owner and refuses. This is not full-command dry-run ≡ apply: worktree
+retirement preview, dead sockets, post-confirm eligibility recheck, and merged-PR preview/apply
+races are unchanged.
+
+**`--dry-run` is a plan, not an outcome** for other cleanup slices. It lists an archive
+destination based on the state it sees; the apply-time recheck runs again and can correctly
+refuse every archival the preview listed outside the bounded stranded case above. Do not read
+a dry-run listing as "these will be archived" — read it as "these are candidates". Confirm
+against the apply run's stdout.
 
 A worktree is eligible iff:
 

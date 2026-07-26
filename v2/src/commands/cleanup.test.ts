@@ -14,6 +14,7 @@ import {
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
+  inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
   performWorktreeRemovals,
   type ResetStaleWorkspaceOptions,
@@ -58,6 +59,36 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     mkdirSync(dirname(worktreePath), { recursive: true });
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
     return worktreePath;
+  }
+
+  function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify(
+            state === "MERGED"
+              ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
+              : { state: "OPEN", mergedAt: null },
+          );
+        if (cmd === "gh" && args[1] === "list") return "[]";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+  }
+
+  function storeForStrandedSpec(specName: string, branch: string): StateStore {
+    const home = join(projectRoot, "v2", "spec");
+    return {
+      listRuns: () => [
+        {
+          project: "project",
+          branch,
+          worktreePath: projectRoot,
+          specPath: join(home, specName, "index.md"),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
   }
 
   beforeEach(async () => {
@@ -187,15 +218,19 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     };
     const store: StateStore = { findRunByProjectBranch: () => null, listRuns: () => [run] } as unknown as StateStore;
     const order: string[] = [];
+    let retired = false;
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         if (cmd === "gh" && args[1] === "list") {
-          order.push("inspect archive");
+          order.push(retired ? "post-retire pr list" : "pre-retire pr list");
           return "[]";
         }
-        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") order.push("retire");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          order.push("retire");
+          retired = true;
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -213,7 +248,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         io,
       ),
     ).toBe(0);
-    expect(order).toEqual(["retire", "inspect archive"]);
+    expect(order.indexOf("retire")).toBeLessThan(order.indexOf("post-retire pr list"));
     expect(existsSync(source)).toBe(false);
     expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
     expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(false);
@@ -505,6 +540,142 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(home, "completed", "ignored"))).toBe(true);
     expect(existsSync(join(home, "seeds", "ignored"))).toBe(true);
     expect(existsSync(join(home, "ready-intents", "ignored"))).toBe(true);
+  });
+
+  test("archives open-home spec when retiring its owning worktree in one invocation", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20260726T000001Z-open-home-retire";
+    const branch = "feat/open-home-owner";
+    createSpec(specName, "[x] Done");
+    const worktreePath = await materializeWorktree(branch, "open-home owner");
+    const store = storeForStrandedSpec(specName, branch);
+    const mockRunner = ghRunnerForPr("MERGED");
+    const registry = { project: { root: projectRoot } };
+    const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, mockRunner);
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+    await inspectStrandedArtifacts(
+      [{ home, source: join(home, specName), name: specName, project: "project" }],
+      registry,
+      discovered,
+      jarvisRoot,
+      store,
+      mockRunner,
+      io,
+    );
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, specName))).toBe(true);
+
+    stdout = "";
+    const openHomeSource = join(home, specName);
+    const trackingRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
+          expect(existsSync(openHomeSource)).toBe(true);
+          expect(existsSync(join(home, "completed", specName))).toBe(false);
+        }
+        return mockRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        trackingRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+    const retiredAt = stdout.indexOf(`Retired: ${worktreePath}`);
+    const archivedAt = stdout.indexOf(`Archived: ${openHomeSource} ->`);
+    expect(retiredAt).toBeGreaterThanOrEqual(0);
+    expect(archivedAt).toBeGreaterThan(retiredAt);
+    expect(existsSync(openHomeSource)).toBe(false);
+    expect(existsSync(join(home, "completed", specName))).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+  });
+
+  test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20260726T000002Z-open-home-blocked";
+    const branch = "feat/still-owned";
+    createSpec(specName, "[x] Done");
+    await materializeWorktree(branch, "blocking owner");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("OPEN"),
+        async () => [],
+        storeForStrandedSpec(specName, branch),
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain("another materialized worktree owns this spec");
+    expect(existsSync(join(home, specName))).toBe(true);
+    expect(existsSync(join(home, "completed", specName))).toBe(false);
+  });
+
+  test("dry-run stranded archive preview matches apply when owning worktree is in retire preview set", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20260726T000003Z-dry-run-parity";
+    const branch = "feat/dry-run-parity";
+    createSpec(specName, "[x] Done");
+    await materializeWorktree(branch, "dry-run parity owner");
+    const mockRunner = ghRunnerForPr("MERGED");
+    const registry = { project: { root: projectRoot } };
+    const store = storeForStrandedSpec(specName, branch);
+    const archiveLine = `archive: ${join(home, specName)} -> ${join(home, "completed", specName)}`;
+    let dryStdout = "";
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (dryStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(dryStdout).toContain(archiveLine);
+    expect(existsSync(join(home, specName))).toBe(true);
+
+    let applyStdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        mockRunner,
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(existsSync(join(home, "completed", specName))).toBe(true);
+    expect(applyStdout).toContain(`Archived: ${join(home, specName)} -> ${join(home, "completed", specName)}`);
   });
 
   test("keys stranded ownership to the recorded project branch and rechecks it before archival", async () => {

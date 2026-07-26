@@ -645,6 +645,30 @@ review step commits its `done` boundary, then git-enabled workflows commit,
 push, and open or reuse the draft PR from that workspace; git-disabled
 workflows only land local files and perform no Git or GitHub operation.
 
+**Recovering a populated stage.** `jarvis run resume <runId>` targets the
+review row's own `runId` — the same one `run list` / `run wait` show with
+`landing_failed` (`nextAction: "resume"`). When `.jarvis-intent-stage/` still
+holds files, the daemon detects the populated stage
+(`resolveIntentFinalizationResumeContext`) and replays only the finalization
+tail (`resumePopulatedIntentPublication`: promote `durableDir`, delete the
+stage and verdict sidecars, commit, push, draft PR) from the persisted
+workflow snapshot — never `spawnWriteLoop`, never a fresh split/critic/actuator
+invocation. An empty or missing stage falls back to
+`unsupported_resume_context` (`nextAction: "stop"`): there is nothing left to
+promote, so the operator must inspect the run manually.
+
+Resume reconstruction depends on state the persisted workflow snapshot does
+not carry directly: `durableDir` is recovered solely from the sibling durable
+write step's own row (`specPath`), not from the snapshot, and the staging
+directory is the hard-coded `.jarvis-intent-stage/` constant rather than a
+persisted value — the snapshot records neither the original landing nor
+whether the worktree is git-enabled. Admission is not gated on git-enablement: a git-disabled worktree with a
+populated stage is admitted for resume the same as a git-enabled one. The
+commit/push/PR tail then runs its normal Git operations regardless, surfacing
+as a visible resume failure if the worktree isn't a real Git repository. This
+is an intentionally unguarded, out-of-scope boundary for this resume path,
+not a gap to close silently.
+
 The `failureKind: "landing"` detail is uniform across every review landing
 seam — light review, standard (durable) review, and review-debate alike — so a
 post-role landing failure never settles as an undifferentiated
@@ -660,7 +684,10 @@ into `durableDir`, then removing `.jarvis-intent-stage/` and the verdict
 sidecars — is not conditional on actuation: an empty (trimmed) critic verdict
 still promotes and runs the workflow-completion publication tail (commit and,
 when git-enabled, push/draft PR), attributing that commit to the write step's
-own configured agent since no actuator ran. Critic, actuator, abort,
+own durably recorded completion agent (the agent that actually ran it), falling
+back to its configured agent only when no durable record exists. If no agent is
+resolvable at all, the run fails visibly instead of silently skipping
+publication. Critic, actuator, abort,
 verdict-I/O failures, and landing failures return `invocation_failure` and stop
 later steps. `iterationsConsumed` counts cycles whose critic started, including
 a role-failed cycle, but not pre-critic failures or landing attempts.

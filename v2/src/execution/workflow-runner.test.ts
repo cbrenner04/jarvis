@@ -39,7 +39,7 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
-import { landPublication } from "./publication-landing.ts";
+import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
 import { ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
@@ -51,7 +51,9 @@ import {
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
+  resolveIntentFinalizationResumeContext,
   resolveWorkflowPreset,
+  resumePopulatedIntentPublication,
   type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
@@ -5572,6 +5574,266 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("resumes intent finalization from a populated stage without review re-invocation", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+
+    let splitCalls = 0;
+    let criticCalls = 0;
+    let actuatorCalls = 0;
+
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent/finalize-resume",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-finalize-resume",
+        baseRef: "none",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: finalize-resume",
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        splitCalls += 1;
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "example.md"),
+          "---\nname: example\n---\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+    const landing: PublicationLanding = {
+      kind: "intent-stage",
+      output: { durableDir: "ready-intents" },
+      stagingDir: ".jarvis-intent-stage",
+      invocationId: "intent-finalize-resume",
+      baseRef: "none",
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent/finalize-resume",
+      cwd: workspace,
+      prompt: "inspect",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: config,
+      landing,
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          if (agentId === "claude") criticCalls += 1;
+          if (agentId === "codex") actuatorCalls += 1;
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    };
+
+    const logsPath = join(mkdtempSync(join(tmpdir(), "intent-finalize-resume-log-")), "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [writeStep, reviewStep], stateStore: store, logSink });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(splitCalls).toBe(1);
+      expect(criticCalls).toBe(1);
+      expect(actuatorCalls).toBe(1);
+
+      const reviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent/finalize-resume",
+        stepId: "review",
+      });
+      if (!reviewRun) throw new Error("expected a durable review row");
+
+      // Clear the collision so promotion can succeed on resume, then republish through the
+      // daemon's populated-stage resume path — never `spawnWriteLoop`.
+      rmSync(join(durableDir, "example.md"));
+      installWorkflowRunnerResumeProfile();
+      let writeLoopExecutorCalls = 0;
+      let commitCalls = 0;
+      let publishCalls = 0;
+      const handlers = createRunControlHandlers({
+        stateStore: store,
+        logReader: openLogReader(logsPath),
+        writeLoopExecutor: async () => {
+          writeLoopExecutorCalls += 1;
+        },
+        failureReporter: () => undefined,
+        hasMemoryHeadroom: () => true,
+        settleDelayMs: 0,
+        intentFinalizationResumeDeps: {
+          completionCommitter: async () => {
+            commitCalls += 1;
+            return { commitSha: "deadbeef", filesChanged: 1 };
+          },
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return { pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" };
+          },
+          readyFinalizer: async () => undefined,
+        },
+      });
+      try {
+        const frame = await handlers.resume(
+          { kind: "request", id: "resume-intent-finalize", method: "resume", params: { runId: reviewRun.id } },
+          new AbortController().signal,
+        );
+        expect(frame.kind).toBe("response");
+
+        expect(splitCalls).toBe(1);
+        expect(criticCalls).toBe(1);
+        expect(actuatorCalls).toBe(1);
+        expect(writeLoopExecutorCalls).toBe(0);
+        expect(commitCalls).toBe(1);
+        expect(publishCalls).toBe(1);
+
+        expect(store.loadRun(reviewRun.id)?.status).toBe("completed");
+        expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("Prerequisites");
+        expect(existsSync(join(workspace, ".jarvis-intent-stage", "example.md"))).toBe(false);
+      } finally {
+        handlers.close();
+        resetWriteLoopBindingSourceDepsForTests();
+      }
+    });
+  });
+
+  test("persists the review-debate step's real baseRef so resume publishes against it, not an empty specRef", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-debate-baseref-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const durableDir = join(workspace, "ready-intents");
+    mkdirSync(durableDir, { recursive: true });
+    // Pre-existing conflicting content forces the debate step's deferred landing to fail.
+    writeFileSync(join(durableDir, "example.md"), "different\n", "utf8");
+
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent/finalize-debate-baseref",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-finalize-debate-baseref",
+        baseRef: "none",
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: finalize-debate-baseref",
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "example.md"),
+          "---\nname: example\n---\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    const debateStep = createDebateStep({
+      stepId: "review-debate",
+      cwd: workspace,
+      project: "demo",
+      branch: "intent/finalize-debate-baseref",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-finalize-debate-baseref",
+        baseRef: "debate-real-base-ref",
+      },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => ({
+        kind: "ok" as const,
+        stdout: adapterModel === "ADJ" ? "" : "ok",
+        stderr: "",
+      })),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [writeStep, debateStep], stateStore: store });
+      expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+
+      const debateRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent/finalize-debate-baseref",
+        stepId: "review-debate",
+      });
+      if (!debateRun) throw new Error("expected a durable review-debate row");
+      expect(debateRun.specRef).toBe("debate-real-base-ref");
+
+      const resolved = resolveIntentFinalizationResumeContext(debateRun, store);
+      expect(resolved).toMatchObject({ ok: true, context: { baseRef: "debate-real-base-ref" } });
+    });
+  });
+
+  test("settles a visible failure, not a no-op, when resume can't resolve a completion agent", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-no-agent-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch: "intent/no-agent",
+        workflowSnapshot: {
+          invocationId: "intent-no-agent",
+          creationTitle: "intent: no-agent",
+          steps: [
+            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
+            { stepId: "review", role: "", durable: true, behavior: "review" as const },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      store.setRunStatus(reviewRunId, "failed");
+      const attemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const outcome = await resumePopulatedIntentPublication(run, store);
+
+      expect(outcome).toMatchObject({ ok: false });
+      const settled = store.loadRun(reviewRunId);
+      expect(settled?.status).toBe("failed");
+      expect(settled?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("completion agent");
+    });
+  });
+
   test("aggregates missing critic and actuator bindings before durable state", async () => {
     const step: ReviewWorkflowStep = {
       behavior: "review",
@@ -5798,7 +6060,6 @@ describe("executeWorkflow review dispatch", () => {
     branchName: string,
     reviewOverrides: {
       criticStdout: string;
-      actuatorInvoked: boolean;
     },
   ): {
     harness: ReturnType<typeof createIntentWorktreeHarness>;
@@ -5900,7 +6161,6 @@ describe("executeWorkflow review dispatch", () => {
     const branchName = "intent-two-file-promote";
     const { harness, durableDir, stagingDir, verdictPath, writeStep, reviewStep } = twoFileIntentWorkflow(branchName, {
       criticStdout: "looks good",
-      actuatorInvoked: true,
     });
 
     await withStateStore(async (store) => {
@@ -5934,7 +6194,7 @@ describe("executeWorkflow review dispatch", () => {
     const branchName = "intent-empty-verdict-promote";
     const { harness, durableDir, stagingDir, verdictPath, calls, writeStep, reviewStep } = twoFileIntentWorkflow(
       branchName,
-      { criticStdout: "", actuatorInvoked: false },
+      { criticStdout: "" },
     );
 
     await withStateStore(async (store) => {

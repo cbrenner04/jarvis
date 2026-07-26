@@ -717,13 +717,23 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     const completionStep = [...args.steps].reverse().find(isWriteStep);
     const lastStep = args.steps[args.steps.length - 1];
     const isReviewLastStep = lastStep?.behavior === "review" || lastStep?.behavior === "review-debate";
+    const writeStepRun = completionStep
+      ? store.findRunByProjectBranch({
+          project: completionStep.worktree.projectName,
+          branch: completionStep.worktree.branchName,
+          stepId: completionStep.stepId,
+        })
+      : null;
+    const durableWriteAgent = writeStepRun ? reviewCompletionAgent(writeStepRun) : undefined;
     // A reviewed-last workflow's completion tail must still commit/push/PR when the critic
     // approved with an empty verdict and the review step's actuator never ran (no
-    // `completionAgent` from that step). Fall back to the write step's own configured agent
-    // so publication is never silently skipped because the actuator was skipped.
+    // `completionAgent` from that step). Attribute to the write step's own durably recorded
+    // completion agent — the agent that actually ran it — falling back to the write step's
+    // configured agent only when no durable record exists, so publication is never silently
+    // skipped because the actuator was skipped.
     const publicationAgent =
       lastResult.kind === "complete"
-        ? (completionAgent ?? (isReviewLastStep ? completionStep?.agents[0] : undefined))
+        ? (completionAgent ?? (isReviewLastStep ? (durableWriteAgent ?? completionStep?.agents[0]) : undefined))
         : undefined;
 
     // The publication tail always writes status/log records against `lastResult.runId`. When the
@@ -748,6 +758,42 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (settleRun !== null) {
         lastResult = { ...lastResult, runId: settleRun.id };
       }
+    }
+
+    // A reviewed-last workflow that completed with no resolvable publication agent (no durable
+    // record and no configured write-step agent) must fail visibly rather than silently return
+    // `complete` with the commit/push/PR tail skipped.
+    if (
+      lastResult.kind === "complete" &&
+      isReviewLastStep &&
+      completionStep !== undefined &&
+      publicationAgent === undefined &&
+      completionStep.publishCompletion !== false
+    ) {
+      const message = "no completion agent available to attribute the publication commit";
+      store.setRunStatus(lastResult.runId, "failed");
+      args.logSink?.append(lastResult.runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "invocation_failure",
+        iterationsConsumed: totalIterationsConsumed,
+        resumable: true,
+      });
+      traceCompletionPublication(
+        args.logSink,
+        lastResult.runId,
+        completionStep?.landing,
+        completionStep?.worktree.branchName ?? "",
+        `invocation_failure: ${message}`,
+      );
+      return {
+        kind: "invocation_failure",
+        stepIndex: args.steps.length - 1,
+        stepId: lastStepId,
+        runId: lastResult.runId,
+        iterationsConsumed: totalIterationsConsumed,
+        resumable: true,
+        invocationFailureMessage: message,
+      };
     }
 
     // For reviewed workflows, landing is deferred until after review completes.
@@ -1599,7 +1645,7 @@ async function runReviewDebateStep(
 
   const runId = store.createRun({
     project,
-    specRef: "",
+    specRef: landing?.kind === "intent-stage" ? landing.baseRef : "",
     worktreePath: step.cwd,
     branch,
     specPath: step.verdictPath,
@@ -2092,7 +2138,9 @@ export function resolveIntentFinalizationResumeContext(
   if (!writeRun) return { ok: false, message: "durable write step row not found" };
 
   const completionAgent =
-    reviewCompletionAgent(run) ?? snapshot.steps.find((candidate) => candidate.stepId === writeStepId)?.agents?.[0];
+    reviewCompletionAgent(run) ??
+    reviewCompletionAgent(writeRun) ??
+    snapshot.steps.find((candidate) => candidate.stepId === writeStepId)?.agents?.[0];
 
   return {
     ok: true,
@@ -2312,28 +2360,38 @@ export async function resumePopulatedIntentPublication(
   const attemptId = store.recordAttemptStart(context.runId);
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
 
-  if (context.completionAgent === undefined) {
-    return settleIntentResumeFailure(
-      store,
-      context,
-      attemptId,
-      "invocation_failure",
-      0,
-      "no completion agent available to attribute the publication commit",
-      deps,
+  try {
+    if (context.completionAgent === undefined) {
+      return settleIntentResumeFailure(
+        store,
+        context,
+        attemptId,
+        "invocation_failure",
+        0,
+        "no completion agent available to attribute the publication commit",
+        deps,
+      );
+    }
+
+    const landingError = await landReviewedPublicationOutput(
+      context.worktreePath,
+      context.landing,
+      context.verdictPath,
+      {
+        logSink: deps.logSink,
+        runId: context.runId,
+        branch: context.branch,
+      },
     );
-  }
+    if (landingError !== undefined) {
+      return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landingError, deps);
+    }
 
-  const landingError = await landReviewedPublicationOutput(context.worktreePath, context.landing, context.verdictPath, {
-    logSink: deps.logSink,
-    runId: context.runId,
-    branch: context.branch,
-  });
-  if (landingError !== undefined) {
-    return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landingError, deps);
+    return await runIntentResumeCommitAndPublish(context, store, attemptId, deps);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, message, deps);
   }
-
-  return runIntentResumeCommitAndPublish(context, store, attemptId, deps);
 }
 
 type ReviewStepExecutionIds = {

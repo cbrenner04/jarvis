@@ -55,6 +55,11 @@ export function formatLogFollowLine(record: PersistedRecord): string {
       add("attemptId", event.attemptId);
       addText("responseText", event.responseText);
       break;
+    case "intent_finalization":
+      add("phase", event.phase);
+      add("branch", event.branch);
+      addQuoted("stopReason", event.stopReason);
+      break;
   }
 
   return parts.join(" ");

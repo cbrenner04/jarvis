@@ -450,6 +450,29 @@ v2 TUI tests can pass while ink rendering is broken — see seed
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
 
+### Intent finalization failed with staged files remaining
+
+A reviewed intent workflow can fail after critic/actuator succeed but landing
+(promotion, commit, push, or PR) fails, leaving `.jarvis-intent-stage/` still
+populated. `jarvis run list` / `jarvis run wait <id>` show `landing_failed`
+(`nextAction: "resume"`) on the review step's row.
+
+Prerequisites: the failure must be git-enabled (git-disabled runs have nothing
+to commit/push and aren't covered by this recovery path) and the stage must
+still hold files — an empty/missing stage reports `unsupported_resume_context`
+instead and needs manual inspection.
+
+Recover with:
+
+```sh
+jarvis run resume <runId>   # the review step's runId from `run list`/`run wait`
+```
+
+This replays only finalization — promoting `durableDir`, deleting the stage
+and verdict sidecars, committing, pushing, and opening/reusing the draft
+PR — from the persisted workflow snapshot. It never re-invokes split, critic,
+or actuator. `jarvis run wait <runId>` reports `completed` on success.
+
 ### Workflow ends "complete" but produced no PR
 
 A workflow can die after its step runs settle (review step, publication) — step

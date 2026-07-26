@@ -1133,8 +1133,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
     const workflowStillLive =
-      workflowPromisesByEntryRunId.has(run.id) &&
-      [...activeRuns.values()].some((row) => row.kind === "workflow");
+      workflowPromisesByEntryRunId.has(run.id) && [...activeRuns.values()].some((row) => row.kind === "workflow");
     return rollupWorkflowRunStatus({
       entryRun: run,
       workflowSnapshot: entrySnapshot,

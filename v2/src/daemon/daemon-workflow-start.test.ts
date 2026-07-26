@@ -9,7 +9,12 @@ import {
 } from "../../../shared/prompts/review-profile.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
-import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WriteWorkflowStep,
+} from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -36,19 +41,16 @@ import {
 const { createWriteStep } = writeStepFixtures();
 
 /** Stays live until the workflow step signal aborts (daemon kill path). */
-const heldLiveBindingFactory = (
-  onSignal?: (signal: AbortSignal | undefined) => void,
-): NonNullable<WriteWorkflowStep["createBinding"]> =>
+const heldLiveBindingFactory =
+  (onSignal?: (signal: AbortSignal | undefined) => void): NonNullable<WriteWorkflowStep["createBinding"]> =>
   ({ agentId, adapterModel }) => ({
     id: `${agentId}/${adapterModel}`,
     invoke: ({ signal }) => {
       onSignal?.(signal);
       return new Promise((resolve) => {
-        signal?.addEventListener(
-          "abort",
-          () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" } as const),
-          { once: true },
-        );
+        signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" } as const), {
+          once: true,
+        });
       });
     },
     metadata: { agent: agentId, model: adapterModel },
@@ -535,9 +537,13 @@ test("kill on a completed sibling step runId aborts the in-flight step via the s
 test("kill aborts the daemon-injected workflow step signal and unwinds the in-flight step", async () => {
   let observedSignal: AbortSignal | undefined;
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-signal-branch", heldLiveBindingFactory((signal) => {
-      observedSignal = signal;
-    })),
+    createWriteStep(
+      "step-1",
+      "workflow-signal-branch",
+      heldLiveBindingFactory((signal) => {
+        observedSignal = signal;
+      }),
+    ),
   ];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
@@ -616,7 +622,9 @@ test("inverting workflow kill authorization restores run_not_active for a held-l
   setInvertWorkflowKillAuthorizationForTests(true);
   let runId: string | undefined;
   try {
-    const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-kill-guard-branch", heldLiveBindingFactory())];
+    const steps: AnyWorkflowStep[] = [
+      createWriteStep("step-1", "workflow-kill-guard-branch", heldLiveBindingFactory()),
+    ];
     const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
     runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
     expect(runId).toBeTruthy();

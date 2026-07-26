@@ -1,8 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { AsyncSubprocessError } from "../../../shared/subprocess.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+import { TERMINAL_RUN_STATUSES, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { checkEligibility, type DaemonClient, type DiscoveredWorktree } from "./cleanup.ts";
+
+const mergedPrRunner: AsyncSubprocessRunner = {
+  runAsync: async (cmd, args) => {
+    if (cmd === "gh" && args[0] === "pr") {
+      return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+    }
+    throw new Error(`Unexpected: ${cmd}`);
+  },
+};
+
+const emptyStore: StateStore = { listRuns: () => [] } as unknown as StateStore;
+
+function storeWithRun(status: RunStatus, branch = "test"): StateStore {
+  return {
+    listRuns: () => [
+      {
+        id: "run",
+        project: "project",
+        specRef: "spec",
+        createdAt: Date.now(),
+        status,
+        attemptCount: 1,
+        worktreePath: "/path",
+        branch,
+        specPath: "/spec.md",
+        attempts: [],
+      },
+    ],
+  } as unknown as StateStore;
+}
 
 describe("checkEligibility: eligibility gate", () => {
   describe("differential merged-vs-open", () => {
@@ -84,31 +114,18 @@ describe("checkEligibility: eligibility gate", () => {
     test("returns eligible when daemon client resolves with no live run, ineligible when daemon throws", async () => {
       const branch = "merged-branch";
 
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
-      const store: StateStore = {
-        listRuns: () => [],
-      } as unknown as StateStore;
-
       const candidate: DiscoveredWorktree = { path: "/path", branch };
 
       // Test 1: daemon reachable (no live run)
       const reachableClient: DaemonClient = async () => [];
-      const result1 = await checkEligibility(candidate, "project", runner, reachableClient, store);
+      const result1 = await checkEligibility(candidate, "project", mergedPrRunner, reachableClient, emptyStore);
       expect(result1.status).toBe("eligible");
 
       // Test 2: daemon unreachable (throws)
       const unreachableClient: DaemonClient = async () => {
         throw new Error("Connection refused");
       };
-      const result2 = await checkEligibility(candidate, "project", runner, unreachableClient, store);
+      const result2 = await checkEligibility(candidate, "project", mergedPrRunner, unreachableClient, emptyStore);
       expect(result2.status).toBe("ineligible");
       if (result2.status === "ineligible") {
         expect(result2.reason).toContain("Daemon unreachable");
@@ -121,19 +138,6 @@ describe("checkEligibility: eligibility gate", () => {
       let capturedProject: string | null = null;
       let capturedBranch: string | null = null;
 
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
-      const store: StateStore = {
-        listRuns: () => [],
-      } as unknown as StateStore;
-
       const candidate: DiscoveredWorktree = { path: "/path", branch: "my-branch" };
 
       const captureClient: DaemonClient = async (project, branch) => {
@@ -142,7 +146,7 @@ describe("checkEligibility: eligibility gate", () => {
         return [];
       };
 
-      await checkEligibility(candidate, "my-project", runner, captureClient, store);
+      await checkEligibility(candidate, "my-project", mergedPrRunner, captureClient, emptyStore);
 
       expect(capturedProject === "my-project").toBe(true);
       expect(capturedBranch === "my-branch").toBe(true);
@@ -153,149 +157,74 @@ describe("checkEligibility: eligibility gate", () => {
     test("returns ineligible for non-terminal run, eligible for terminal run", async () => {
       const branch = "merged-branch";
 
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
       const daemonClient: DaemonClient = async () => [];
       const candidate: DiscoveredWorktree = { path: "/path", branch };
 
-      // Test 1: non-terminal run (in-progress)
-      const storeWithNonTerminal: StateStore = {
-        listRuns: () => [
-          {
-            id: "run-1",
-            project: "project",
-            specRef: "spec",
-            createdAt: Date.now(),
-            status: "in-progress",
-            attemptCount: 1,
-            worktreePath: "/path",
-            branch,
-            specPath: "/spec/path.md",
-            attempts: [],
-          },
-        ],
-      } as unknown as StateStore;
-
-      const result1 = await checkEligibility(candidate, "project", runner, daemonClient, storeWithNonTerminal);
+      const result1 = await checkEligibility(
+        candidate,
+        "project",
+        mergedPrRunner,
+        daemonClient,
+        storeWithRun("in-progress", branch),
+      );
       expect(result1.status).toBe("ineligible");
 
-      // Test 2: terminal run (completed)
-      const storeWithTerminal: StateStore = {
-        listRuns: () => [
-          {
-            id: "run-2",
-            project: "project",
-            specRef: "spec",
-            createdAt: Date.now(),
-            status: "completed",
-            attemptCount: 1,
-            worktreePath: "/path",
-            branch,
-            specPath: "/spec/path.md",
-            attempts: [],
-          },
-        ],
-      } as unknown as StateStore;
-
-      const result2 = await checkEligibility(candidate, "project", runner, daemonClient, storeWithTerminal);
+      const result2 = await checkEligibility(
+        candidate,
+        "project",
+        mergedPrRunner,
+        daemonClient,
+        storeWithRun("completed", branch),
+      );
       expect(result2.status).toBe("eligible");
 
       // Same candidate and runner, opposite outcomes — ensures store is checked
     });
 
     test("returns eligible when store has no run for branch", async () => {
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
-      const store: StateStore = {
-        listRuns: () => [],
-      } as unknown as StateStore;
-
       const daemonClient: DaemonClient = async () => [];
       const candidate: DiscoveredWorktree = { path: "/path", branch: "unknown-branch" };
 
-      const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
+      const result = await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, emptyStore);
       expect(result.status).toBe("eligible");
     });
 
     test("correctly distinguishes terminal vs non-terminal statuses", async () => {
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
       const daemonClient: DaemonClient = async () => [];
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test" };
 
-      // Non-terminal statuses that should make ineligible
-      for (const status of [
-        "in-progress",
-        "paused",
-        "revising",
-        "queued",
-        "budget-soft-stopped",
-        "awaiting-human",
-        "killed",
-      ] as const) {
-        const store: StateStore = {
-          listRuns: () => [
-            {
-              id: "run",
-              project: "project",
-              specRef: "spec",
-              createdAt: Date.now(),
-              status,
-              attemptCount: 1,
-              worktreePath: "/path",
-              branch: "test",
-              specPath: "/spec.md",
-              attempts: [],
-            },
-          ],
-        } as unknown as StateStore;
-
-        const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
+      for (const status of ["in-progress", "paused", "queued", "budget-soft-stopped"] as const) {
+        const result = await checkEligibility(
+          candidate,
+          "project",
+          mergedPrRunner,
+          daemonClient,
+          storeWithRun(status),
+        );
         expect(result.status).toBe("ineligible");
       }
 
-      // Terminal statuses that should make eligible (when no other issues)
-      for (const status of ["completed", "blocked", "failed"] as const) {
-        const store: StateStore = {
-          listRuns: () => [
-            {
-              id: "run",
-              project: "project",
-              specRef: "spec",
-              createdAt: Date.now(),
-              status,
-              attemptCount: 1,
-              worktreePath: "/path",
-              branch: "test",
-              specPath: "/spec.md",
-              attempts: [],
-            },
-          ],
-        } as unknown as StateStore;
-
-        const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
+      for (const status of TERMINAL_RUN_STATUSES) {
+        const result = await checkEligibility(
+          candidate,
+          "project",
+          mergedPrRunner,
+          daemonClient,
+          storeWithRun(status),
+        );
         expect(result.status).toBe("eligible");
+      }
+
+      const liveResult = await checkEligibility(
+        candidate,
+        "project",
+        mergedPrRunner,
+        async () => [{ isLive: true }],
+        storeWithRun("killed"),
+      );
+      expect(liveResult.status).toBe("ineligible");
+      if (liveResult.status === "ineligible") {
+        expect(liveResult.reason).toContain("Daemon reports live run");
       }
     });
   });
@@ -324,16 +253,7 @@ describe("checkEligibility: eligibility gate", () => {
       }
     });
 
-    test("returns ineligible if store throws", async () => {
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
+    test("propagates when listRuns throws", async () => {
       const store: StateStore = {
         listRuns: () => {
           throw new Error("Database error");
@@ -346,7 +266,7 @@ describe("checkEligibility: eligibility gate", () => {
       // This test documents that behavior; if we want fail-closed for store errors,
       // we'd wrap the call in try-catch.
       try {
-        await checkEligibility(candidate, "project", runner, async () => [], store);
+        await checkEligibility(candidate, "project", mergedPrRunner, async () => [], store);
         expect.unreachable("Should have thrown");
       } catch (err) {
         // Store error propagates unhandled
@@ -357,23 +277,10 @@ describe("checkEligibility: eligibility gate", () => {
 
   describe("integration: combined eligibility checks", () => {
     test("all checks pass → eligible", async () => {
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
-      const store: StateStore = {
-        listRuns: () => [],
-      } as unknown as StateStore;
-
       const daemonClient: DaemonClient = async () => [];
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test" };
 
-      const result = await checkEligibility(candidate, "project", runner, daemonClient, store);
+      const result = await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, emptyStore);
       expect(result.status).toBe("eligible");
     });
 
@@ -404,26 +311,13 @@ describe("checkEligibility: eligibility gate", () => {
     test("daemon client receives correct args", async () => {
       const capturedCalls: Array<[string, string]> = [];
 
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args) => {
-          if (cmd === "gh" && args[0] === "pr") {
-            return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-          }
-          throw new Error(`Unexpected: ${cmd}`);
-        },
-      };
-
-      const store: StateStore = {
-        listRuns: () => [],
-      } as unknown as StateStore;
-
       const capturingClient: DaemonClient = async (project, branch) => {
         capturedCalls.push([project, branch]);
         return [];
       };
 
       const candidate: DiscoveredWorktree = { path: "/path", branch: "my-branch" };
-      await checkEligibility(candidate, "my-project", runner, capturingClient, store);
+      await checkEligibility(candidate, "my-project", mergedPrRunner, capturingClient, emptyStore);
 
       expect(capturedCalls).toEqual([["my-project", "my-branch"]]);
     });

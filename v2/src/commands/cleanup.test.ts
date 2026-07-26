@@ -5,10 +5,12 @@ import { dirname, join } from "node:path";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
+  createStaleResetDaemonClient,
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
@@ -2026,6 +2028,38 @@ describe("cleanup: dead daemon socket reaping", () => {
       expect(existsSync(preservedSocket)).toBe(true);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  socketTest("createStaleResetDaemonClient returns only runs matching both project and branch", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000013.sock");
+    rmSync(socket, { force: true });
+    const server = await startIpcServer(socket, {
+      list: () => ({
+        kind: "response",
+        result: {
+          runs: [
+            { project: "wanted", branch: "wanted-branch", isLive: true },
+            { project: "wanted", branch: "other-branch", isLive: false },
+            { project: "other", branch: "wanted-branch", isLive: false },
+            { project: "other", branch: "other-branch", isLive: false },
+          ],
+        },
+      }),
+    });
+
+    try {
+      const client = await connectIpcClient(socket);
+      try {
+        const rows = await createStaleResetDaemonClient(client)("wanted", "wanted-branch");
+        // Exactly the both-fields match. An inverted comparison on either field selects
+        // the other three rows instead, so this fails if the filter flips.
+        expect(rows).toEqual([{ isLive: true }]);
+      } finally {
+        client.close();
+      }
+    } finally {
+      await server.close();
     }
   });
 });

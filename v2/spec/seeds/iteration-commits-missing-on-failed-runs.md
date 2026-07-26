@@ -11,18 +11,26 @@
 The observed problem is that it did not produce commits. Three runs on 2026-07-25 recorded progress
 boundaries in their logs and left **zero** commits on the branch with a large dirty tree.
 
-**The feature demonstrably works on runs that complete.** Merged PRs from the same session carry the
-per-iteration signature — several commits with the same headline, one per iteration:
+**The feature demonstrably works on implement runs that complete.** Merged implement PRs from the
+same session carry the per-iteration signature — repeated commits with the same headline:
 
-| PR | commits |
-| --- | --- |
-| #2162 snapshot-continue | 2 |
-| #2164 role-timeout | 2 |
-| #2157 / #2163 / #2168 (single-iteration) | 1 |
+| implement PR | subspecs | commits |
+| --- | --- | --- |
+| #2162 snapshot-continue | 1 | **2** |
+| #2164 role-timeout | 2 | **2** |
+| #2157 resume-admits / #2163 actuator-retry | 3 / 1 | 1 |
 
-So the defect is specific to the runs that **failed**, not to the commit path in general. That is the
-discriminator to chase: what differs between a run that commits per iteration and reaches completion,
-and one that records progress boundaries and leaves everything dirty.
+#2162 is the clearest case: one subspec, two commits, so the second is an iteration commit rather
+than a per-subspec one.
+
+**Scope note — intent runs are not comparable.** An intent workflow commits once at finalization
+(promote → sidecar cleanup → commit), so a single commit is correct there even though the split and
+the review actuator are two separate write phases. #2168 is exactly that shape and is **not**
+evidence of a missing iteration commit. Only implement-path runs belong in this seed's evidence.
+
+So the defect is specific to implement runs that **failed**, not to the commit path in general. That
+is the discriminator to chase: what differs between an implement run that commits per iteration and
+reaches completion, and one that records progress boundaries and leaves everything dirty.
 
 Two candidate explanations, neither verified:
 

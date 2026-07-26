@@ -51,15 +51,15 @@ today, not only `external-worktree.ts`.
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` `branchExistsOnOrigin true only when ls-remote reports a head` (or the
+- [x] `shared/git.test.ts` `branchExistsOnOrigin true only when ls-remote reports a head` (or the
   implemented test name) fails against the pre-fix code and passes after the change; it asserts
   false when only a stale `origin/<branch>` tracking ref remains.
-- [ ] Guard-inversion coverage on the ls-remote gate fails when inverted: with only a stale
+- [x] Guard-inversion coverage on the ls-remote gate fails when inverted: with only a stale
   tracking ref, materialization must take the `--base` path, not `git branch <name> origin/<name>`.
-- [ ] `shared/subprocess.test.ts` `branchExistsOnOrigin and branchExistsOnOriginAsync agree on success and failure` stays green.
-- [ ] `external-worktree.test.ts` `describe("external worktree helper")` stays green (remote-path
+- [x] `shared/subprocess.test.ts` `branchExistsOnOrigin and branchExistsOnOriginAsync agree on success and failure` stays green.
+- [x] `external-worktree.test.ts` `describe("external worktree helper")` stays green (remote-path
   materialization unchanged for today’s fixture shape).
-- [ ] `v1/test/run.test.ts` `describe("stale external-spec rerun cleanup")` stays green under the
+- [x] `v1/test/run.test.ts` `describe("stale external-spec rerun cleanup")` stays green under the
   shared `ls-remote` helper contract.
 
 ## Documentation updates

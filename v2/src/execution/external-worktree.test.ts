@@ -17,7 +17,10 @@ const { roots } = trackedTempRoots();
 type RepoState = {
   commonDir: string;
   localBranches: Set<string>;
+  /** Heads `ls-remote` reports on origin. */
   remoteBranches: Set<string>;
+  /** Local `origin/<branch>` refs that resolve via rev-parse but may be absent from ls-remote. */
+  originTrackingRefs: Set<string>;
 };
 
 type WorktreeState = {
@@ -39,6 +42,7 @@ function registerRepo(state: FakeGitState, projectRoot: string): void {
     commonDir: join(projectRoot, ".git"),
     localBranches: new Set(),
     remoteBranches: new Set(),
+    originTrackingRefs: new Set(),
   });
 }
 
@@ -53,7 +57,9 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
         if (key.startsWith("--verify origin/")) {
           const branch = key.slice("--verify origin/".length);
           const repo = state.repos.get(cwd);
-          if (!repo?.remoteBranches.has(branch)) throw new Error("not a valid ref");
+          if (!repo?.originTrackingRefs.has(branch) && !repo?.remoteBranches.has(branch)) {
+            throw new Error("not a valid ref");
+          }
           return "remote-sha\n";
         }
         if (key.startsWith("--verify ")) {
@@ -78,6 +84,14 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
           if (!worktree) throw new Error("not a worktree");
           return `${worktree.branch}\n`;
         }
+      }
+
+      if (subcmd === "ls-remote" && rest[0] === "--heads" && rest[1] === "origin") {
+        const branch = rest[2];
+        const repo = state.repos.get(cwd);
+        if (!repo || !branch) throw new Error("ls-remote failed");
+        if (!repo.remoteBranches.has(branch)) return "";
+        return `remote-sha\trefs/heads/${branch}\n`;
       }
 
       if (subcmd === "branch") {
@@ -176,6 +190,60 @@ describe("external worktree helper", () => {
     );
 
     expect(callbackLink).toBe(join(repoRoot, "node_modules"));
+  });
+
+  test("materializes from --base when only a stale remote-tracking ref exists", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-stale-origin-"));
+    roots.push(root);
+    const repoRoot = join(root, "repo");
+    const jarvisRoot = join(root, "jarvis-home");
+    mkdirSync(repoRoot, { recursive: true });
+    mkdirSync(join(repoRoot, "node_modules"));
+    const state = createFakeGitState();
+    registerRepo(state, repoRoot);
+    const repo = state.repos.get(repoRoot);
+    if (!repo) throw new Error("repo missing");
+    repo.originTrackingRefs.add("write-run");
+    const calls: string[] = [];
+    const inner = createWorktreeRunner(state);
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") calls.push(args.join(" "));
+        return inner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await withExternalWorktree(makeInput(jarvisRoot, repoRoot), () => "ok", runner);
+
+    expect(calls.some((c) => c === "branch write-run origin/write-run")).toBe(false);
+    expect(calls.some((c) => c === "branch write-run HEAD")).toBe(true);
+    expect(calls.some((c) => c.startsWith("worktree add ") && !c.includes("--checkout"))).toBe(true);
+  });
+
+  test("materializes from origin when ls-remote lists the remote head", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-remote-head-"));
+    roots.push(root);
+    const repoRoot2 = join(root, "repo");
+    const jarvisRoot2 = join(root, "jarvis-home");
+    mkdirSync(repoRoot2, { recursive: true });
+    mkdirSync(join(repoRoot2, "node_modules"));
+    const fakeState = createFakeGitState();
+    registerRepo(fakeState, repoRoot2);
+    const repo = fakeState.repos.get(repoRoot2);
+    if (!repo) throw new Error("repo missing");
+    repo.remoteBranches.add("write-run");
+    const calls: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, options) {
+        if (cmd === "git") calls.push(args.join(" "));
+        return createWorktreeRunner(fakeState).runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    await withExternalWorktree(makeInput(jarvisRoot2, repoRoot2), () => "ok", runner);
+
+    expect(calls.some((c) => c === "branch write-run origin/write-run")).toBe(true);
+    expect(calls.some((c) => c.startsWith("worktree add --checkout"))).toBe(true);
   });
 
   test("creates a fresh external worktree and releases lock on success", async () => {

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { startIpcServer } from "../ipc/server.ts";
@@ -961,6 +962,16 @@ describe("cleanup: runAbandonCommand", () => {
     return worktreePath;
   }
 
+  async function leaveStaleOriginTrackingRef(branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", "-d", `refs/heads/${branch}`],
+      originRoot,
+    );
+  }
+
   async function expectAbandonRefused(
     branch: string,
     worktreePath: string,
@@ -1606,6 +1617,48 @@ describe("cleanup: runAbandonCommand", () => {
     // PR should not be closed
   });
 
+  test("abandon aborts and exits nonzero on remote-tracking ref prune failure, leaving PR intact", async () => {
+    const branch = "feat/abort-prune-tracking";
+    await createUnmergedWorktree(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    const invocations: Array<string> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2]?.startsWith("refs/remotes/origin/")) {
+          invocations.push("prune-tracking");
+          throw new Error("simulated prune failure");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
+          invocations.push("close-pr");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 558, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to prune remote-tracking ref");
+    expect(invocations).toEqual(["prune-tracking"]);
+  });
+
   test("abandon aborts and exits nonzero on PR closure failure", async () => {
     const branch = "feat/abort-pr-close";
     const worktreePath = await createUnmergedWorktree(branch);
@@ -1654,6 +1707,13 @@ describe("cleanup: runAbandonCommand", () => {
   test("abandon executes steps in order: remove worktree, delete local branch, delete remote branch, close PR", async () => {
     const branch = "feat/step-order";
     await createUnmergedWorktree(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", "-d", `refs/heads/${branch}`],
+      originRoot,
+    );
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
@@ -1670,6 +1730,10 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "git" && args[0] === "push" && args[1] === "origin") {
           stepOrder.push("delete-remote-branch");
           return "";
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2]?.startsWith("refs/remotes/origin/")) {
+          stepOrder.push("prune-remote-tracking-ref");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           stepOrder.push("close-pr");
@@ -1693,7 +1757,13 @@ describe("cleanup: runAbandonCommand", () => {
     );
 
     expect(code).toBe(0);
-    expect(stepOrder).toEqual(["remove-worktree", "delete-local-branch", "delete-remote-branch", "close-pr"]);
+    expect(stepOrder).toEqual([
+      "remove-worktree",
+      "delete-local-branch",
+      "delete-remote-branch",
+      "prune-remote-tracking-ref",
+      "close-pr",
+    ]);
   });
 
   // Goal-state cases: the remote branch is already gone. Both run real git so the
@@ -1779,6 +1849,7 @@ describe("cleanup: runAbandonCommand", () => {
   test("abandon preview lists actions in execution order", async () => {
     const branch = "feat/preview-order";
     await createUnmergedWorktree(branch);
+    await leaveStaleOriginTrackingRef(branch);
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => [];
@@ -1808,11 +1879,13 @@ describe("cleanup: runAbandonCommand", () => {
     const removeIdx = stdout.indexOf("remove: worktree");
     const deleteLocalIdx = stdout.indexOf("delete: local branch");
     const deleteRemoteIdx = stdout.indexOf("delete: remote branch");
+    const pruneIdx = stdout.indexOf("prune: stale remote-tracking ref");
     const closeIdx = stdout.indexOf("close: PR");
     expect(removeIdx).toBeGreaterThan(0);
     expect(deleteLocalIdx).toBeGreaterThan(removeIdx);
     expect(deleteRemoteIdx).toBeGreaterThan(deleteLocalIdx);
-    expect(closeIdx).toBeGreaterThan(deleteRemoteIdx);
+    expect(pruneIdx).toBeGreaterThan(deleteRemoteIdx);
+    expect(closeIdx).toBeGreaterThan(pruneIdx);
   });
 });
 
@@ -2043,6 +2116,16 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return worktreePath;
   }
 
+  async function leaveStaleOriginTrackingRef(branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", "-d", `refs/heads/${branch}`],
+      originRoot,
+    );
+  }
+
   function callReset(
     branch: string,
     runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
@@ -2207,6 +2290,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   test("reset deletes branch before closing PR in new retirement order", async () => {
     const branch = "impl/pr-close-order";
     await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
 
     const invocationOrder: string[] = [];
     const mockRunner: AsyncSubprocessRunner = {
@@ -2224,6 +2308,10 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
           invocationOrder.push("push-delete");
           return "";
         }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2]?.startsWith("refs/remotes/origin/")) {
+          invocationOrder.push("prune-remote-tracking");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") {
           invocationOrder.push("pr-close");
           return "";
@@ -2235,8 +2323,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const result = await callReset(branch, mockRunner);
 
     expect(result.status).toBe("reset");
-    // New retirement order: worktree, local branch, remote branch, PR
-    expect(invocationOrder).toEqual(["remove-worktree", "branch-delete", "push-delete", "pr-close"]);
+    expect(invocationOrder).toEqual([
+      "remove-worktree",
+      "branch-delete",
+      "push-delete",
+      "prune-remote-tracking",
+      "pr-close",
+    ]);
   });
 
   test("refusal from a partial teardown names the failed step and the surviving artifacts", async () => {
@@ -2399,6 +2492,65 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace prunes stale origin tracking ref when remote head is absent", async () => {
+    const branch = "impl/stale-origin-tracking";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 804, isDraft: true }]));
+
+    expect(result.status).toBe("reset");
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(false);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(branchList.trim()).toBe("");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset reports pruned remote-tracking ref in destroyed artifacts and stdout", async () => {
+    const branch = "impl/stale-origin-report";
+    await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    let stdout = "";
+    const result = await callReset(branch, ghPrListRunner([{ number: 805, isDraft: true }]), noLiveDaemon, {
+      stdout: (s) => (stdout += s),
+      stderr: () => {},
+    });
+
+    expect(result.status).toBe("reset");
+    expect(result.destroyed?.remoteTrackingRef).toBe(`origin/${branch}`);
+    expect(stdout).toContain(`Pruned stale remote-tracking ref: origin/${branch}`);
+  });
+
+  test("stale origin tracking ref prune guard inversion leaves ref when update-ref is skipped", async () => {
+    const branch = "impl/stale-origin-guard-inversion";
+    await setupWorktreeAndBranch(branch);
+    await leaveStaleOriginTrackingRef(branch);
+
+    const skipPruneRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2]?.startsWith("refs/remotes/origin/")) {
+          return "";
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([{ number: 806, isDraft: true }]);
+        }
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await callReset(branch, skipPruneRunner);
+    expect(result.status).toBe("refused");
+    if (result.status !== "refused") throw new Error("expected refused");
+    expect(result.reason).toContain("remote tracking ref deletion");
+    expect(result.destroyed?.remoteTrackingRef).toBeUndefined();
+    expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
   });
 
   test("staleResetDirtyWorktreeGateReason refuses dirty paths and skips dirty refusal only when overridden", () => {

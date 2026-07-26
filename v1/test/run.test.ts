@@ -666,7 +666,7 @@ describe("runCommand", () => {
       const specName = "feature";
       const { indexPath } = writeManagedExternalSpec(specName);
       createStalePatchBranch(specName);
-      renameSync(origin, `${origin}.offline`);
+      execSync("git config receive.denyDeletes true", { cwd: origin });
       const { oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {

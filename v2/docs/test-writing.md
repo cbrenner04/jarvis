@@ -36,31 +36,100 @@ The v2 integration slice is derived from the filename convention: a `*.sandbox-u
 
 Sources: `package.json`, `scripts/run-v2-tests.ts`, `test/test-slices.test.ts`
 
+`runV2TestFiles` (`scripts/run-v2-tests.ts`) spawns each file asynchronously and captures its
+stdout/stderr instead of inheriting the parent's stdio; each file's captured output is flushed as
+one contiguous block, headed by a `--- <file> ---` line, as soon as that file settles — including
+output captured before a kill, which is never dropped. Per-file timeout is classified from the
+timer that fired the kill, not inferred from `signal`/`status` on the result, so an
+externally-delivered `SIGKILL` within budget is reported as an ordinary failure rather than a
+timeout.
+
+### Bounded concurrency pool
+
+`runV2TestFiles` runs files under a bounded pool of concurrent `bun test <file>` children instead
+of one at a time. `test:v2` and `test:integration:v2` inherit the pool because both route through
+this shared seam; `scripts/run-tests.ts`'s integration phase is routed onto the same seam (not a
+separate `spawnSync` loop) so it gets the same per-file timeout and captured-output attribution.
+Every file in the integration slice matches the `.sandbox-unrunnable.test.ts` suffix convention, so
+`isLoadSensitive` routes all of them to the isolated one-at-a-time phase — `test:integration:v2`
+inherits the seam's mechanics but does not gain wall-clock benefit from pooling.
+`test:cost` (`scripts/measure-test-cost.ts`) stays serial — it is a measurement tool, not the gate.
+
+The concurrency limit defaults to half of `availableParallelism()` (floor 1) — `defaultConcurrency`
+in `scripts/run-v2-tests.ts`. This is deliberately headroom-driven, not tuned to the pooled phase's
+performance knee: the pooled phase plateaus around 4 concurrent files (bounded by the slowest
+pooled file, `v1/test/run.test.ts` at 108.8s), well below half of an 18-core box's parallelism. The
+extra headroom guards against self-saturation, the condition under which known load-dependent test
+flakes reproduce — trading a wider margin for less contention risk, not chasing peak throughput.
+
+`resolveConcurrency` resolves the limit with this precedence: an explicit override argument wins
+over the `JARVIS_TEST_CONCURRENCY` env var, which wins over the derived default. A malformed or `0`
+env value falls back to the derived default rather than throwing.
+
+Wall clock: theoretical floor is `158.7 + max(pooled / N, 108.8)` ≈ 267s (158.7s is the isolated
+sandbox-unrunnable phase from subspec 02, 108.8s is the pooled-phase floor set by
+`v1/test/run.test.ts`). Measured on quiet operator hardware (2026-07-26, five consecutive `bun run
+test` runs): 321-330s, mean 326s — subspec 01's ≤320s target was a pre-measurement projection against
+the theoretical floor and is superseded by this distribution; **326s (mean, 321-330s range)** is the
+current aggregate `bun run test` wall clock, with **≤335s** as the regression bar. For comparison,
+the pre-change aggregate `bun run test` was 697s (2026-07-26, before this concurrency change) and a
+separate, differently-measured `bun run test:cost` pass was 574.4s (2026-07-26, see "Measured
+aggregate cost" below) — each figure labeled by the command and date that produced it.
+
+Stop semantics under the pool: a plain (non-timeout) failure stops every mode, including `agent`,
+from admitting new files — files already in flight are still awaited and reported, not discarded.
+A timeout does not stop `agent` mode, which keeps admitting new files and reports every timed-out
+file by name; a timeout in any other mode stops admission the same as a plain failure. Each child's
+per-file timeout is armed independently at its own spawn, so a slow sibling never shortens another
+file's budget. Output blocks print in settle order, not roster order, once files can overlap.
+
+### Load-sensitive isolation
+
+Some files are known to flake under concurrent load though they pass reliably alone — a test that is
+green idle and red under load is a candidate for this list. `isLoadSensitive` in
+`scripts/test-slice.ts` covers two declaration mechanisms: every `*.sandbox-unrunnable.test.ts` file
+by default, plus an exported explicit `LOAD_SENSITIVE_FILES` list for files outside that suffix
+convention. Each explicit-list entry carries a comment naming the observed failure. This predicate is
+distinct from `isSandboxUnrunnable` (the slice-partition key deciding which `test:*` script runs a
+file) — a suffix-matched file is always both, but a file can be load-sensitive without being
+sandbox-unrunnable.
+
+`runV2TestFiles` excludes `isLoadSensitive` files from the bounded pool and runs them one at a time
+after the pool has fully drained, with no co-runners in either direction — the pool finishes before
+an isolated file starts, and no other file starts while it runs. Mode semantics are unchanged for the
+isolated phase: `agent` mode keeps admitting past an isolated file's timeout and stops on a plain
+failure, matching pooled-file behavior; every other mode stops admitting further files after either.
+
 ### Ready-gate step budgets
 
 `bun run ready` (`scripts/ready.ts`) arms each step with its own fixed budget, not a shared
-remainder of one deadline. `TEST_STEP_BUDGET_MS` is **15 minutes** (900000ms), sized with ~65%
-headroom above the ~9-minute aggregate `bun run test` duration observed on operator hardware. Each
-scoped test step (`test:v1`, `test:v2`, `test:integration:v2`, …) is its own step with this same
-budget — a `shared/**` diff that scopes to all three slices runs three separate steps, and it is
-the **run ceiling**, not this per-step budget, that must have enough headroom to cover their sum.
-Non-test steps get smaller fixed budgets (`INSTALL_STEP_BUDGET_MS`, `CHECK_STEP_BUDGET_MS`,
+remainder of one deadline. `TEST_STEP_BUDGET_MS` is **15 minutes** (900000ms) and
+`JARVIS_READY_TIMEOUT_MS`'s default `DEFAULT_TIMEOUT_MS` is **30 minutes** — both were sized
+against the pre-concurrency 697s aggregate `bun run test` and are **deliberately unchanged here**:
+the concurrent runner's measured 326s mean (see "Wall clock" above) only widens their headroom, and
+re-sizing a gate budget is its own reviewable risk. Re-sizing is tracked as a follow-up:
+[cbrenner04/jarvis#2181](https://github.com/cbrenner04/jarvis/issues/2181). Each scoped test step
+(`test:v1`, `test:v2`, `test:integration:v2`, …) is its own step with this same budget — a
+`shared/**` diff that scopes to all three slices runs three separate steps, and it is the **run
+ceiling**, not this per-step budget, that must have enough headroom to cover their sum. Non-test
+steps get smaller fixed budgets (`INSTALL_STEP_BUDGET_MS`, `CHECK_STEP_BUDGET_MS`,
 `TYPECHECK_STEP_BUDGET_MS`, `LINT_MD_STEP_BUDGET_MS`). A step's budget does not shrink because
 prior steps ran long — it is armed fresh, capped only by `min(stepBudgetMs, ceilingMs -
 runElapsedMs)`.
 
 `JARVIS_READY_TIMEOUT_MS` (default `DEFAULT_TIMEOUT_MS`, 30 minutes) is the **run ceiling only** —
 a backstop over the whole `bun run ready` invocation, not a per-step timeout. It is sized so a
-flake-retry still arms a fresh full test budget on a measured run: aggregate `bun run test` is 697s
-on operator hardware (2026-07-26) and the other steps are seconds each, so a run with one serial
-test retry is ~24 minutes. It deliberately does not cover the budget worst case (~38 minutes, every
-step consuming its full budget plus a retry); if the suite grows into that range the retry's budget
-is clamped by the ceiling and the kill is attributed to "run ceiling" in stderr. When the ceiling binds before a step's own budget would, the kill is attributed to "run
-ceiling" in stderr instead of "step budget". When a step budget itself is the binding limit, raise
-the relevant `*_STEP_BUDGET_MS` constant in `scripts/ready.ts` — there is no per-step env knob.
-Update `TEST_STEP_BUDGET_MS` (and `DEFAULT_TIMEOUT_MS` accordingly) if measured full-suite duration
-drifts — and re-run `bun run test:cost` to refresh the per-file totals below ("Measured aggregate
-cost") in step.
+flake-retry still arms a fresh full test budget: with the current measured aggregate `bun run test`
+at 326s (mean, 2026-07-26) and the other steps seconds each, a run with one serial test retry is
+~12 minutes — well inside the unchanged 30-minute ceiling (previously ~24 minutes against the 697s
+pre-change figure). It deliberately does not cover the budget worst case (~38 minutes, every step
+consuming its full budget plus a retry); if the suite grows into that range the retry's budget is
+clamped by the ceiling and the kill is attributed to "run ceiling" in stderr. When the ceiling binds
+before a step's own budget would, the kill is attributed to "run ceiling" in stderr instead of "step
+budget". When a step budget itself is the binding limit, raise the relevant `*_STEP_BUDGET_MS`
+constant in `scripts/ready.ts` — there is no per-step env knob. Update `TEST_STEP_BUDGET_MS` (and
+`DEFAULT_TIMEOUT_MS` accordingly) if measured full-suite duration drifts — and re-run `bun run
+test:cost` to refresh the per-file totals below ("Measured aggregate cost") in step.
 
 Sources: `scripts/ready.ts`, `v1/test/ready-script.sandbox-unrunnable.test.ts`
 
@@ -98,8 +167,9 @@ does not settle whether a shared-process runner would recover the difference.
 
 This is a separate, slower-and-more-lenient measurement pass, not a `bun run test` transcript:
 `test:cost` captures each file's output instead of inheriting it, and does not stop on a non-zero
-exit or timeout, so its 574.4s total will not exactly reproduce the 697s `bun run test` runner-path
-wall clock recorded above — both figures are kept, labeled by which command produced each.
+exit or timeout, so its 574.4s total will not exactly reproduce the current 326s (mean) `bun run
+test` runner-path wall clock recorded above — both figures, plus the 697s pre-change baseline, are
+kept side by side, each labeled by which command and date produced it.
 
 Raw output: [`v2/docs/test-cost-baseline.txt`](test-cost-baseline.txt). Re-run `bun run test:cost`
 and update both the baseline file and these figures when the aggregate roster changes materially.

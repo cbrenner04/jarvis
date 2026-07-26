@@ -43,23 +43,23 @@ here; only the transport (spawn → capture) and timeout classification change.
 
 ## Acceptance criteria
 
-- [ ] `scripts/run-v2-tests.test.ts` stays green against the async spawn signature (updated only for
+- [x] `scripts/run-v2-tests.test.ts` stays green against the async spawn signature (updated only for
       the async return shape, no behavior change).
-- [ ] Agent-mode fail-fast-on-failure is unchanged: `scripts/run-v2-tests.test.ts`'s existing case
+- [x] Agent-mode fail-fast-on-failure is unchanged: `scripts/run-v2-tests.test.ts`'s existing case
       (agent mode over a failing file followed by a healthy one spawns only the first) stays green.
-- [ ] Agent-mode continue-past-timeout is unchanged: the existing timeout case in
+- [x] Agent-mode continue-past-timeout is unchanged: the existing timeout case in
       `scripts/run-v2-tests.test.ts` (agent mode continues past a timed-out file and reports it by
       name) stays green.
-- [ ] A file's captured output is flushed as one block headed by its filename when it settles: a
+- [x] A file's captured output is flushed as one block headed by its filename when it settles: a
       test asserts the header and full captured content are present and correctly attributed.
-- [ ] A SIGKILL'd file's output captured before the kill is still emitted, not dropped: a test drives
+- [x] A SIGKILL'd file's output captured before the kill is still emitted, not dropped: a test drives
       a file that prints then times out and asserts its printed output appears in the report.
-- [ ] Timeout classification comes from the timer that fired, not signal/status inference: a test
+- [x] Timeout classification comes from the timer that fired, not signal/status inference: a test
       drives a non-timeout SIGKILL (e.g. an externally-delivered kill within budget) and asserts it
       is reported as a failure, not a timeout; it fails against the pre-change inference, which
       would misclassify it.
-- [ ] `validatePerFileTimeout` still throws for a timeout below `SUPPORTED_HEALTHY_FILE_BUDGET_MS`.
-- [ ] `bun run check` is green, including `scripts/guard-deterministic-daemon-tests.ts`.
+- [x] `validatePerFileTimeout` still throws for a timeout below `SUPPORTED_HEALTHY_FILE_BUDGET_MS`.
+- [x] `bun run check` is green, including `scripts/guard-deterministic-daemon-tests.ts`.
 
 ## Documentation updates
 

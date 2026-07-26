@@ -2576,9 +2576,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
       stderr: () => {},
     });
 
-    expect(result.status).toBe("reset");
-    if (result.status === "refused") throw new Error("expected reset");
-    expect(result.destroyed?.remoteTrackingRef).toBe(`origin/${branch}`);
+    expect(result).toMatchObject({ status: "reset", destroyed: { remoteTrackingRef: `origin/${branch}` } });
     expect(stdout).toContain(`Pruned stale remote-tracking ref: origin/${branch}`);
   });
 
@@ -2607,11 +2605,11 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     };
 
     const result = await callReset(branch, skipPruneRunner);
-    expect(result.status).toBe("refused");
-    if (result.status !== "refused") throw new Error("expected refused");
-    if (!("reason" in result)) throw new Error("expected a reason refusal, not a claim refusal");
-    expect(result.reason).toContain("remote tracking ref deletion");
-    expect(result.destroyed?.remoteTrackingRef).toBeUndefined();
+    expect(result).toMatchObject({
+      status: "refused",
+      reason: expect.stringContaining("remote tracking ref deletion"),
+    });
+    expect(result).not.toHaveProperty("destroyed.remoteTrackingRef");
     expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
   });
 

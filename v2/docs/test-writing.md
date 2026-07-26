@@ -59,9 +59,50 @@ is clamped by the ceiling and the kill is attributed to "run ceiling" in stderr.
 ceiling" in stderr instead of "step budget". When a step budget itself is the binding limit, raise
 the relevant `*_STEP_BUDGET_MS` constant in `scripts/ready.ts` — there is no per-step env knob.
 Update `TEST_STEP_BUDGET_MS` (and `DEFAULT_TIMEOUT_MS` accordingly) if measured full-suite duration
-drifts.
+drifts — and re-run `bun run test:cost` to refresh the per-file totals below ("Measured aggregate
+cost") in step.
 
 Sources: `scripts/ready.ts`, `v1/test/ready-script.sandbox-unrunnable.test.ts`
+
+### Per-file test cost reporter
+
+`bun run test:cost` (`scripts/measure-test-cost.ts`) measures the aggregate roster (or file
+arguments passed on the command line) by spawning each file's `bun test <file>` separately and
+reporting, per file and as roster totals: wall clock, the in-file execution time from `bun test`'s
+own summary line, and the **residual** between them (`wallClockMs - inFileMs`). The residual is
+process spawn and runtime boot, plus teardown — not module resolution, transpile, or import side
+effects, which bun's own summary-line elapsed already includes (measured residual is flat, 5-11ms,
+across files ranging from 37ms to 108.8s wall clock); this command does not conclude what fraction a
+shared-process runner would eliminate. A file whose summary line doesn't parse, or that exceeds the
+per-file timeout (`SUPPORTED_HEALTHY_FILE_BUDGET_MS`), is reported `unparsed`/`timedOut` with its
+wall clock counted but excluded from the in-file/residual totals — an excluded file's wall clock is
+rolled into a separate `excludedWallClockMs` total, not into the residual. It does not affect
+`bun run test`.
+
+#### Measured aggregate cost (2026-07-26, operator hardware)
+
+One `bun run test:cost` run over the full aggregate roster (229 files, 0 unparsed, 0 timed out)
+measured: wall clock 574.4s, summed in-file execution 573.2s, residual 1.2s (0.2% of wall clock).
+Residual is uniform per-file (5-11ms each), not one outlier. Top 5 files by residual:
+`v1/test/run-command-linked-subspec-and-pr.test.ts` (11ms), `v1/test/plan-delete-ready-intent-command.test.ts`
+(9ms), `v1/test/plan-disposable-worktree-predicate.test.ts` (9ms), `v1/test/run.test.ts` (9ms),
+`v2/src/cli.test.ts` (9ms) — these differences are within bun's own reporting resolution (durations
+print to 4 significant figures, ±10ms of quantization at 108s, which is also why one file's residual
+rounds to `-0ms`), so this ranking is noise, not signal.
+
+This measurement does not reconcile with the intent's motivating datapoint (v2 slice: 84s wall vs
+11.7s reported test time, "~86% is spawn"): that figure came from one `bun test` invocation batching
+85 files' worth of tests into a single summary line, not from summing each file's own summary line
+the way `test:cost` does here. The two numbers measure different quantities and this measurement
+does not settle whether a shared-process runner would recover the difference.
+
+This is a separate, slower-and-more-lenient measurement pass, not a `bun run test` transcript:
+`test:cost` captures each file's output instead of inheriting it, and does not stop on a non-zero
+exit or timeout, so its 574.4s total will not exactly reproduce the 697s `bun run test` runner-path
+wall clock recorded above — both figures are kept, labeled by which command produced each.
+
+Raw output: [`v2/docs/test-cost-baseline.txt`](test-cost-baseline.txt). Re-run `bun run test:cost`
+and update both the baseline file and these figures when the aggregate roster changes materially.
 
 ## Shared socket fixtures
 

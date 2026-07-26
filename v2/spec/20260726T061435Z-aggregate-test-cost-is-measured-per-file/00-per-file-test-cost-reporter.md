@@ -61,22 +61,22 @@ in its `Ran N tests across M files. [X]` summary line (`[35.00ms]` / `[1.20s]` f
 
 ## Acceptance criteria
 
-- [ ] `bun run test:cost` reports, per aggregate test file, wall clock and in-file reported
+- [x] `bun run test:cost` reports, per aggregate test file, wall clock and in-file reported
       execution time, plus roster totals for both and the residual between them.
-- [ ] Passing file paths as arguments measures only those files instead of the full aggregate roster.
-- [ ] A file whose `bun test` summary line cannot be parsed is reported as unparsed and is excluded
+- [x] Passing file paths as arguments measures only those files instead of the full aggregate roster.
+- [x] A file whose `bun test` summary line cannot be parsed is reported as unparsed and is excluded
       from the in-file and residual totals rather than counted as zero execution time.
-- [ ] A file that exceeds the per-file timeout is reported as timed out (not unparsed, not zero
+- [x] A file that exceeds the per-file timeout is reported as timed out (not unparsed, not zero
       execution time) and is excluded from the in-file and residual totals; the roster continues
       past it.
-- [ ] A new test in `test/measure-test-cost.test.ts` drives the reporter over fixture spawn results
+- [x] A new test in `test/measure-test-cost.test.ts` drives the reporter over fixture spawn results
       (including `ms` and `s` summary forms, an unparseable one, and a timed-out one) and asserts
       the per-file and total wall-clock, in-file, and residual figures; it fails against the
       pre-change code (no reporter exists).
-- [ ] Inverting the residual computation (`inFileMs - wallClockMs`) fails that test, inverting the
+- [x] Inverting the residual computation (`inFileMs - wallClockMs`) fails that test, inverting the
       unparsed guard so unparsed files count as 0 ms fails it, and inverting the timeout guard so
       timed-out files count as 0 ms or as unparsed fails it too.
-- [ ] `bun run test` runs the same roster and returns the same exit code: `test/test-slices.test.ts`
+- [x] `bun run test` runs the same roster and returns the same exit code: `test/test-slices.test.ts`
       and `scripts/run-v2-tests.test.ts` stay green.
 
 ## Documentation updates

@@ -20,7 +20,7 @@ same session carry the per-iteration signature — repeated commits with the sam
 | #2164 role-timeout | 2 | **2** |
 | #2157 resume-admits / #2163 actuator-retry | 3 / 1 | 1 |
 
-#2162 is the clearest case: one subspec, two commits, so the second is an iteration commit rather
+PR #2162 is the clearest case: one subspec, two commits, so the second is an iteration commit rather
 than a per-subspec one.
 
 **Scope note — intent runs are not comparable.** An intent workflow commits once at finalization

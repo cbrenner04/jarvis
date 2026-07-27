@@ -423,7 +423,10 @@ When a `blocked` token misses the blocker-text contract after one
 `blocker_reprompt`, the write loop appends `missing_blocker_detail` (attempt id +
 the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
 `blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
-`invalid_token_detail`.
+`invalid_token_detail`. Every write-loop `contract_miss` boundary appends
+`contract_miss_detail` (attempt id, `failedContractId`, and the final agent
+response body used for contract evaluation at that boundary, truncated to
+`INVALID_TOKEN_LOG_MAX_CHARS`) after `boundary_committed`.
 
 ## Coverage advisory
 

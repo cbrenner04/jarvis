@@ -195,6 +195,17 @@ async function runCoverageAdvisory(
   }
 }
 
+function stepResponseTextForLog(result: StepRunResult): string {
+  if (result.reprompt !== undefined) {
+    const repromptFinal = result.reprompt.invocation.final?.result;
+    if (repromptFinal?.kind === "ok") {
+      return repromptFinal.stdout.trim();
+    }
+  }
+  const final = result.invocation.final?.result;
+  return final?.kind === "ok" ? final.stdout.trim() : "";
+}
+
 /** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
 /** Terminal completion fails closed when the committer produced no sha but the worktree is dirty. */
 export function shouldFailTerminalCompletionForDirtyWorktree(
@@ -505,6 +516,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           kind: "missing_blocker_detail",
           attemptId,
           responseText: truncateLogText(result.responseText),
+        });
+      }
+      if (result.kind === "contract_miss") {
+        args.logSink?.append(runId, {
+          kind: "contract_miss_detail",
+          attemptId,
+          failedContractId: result.failedContractId,
+          responseText: truncateLogText(stepResponseTextForLog(result)),
         });
       }
       if (result.kind === "blocked" && result.blockerText !== undefined) {

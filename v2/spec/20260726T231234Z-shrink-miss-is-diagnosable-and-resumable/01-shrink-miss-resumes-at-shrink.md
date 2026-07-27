@@ -56,13 +56,13 @@ that path unless a shared workflow-runner guard is required for uniform
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` `post-commit shrink contract_miss is resumable` drives implement→commit→shrink `contract_miss` and asserts workflow `resumable: true`, `implement~shrink` status `paused`, and terminal `loop_finished` on the shrink run with `resumable: true` (same signals as `resumes a shrink invocation error without re-invoking implement and publishes after shrink completes`); it fails against the pre-fix code.
-- [ ] `workflow-runner.test.ts` `resume after post-commit shrink contract_miss retries shrink without implement` asserts implement agent invocations do not increase on resume and shrink runs again to `complete`/publication; it fails against the pre-fix code.
-- [ ] `workflow-runner.test.ts` `implement write-step contract_miss stays non-resumable` drives a non-shrink `contract_miss` and asserts workflow `resumable: false`; it fails against the pre-fix code if the post-commit shrink guard is applied too broadly.
-- [ ] `workflow-runner.test.ts` `post-commit shrink blocked with blocker text stays terminal` drives shrink `blocked` with blocker text and asserts `resumable: false` and non-resumable `loop_finished`; it fails against the pre-fix code if genuine blockers become resumable.
-- [ ] `workflow-runner.test.ts` `post-commit shrink missing_blocker stays resumable` drives implement→commit→shrink text-less `blocked` and asserts the same resumability signals as the shrink `invocation_failure` error test (`paused`, `loop_finished.resumable: true`, workflow `resumable: true`); it stays green on pre-fix code (preservation / parity, not a new failing-test surface).
-- [ ] `run-operator-error.test.ts` `post-commit shrink contract_miss composes to resume` asserts `retryable: true` and `nextAction: "resume"`; it fails against the pre-fix code.
-- [ ] Inverting the post-commit shrink `contract_miss` resumability guard in `workflow-runner.ts` turns `workflow-runner.test.ts` `post-commit shrink contract_miss is resumable` RED.
+- [x] `workflow-runner.test.ts` `post-commit shrink contract_miss is resumable` drives implement→commit→shrink `contract_miss` and asserts workflow `resumable: true`, `implement~shrink` status `paused`, and terminal `loop_finished` on the shrink run with `resumable: true` (same signals as `resumes a shrink invocation error without re-invoking implement and publishes after shrink completes`); it fails against the pre-fix code.
+- [x] `workflow-runner.test.ts` `resume after post-commit shrink contract_miss retries shrink without implement` asserts implement agent invocations do not increase on resume and shrink runs again to `complete`/publication; it fails against the pre-fix code.
+- [x] `workflow-runner.test.ts` `implement write-step contract_miss stays non-resumable` drives a non-shrink `contract_miss` and asserts workflow `resumable: false`; it fails against the pre-fix code if the post-commit shrink guard is applied too broadly.
+- [x] `workflow-runner.test.ts` `post-commit shrink blocked with blocker text stays terminal` drives shrink `blocked` with blocker text and asserts `resumable: false` and non-resumable `loop_finished`; it fails against the pre-fix code if genuine blockers become resumable.
+- [x] `workflow-runner.test.ts` `post-commit shrink missing_blocker stays resumable` drives implement→commit→shrink text-less `blocked` and asserts the same resumability signals as the shrink `invocation_failure` error test (`paused`, `loop_finished.resumable: true`, workflow `resumable: true`); it stays green on pre-fix code (preservation / parity, not a new failing-test surface).
+- [x] `run-operator-error.test.ts` `post-commit shrink contract_miss composes to resume` asserts `retryable: true` and `nextAction: "resume"`; it fails against the pre-fix code.
+- [x] Inverting the post-commit shrink `contract_miss` resumability guard in `workflow-runner.ts` turns `workflow-runner.test.ts` `post-commit shrink contract_miss is resumable` RED.
 
 ## Documentation updates
 

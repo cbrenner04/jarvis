@@ -4,6 +4,7 @@ import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { completeLinkedSubspec, resolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
+import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
@@ -107,6 +108,39 @@ export function isPostCommitReviewRetryableFailureKind(
 ): boolean {
   if (detail.failureKind === "stall") return true;
   return detail.failureKind === "timeout" && !isExhaustedRoleTimeout(detail);
+}
+
+/** Post-implement-commit shrink outcomes that resume at the hidden `~shrink` row without re-invoking implement. */
+export function isPostCommitShrinkResumableOutcome(
+  result: Pick<WriteLoopResult, "kind"> & Partial<Pick<WriteLoopResult, "failureKind">>,
+  artifact?: { worktreePath: string; expectedArtifactPath: string },
+): boolean {
+  if (result.kind === "contract_miss") return true;
+  if (result.kind === "blocked") {
+    if (artifact === undefined) return true;
+    const artifactPath = join(artifact.worktreePath, artifact.expectedArtifactPath);
+    if (!existsSync(artifactPath)) return true;
+    const body = extractBlockerBody(readFileSync(artifactPath, "utf8"))?.body;
+    return body === undefined || body.trim() === "";
+  }
+  return result.kind === "invocation_failure" && result.failureKind === "error";
+}
+
+function settlePostCommitShrinkForResume(
+  store: StateStore,
+  logSink: LogSink | undefined,
+  shrinkResult: WriteLoopResult,
+): WriteLoopResult {
+  store.setRunStatus(shrinkResult.runId, "paused");
+  if (shrinkResult.kind === "contract_miss" || shrinkResult.kind === "blocked") {
+    logSink?.append(shrinkResult.runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: shrinkResult.kind,
+      iterationsConsumed: shrinkResult.iterationsConsumed,
+      resumable: true,
+    });
+  }
+  return { ...shrinkResult, resumable: true };
 }
 
 export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
@@ -242,6 +276,8 @@ export type WorkflowRunnerInput = {
   readyFinalizer?: ReadyFinalizer;
   /** When set, suppresses reuse of completed runs from prior invocations, forcing new run rows. */
   freshDispatch?: boolean;
+  /** Test-only: negate `isPostCommitShrinkResumableOutcome` at the post-commit shrink settle seam. */
+  invertPostCommitShrinkResumableGuardForTest?: boolean;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -696,7 +732,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           // Same guard (write/implement/!suppressShrink) as the sampling block above, so this is always set.
           preImplementResetAnchor = { worktreePath, sha: headBeforeImplementStep as string };
         }
-        const shrinkResult = await runShrinkAfterImplementComplete(
+        let shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
           workflowSnapshot,
@@ -710,10 +746,16 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         totalIterationsConsumed += shrinkResult.iterationsConsumed;
         lastResult = shrinkResult;
         lastStepId = step.stepId;
-        if (shrinkResult.kind === "invocation_failure" && shrinkResult.failureKind === "error") {
+        const postCommitShrinkResumable = isPostCommitShrinkResumableOutcome(shrinkResult, {
+          worktreePath,
+          expectedArtifactPath: step.expectedArtifactPath,
+        });
+        const admitPostCommitShrinkResume = args.invertPostCommitShrinkResumableGuardForTest
+          ? !postCommitShrinkResumable
+          : postCommitShrinkResumable;
+        if (admitPostCommitShrinkResume) {
           // The implement output is already checkpointed. Leave only this shrink run resumable.
-          store.setRunStatus(shrinkResult.runId, "paused");
-          shrinkResult.resumable = true;
+          shrinkResult = settlePostCommitShrinkForResume(store, args.logSink, shrinkResult);
         }
         if (shrinkResult.kind === "complete" && (shrinkResult as WriteLoopResult).completionAgent) {
           completionAgent = (shrinkResult as WriteLoopResult).completionAgent;

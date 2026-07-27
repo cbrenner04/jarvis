@@ -25,6 +25,19 @@ describe("log-stream", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it("contract_miss_detail is assignable on LogEvent", () => {
+    const event: LogEvent = {
+      kind: "contract_miss_detail",
+      attemptId: "attempt-1",
+      failedContractId: "artifact.exists",
+      responseText: "agent output",
+    };
+    expect(event.kind).toBe("contract_miss_detail");
+    expect(event.attemptId).toBe("attempt-1");
+    expect(event.failedContractId).toBe("artifact.exists");
+    expect(event.responseText).toBe("agent output");
+  });
+
   it("persists structured records with round-trip kind and payload fields", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

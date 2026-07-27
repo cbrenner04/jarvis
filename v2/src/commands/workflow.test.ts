@@ -1,21 +1,30 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
-import { SurvivingMutationError } from "../execution/ready-finalize.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
+import { SurvivingMutationError } from "../execution/ready-finalize.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
-import { openStateStore } from "../persistence/state-store.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import {
   type CliRepoFixture,
   COMPLETED_WAIT_JSON,
@@ -129,53 +138,54 @@ describe("run workflow dispatch", () => {
     expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "run-888" } });
   });
 
-  test.each(["surviving_mutation_failed", "ready_gate_failed", "completion_commit_failed"])(
-    "run workflow implement admits a ticked %s lineage without rebuilding or starting a workflow",
-    async (_outcomeKind) => {
-      const cap = captureIo();
-      const sent: unknown[] = [];
-      const specPath = join(fx.repoSub, "index.md");
-      const original = "# Index\n";
-      let built = false;
-      writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] recovered\n", "utf8");
-      try {
-        const code = await withFixedUuid("00000000-0000-4000-8000-000000000111", () =>
-          main([...IMPLEMENT_ARGS], cap.io, {
-            cwd: () => fx.repoSub,
-            readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
-            workflowPresetBuilders: {
-              implement: () => {
-                built = true;
-                return { ok: false, error: "implement.already_complete" };
-              },
+  test.each([
+    "surviving_mutation_failed",
+    "ready_gate_failed",
+    "completion_commit_failed",
+  ])("run workflow implement admits a ticked %s lineage without rebuilding or starting a workflow", async (_outcomeKind) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const specPath = join(fx.repoSub, "index.md");
+    const original = "# Index\n";
+    let built = false;
+    writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] recovered\n", "utf8");
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000111", () =>
+        main([...IMPLEMENT_ARGS], cap.io, {
+          cwd: () => fx.repoSub,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: {
+            implement: () => {
+              built = true;
+              return { ok: false, error: "implement.already_complete" };
             },
-            connectIpcClient: async () =>
-              makeIpcClient(
-                [
-                  {
-                    kind: "response",
-                    id: "00000000-0000-4000-8000-000000000111",
-                    result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/1" },
-                  },
-                ],
-                { sent },
-              ),
-          }),
-        );
-        expect(code).toBe(0);
-        expect(built).toBe(false);
-        expect(cap.read()).toEqual({ stdout: "https://example.test/pr/1\n", stderr: "" });
-        expect(sent).toHaveLength(1);
-        expect(sent[0]).toMatchObject({
-          kind: "request",
-          method: "implement.recover",
-          params: { project: "test-project", branch: "implement-run", specPath: "sub/index.md" },
-        });
-      } finally {
-        writeFileSync(specPath, original, "utf8");
-      }
-    },
-  );
+          },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000111",
+                  result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/1" },
+                },
+              ],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(built).toBe(false);
+      expect(cap.read()).toEqual({ stdout: "https://example.test/pr/1\n", stderr: "" });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        kind: "request",
+        method: "implement.recover",
+        params: { project: "test-project", branch: "implement-run", specPath: "sub/index.md" },
+      });
+    } finally {
+      writeFileSync(specPath, original, "utf8");
+    }
+  });
 
   test("run workflow implement keeps the complete-spec refusal when recovery is not admitted", async () => {
     const cap = captureIo();
@@ -221,23 +231,22 @@ describe("run workflow dispatch", () => {
     const sent: unknown[] = [];
     try {
       const code = await withFixedUuid("00000000-0000-4000-8000-000000000115", () =>
-        main(
-          ["run", "workflow", "implement", "--base", "HEAD", "--spec", "specs/index.md"],
-          cap.io,
-          {
-            cwd: () => rootLink,
-            readProjectRegistry: () => ({ demo: { root: rootLink } }),
-            workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
-            connectIpcClient: async () =>
-              makeIpcClient([
+        main(["run", "workflow", "implement", "--base", "HEAD", "--spec", "specs/index.md"], cap.io, {
+          cwd: () => rootLink,
+          readProjectRegistry: () => ({ demo: { root: rootLink } }),
+          workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [
                 {
                   kind: "response",
                   id: "00000000-0000-4000-8000-000000000115",
                   result: { kind: "admitted", ok: true },
                 },
-              ], { sent }),
-          },
-        ),
+              ],
+              { sent },
+            ),
+        }),
       );
       expect(code).toBe(0);
       expect(sent[0]).toMatchObject({
@@ -310,13 +319,16 @@ describe("run workflow dispatch", () => {
           readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
           workflowPresetBuilders: { implement: () => ({ ok: false, error: "should not build" }) },
           connectIpcClient: async () =>
-            makeIpcClient([
-              {
-                kind: "response",
-                id: "00000000-0000-4000-8000-000000000114",
-                result: { kind: "admitted", ok: true },
-              },
-            ], { sent }),
+            makeIpcClient(
+              [
+                {
+                  kind: "response",
+                  id: "00000000-0000-4000-8000-000000000114",
+                  result: { kind: "admitted", ok: true },
+                },
+              ],
+              { sent },
+            ),
         }),
       );
       expect(code).toBe(0);
@@ -580,42 +592,80 @@ describe("ticked implement recovery", () => {
     };
   }
 
-  test.each(["surviving_mutation_failed", "ready_gate_failed", "completion_commit_failed"] as const)(
-    "admits a retained %s lineage and finalizes without a write-step invocation",
-    async (outcomeKind) => {
-      const fixture = createRecoveryFixture({ outcomeKind });
-      try {
-        const frame = await fixture.handlers["implement.recover"]!(
-          { kind: "request", id: "recover", method: "implement.recover", params: { project: "demo", branch: "recover", specPath: "spec.md" } },
-          new AbortController().signal,
-        );
-        expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/7" } });
-        expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
-        expect(fixture.store.loadRun(fixture.reviewRunId)?.status).toBe("completed");
-        expect(readFileSync(join(fixture.root, "spec.md"), "utf8")).toContain("- [x] complete");
-      } finally {
-        fixture.cleanup();
-      }
-    },
-  );
+  test.each([
+    "surviving_mutation_failed",
+    "ready_gate_failed",
+    "completion_commit_failed",
+  ] as const)("admits a retained %s lineage and finalizes without a write-step invocation", async (outcomeKind) => {
+    const fixture = createRecoveryFixture({ outcomeKind });
+    try {
+      const frame = await fixture.handlers["implement.recover"]!(
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: "spec.md" },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({
+        kind: "response",
+        result: { kind: "admitted", ok: true, prUrl: "https://example.test/pr/7" },
+      });
+      expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
+      expect(fixture.store.loadRun(fixture.reviewRunId)?.status).toBe("completed");
+      expect(readFileSync(join(fixture.root, "spec.md"), "utf8")).toContain("- [x] complete");
+    } finally {
+      fixture.cleanup();
+    }
+  });
 
   test("refuses mismatched, excluded, missing, and claimed recovery targets without dispatch", async () => {
     const cases = [
-      { args: { outcomeKind: "surviving_mutation_failed" as const, specPath: "other.md" }, params: { specPath: "spec.md" }, code: undefined },
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, specPath: "other.md" },
+        params: { specPath: "spec.md" },
+        code: undefined,
+      },
       { args: { outcomeKind: "runtime_smoke_failed" as const }, params: { specPath: "spec.md" }, code: undefined },
       { args: { outcomeKind: "mutation_repair_exhausted" as const }, params: { specPath: "spec.md" }, code: undefined },
-      { args: { outcomeKind: "surviving_mutation_failed" as const, worktreePath: join(tmpdir(), "missing-recovery-worktree") }, params: { specPath: "spec.md" }, code: "implement.recovery_target_missing" },
-      { args: { outcomeKind: "surviving_mutation_failed" as const, branch: "missing" }, params: { specPath: "spec.md", branch: "missing" }, code: "implement.recovery_target_missing" },
-      { args: { outcomeKind: "surviving_mutation_failed" as const, claimed: true }, params: { specPath: "spec.md" }, code: "worktree_claimed" },
+      {
+        args: {
+          outcomeKind: "surviving_mutation_failed" as const,
+          worktreePath: join(tmpdir(), "missing-recovery-worktree"),
+        },
+        params: { specPath: "spec.md" },
+        code: "implement.recovery_target_missing",
+      },
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, branch: "missing" },
+        params: { specPath: "spec.md", branch: "missing" },
+        code: "implement.recovery_target_missing",
+      },
+      {
+        args: { outcomeKind: "surviving_mutation_failed" as const, claimed: true },
+        params: { specPath: "spec.md" },
+        code: "worktree_claimed",
+      },
     ];
     for (const testCase of cases) {
       const fixture = createRecoveryFixture(testCase.args);
       try {
         const frame = await fixture.handlers["implement.recover"]!(
-          { kind: "request", id: "recover", method: "implement.recover", params: { project: "demo", branch: testCase.params.branch ?? "recover", specPath: testCase.params.specPath } },
+          {
+            kind: "request",
+            id: "recover",
+            method: "implement.recover",
+            params: {
+              project: "demo",
+              branch: testCase.params.branch ?? "recover",
+              specPath: testCase.params.specPath,
+            },
+          },
           new AbortController().signal,
         );
-        if (testCase.code === undefined) expect(frame).toMatchObject({ kind: "response", result: { kind: "not_admitted" } });
+        if (testCase.code === undefined)
+          expect(frame).toMatchObject({ kind: "response", result: { kind: "not_admitted" } });
         else expect(frame).toMatchObject({ kind: "error", code: testCase.code });
         expect(fixture.calls()).toEqual({ writes: 0, ready: 0, publishes: 0 });
       } finally {
@@ -633,7 +683,12 @@ describe("ticked implement recovery", () => {
     });
     try {
       const frame = await fixture.handlers["implement.recover"]!(
-        { kind: "request", id: "recover", method: "implement.recover", params: { project: "demo", branch: "recover", specPath: "spec.md" } },
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: "spec.md" },
+        },
         new AbortController().signal,
       );
       expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: false } });

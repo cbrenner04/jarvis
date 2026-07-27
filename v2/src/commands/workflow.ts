@@ -1,5 +1,5 @@
-import { basename, dirname } from "node:path";
 import { readFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -7,24 +7,24 @@ import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   readConfiguredIdleOutputTimeoutMs,
   readReviewRoleTimeoutMs,
   resolveWritePathIterationBounds,
 } from "../config/machine-config-loader.ts";
-import { loadWorkflowSteps } from "../execution/workflow-loader.ts";
+import { parseStartResult } from "../daemon/daemon-wire.ts";
 import {
   resolveImplementSpecIdentity,
   validateImplementSpecTreeCompletion,
 } from "../execution/implement-workflow-steps.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
-import { parseStartResult } from "../daemon/daemon-wire.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { loadWorkflowSteps } from "../execution/workflow-loader.ts";
 import type {
   WorkflowPresetBuilder,
   WorkflowPresetBuilderInput,
   WorkflowPresetBuilderResult,
 } from "../execution/workflow-presets.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -380,7 +380,9 @@ async function maybeRecoverImplement(
     return { admitted: true, exitCode: 1 };
   }
   if (!recoveryResult.ok) {
-    io.stderr(`${typeof recoveryResult.message === "string" ? recoveryResult.message : "Recovery finalization failed"}\n`);
+    io.stderr(
+      `${typeof recoveryResult.message === "string" ? recoveryResult.message : "Recovery finalization failed"}\n`,
+    );
     return { admitted: true, exitCode: 1 };
   }
   if (typeof recoveryResult.prUrl === "string") io.stdout(`${recoveryResult.prUrl}\n`);
@@ -420,7 +422,9 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
       ? resolveImplementRecoveryRequest(parsed as Extract<ImplementWorkflowCliInput, { ok: true }>, deps)
       : undefined;
   const initialPreparation =
-    recovery === undefined ? await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io) : undefined;
+    recovery === undefined
+      ? await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io)
+      : undefined;
   if (initialPreparation !== undefined && !initialPreparation.ok) return 1;
   let destroyedArtifacts: DestroyedArtifacts | undefined;
   const exitCode = await withConnectDispatch(io, deps, async (client) => {

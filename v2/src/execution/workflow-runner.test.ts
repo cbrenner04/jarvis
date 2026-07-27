@@ -6670,10 +6670,22 @@ describe("executeWorkflow review dispatch", () => {
       execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
       await withStateStore(async (store) => {
         const snapshot = reviewMutationWorkflowSnapshot("repair-exhausted", "implement: repair-exhausted");
-        const base = { project: "demo", specRef: "main", worktreePath: workspace, branch: "repair-exhausted", specPath: "spec.md", workflowSnapshot: snapshot };
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "repair-exhausted",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
         const writeRunId = store.createRun({ ...base, stepId: "implement" });
         const writeAttemptId = store.recordAttemptStart(writeRunId);
-        store.commitCompletionBoundary({ attemptId: writeAttemptId, runStatus: "completed", outcomeKind: "done", completionAgent: "codex" });
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
         const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
         const reviewAttemptId = store.recordAttemptStart(reviewRunId);
         store.commitCompletionBoundary({
@@ -6683,7 +6695,12 @@ describe("executeWorkflow review dispatch", () => {
           invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
         });
         const seedSink = openLogSink(logsPath);
-        seedSink.append(reviewRunId, { kind: "loop_finished", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 0, resumable: true });
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
         seedSink.close();
         const run = store.loadRun(reviewRunId);
         if (!run) throw new Error("expected review run");
@@ -6698,15 +6715,17 @@ describe("executeWorkflow review dispatch", () => {
             throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
           },
           mutationRepair: {
-            bindings: [{
-              id: "current-implement-binding",
-              metadata: { agent: "current-agent", model: "current-model" },
-              invoke: async ({ cwd }) => {
-                prompts += 1;
-                writeFileSync(join(cwd, `repair-${prompts}.txt`), "repaired\n", "utf8");
-                return { kind: "ok", stdout: "done", stderr: "" };
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ cwd }) => {
+                  prompts += 1;
+                  writeFileSync(join(cwd, `repair-${prompts}.txt`), "repaired\n", "utf8");
+                  return { kind: "ok", stdout: "done", stderr: "" };
+                },
               },
-            }],
+            ],
             stepRules: "repair rules",
             iterationTimeoutMs: 1_000,
             iterationCeilingMs: 2_000,
@@ -6718,7 +6737,11 @@ describe("executeWorkflow review dispatch", () => {
         expect(prompts).toBe(3);
         const settledRun = store.loadRun(reviewRunId);
         const settledTerminal = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
-        expect(settledTerminal?.event).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "mutation_repair_exhausted", resumable: false });
+        expect(settledTerminal?.event).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "mutation_repair_exhausted",
+          resumable: false,
+        });
         expect(composeRunOperatorError(settledRun ?? { status: "failed" }, settledTerminal)).toMatchObject({
           reason: "mutation_repair_exhausted",
           retryable: false,
@@ -6730,7 +6753,10 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
-  test.each(["blocked", "unsettled"] as const)("mutation repair %s stops without publishing a repaired commit", async (mode) => {
+  test.each([
+    "blocked",
+    "unsettled",
+  ] as const)("mutation repair %s stops without publishing a repaired commit", async (mode) => {
     const workspace = initGitWorkspace(`review-mutation-repair-${mode}-`);
     const logsPath = join(workspace, "resume.jsonl");
     try {
@@ -6740,10 +6766,22 @@ describe("executeWorkflow review dispatch", () => {
       execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
       await withStateStore(async (store) => {
         const snapshot = reviewMutationWorkflowSnapshot(`repair-${mode}`, `implement: repair-${mode}`);
-        const base = { project: "demo", specRef: "main", worktreePath: workspace, branch: `repair-${mode}`, specPath: "spec.md", workflowSnapshot: snapshot };
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: `repair-${mode}`,
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
         const writeRunId = store.createRun({ ...base, stepId: "implement" });
         const writeAttemptId = store.recordAttemptStart(writeRunId);
-        store.commitCompletionBoundary({ attemptId: writeAttemptId, runStatus: "completed", outcomeKind: "done", completionAgent: "codex" });
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
         const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
         const reviewAttemptId = store.recordAttemptStart(reviewRunId);
         store.commitCompletionBoundary({
@@ -6753,7 +6791,12 @@ describe("executeWorkflow review dispatch", () => {
           invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
         });
         const seedSink = openLogSink(logsPath);
-        seedSink.append(reviewRunId, { kind: "loop_finished", loopOutcomeKind: "surviving_mutation_failed", iterationsConsumed: 0, resumable: true });
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
         seedSink.close();
         const run = store.loadRun(reviewRunId);
         if (!run) throw new Error("expected review run");
@@ -6773,21 +6816,25 @@ describe("executeWorkflow review dispatch", () => {
             throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
           },
           mutationRepair: {
-            bindings: [{
-              id: "current-implement-binding",
-              metadata: { agent: "current-agent", model: "current-model" },
-              invoke: async ({ signal }) => {
-                repairs += 1;
-                if (mode === "blocked") {
-                  appendFileSync(join(workspace, "spec.md"), "\n## Blocker\n\nrepair blocked\n", "utf8");
-                  return { kind: "ok", stdout: "blocked", stderr: "" };
-                }
-                if (signal === undefined) throw new Error("expected repair abort signal");
-                return await new Promise((resolve) => {
-                  signal.addEventListener("abort", () => resolve({ kind: "ok", stdout: "done", stderr: "" }), { once: true });
-                });
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ signal }) => {
+                  repairs += 1;
+                  if (mode === "blocked") {
+                    appendFileSync(join(workspace, "spec.md"), "\n## Blocker\n\nrepair blocked\n", "utf8");
+                    return { kind: "ok", stdout: "blocked", stderr: "" };
+                  }
+                  if (signal === undefined) throw new Error("expected repair abort signal");
+                  return await new Promise((resolve) => {
+                    signal.addEventListener("abort", () => resolve({ kind: "ok", stdout: "done", stderr: "" }), {
+                      once: true,
+                    });
+                  });
+                },
               },
-            }],
+            ],
             stepRules: "repair rules",
             iterationTimeoutMs: mode === "unsettled" ? 1 : 1_000,
             iterationCeilingMs: mode === "unsettled" ? 2 : 2_000,

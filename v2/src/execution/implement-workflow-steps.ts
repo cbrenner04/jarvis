@@ -109,7 +109,8 @@ export function resolveImplementSpecIdentity(
   const requestedSpecPath = resolve(cwd, specPath);
   const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
   if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
-  const lexicalMatch = findProjectMatch(requestedSpecPath, projectRegistry) ?? findProjectMatch(resolvedSpecPath, projectRegistry);
+  const lexicalMatch =
+    findProjectMatch(requestedSpecPath, projectRegistry) ?? findProjectMatch(resolvedSpecPath, projectRegistry);
   if (lexicalMatch === undefined) {
     return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }

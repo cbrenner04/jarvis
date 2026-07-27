@@ -629,8 +629,21 @@ test("workflow entry wait and list preserve mutation_repair_exhausted guidance",
   const workflowSnapshot = {
     invocationId,
     steps: [
-      { stepId: "implement", role: "implement", stepRules: "rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] },
-      { stepId: "implement-review", role: "review", behavior: "review" as const, stepRules: "rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] },
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
+      {
+        stepId: "implement-review",
+        role: "review",
+        behavior: "review" as const,
+        stepRules: "rules",
+        expectedArtifactPath: "/tmp/artifact",
+        agents: ["codex"],
+      },
     ],
   };
   const base = {

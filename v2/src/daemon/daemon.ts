@@ -35,6 +35,7 @@ import {
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
@@ -59,6 +60,9 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
+import { runPipeline } from "./pipeline-execution.ts";
+import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -583,6 +587,8 @@ export type RunControlHandlerDeps = {
   registry?: WorktreeOwnershipRegistry;
   /** Test seam for {@link resumePopulatedIntentPublication}'s commit/publish/ready-finalize calls. */
   intentFinalizationResumeDeps?: Omit<IntentFinalizationResumeDeps, "logSink">;
+  /** Test seam for `pipeline_start`'s stage resolution; defaults to the real preset resolver. */
+  resolveStage?: typeof resolveStageWorkflowSteps;
 };
 
 export type WaitRunCompletionResult = {
@@ -1502,6 +1508,50 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : waitForLogTerminalRecord(logReader, run, signal);
   };
 
+  /** Thin closure around `handleWorkflowStart`, the seam `pipeline-stage-dispatch.ts` calls to dispatch a stage. */
+  const pipelineDispatch: PipelineWorkflowDispatch = async (steps) => {
+    const started = await handleWorkflowStart(steps);
+    if (started.kind === "error") {
+      return { ok: false, code: started.code, message: started.message };
+    }
+    const { runId } = started.result as { runId: string };
+    const run = store.loadRun(runId);
+    const invocationId = run?.workflowSnapshot?.invocationId;
+    return { ok: true, entryRunId: runId, ...(invocationId !== undefined ? { invocationId } : {}) };
+  };
+
+  /** Thin closure around the `wait` machinery, reporting only the terminal rollup status. */
+  const pipelineWait: PipelineWorkflowWait = async (entryRunId) => {
+    const run = store.loadRun(entryRunId);
+    if (!run) return "failed";
+    const entrySnapshot = workflowEntrySnapshot(run);
+    if (entrySnapshot === undefined) return run.status;
+    const outcome = await waitForWorkflowEntryRun(run, entrySnapshot);
+    return (outcome.result as WaitRunCompletionResult).runStatus;
+  };
+
+  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+
+  /**
+   * Admit an already-validated pipeline definition: create its durable rows, start the
+   * ordered daemon-owned loop, and resolve once those rows exist — not once the pipeline
+   * finishes. The loop keeps running after this handler resolves and the client disconnects.
+   */
+  const handlePipelineStartHandler: RpcHandler = (frame) => {
+    const params = frame.params as { definition?: PipelineDefinition; context?: PipelineContext } | undefined;
+    if (!params?.definition || !params?.context) {
+      return { kind: "error", code: "invalid_params", message: "definition and context required" };
+    }
+    const { definition, context } = params;
+    const pipelineId = store.createPipeline({ definition });
+    void runPipeline(pipelineId, { store, dispatch: pipelineDispatch, wait: pipelineWait, context, resolveStage }).catch(
+      (err: unknown) => {
+        console.error(`Pipeline ${pipelineId} execution failed:`, err);
+      },
+    );
+    return { kind: "response", result: { pipelineId } };
+  };
+
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
   const setRetiring = (): void => {
@@ -1518,6 +1568,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
+    pipeline_start: handlePipelineStartHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */

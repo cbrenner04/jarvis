@@ -46,18 +46,18 @@
 
 ## Acceptance criteria
 
-- [ ] Dispatching a stage records `workflowInvocationId` equal to the fake dispatch callback's returned
+- [x] Dispatching a stage records `workflowInvocationId` equal to the fake dispatch callback's returned
       `entryRunId` before the fake wait primitive resolves, proving the pre-settlement linkage write; it fails
       against the pre-change code.
-- [ ] A stage whose fake wait primitive resolves `completed` records `succeeded`, `endedAt`, and an artifact
+- [x] A stage whose fake wait primitive resolves `completed` records `succeeded`, `endedAt`, and an artifact
       reference containing `entryRunId`, `invocationId`, and the worktree-relative `specPath`, with no artifact
       file content.
-- [ ] A stage whose fake wait primitive resolves `failed`/`blocked`/`killed` records `failed`, `endedAt`, and a
+- [x] A stage whose fake wait primitive resolves `failed`/`blocked`/`killed` records `failed`, `endedAt`, and a
       failure detail, and no artifact reference; inverting the success/non-success branch turns this test RED.
-- [ ] A stage whose dispatch callback returns `ok: false` records `failed` and `failureDetail` immediately, with
+- [x] A stage whose dispatch callback returns `ok: false` records `failed` and `failureDetail` immediately, with
       no `startedAt`/invocation linkage ever written; inverting this refusal-handling branch turns the test RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` documents the dispatch seam, the pre-settlement linkage write, the
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` documents the dispatch seam, the pre-settlement linkage write, the
       terminal-success predicate, the artifact/failure recording, and the full stage status vocabulary;
       `v2/docs/state-store.md` documents the pointer-only artifact envelope shape as a durable-row concern only.
 

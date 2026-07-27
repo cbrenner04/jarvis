@@ -54,6 +54,33 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `loadPipeline` — read an admitted pipeline plus its stages ordered by stored `position` (not insertion order); null when unknown.
 - `updateStage` — apply a targeted lifecycle patch (`StageLifecyclePatch`: optional `status`, `workflowInvocationId`, `startedAt`, `endedAt`, `artifact`, `failureDetail`) to one stage row in place. Omitted fields, and fields explicitly passed as `undefined`, are unchanged; an explicit `null` clears a nullable field. `artifact`/`failureDetail` round-trip losslessly only for JSON-representable values (no `undefined`, functions, or cyclic structures). Rejects a patch with no defined fields and an unknown `(pipelineId, stageId)`. Modifies only the targeted row — the row's `id`, `pipelineId`, `stageId`, and `position` and every sibling stage are untouched.
 
+The current `artifact` envelope (written by `v2/src/daemon/pipeline-stage-dispatch.ts`) is pointer-only: `{ entryRunId, invocationId?, specPath, prNumber?, prUrl? }`, never artifact file content — this layer stores it opaquely and does not interpret the shape or the `status`/`failureDetail` vocabulary; that interpretation lives in `daemon-host.md`.
+
+`failureDetail` on `pipeline_stages` rows is JSON-opaque to the store; writers today use one of:
+
+- `{ message: string }` — resolution failures, unexpected throws, and missing entry-run spec paths at settlement.
+- `{ code: string, message: string }` — dispatch-time refusals (`worktree_claimed`, etc.).
+- `{ reason, retryable, nextAction }` — composed operator errors from `composeRunOperatorError` when the entry run row is missing at settlement.
+- The full operator-error object from `composeRunOperatorError` when the entry run row is present.
+
+No pipeline-level `status` column exists; overall pipeline state is derived
+from stage rows by `v2/src/daemon/pipeline-execution.ts`'s
+`derivePipelineState`, one of five states:
+
+- `succeeded` — every authored stage in order reads `succeeded` (workflow and approval rows alike); no undispatched approval gate remains.
+- `failed` — any workflow stage row reads `failed`.
+- `awaiting-approval` — every stage up to (not including) the next-in-order
+  approval stage has succeeded, and that approval stage has not been
+  dispatched.
+- `running` — some workflow stage row reads `running`.
+- `pending` — admitted, but the loop has not yet reached a dispatchable
+  stage.
+
+`skipped` rows (written when an earlier stage fails) are never themselves
+read as `failed` — they only distinguish "will never run" from "not yet
+reached". See `daemon-host.md`'s "Ordered pipeline progression" for how the
+loop drives stages into these rows.
+
 ## Semantics
 
 - A run's durable `status` must agree with its terminal log signal; harness guesses (`killed`, reconcile) never overwrite a boundary-terminal status committed by `commitCompletionBoundary`. A terminal `loop_finished` row must not combine `runStatus: "completed"` with `resumable: true`; surviving-mutation failures settle `failed` with `resumable: true` and matching operator `error` fields.

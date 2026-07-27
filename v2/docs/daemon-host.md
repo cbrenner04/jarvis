@@ -743,6 +743,155 @@ structured stream is the durable run timeline once records exist. See
 [`invocation-liveness.md`](./invocation-liveness.md) and
 [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md).
 
+## Pipeline stage resolution
+
+`v2/src/daemon/pipeline-stage-resolve.ts` turns one `pipeline_stages` row plus
+pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission holds a
+`PipelineContext` in daemon memory for the pipeline loop's lifetime (not
+persisted): `{ cwd, configPath?, targetDir?, projectRegistry?, seed }`.
+
+Posture → preset (`v2/src/execution/pipeline-definition.ts`'s
+`validatePipelineDefinition`/`isUnrealizableReview` is the sole authority on
+which `(workflow, review)` pairs are realizable; this table only maps
+realizable pairs to builders and is never itself consulted for validity):
+
+| workflow    | review   | preset                |
+| ----------- | -------- | --------------------- |
+| `intent`    | `none`   | `intent`              |
+| `intent`    | `light`  | `intent-reviewed`     |
+| `plan`      | `none`   | `plan`                |
+| `plan`      | `light`  | `plan-reviewed-light` |
+| `plan`      | `debate` | `plan-reviewed`       |
+| `implement` | `light` or `debate` | the implement builder, with `reviewBehavior` set to the stage's own posture — never the project's configured implement review default |
+
+Seed/artifact hand-off: the first workflow stage (by authored position) builds
+with `PipelineContext.seed` as the seed input. Every later workflow stage
+builds with its immediately preceding workflow stage's recorded artifact spec
+path (approval stages are skipped when walking back to find it): `readyIntent`
+for the `plan`/`plan-reviewed*` presets, `specPath` for the implement builder.
+The spec path is worktree-relative, matching `Run.specPath` /
+`BuildImplementWorkflowStepsInput.specPath`; it is passed through unchanged,
+never re-resolved to an absolute path.
+
+`reviewPasses` and `reviewBehavior` on built intent/plan/implement inputs are
+derived from the stage's own `review` posture (`none` → `reviewPasses: 0` with
+no review behavior; `light`/`debate` → one pass with an explicit matching
+behavior). Preset names alone do not suppress review — `intent` and
+`intent-reviewed` share a builder; only `reviewPasses: 0` omits review steps.
+
+`PipelineContext.projectRegistry` is passed through to the implement builder
+only; intent/plan resolution uses `configPath` (and optional `targetDir`) for
+project and target-dir lookup, matching the CLI's config-backed registry.
+
+Resolution failure: a stage whose `(workflow, review)` pair has no table
+entry, or whose builder call itself reports `{ ok: false }`, returns
+`{ ok: false; error: string }` — never a thrown error and never a fallback to
+a different preset.
+
+## Pipeline stage dispatch
+
+`v2/src/daemon/pipeline-stage-dispatch.ts`'s `dispatchPipelineStage` takes one
+resolved stage's steps, a `PipelineWorkflowDispatch` callback, a
+`PipelineWorkflowWait` callback, and the `StateStore`, and drives one stage
+through to its terminal outcome. The daemon builds both callbacks as thin
+closures over its own private `handleWorkflowStart`/`startWorkflowRun`
+machinery and the mechanism backing the `wait` RPC handler — a standalone
+module cannot reach either directly.
+
+- `PipelineWorkflowDispatch = (steps) => Promise<{ ok: true; entryRunId; invocationId } | { ok: false; code; message }>`.
+  A refusal (claimed worktree, insufficient memory, materialization failure,
+  routing-read failure, invalid params) records `endedAt`, `status: "failed"`,
+  and `failureDetail: { code, message }` immediately — no `startedAt`, no
+  `workflowInvocationId`, no retry or queueing.
+- On a successful dispatch, `workflowInvocationId` (set to the returned
+  `entryRunId`) and `startedAt` are written via `StateStore.updateStage`
+  *before* the invocation settles, so a crash mid-stage leaves a resolvable
+  linkage.
+- The dispatcher then awaits settlement through `PipelineWorkflowWait`, not
+  the dispatch callback's own promise (which resolves at run creation, before
+  the workflow's steps have run). This mirrors the daemon's own `wait` RPC
+  handler, which awaits the in-flight workflow promise and then reads
+  `rollupWorkflowRunStatus` for the entry run.
+- Terminal success is `rollupWorkflowRunStatus` reporting `completed`: records
+  `status: "succeeded"`, `endedAt`, and an artifact reference
+  `{ entryRunId, invocationId?, specPath, prNumber?, prUrl? }` (plus `prNumber`/`prUrl` when
+  present), all read off the entry run row (`StateStore.loadRun`); `specPath`
+  is worktree-relative, matching `pipeline-stage-resolve.ts`'s convention. A
+  missing entry run or missing `specPath` at success time records `failed`, not
+  `succeeded` with an empty path.
+- Any other rollup status (`failed`, `blocked`, `killed`, `interrupted`,
+  `paused`, or anything else the wait primitive returns) records `status:
+  "failed"`, `endedAt`, and a `failureDetail` — never an artifact reference and
+  never a stage left at `running` while later stages are marked `skipped`. When
+  the entry run row is present, `failureDetail` is built from
+  `composeRunOperatorError` (`run-operator-error.ts`); when it is absent, a
+  hand-built `{ reason, retryable, nextAction }` harness-failure shape is used.
+- An unexpected throw or rejection anywhere in dispatch/settlement records the
+  same `failed` row with `{ message }` via a best-effort store write.
+
+Stage status vocabulary (daemon-owned, not interpreted by the state store):
+`pending` (admitted, undispatched), `running` (dispatched, unsettled),
+`succeeded`, `failed`, `skipped` (never dispatched because an earlier stage
+failed — written by the progression loop, not this module).
+
+## Ordered pipeline progression
+
+`pipeline_start` (`handlePipelineStart` in `daemon.ts`, registered in
+`createRunControlHandlers`'s handler map alongside `start`/`list`) admits a
+`PipelineDefinition` plus a `PipelineContext` on the caller's word — the
+handler does not re-run `validatePipelineDefinition`; callers must validate
+before RPC. It calls `StateStore.createPipeline`, starts the ordered loop
+(`v2/src/daemon/pipeline-execution.ts`'s `runPipeline`), and returns
+`{ pipelineId }` once the pipeline and stage rows are durably created —
+mirroring `startWorkflowRun`'s "resolve at row creation, keep running after"
+shape. The loop is not awaited by the handler and does not hold the client
+connection open; the client disconnecting right after receiving `pipelineId`
+is what proves daemon (not client) ownership. Exactly one loop instance runs
+per pipeline, started once from `handlePipelineStart`.
+
+Between two pipeline stages the daemon may have no workflow rows in
+`activeRuns` (`hasActiveRuns()` is false in the gap after one stage settles and
+before the next dispatches). That window is normal for same-session retirement:
+a superseding daemon can exit once `hasActiveRuns()` clears even though the
+pipeline loop will dispatch the next stage moments later on the admitting daemon.
+
+**Deferred vs CLI workflow launch:** `jarvis run workflow …` runs
+`prepareWorkflowSteps` (iteration bounds, configured idle-output and review-role
+timeouts on review steps) and `maybeResetStaleWorkspace` for `plan`/`implement`
+before `start { steps }`. Pipeline stage resolution dispatches raw preset-builder
+output without that post-processing or stale-worktree reset in this slice.
+
+`runPipeline` walks `loadPipeline(pipelineId).stages` in authored position
+order. For each workflow stage it re-reads the stage's own row before acting
+(not just its loop position), so an already-`running`/settled stage is never
+re-dispatched — a defensive guard, since the daemon only ever starts one loop
+per `pipeline_start` call. It then resolves the stage
+(`pipeline-stage-resolve.ts`) and dispatches it (`pipeline-stage-dispatch.ts`).
+An approval stage stops the loop immediately: no dispatch, no settlement,
+every later stage stays `pending` (deferred to a future approval slice). A
+stage that settles `failed` — a resolution failure or a dispatch/settlement
+failure per `pipeline-stage-dispatch.ts` (including a start-time dispatch
+refusal) — settles the pipeline `failed` by writing `status: "skipped"` to
+every later stage via `updateStage` and dispatching none of them; there is no
+best-effort continuation past a failure.
+
+Ownership-key contention: a stage whose steps target a `(project, branch)`
+already claimed by another in-flight workflow or pipeline is refused at
+dispatch time through the daemon's existing single-claim
+`WorktreeOwnershipRegistry` — the same refusal path as `workflow.start` —
+recorded as that stage's failure. This slice adds no pipeline-level queueing
+beyond the existing registry; two pipelines targeting the same project
+concurrently is out of scope. Observability: pipeline stage runs are not yet
+attributable to their owning pipeline in `workflow.list`/CLI run listings —
+deferred; `loadPipeline` is the only way to inspect stage-level state in this
+slice.
+
+### Derived pipeline state
+
+`pipeline-execution.ts`'s `derivePipelineState` computes a pipeline's overall
+state from its stage rows only (no new column) — see
+[`state-store.md`](./state-store.md) for the five states.
+
 ## Library surface
 
 `startIpcServer(socketPath, handlers?)` binds a Unix listener in-process (tests

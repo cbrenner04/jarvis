@@ -45,19 +45,19 @@
 
 ## Acceptance criteria
 
-- [ ] Resolving a pipeline's first workflow stage builds its steps with `PipelineContext.seed` as the seed input
+- [x] Resolving a pipeline's first workflow stage builds its steps with `PipelineContext.seed` as the seed input
       (not any project-configured seed default); it fails against the pre-change code.
-- [ ] Resolving a pipeline's second workflow stage builds its steps with the first stage's recorded artifact spec
+- [x] Resolving a pipeline's second workflow stage builds its steps with the first stage's recorded artifact spec
       path as `readyIntent`/`specPath`, and asserts the two values are equal, proving the hand-off; it fails
       against the pre-change code.
-- [ ] Each realizable `(workflow, review)` pair resolves to the preset/builder named in Decisions, and the
+- [x] Each realizable `(workflow, review)` pair resolves to the preset/builder named in Decisions, and the
       implement stage's built steps carry the stage's own posture as `reviewBehavior`; inverting this mapping
       (feeding a project-configured review default instead of the stage's posture) turns the test RED.
-- [ ] A stage whose pair is unmapped, or whose builder call reports failure, returns a resolution failure rather
+- [x] A stage whose pair is unmapped, or whose builder call reports failure, returns a resolution failure rather
       than throwing or silently substituting a different preset; inverting the failure branch (returning
       `ok: true` on builder failure) turns the test RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
-- [ ] `v2/docs/daemon-host.md` documents `PipelineContext`, the posture→preset table (naming
+- [x] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/daemon-host.md` documents `PipelineContext`, the posture→preset table (naming
       `pipeline-definition.ts` as the sole realizability authority), the seed/artifact hand-off rule, and the
       resolution failure shape.
 

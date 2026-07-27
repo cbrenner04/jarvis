@@ -136,6 +136,10 @@ function loadOptions(deps: LoaderDeps) {
     ...(deps.machinesDir !== undefined ? { machinesDir: deps.machinesDir } : {}),
   };
 }
+function loaderDepsFromInput(deps: LoaderDeps, configPath: string | undefined): LoaderDeps {
+  if (configPath === undefined || deps.machineConfigPath !== undefined) return deps;
+  return { ...deps, machineConfigPath: configPath };
+}
 function loadedWriteSteps(deps: LoaderDeps, source: readonly WorkflowSourceStep[]): WriteWorkflowStep[] {
   return (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)(source, loadOptions(deps)).filter(
     (s): s is WriteWorkflowStep => s.behavior === "write",
@@ -340,6 +344,7 @@ export async function buildIntentWorkflowSteps(
   input: IntentWorkflowInput,
   deps: IntentWorkflowDeps = {},
 ): Promise<IntentWorkflowResult> {
+  const loaderDeps = loaderDepsFromInput(deps, input.configPath);
   const r = await intentSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
   const passes = input.reviewPasses ?? 1;
@@ -347,7 +352,7 @@ export async function buildIntentWorkflowSteps(
     return { ok: false, error: "intent: reviewPasses must be a non-negative integer" };
   if (passes === 0) {
     try {
-      return { ok: true, steps: publish("intent", deps, r.source), identity: r.identity };
+      return { ok: true, steps: publish("intent", loaderDeps, r.source), identity: r.identity };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -392,12 +397,12 @@ export async function buildIntentWorkflowSteps(
           ...(deps.createBinding ? { createBinding: deps.createBinding } : {}),
         };
   try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
+    const loaded = (loaderDeps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(loaderDeps));
     const loadedReview = loaded.find((step) =>
       behavior === "light" ? step.behavior === "review" : step.behavior === "review-debate",
     );
     if (!loadedReview) return { ok: false, error: "intent: review step was not loaded" };
-    return { ok: true, steps: [...publish("intent", deps, r.source, loaded), loadedReview], identity: r.identity };
+    return { ok: true, steps: [...publish("intent", loaderDeps, r.source, loaded), loadedReview], identity: r.identity };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -406,6 +411,7 @@ export async function buildPlanWorkflowSteps(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps = {},
 ): Promise<PlanWorkflowResult> {
+  const loaderDeps = loaderDepsFromInput(deps, input.configPath);
   const r = await planSource(input, deps);
   if ("error" in r) return { ok: false, error: r.error };
   const passes = input.reviewPasses ?? 1;
@@ -413,7 +419,7 @@ export async function buildPlanWorkflowSteps(
     return { ok: false, error: "plan: reviewPasses must be a non-negative integer" };
   if (passes === 0) {
     try {
-      return { ok: true, steps: publish("plan", deps, r.source), identity: r.identity };
+      return { ok: true, steps: publish("plan", loaderDeps, r.source), identity: r.identity };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -457,10 +463,10 @@ export async function buildPlanWorkflowSteps(
           landing,
         };
   try {
-    const loaded = (deps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(deps));
+    const loaded = (loaderDeps.loadWorkflowSteps ?? realLoadWorkflowSteps)([r.source, review], loadOptions(loaderDeps));
     const loadedReview = loaded.find((step) => step.behavior === review.behavior);
     if (!loadedReview) return { ok: false, error: `plan: ${behavior} review step was not loaded` };
-    return { ok: true, steps: [...publish("plan", deps, r.source, loaded), loadedReview], identity: r.identity };
+    return { ok: true, steps: [...publish("plan", loaderDeps, r.source, loaded), loadedReview], identity: r.identity };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

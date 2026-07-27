@@ -85,8 +85,9 @@ Use `work` when this machine should not load Claude bindings
 
 ### Project registry
 
-Optional `projects` entries map a registry key to `{ "root": "<absolute-path>", "origin": "<url>"? }`.
-Longest matching root wins when resolving a spec path to a project.
+Optional `projects` entries map a registry key to a project object. `root` is required;
+`origin` is optional. Longest matching root wins when resolving a spec path to a
+project.
 
 Per-project implement defaults:
 
@@ -94,6 +95,49 @@ Per-project implement defaults:
 | --- | --- | --- | --- |
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
+
+Each registered project must select a source-owned pipeline:
+
+| Key | Type | Validation |
+| --- | --- | --- |
+| `projects.<key>.pipeline.name` | non-empty string | Must name a source-registry pipeline |
+| `projects.<key>.pipeline.reviewOverrides` | object of stage ID → string | Optional; each key must name a workflow stage, not an approval stage |
+
+The `pipeline` object accepts only `name` and `reviewOverrides`. Missing or malformed
+pipeline fields, non-string override values, forbidden keys, unknown stage IDs, and
+approval-stage targets fail with `invalid-project-pipeline-config` naming the full
+offending config path. An unknown name fails with `unknown-pipeline`; a selected or
+overridden definition rejected by the definition validator fails with
+`invalid-pipeline-definition`. Selection is strict and has no default pipeline.
+
+`reviewOverrides` keys are pipeline `stageId` values, not workflow names. They change
+only the selected definition's copied workflow stage. They do not compose with or
+override `implement.reviewBehavior`: that setting and `--review-behavior` still control
+the separate legacy post-implement review step.
+
+Complete project example:
+
+```json
+{
+  "projects": {
+    "jarvis": {
+      "root": "/Users/me/Work/jarvis",
+      "origin": "git@github.com:me/jarvis.git",
+      "pipeline": {
+        "name": "full-review",
+        "reviewOverrides": {
+          "plan": "light",
+          "implement": "debate"
+        }
+      },
+      "implement": {
+        "reviewPasses": 1,
+        "reviewBehavior": "light"
+      }
+    }
+  }
+}
+```
 
 ### Workflow invocation bounds
 

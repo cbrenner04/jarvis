@@ -5,7 +5,7 @@ import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import { RUN_LIST_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
+import { RUN_LIST_USAGE, RUN_LOG_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
@@ -323,14 +323,15 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
   return 0;
 }
 
-async function runLogSubcommand(runId: string, io: Io, deps: CliDeps): Promise<number> {
+async function runLogSubcommand(runId: string, follow: boolean, io: Io, deps: CliDeps): Promise<number> {
   const socketPath = invertRunOwnerResolutionForTest ? deps.socketPath : await resolveRunOwnerSocket(runId, deps);
   return withRunClient(
     io,
     deps,
     async (client) => {
       const streamId = crypto.randomUUID();
-      client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq: 0 } });
+      const payload = follow ? { runId, afterSeq: 0, follow: true } : { runId, afterSeq: 0 };
+      client.send({ kind: "stream-open", streamId, payload });
 
       while (true) {
         try {
@@ -396,13 +397,28 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
   if (subcommand === "workflow") return runWorkflowCommand(argv.slice(1), io, deps);
   if (subcommand === "list") return runListSubcommand(argv.slice(1), io, deps);
 
-  if (subcommand === "log" && argv.length === 2) {
-    const runId = argv[1];
-    if (runId === undefined) {
-      io.stderr(RUN_USAGE);
+  if (subcommand === "log") {
+    let logValues: { follow?: boolean };
+    let logPositionals: string[];
+    try {
+      const parsed = parseArgs({
+        args: argv.slice(1),
+        allowPositionals: true,
+        strict: true,
+        options: { follow: { type: "boolean" } },
+      });
+      logValues = parsed.values;
+      logPositionals = parsed.positionals;
+    } catch {
+      io.stderr(RUN_LOG_USAGE);
       return 1;
     }
-    return runLogSubcommand(runId, io, deps);
+    const runId = logPositionals[0];
+    if (logPositionals.length !== 1 || runId === undefined) {
+      io.stderr(RUN_LOG_USAGE);
+      return 1;
+    }
+    return runLogSubcommand(runId, logValues.follow === true, io, deps);
   }
 
   if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);

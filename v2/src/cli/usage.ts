@@ -2,6 +2,7 @@ export const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|log>\n";
 export const DAEMON_LOG_USAGE = "usage: jarvis daemon log [--follow]\n";
 export const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";
 export const RUN_USAGE = "usage: jarvis run <start|list|log|pause|resume|kill|wait|workflow> [args]\n";
+export const RUN_LOG_USAGE = "usage: jarvis run log <run-id> [--follow]\n";
 export const RUN_LIST_USAGE =
   "usage: jarvis run list [--since <duration|timestamp>] [--limit <positive-integer>] [--project <name>] [--branch <name>] [--spec <path>] [--status <terminal-status>]\n";
 export const TUI_USAGE = "usage: jarvis tui\n";

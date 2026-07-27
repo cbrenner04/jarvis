@@ -2,10 +2,20 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
+
+const SAMPLE_PIPELINE_DEFINITION: PipelineDefinition = {
+  name: "sample-pipeline",
+  stages: [
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "gate", kind: "approval" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
 
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
@@ -447,6 +457,417 @@ describe("commitGuardedKill", () => {
 
     store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
     expect(loadRunOrThrow(store, runId).status).toBe("blocked");
+  });
+});
+
+function insertStageRow(
+  raw: Database,
+  args: { id: string; pipelineId: string; stageId: string; position: number },
+): void {
+  raw
+    .prepare(
+      `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+       VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+    )
+    .run(args.id, args.pipelineId, args.stageId, args.position);
+}
+
+describe("pipelines", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("admits a validated multi-stage definition and reads one pending stage per authored stage in order", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+
+    expect(pipeline.id).toBe(pipelineId);
+    expect(pipeline.name).toBe("sample-pipeline");
+    expect(pipeline.createdAt).toBeGreaterThan(0);
+    expect(pipeline.stages).toHaveLength(3);
+    expect(pipeline.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
+    for (const stage of pipeline.stages) {
+      expect(stage.pipelineId).toBe(pipelineId);
+      expect(stage.status).toBe("pending");
+      expect(stage.workflowInvocationId).toBeNull();
+      expect(stage.startedAt).toBeNull();
+      expect(stage.endedAt).toBeNull();
+      expect(stage.artifact).toBeNull();
+      expect(stage.failureDetail).toBeNull();
+    }
+    expect(pipeline.stages.map((stage) => stage.position)).toEqual([0, 1, 2]);
+  });
+
+  test("retains the admitted definition name and snapshot after the live source definition is mutated, and stores no pipeline status", () => {
+    const definition: PipelineDefinition = {
+      name: "mutable-source",
+      stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+    };
+    const pipelineId = store.createPipeline({ definition });
+
+    // Mutate the caller's definition object after admission.
+    definition.name = "changed-name";
+    definition.stages.push({ stageId: "extra", kind: "approval" });
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+
+    expect(pipeline.name).toBe("mutable-source");
+    expect(pipeline.definition).toEqual({
+      name: "mutable-source",
+      stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+    });
+    expect(pipeline.stages).toHaveLength(1);
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      const columns = raw.prepare("PRAGMA table_info(pipelines)").all() as Array<{ name: string }>;
+      expect(columns.map((column) => column.name)).not.toContain("status");
+    } finally {
+      raw.close();
+    }
+  });
+
+  test("a deterministic fault after a prior stage insert rolls back the pipeline and all its stages", () => {
+    expect(() =>
+      store.createPipeline({
+        definition: SAMPLE_PIPELINE_DEFINITION,
+        beforeStageInsert: (stageIndex) => {
+          if (stageIndex === 1) throw new Error("forced mid-admission failure");
+        },
+      }),
+    ).toThrow("forced mid-admission failure");
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      const pipelineCount = raw.prepare("SELECT COUNT(*) AS total FROM pipelines").get() as { total: number };
+      const stageCount = raw.prepare("SELECT COUNT(*) AS total FROM pipeline_stages").get() as { total: number };
+      expect(pipelineCount.total).toBe(0);
+      expect(stageCount.total).toBe(0);
+    } finally {
+      raw.close();
+    }
+  });
+
+  test("rejects a stage row whose parent pipeline is absent, via the store's own connection", () => {
+    expect(() =>
+      store.createPipeline({
+        definition: SAMPLE_PIPELINE_DEFINITION,
+        beforeStageInsert: () => {
+          throw new Error("forced abort to leave no admitted pipeline");
+        },
+      }),
+    ).toThrow();
+
+    // Drive the orphan insert through the store's own handle so a store that stops
+    // enabling `PRAGMA foreign_keys` would fail this assertion.
+    expect(() =>
+      (store as unknown as { db: Database }).db
+        .prepare(
+          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+           VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+        )
+        .run("stage-orphan", "missing-pipeline", "plan", 0),
+    ).toThrow();
+  });
+
+  test("rejects duplicate stage IDs and duplicate authored positions within one pipeline", () => {
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: "dup-check",
+        stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+      },
+    });
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      expect(() => insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1 })).toThrow();
+
+      expect(() =>
+        insertStageRow(raw, { id: "stage-dup-position", pipelineId, stageId: "other", position: 0 }),
+      ).toThrow();
+    } finally {
+      raw.close();
+    }
+  });
+
+  test("preserves ordering by stored position rather than insertion order", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw
+        .prepare("UPDATE pipeline_stages SET position = 99 WHERE pipeline_id = ? AND stage_id = 'plan'")
+        .run(pipelineId);
+      raw
+        .prepare("UPDATE pipeline_stages SET position = -1 WHERE pipeline_id = ? AND stage_id = 'implement'")
+        .run(pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+    expect(pipeline.stages.map((stage) => stage.stageId)).toEqual(["implement", "gate", "plan"]);
+  });
+
+  test("loadPipeline returns null for an unknown pipeline ID", () => {
+    expect(store.loadPipeline("unknown-pipeline")).toBeNull();
+  });
+
+  test("updateStage patches the target stage in place, preserving identity and leaving siblings untouched", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const before = store.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+    const beforeStages = new Map(before.stages.map((stage) => [stage.stageId, stage]));
+
+    store.updateStage({
+      pipelineId,
+      stageId: "gate",
+      patch: {
+        status: "in-progress",
+        workflowInvocationId: "wf-1",
+        startedAt: 1000,
+        artifact: { note: "in flight" },
+      },
+    });
+
+    const after = store.loadPipeline(pipelineId);
+    if (!after) throw new Error("Pipeline should exist");
+    const gate = after.stages.find((stage) => stage.stageId === "gate");
+    if (!gate) throw new Error("gate stage should exist");
+
+    const beforeGate = beforeStages.get("gate");
+    if (!beforeGate) throw new Error("gate stage should exist before update");
+    expect(gate.id).toBe(beforeGate.id);
+    expect(gate.pipelineId).toBe(pipelineId);
+    expect(gate.stageId).toBe("gate");
+    expect(gate.position).toBe(beforeGate.position);
+    expect(gate.status).toBe("in-progress");
+    expect(gate.workflowInvocationId).toBe("wf-1");
+    expect(gate.startedAt).toBe(1000);
+    expect(gate.artifact).toEqual({ note: "in flight" });
+    // omitted fields are unchanged
+    expect(gate.endedAt).toBeNull();
+    expect(gate.failureDetail).toBeNull();
+
+    for (const stage of after.stages) {
+      if (stage.stageId === "gate") continue;
+      const beforeStage = beforeStages.get(stage.stageId);
+      if (!beforeStage) throw new Error(`${stage.stageId} stage should exist before update`);
+      expect(stage).toEqual(beforeStage);
+    }
+  });
+
+  test("updateStage clears a nullable field only when passed explicit null, not when omitted", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: {
+        status: "completed",
+        workflowInvocationId: "wf-plan",
+        startedAt: 10,
+        endedAt: 20,
+        artifact: { path: "PR#1" },
+        failureDetail: { failureKind: "error" },
+      },
+    });
+
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "completed" } });
+    let plan = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan");
+    if (!plan) throw new Error("plan stage should exist");
+    expect(plan.workflowInvocationId).toBe("wf-plan");
+    expect(plan.startedAt).toBe(10);
+    expect(plan.endedAt).toBe(20);
+    expect(plan.artifact).toEqual({ path: "PR#1" });
+    expect(plan.failureDetail).toEqual({ failureKind: "error" });
+
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { workflowInvocationId: null, endedAt: null, artifact: null, failureDetail: null },
+    });
+    plan = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan");
+    if (!plan) throw new Error("plan stage should exist");
+    expect(plan.workflowInvocationId).toBeNull();
+    expect(plan.startedAt).toBe(10);
+    expect(plan.endedAt).toBeNull();
+    expect(plan.artifact).toBeNull();
+    expect(plan.failureDetail).toBeNull();
+  });
+
+  test("updateStage rejects an empty patch", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    expect(() => store.updateStage({ pipelineId, stageId: "plan", patch: {} })).toThrow();
+  });
+
+  test("updateStage rejects a patch whose only fields are undefined", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    expect(() =>
+      store.updateStage({ pipelineId, stageId: "plan", patch: { artifact: undefined, failureDetail: undefined } }),
+    ).toThrow();
+  });
+
+  test("updateStage ignores undefined fields alongside a real field, treating undefined as absent", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "in-progress", artifact: undefined },
+    });
+
+    const plan = store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan");
+    if (!plan) throw new Error("plan stage should exist");
+    expect(plan.status).toBe("in-progress");
+    expect(plan.artifact).toBeNull();
+  });
+
+  test("updateStage rejects an unknown pipeline or stage target", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    expect(() =>
+      store.updateStage({ pipelineId: "unknown-pipeline", stageId: "plan", patch: { status: "x" } }),
+    ).toThrow();
+    expect(() => store.updateStage({ pipelineId, stageId: "unknown-stage", patch: { status: "x" } })).toThrow();
+  });
+
+  test("updateStage round-trips millisecond timestamps and a non-null status string across close and reopen", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "implement",
+      patch: {
+        status: "completed",
+        workflowInvocationId: "wf-implement",
+        startedAt: 1_700_000_000_000,
+        endedAt: 1_700_000_060_000,
+        artifact: { path: "PR#123" },
+        failureDetail: null,
+      },
+    });
+    store.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const reopened = store.loadPipeline(pipelineId);
+    if (!reopened) throw new Error("Pipeline should exist");
+    expect(reopened.id).toBe(pipelineId);
+    expect(reopened.name).toBe(SAMPLE_PIPELINE_DEFINITION.name);
+    expect(reopened.definition).toEqual(SAMPLE_PIPELINE_DEFINITION);
+    expect(reopened.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
+
+    const implement = reopened.stages.find((stage) => stage.stageId === "implement");
+    if (!implement) throw new Error("implement stage should exist");
+    expect(implement.status).toBe("completed");
+    expect(implement.workflowInvocationId).toBe("wf-implement");
+    expect(implement.startedAt).toBe(1_700_000_000_000);
+    expect(implement.endedAt).toBe(1_700_000_060_000);
+    expect(implement.artifact).toEqual({ path: "PR#123" });
+    expect(implement.failureDetail).toBeNull();
+  });
+
+  test("a fixture created with the pre-change migrations upgrades and can then admit and load a pipeline", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-pipelines.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE runs (
+          id TEXT PRIMARY KEY,
+          project TEXT NOT NULL,
+          spec_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          spec_path TEXT NOT NULL,
+          step_id TEXT,
+          workflow_snapshot TEXT,
+          queued_input TEXT,
+          creation_title TEXT,
+          reconciliation_pending INTEGER NOT NULL DEFAULT 0,
+          owner_identity TEXT,
+          pr_number INTEGER,
+          pr_url TEXT
+        );
+        CREATE TABLE attempts (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          attempt_number INTEGER NOT NULL,
+          started_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          outcome_kind TEXT,
+          completed_at INTEGER,
+          invocation_failure_detail TEXT,
+          completion_agent TEXT,
+          FOREIGN KEY (run_id) REFERENCES runs(id)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+        "011-run-owner-identity",
+        "012-run-pr-evidence",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const runId = "legacy-run";
+      raw
+        .prepare(
+          `INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+           VALUES (?, 'legacy-project', 'main', ?, 'in-progress', 0, '/tmp/legacy', 'legacy-branch', 'spec.md')`,
+        )
+        .run(runId, Date.now());
+      const attemptId = "legacy-attempt";
+      raw
+        .prepare(
+          "INSERT INTO attempts (id, run_id, attempt_number, started_at, status) VALUES (?, ?, 1, ?, 'completed')",
+        )
+        .run(attemptId, runId, Date.now());
+      raw.close();
+
+      let migrated = openStateStore(legacyDbPath);
+      const legacyRun = loadRunOrThrow(migrated, runId);
+      expect(legacyRun.project).toBe("legacy-project");
+      expect(legacyRun.attempts).toHaveLength(1);
+
+      const verify = new Database(legacyDbPath);
+      const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
+      expect(migrationCount.total).toBe(10);
+      verify.close();
+
+      const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+      const pipeline = migrated.loadPipeline(pipelineId);
+      expect(pipeline?.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
+      migrated.close();
+
+      migrated = openStateStore(legacyDbPath);
+      const reopened = migrated.loadPipeline(pipelineId);
+      expect(reopened?.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
+      expect(loadRunOrThrow(migrated, runId).project).toBe("legacy-project");
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
   });
 });
 

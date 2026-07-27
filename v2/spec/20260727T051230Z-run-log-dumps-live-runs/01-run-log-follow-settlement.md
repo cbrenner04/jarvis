@@ -36,21 +36,21 @@ run that completes has no way to know it settled short of Ctrl-C and a separate 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` regression test `follow closes once the run settles`
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` regression test `follow closes once the run settles`
       drives `streamRunLogRecords` with a fake `LogReader.follow()` that yields a record, then a fake
       `StateStore` whose `loadRun` flips the run to a terminal status after that yield, and asserts
       the call returns (closing the stream) without waiting for `follow()`'s iterator to end on its
       own; it fails against the pre-01 code, which never re-reads status and keeps consuming
       `follow()` until the signal aborts.
-- [ ] A second case in the same suite covers a run that is already terminal by the first status
+- [x] A second case in the same suite covers a run that is already terminal by the first status
       re-read (settles between replay and the first follow tick): the stream closes without yielding
       an extra follow-loop record beyond what replay already sent.
-- [ ] `v2/src/commands/run.test.ts` test `run log --follow exits when the daemon closes the stream`
+- [x] `v2/src/commands/run.test.ts` test `run log --follow exits when the daemon closes the stream`
       drives `run log <id> --follow` with a queued `stream-end` frame after the record frames and
       asserts exit `0`; confirms the CLI's existing await-until-`stream-end` loop needs no change
       (behavior-preserving; the closing signal now originates from settlement instead of only client
       disconnect).
-- [ ] Snapshot-mode (`00`) behavior and its tests are unaffected: `run.test.ts` and
+- [x] Snapshot-mode (`00`) behavior and its tests are unaffected: `run.test.ts` and
       `daemon-tail-stream.test.ts` tests from `00` stay green.
 
 ## Documentation updates

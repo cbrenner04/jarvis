@@ -30,6 +30,11 @@ export function captureIo() {
 
 export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
 
+/** A spec with one unchecked, non-human-only acceptance criterion — genuinely incomplete, so it
+ * never trips the `implement.recover` completion pre-check that specs with no acceptance
+ * criteria section (all zero items "checked") would. */
+export const INCOMPLETE_SPEC_CONTENT = "# Spec\n\n## Acceptance criteria\n\n- [ ] pending\n";
+
 /** `runtimeMain` with a fixed executable digest so daemon path keying is deterministic. */
 export function cliMain(
   argv: readonly string[],
@@ -236,10 +241,10 @@ export function makeCliRepoFixture(): CliRepoFixture {
   mkdirSync(repoSub, { recursive: true });
   mkdirSync(repoV2Spec, { recursive: true });
   mkdirSync(unregistered, { recursive: true });
-  writeFileSync(join(repoSub, "index.md"), "# Index\n", "utf8");
-  writeFileSync(join(repoRoot, "spec.md"), "# Spec\n", "utf8");
-  writeFileSync(join(repoV2Spec, "index.md"), "# Index\n", "utf8");
-  writeFileSync(join(unregistered, "index.md"), "# Index\n", "utf8");
+  writeFileSync(join(repoSub, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+  writeFileSync(join(repoRoot, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+  writeFileSync(join(repoV2Spec, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
+  writeFileSync(join(unregistered, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
 
   const workspaceArgs = [
     "--project-root",

@@ -316,6 +316,9 @@ test("composeRunOperatorError maps ready gate, surviving mutation, and flip fail
   expect(composeRunOperatorError(runWith("completed"), loopFinished("ready_flip_failed"))).toEqual(
     err("ready_flip_failed", "stop", false),
   );
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("mutation_repair_exhausted"))).toEqual(
+    err("mutation_repair_exhausted", "inspect_spec", false),
+  );
 });
 
 test("composeRunOperatorError returns undefined for in-progress and successful completed terminals", () => {

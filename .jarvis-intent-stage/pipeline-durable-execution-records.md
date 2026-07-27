@@ -18,7 +18,7 @@ Pipeline admission needs its own durable lifecycle records before daemon executi
 
 ## Decisions
 
-- Admission persists one pipeline row and one ordered row per defined stage; rules out reconstructing pipeline state from workflow run rows.
+- Admission atomically persists one pipeline row and one ordered row per defined stage; rules out partial admission and reconstruction from workflow run rows.
 - Each stage row carries its stable definition ID, workflow invocation ID, status, start/end timestamps, artifact, and failure detail; rules out a lossy progress-only record.
 - Pipeline and stage rows live in the existing SQLite state store; rules out a second database or in-memory registry.
 - Stage records are updated in place under their pipeline identity; rules out replacing rows and changing durable stage identity across transitions.

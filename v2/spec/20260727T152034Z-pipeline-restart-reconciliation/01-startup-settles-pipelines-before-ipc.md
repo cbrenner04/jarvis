@@ -20,21 +20,21 @@ before the socket serves, or new pipeline work races state that has no live owne
 
 ## Acceptance criteria
 
-- [ ] Starting the daemon runtime over a store holding a pipeline owned by a dead prior incarnation
+- [x] Starting the daemon runtime over a store holding a pipeline owned by a dead prior incarnation
       settles that pipeline and its active stage as interrupted, preserves its completed stages, and
       leaves its later stages undispatched.
-- [ ] A pipeline owned by a still-live process is unchanged across startup.
-- [ ] Starting the daemon runtime a second time over a store holding a pipeline already settled
+- [x] A pipeline owned by a still-live process is unchanged across startup.
+- [x] Starting the daemon runtime a second time over a store holding a pipeline already settled
       `interrupted` leaves that pipeline and its stages unchanged.
-- [ ] No pipeline is left non-terminal with a dead or absent owner once startup completes.
-- [ ] The pipeline reconciliation sweep completes before the daemon's socket accepts a connection.
-- [ ] A pipeline reconciliation failure aborts startup and no IPC connection is accepted.
-- [ ] `v2/src/daemon/daemon-reconciliation.test.ts` covers dead-owner settlement, live-owner
+- [x] No pipeline is left non-terminal with a dead or absent owner once startup completes.
+- [x] The pipeline reconciliation sweep completes before the daemon's socket accepts a connection.
+- [x] A pipeline reconciliation failure aborts startup and no IPC connection is accepted.
+- [x] `v2/src/daemon/daemon-reconciliation.test.ts` covers dead-owner settlement, live-owner
       preservation, and re-startup idempotence through daemon startup, fails against the pre-change
       daemon, and passes after.
-- [ ] Removing the pre-IPC ordering (running the sweep after the socket is listening) turns the
+- [x] Removing the pre-IPC ordering (running the sweep after the socket is listening) turns the
       sweep-before-accept and failure-aborts-startup cases RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

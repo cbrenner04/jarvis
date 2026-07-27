@@ -63,29 +63,29 @@ settle it without either deleting state or fabricating completion.
 
 ## Acceptance criteria
 
-- [ ] `createPipeline` records the admitting process identity in `owner_identity` and `status =
+- [x] `createPipeline` records the admitting process identity in `owner_identity` and `status =
       'active'` on the pipeline row; `loadPipeline` reads both back after closing and reopening a
       file-backed store.
-- [ ] The store exposes a pipeline reconciliation sweep that settles a pipeline whose recorded owner
+- [x] The store exposes a pipeline reconciliation sweep that settles a pipeline whose recorded owner
       is a dead prior incarnation, or which has a `NULL` owner, and returns the settled pipeline IDs.
-- [ ] Settlement marks the pipeline `status = 'interrupted'` and its active stage `interrupted` with an
+- [x] Settlement marks the pipeline `status = 'interrupted'` and its active stage `interrupted` with an
       end timestamp; the full stage rows returned by `loadPipeline` for every prior `succeeded`,
       `failed`, or `interrupted` stage are byte-for-byte identical before and after the sweep, and every
       `pending` stage remains `pending` with null `workflow_invocation_id`/`started_at`/`ended_at`/
       `artifact`/`failure_detail`.
-- [ ] A pipeline owned by a still-live different process, and a pipeline owned by the current
+- [x] A pipeline owned by a still-live different process, and a pipeline owned by the current
       process, are both returned unsettled and unchanged.
-- [ ] Re-running the sweep against a pipeline already settled `interrupted` (dead or absent owner)
+- [x] Re-running the sweep against a pipeline already settled `interrupted` (dead or absent owner)
       leaves that pipeline's `status` and every one of its stage rows unchanged, and the pipeline ID
       is not returned a second time.
-- [ ] A dead-owner pipeline with no active stage — either all stages already terminal, or later
+- [x] A dead-owner pipeline with no active stage — either all stages already terminal, or later
       stages `pending` with none active — is settled `interrupted` with every stage row unchanged.
-- [ ] `v2/src/persistence/state-store.test.ts` covers dead-owner settlement, live-owner preservation,
+- [x] `v2/src/persistence/state-store.test.ts` covers dead-owner settlement, live-owner preservation,
       and re-sweep idempotence against seeded pipelines, fails against the pre-change store, and
       passes after.
-- [ ] Inverting either the ownership-liveness guard or the terminal-status (idempotence) guard turns
+- [x] Inverting either the ownership-liveness guard or the terminal-status (idempotence) guard turns
       those regressions RED; the live-owner case proves no stage row was written.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

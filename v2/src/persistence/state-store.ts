@@ -119,11 +119,15 @@ export type Run = {
   prUrl?: string | null;
 };
 
-/** A durable admitted pipeline record: identity, source name, and immutable admitted-definition snapshot. */
+export type PipelineStatus = "active" | "interrupted";
+
+/** A durable admitted pipeline record: identity, source name, ownership, and immutable admitted-definition snapshot. */
 export type Pipeline = {
   id: string;
   name: string;
   createdAt: number;
+  ownerIdentity: string | null;
+  status: PipelineStatus;
   definition: PipelineDefinition;
 };
 
@@ -206,6 +210,9 @@ export interface StateStore {
     stepId: string | null;
   }): (Run & { attempts: Attempt[] }) | null;
 
+  /** Review-mutation candidates for one worktree, newest first across all step IDs. */
+  findReviewMutationLineageRows(args: { project: string; branch: string }): Run[];
+
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
 
@@ -256,6 +263,16 @@ export interface StateStore {
   /** Mark a persisted reconciliation event as complete. */
   finishRunReconciliation(runId: string): void;
 
+  /**
+   * Settle pipelines whose recorded owner is a dead prior incarnation or `NULL`:
+   * marks the pipeline `interrupted` and each of its active (non-`pending`,
+   * non-terminal) stages `interrupted` with an end timestamp, one transaction
+   * per sweep. A pipeline owned by the current process, or by another live
+   * process, is untouched. Idempotent: an already-`interrupted` pipeline is
+   * never a candidate. Returns the settled pipeline IDs.
+   */
+  reconcilePipelines(): Promise<string[]>;
+
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
@@ -300,7 +317,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, definition AS definitionJson`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
@@ -369,9 +386,17 @@ const SCHEMA_MIGRATIONS = [
       );
     `,
   },
+  {
+    id: "014-pipeline-owner-identity-and-status",
+    up: `ALTER TABLE pipelines ADD COLUMN owner_identity TEXT;
+        ALTER TABLE pipelines ADD COLUMN status TEXT NOT NULL DEFAULT 'active';`,
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
+
+/** Stage statuses this layer treats as terminal or undispatched; anything else is active. */
+const NON_ACTIVE_STAGE_STATUSES = "'pending', 'succeeded', 'failed', 'interrupted'";
 
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
@@ -585,6 +610,16 @@ class StateStoreImpl implements StateStore {
     return row === null ? null : this.loadRun(row.id);
   }
 
+  findReviewMutationLineageRows(args: { project: string; branch: string }): Run[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(args.project, args.branch) as RunRow[]
+    ).map(mapRunRow);
+  }
+
   findRunsByInvocationId(invocationId: string): Run[] {
     return (
       this.db
@@ -601,8 +636,10 @@ class StateStoreImpl implements StateStore {
 
     this.db.transaction(() => {
       this.db
-        .prepare("INSERT INTO pipelines (id, name, created_at, definition) VALUES (?, ?, ?, ?)")
-        .run(pipelineId, args.definition.name, Date.now(), definitionJson);
+        .prepare(
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
+        )
+        .run(pipelineId, args.definition.name, Date.now(), this.currentIdentity, definitionJson);
 
       args.definition.stages.forEach((stage, index) => {
         args.beforeStageInsert?.(index);
@@ -790,6 +827,47 @@ class StateStoreImpl implements StateStore {
 
   finishRunReconciliation(runId: string): void {
     this.db.prepare("UPDATE runs SET reconciliation_pending = 0 WHERE id = ?").run(runId);
+  }
+
+  async reconcilePipelines(): Promise<string[]> {
+    const candidates = this.db
+      .prepare("SELECT id, owner_identity AS ownerIdentity FROM pipelines WHERE status = 'active'")
+      .all() as Array<{ id: string; ownerIdentity: string | null }>;
+
+    const orphaned: typeof candidates = [];
+    const aliveByIdentity = new Map<string, boolean>();
+    for (const candidate of candidates) {
+      if (candidate.ownerIdentity === null) {
+        orphaned.push(candidate);
+        continue;
+      }
+      if (candidate.ownerIdentity === this.currentIdentity) continue;
+      let alive = aliveByIdentity.get(candidate.ownerIdentity);
+      if (alive === undefined) {
+        alive = await this.isOwnerAliveProbe(candidate.ownerIdentity);
+        aliveByIdentity.set(candidate.ownerIdentity, alive);
+      }
+      if (!alive) orphaned.push(candidate);
+    }
+
+    return this.db.transaction(() => {
+      const settled: string[] = [];
+      const endedAt = Date.now();
+      for (const candidate of orphaned) {
+        const result = this.db
+          .prepare("UPDATE pipelines SET status = 'interrupted' WHERE id = ? AND status = 'active'")
+          .run(candidate.id);
+        if (result.changes === 0) continue;
+        this.db
+          .prepare(
+            `UPDATE pipeline_stages SET status = 'interrupted', ended_at = ?
+             WHERE pipeline_id = ? AND status NOT IN (${NON_ACTIVE_STAGE_STATUSES})`,
+          )
+          .run(endedAt, candidate.id);
+        settled.push(candidate.id);
+      }
+      return settled;
+    })();
   }
 
   listRuns(): Run[] {

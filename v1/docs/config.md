@@ -29,7 +29,6 @@ type Project = {
   git?: boolean; // optional per-project override of the top-level `git` toggle
   siblings?: string[]; // optional array of absolute paths to sibling repositories
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
-  pipeline?: { name: string; reviewOverrides?: Record<string, string> }; // v2 pipeline selection; v1 round-trips only
   updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
   readyCommand?: string; // optional per-project ready command override
   fixCommand?: string; // optional per-project autofix command override
@@ -83,9 +82,7 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `pipeline`, `updateSnapshotsCommand`, `readyCommand`, `fixCommand`, and `installCommand` are supported. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
-
-**`pipeline`** (per-project, optional): v2 implement pipeline selection (`name` plus optional `reviewOverrides`). v1 ignores it at runtime but validates and round-trips the object so shared `~/.jarvis/config.json` stays loadable. The `pipeline` object accepts only `name` (non-empty string) and `reviewOverrides` (object of stage ID → string posture).
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, `fixCommand`, and `installCommand` are supported. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 

@@ -214,6 +214,8 @@ describe("derivePipelineState", () => {
       id: PIPELINE_ID,
       name: definition.name,
       createdAt: 0,
+      ownerIdentity: null,
+      status: "active",
       definition,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
@@ -247,6 +249,8 @@ describe("derivePipelineState", () => {
       id: PIPELINE_ID,
       name: definition.name,
       createdAt: 0,
+      ownerIdentity: null,
+      status: "active",
       definition,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,

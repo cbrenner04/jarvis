@@ -379,6 +379,110 @@ test("clears pending on a boundary-terminal row without appending run_reconciled
   sweepStore.close();
 });
 
+function seedPipeline(store: StateStore, stageStatuses: string[]): string {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "restart-pipeline",
+      stages: stageStatuses.map((_, index) => ({ stageId: `stage-${index}`, kind: "approval" })),
+    },
+  });
+  stageStatuses.forEach((status, index) => {
+    if (status === "pending") return;
+    store.updateStage({ pipelineId, stageId: `stage-${index}`, patch: { status } });
+  });
+  return pipelineId;
+}
+
+async function startDaemonRuntimeForPipelineTest(store: StateStore) {
+  const reader: LogReader = { tail: () => [], async *follow() {} };
+  return startDaemonRuntime("/fake/socket", store, reader, {
+    openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+    startIpcServer: async () => ({ close: async () => undefined }) as IpcServer,
+  });
+}
+
+test("starting the daemon runtime settles a pipeline owned by a dead prior incarnation: pipeline and active stage interrupted, completed stage preserved, later stage undispatched", async () => {
+  const pipelineId = seedPipeline(seedStore, ["succeeded", "in-progress", "pending"]);
+  const before = seedStore.loadPipeline(pipelineId);
+  if (!before) throw new Error("Pipeline should exist");
+  const succeededBefore = before.stages.find((stage) => stage.stageId === "stage-0");
+  const pendingBefore = before.stages.find((stage) => stage.stageId === "stage-2");
+
+  const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+  const runtime = await startDaemonRuntimeForPipelineTest(sweepStore);
+  try {
+    const after = sweepStore.loadPipeline(pipelineId);
+    if (!after) throw new Error("Pipeline should exist");
+    expect(after.status).toBe("interrupted");
+    expect(after.stages.find((stage) => stage.stageId === "stage-0")).toEqual(succeededBefore);
+    const active = after.stages.find((stage) => stage.stageId === "stage-1");
+    expect(active?.status).toBe("interrupted");
+    expect(active?.endedAt).not.toBeNull();
+    expect(after.stages.find((stage) => stage.stageId === "stage-2")).toEqual(pendingBefore);
+  } finally {
+    await runtime.close();
+    sweepStore.close();
+  }
+});
+
+test("a pipeline owned by a still-live process is unchanged across daemon startup", async () => {
+  const pipelineId = seedPipeline(seedStore, ["in-progress"]);
+  const before = seedStore.loadPipeline(pipelineId);
+
+  const sweepStore = openSweepStore(async (identity) => identity === PRIOR_IDENTITY);
+  const runtime = await startDaemonRuntimeForPipelineTest(sweepStore);
+  try {
+    expect(sweepStore.loadPipeline(pipelineId)).toEqual(before);
+  } finally {
+    await runtime.close();
+    sweepStore.close();
+  }
+});
+
+test("startup settles every dead-owner pipeline in one sweep, leaving a live-owner pipeline untouched", async () => {
+  const firstOrphanId = seedPipeline(seedStore, ["in-progress"]);
+  const secondOrphanId = seedPipeline(seedStore, ["succeeded", "in-progress"]);
+  const liveOwnerId = seedPipeline(seedStore, ["in-progress"]);
+  const raw = new Database(dbPath);
+  try {
+    raw.prepare("UPDATE pipelines SET owner_identity = ? WHERE id = ?").run("33333:3000000", liveOwnerId);
+  } finally {
+    raw.close();
+  }
+  const liveBefore = seedStore.loadPipeline(liveOwnerId);
+
+  const sweepStore = openSweepStore(async (identity) => identity === "33333:3000000");
+  const runtime = await startDaemonRuntimeForPipelineTest(sweepStore);
+  try {
+    expect(sweepStore.loadPipeline(firstOrphanId)?.status).toBe("interrupted");
+    expect(sweepStore.loadPipeline(secondOrphanId)?.status).toBe("interrupted");
+    expect(sweepStore.loadPipeline(liveOwnerId)).toEqual(liveBefore);
+  } finally {
+    await runtime.close();
+    sweepStore.close();
+  }
+});
+
+test("starting the daemon runtime a second time over an already-interrupted pipeline leaves it unchanged", async () => {
+  const pipelineId = seedPipeline(seedStore, ["in-progress"]);
+
+  const firstSweepStore = openSweepStore(async () => false);
+  const firstRuntime = await startDaemonRuntimeForPipelineTest(firstSweepStore);
+  const afterFirst = firstSweepStore.loadPipeline(pipelineId);
+  await firstRuntime.close();
+  firstSweepStore.close();
+  expect(afterFirst?.status).toBe("interrupted");
+
+  const secondSweepStore = openSweepStore(async () => false);
+  const secondRuntime = await startDaemonRuntimeForPipelineTest(secondSweepStore);
+  try {
+    expect(secondSweepStore.loadPipeline(pipelineId)).toEqual(afterFirst);
+  } finally {
+    await secondRuntime.close();
+    secondSweepStore.close();
+  }
+});
+
 test("startup reconciles before opening IPC and reconciliation failures prevent it", async () => {
   const order: string[] = [];
   const reader: LogReader = { tail: () => [], async *follow() {} };
@@ -413,6 +517,10 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
           }
         : null,
     finishRunReconciliation: () => order.push("finished"),
+    reconcilePipelines: async () => {
+      order.push("pipelines");
+      return [];
+    },
   } as unknown as StateStore;
 
   const runtime = await startDaemonRuntime("/fake/socket", reconciledStore, reader, {
@@ -435,7 +543,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     },
   });
   try {
-    expect(order).toEqual(["state", "log", "finished", "ipc", "recovery"]);
+    expect(order).toEqual(["state", "log", "finished", "pipelines", "ipc", "recovery"]);
     const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
     expect(complete).toMatchObject({
       kind: "response",
@@ -476,6 +584,16 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
           close: () => undefined,
         } as LogSink,
         message: "log unavailable",
+      },
+      {
+        store: {
+          beginRunReconciliation: async () => [],
+          reconcilePipelines: () => {
+            throw new Error("pipeline state unavailable");
+          },
+        } as unknown as StateStore,
+        sink,
+        message: "pipeline state unavailable",
       },
     ]) {
       let opened = false;

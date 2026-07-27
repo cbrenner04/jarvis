@@ -61,18 +61,12 @@ export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
 
-export type ProjectPipeline = {
-  name: string;
-  reviewOverrides?: Record<string, string>;
-};
-
 export type Project = {
   root: string;
   origin?: string;
   git?: boolean;
   siblings?: string[];
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
-  pipeline?: ProjectPipeline;
   updateSnapshotsCommand?: string;
   readyCommand?: string;
   fixCommand?: string;
@@ -516,48 +510,6 @@ function validateConfig(input: unknown, file: string): Config {
         project.plan = plan;
       }
     }
-    const pipelineRaw = (value as Record<string, unknown>).pipeline;
-    if (pipelineRaw !== undefined) {
-      if (pipelineRaw === null || typeof pipelineRaw !== "object" || Array.isArray(pipelineRaw)) {
-        fail(file, `project ${JSON.stringify(name)} pipeline must be an object`);
-      }
-      const pipelineObj = pipelineRaw as Record<string, unknown>;
-      const allowedPipelineKeys = new Set(["name", "reviewOverrides"]);
-      for (const key of Object.keys(pipelineObj)) {
-        if (!allowedPipelineKeys.has(key)) {
-          fail(
-            file,
-            `project ${JSON.stringify(name)} pipeline: unknown key ${JSON.stringify(key)} (allowed: name, reviewOverrides)`,
-          );
-        }
-      }
-      const pipelineNameRaw = pipelineObj.name;
-      if (typeof pipelineNameRaw !== "string" || pipelineNameRaw.length === 0) {
-        fail(file, `project ${JSON.stringify(name)} pipeline.name must be a non-empty string`);
-      }
-      const pipeline: ProjectPipeline = { name: pipelineNameRaw };
-      const reviewOverridesRaw = pipelineObj.reviewOverrides;
-      if (reviewOverridesRaw !== undefined) {
-        if (
-          reviewOverridesRaw === null ||
-          typeof reviewOverridesRaw !== "object" ||
-          Array.isArray(reviewOverridesRaw)
-        ) {
-          fail(file, `project ${JSON.stringify(name)} pipeline.reviewOverrides must be an object`);
-        }
-        const reviewOverrides: Record<string, string> = {};
-        for (const [stageId, posture] of Object.entries(reviewOverridesRaw as Record<string, unknown>)) {
-          if (typeof posture !== "string") {
-            fail(file, `project ${JSON.stringify(name)} pipeline.reviewOverrides.${stageId} must be a string`);
-          }
-          reviewOverrides[stageId] = posture;
-        }
-        if (Object.keys(reviewOverrides).length > 0) {
-          pipeline.reviewOverrides = reviewOverrides;
-        }
-      }
-      project.pipeline = pipeline;
-    }
     const updateSnapshotsCommandRaw = (value as Record<string, unknown>).updateSnapshotsCommand;
     if (updateSnapshotsCommandRaw !== undefined) {
       if (typeof updateSnapshotsCommandRaw !== "string") {
@@ -608,18 +560,19 @@ function validateConfig(input: unknown, file: string): Config {
       process.stderr.write(`warning: project ${JSON.stringify(name)} readyGateRetryBound is deprecated and ignored\n`);
     }
     // Strict keys validation for project object
+    // "pipeline" is v2-only (see v2/src/config/machine-config-loader.ts); v1 ignores it but must not reject it.
     const allowedProjectKeys = new Set([
       "root",
       "origin",
       "git",
       "siblings",
       "plan",
-      "pipeline",
       "updateSnapshotsCommand",
       "readyCommand",
       "fixCommand",
       "readyGateRetryBound",
       "installCommand",
+      "pipeline",
     ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
@@ -633,7 +586,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, pipeline, updateSnapshotsCommand, readyCommand, fixCommand, installCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, installCommand, pipeline)`,
         );
       }
     }

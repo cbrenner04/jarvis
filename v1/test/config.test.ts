@@ -1734,7 +1734,7 @@ describe("plan flags", () => {
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
     expect(() => loadConfig({ dir })).toThrow(
-      /root, origin, git, siblings, plan, pipeline, updateSnapshotsCommand, readyCommand, fixCommand/,
+      /root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand/,
     );
   });
 
@@ -1784,35 +1784,6 @@ describe("plan flags", () => {
     );
     const cfg = loadConfig({ dir });
     expect(cfg.projects.myproject?.readyCommand).toBe("my-script.sh --ci");
-  });
-
-  test("round-trips pipeline", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: CLAUDE_ONLY },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {
-          myproject: {
-            root: "/tmp/jarvis-pipeline-cfg",
-            pipeline: {
-              name: "full-review",
-              reviewOverrides: { plan: "light", implement: "debate" },
-            },
-          },
-        },
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.projects.myproject?.pipeline).toEqual({
-      name: "full-review",
-      reviewOverrides: { plan: "light", implement: "debate" },
-    });
   });
 
   test("rejects empty readyCommand", () => {

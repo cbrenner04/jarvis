@@ -41,6 +41,17 @@ Kill and reconcile never overwrite a boundary-terminal row status (`completed`,
 append); a pending row that has since reached a boundary-terminal status gets its
 pending flag cleared with no reconcile event.
 
+The same pre-IPC block also settles orphaned pipelines: an `active` pipeline
+owned by a dead or absent prior incarnation is marked `interrupted`, and each of
+its active stages (`pipeline_stages.status` outside `pending` and outside the
+terminal set `succeeded`/`failed`/`interrupted`) is marked `interrupted`
+alongside it, preserving completed stages and leaving undispatched (`pending`)
+later stages untouched. A pipeline owned by the sweeping process or another
+still-live process is left unchanged, and an already-`interrupted` pipeline is
+never a candidate (idempotent across restarts). Startup only settles orphans —
+it does not re-dispatch or re-admit them. Pipeline reconciliation failure
+aborts startup before IPC serves, same as run/log reconciliation failure.
+
 Once IPC is listening, the daemon automatically admits every row that this
 startup sweep reconciled through the normal snapshot-backed write `resume`
 path. Health and all other IPC calls remain available while the resumed work

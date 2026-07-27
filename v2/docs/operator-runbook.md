@@ -56,6 +56,7 @@ critic's stdout remains the verdict channel and is persisted at the reserved ver
 path; empty verdicts skip the actuator. Completion requires that critic invocation
 and artifact; missing staged workspaces, unavailable bindings, boundary violations,
 and Git inspection errors now stop with named failures instead of silently completing.
+Boundary violation messages list unauthorized repo-relative paths verbatim.
 
 **Two diagnoses of this have already been wrong — do not cut a spec against a third
 without observing a run.** "The review step never invokes an agent" is refuted:

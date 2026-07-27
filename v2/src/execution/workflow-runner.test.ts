@@ -5918,6 +5918,7 @@ describe("executeWorkflow review dispatch", () => {
 
     expect(result).toMatchObject({ kind: "invocation_failure", iterationsConsumed: 1 });
     expect(result.invocationFailureMessage).toContain("modified files outside");
+    expect(result.invocationFailureMessage).toContain("rogue.txt");
     expect(existsSync(join(workspace, "rogue.txt"))).toBe(false);
     expect(readFileSync(join(operatorCheckout, "unrelated-dirty.txt"), "utf8")).toBe("keep\n");
   });
@@ -7500,6 +7501,7 @@ describe("executeWorkflow review dispatch", () => {
     branchName: string,
     reviewOverrides: {
       criticStdout: string;
+      actuator?: (cwd: string) => void | Promise<void>;
     },
   ): {
     harness: ReturnType<typeof createIntentWorktreeHarness>;
@@ -7585,8 +7587,9 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: ({ agentId }) => ({
         id: agentId,
         metadata: { agent: agentId, model: agentId },
-        invoke: async () => {
+        invoke: async ({ cwd }) => {
           calls.push(agentId);
+          if (agentId === "codex" && reviewOverrides.actuator) await reviewOverrides.actuator(cwd);
           return agentId === "claude"
             ? { kind: "ok" as const, stdout: reviewOverrides.criticStdout, stderr: "" }
             : { kind: "ok" as const, stdout: "done", stderr: "" };
@@ -7628,6 +7631,53 @@ describe("executeWorkflow review dispatch", () => {
     });
     expect(log).toContain("ready-intents/one.md");
     expect(log).toContain("ready-intents/two.md");
+  });
+
+  function commitTrackedIntentReviewLayout(workspace: string, verdictPath: string): void {
+    writeFileSync(verdictPath, "", "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "track intent staging and verdict shell"], { cwd: workspace });
+  }
+
+  test("completes reviewed-intent review when actuator edits a tracked file under staging", async () => {
+    const stagingOne = join(".jarvis-intent-stage", "one.md");
+    const { harness, durableDir, stagingDir, verdictPath, writeStep, reviewStep } = twoFileIntentWorkflow(
+      "intent-actuator-staging-edit",
+      {
+        criticStdout: "looks good",
+        actuator: (cwd) => {
+          const file = join(cwd, stagingOne);
+          writeFileSync(
+            file,
+            readFileSync(file, "utf8").replace("## Prerequisites\n", "## Prerequisites\n\n- reviewed edit\n"),
+            "utf8",
+          );
+        },
+      },
+    );
+
+    await withStateStore(async (store) => {
+      const writeResult = await executeWorkflow({
+        steps: [writeStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(writeResult).toMatchObject({ kind: "complete" });
+      commitTrackedIntentReviewLayout(harness.workspace, verdictPath);
+
+      const result = await executeWorkflow({
+        steps: [reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result).toMatchObject({ kind: "complete" });
+    });
+
+    expect(readFileSync(join(durableDir, "one.md"), "utf8")).toContain("- reviewed edit");
   });
 
   test("promotes staged intents when the critic returns an empty verdict", async () => {

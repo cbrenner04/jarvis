@@ -11,7 +11,7 @@ pipelines** (slices 3–6) until that phase ships. Reliability seeds are a paral
 
 | Seed | Why |
 | --- | --- |
-| `seeds/intent-review-boundary-drops-a-path-character.md` | A whole-output `trim()` shifts porcelain parsing by one character, so every git-enabled `intent` review reports a false boundary violation and lands nothing. Seven for seven on 2026-07-27. Workaround: `--review-passes 0`. |
+| `seeds/intent-review-boundary-drops-a-path-character.md` | Porcelain path parsing no longer whole-buffer-trims `git status` output. Git-mode intent review can still false-positive when unrelated tracked dirty paths appear in porcelain (full status, not snapshot diff). Confirm a live `intent` review before treating the 2026-07-27 seven-for-seven boundary failures as closed; `--review-passes 0` remains the bypass until then. |
 | `ready-intents/absent-pipeline-admits-implement.md` | #2248 made an absent `projects.<key>.pipeline` refuse **every** implement dispatch. The lane only runs because that key was hand-added to `~/.jarvis/config.json`; it can be removed once this ships. |
 
 ## Phase gate — per-project pipelines

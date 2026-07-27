@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewCycleInput } from "./review-cycle.ts";
 import {
   checkVerdictOwnershipBefore,
@@ -16,6 +17,24 @@ import {
 
 function dir(): string {
   return mkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
+}
+
+function mockGitStatusRunner(porcelain: string): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args) => {
+      if (cmd === "git" && args[0] === "status") return porcelain;
+      throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+    },
+  };
+}
+
+async function changedPathsFromPorcelain(porcelain: string): Promise<Set<string>> {
+  const repo = dir();
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  const before = await snapshotWorkingTree(repo);
+  const changed = await getChangedPaths(repo, before, mockGitStatusRunner(porcelain));
+  discardSnapshot(before);
+  return changed;
 }
 
 describe("review-intent-enforcement", () => {
@@ -61,6 +80,31 @@ describe("review-intent-enforcement", () => {
 
   test("VERDICT_FILE constant has correct name", () => {
     expect(VERDICT_FILE).toBe(".jarvis-intent-review-verdict.md");
+  });
+
+  test("git-enabled: getChangedPaths preserves path when first porcelain line is unstaged tracked", async () => {
+    const path = ".jarvis-intent-stage/one.md";
+    expect((await changedPathsFromPorcelain(` M ${path}\n`)).has(path)).toBe(true);
+  });
+
+  test("git-enabled: getChangedPaths preserves every path for mixed untracked and staged lines", async () => {
+    const untracked = "new-file.md";
+    const staged = "staged-file.md";
+    const changed = await changedPathsFromPorcelain(`?? ${untracked}\nA  ${staged}\n`);
+    expect(changed.has(untracked)).toBe(true);
+    expect(changed.has(staged)).toBe(true);
+  });
+
+  test("git-enabled: getChangedPaths records rename destination path", async () => {
+    const dest = "new-name.md";
+    const changed = await changedPathsFromPorcelain(`R  old-name.md -> ${dest}\n`);
+    expect(changed.has(dest)).toBe(true);
+    expect(changed.has("old-name.md")).toBe(false);
+  });
+
+  test("git-enabled: getChangedPaths preserves trailing whitespace in porcelain path segment", async () => {
+    const pathWithTrailingSpace = "weird-path.md ";
+    expect((await changedPathsFromPorcelain(`?? ${pathWithTrailingSpace}\n`)).has(pathWithTrailingSpace)).toBe(true);
   });
 
   test("git-enabled: getChangedPaths detects an edit outside the staging directory", async () => {
@@ -127,6 +171,42 @@ describe("review-intent-enforcement", () => {
     expect(Array.from(changed)).toEqual([".jarvis-intent-stage/one.md"]);
     discardSnapshot(before);
     rmSync(plain, { recursive: true, force: true });
+  });
+
+  test("git-enabled: executeReviewCycleEnforced names unmangled outside path when first porcelain line is unstaged tracked", async () => {
+    const repo = dir();
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: repo });
+    writeFileSync(join(repo, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: repo });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
+
+    const stagingDir = join(repo, ".jarvis-intent-stage");
+    mkdirSync(stagingDir, { recursive: true });
+    const verdictPath = join(repo, VERDICT_FILE);
+    const outsidePath = "rogue-outside.txt";
+
+    const result = await executeReviewCycleEnforced({
+      input: {
+        cwd: repo,
+        prompt: "inspect",
+        verdictPath,
+        maxCycles: 1,
+        bindings: {
+          critic: [{ id: "critic", invoke: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }) }],
+          actuator: [],
+        },
+      },
+      invocationId: "inv-1",
+      stagingDir,
+      cwd: repo,
+      verdictPath,
+      runner: mockGitStatusRunner(` M ${outsidePath}\n`),
+    });
+
+    expect(result.boundaryViolation).toContain("modified files outside");
+    expect(result.boundaryViolation).toContain(outsidePath);
   });
 
   test("fails closed with the Git inspection cause", async () => {

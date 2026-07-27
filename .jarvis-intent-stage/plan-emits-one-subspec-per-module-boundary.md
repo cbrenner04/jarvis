@@ -21,12 +21,18 @@ landed on first implement.
 - When a drafted subspec's acceptance criteria span more than one module boundary, the plan step
   splits it into further subspecs and emits the split result. Rules out refusing, warning, or emitting
   with a note.
-- The oversize signal is structural: acceptance criteria that own more than one module boundary.
-  Rules out a line-count threshold or any numeric size in the plan prompt.
-- A drafted subspec whose acceptance criteria own a single module boundary is emitted unchanged. Rules
-  out rewriting pass-through subspecs.
-- Splitting leaves no provenance in durable spec text: no "split from" lineage and no planning
-  labels. Rules out planning-label residue in emitted subspecs.
+- A module boundary is the same notion as an intent-split surface: persistence, daemon request
+  handling, CLI admission, execution loop, and comparable seams — not file count. Rules out a
+  separate plan-only boundary vocabulary.
+- The oversize signal is acceptance criteria that own more than one module boundary. Rules out a
+  line-count threshold, numeric budgets in the plan prompt, and splitting when only `## Decisions`
+  span boundaries while every acceptance criterion stays single-boundary.
+- A draft whose acceptance criteria span k module boundaries is emitted as k subspecs, each owning one
+  boundary. Rules out capping at two children or leaving a remainder bundled.
+- A drafted subspec whose acceptance criteria own a single module boundary is emitted unchanged.
+  Rules out rewriting pass-through subspecs.
+- Splitting leaves no provenance in durable spec text: no split-from lineage and no planning labels.
+  Rules out planning-label residue in emitted subspecs.
 
 ## Acceptance criteria
 
@@ -41,7 +47,7 @@ landed on first implement.
 
 - `v2/docs/workflow-runner.md` — the plan step splits a multi-boundary drafted subspec rather than
   emitting it whole.
-- `v1/docs/spec-guidance.md` — a subspec owns one module boundary.
+- `v1/docs/spec-guidance.md` — a subspec owns one module boundary (same surface definition as intent
+  split).
 
 ## Prerequisites
-

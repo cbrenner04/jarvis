@@ -26,6 +26,32 @@ import {
   parsePlanWorkflowArgs,
 } from "./workflow-args.ts";
 
+let invertDetachClientWaitGuardForTest = false;
+let forceSkipAttachClientWaitForTest = false;
+let attachWaitRunIdOverrideForTest: string | undefined;
+
+export function setInvertDetachClientWaitGuardForTest(value: boolean): void {
+  invertDetachClientWaitGuardForTest = value;
+}
+
+export function setForceSkipAttachClientWaitForTest(value: boolean): void {
+  forceSkipAttachClientWaitForTest = value;
+}
+
+export function setAttachWaitRunIdOverrideForTest(runId: string | undefined): void {
+  attachWaitRunIdOverrideForTest = runId;
+}
+
+function parseWorkflowDetachFlag(argv: readonly string[]): { rest: readonly string[]; detach: boolean } {
+  const rest: string[] = [];
+  let detach = false;
+  for (const arg of argv) {
+    if (arg === "--detach") detach = true;
+    else rest.push(arg);
+  }
+  return { rest, detach };
+}
+
 function getWorkflowUsage(name: string): string {
   if (name === "intent") return WORKFLOW_INTENT_USAGE;
   if (name === "plan") return WORKFLOW_PLAN_USAGE;
@@ -203,6 +229,7 @@ async function startWorkflowRun(
   steps: SuccessfulWorkflowBuild["steps"],
   built: SuccessfulWorkflowBuild,
   isIntentPreset: boolean,
+  detach: boolean,
   io: Io,
 ): Promise<number> {
   let result: unknown;
@@ -231,7 +258,10 @@ async function startWorkflowRun(
     }
   }
   io.stdout(`${start.runId}\n`);
-  return waitForRunCompletion(client, start.runId, io);
+  const skipClientWait =
+    (detach && !invertDetachClientWaitGuardForTest) || (!detach && forceSkipAttachClientWaitForTest);
+  if (skipClientWait) return 0;
+  return waitForRunCompletion(client, attachWaitRunIdOverrideForTest ?? start.runId, io);
 }
 
 function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string {
@@ -253,7 +283,8 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   const { builder, canonicalName, alias } = resolved;
   const isIntentPreset = canonicalName === "intent";
   const isPlanPreset = canonicalName === "plan";
-  const parsed = parseWorkflowArgsByName(argv.slice(1), isIntentPreset, isPlanPreset);
+  const { rest: workflowArgv, detach } = parseWorkflowDetachFlag(argv.slice(1));
+  const parsed = parseWorkflowArgsByName(workflowArgv, isIntentPreset, isPlanPreset);
   if (!parsed.ok) {
     io.stderr(getWorkflowUsage(canonicalName));
     return 1;
@@ -277,7 +308,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
       },
     );
     if (resetExitCode !== undefined) return resetExitCode;
-    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, io);
+    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, detach, io);
   });
   if (exitCode !== 0 && destroyedArtifacts !== undefined && Object.keys(destroyedArtifacts).length > 0) {
     io.stderr(`${formatDestroyedArtifactsSummary(destroyedArtifacts)}\n`);

@@ -50,12 +50,12 @@ caller needs it”).
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` regression `run workflow implement with --detach admits and exits without client wait` asserts exit `0`, no client `wait` after admission (preflight/reset RPCs unconstrained), workflow entry run ID as the only stdout line, and the same pre-run-ID stderr as attach; fails against pre-fix attach-only behavior.
-- [ ] `workflow.test.ts` regression `after detach the workflow reaches workflow entry terminal while the launching CLI has already exited` drives a daemon fixture past admission without a client `wait` and asserts the entry run is terminal while the subprocess has already exited `0`; fails against pre-fix attach-only behavior.
-- [ ] `--detach` is accepted on intent, plan, and implement workflow invocations (including reviewed/legacy aliases); workflow help/usage for each documents the flag.
-- [ ] With `--detach` on argv, failed daemon admission matches attach: non-zero exit, named stderr, no run ID on stdout (extend or mirror `run workflow implement passes through daemon guard errors without local workflow logic`).
-- [ ] Inverting the detach guard (always calling `waitForRunCompletion` after `start` even when `--detach` is set) fails `run workflow implement with --detach admits and exits without client wait`.
-- [ ] `workflow.test.ts` `run workflow implement passes through daemon guard errors without local workflow logic` stays green.
+- [x] `workflow.test.ts` regression `run workflow implement with --detach admits and exits without client wait` asserts exit `0`, no client `wait` after admission (preflight/reset RPCs unconstrained), workflow entry run ID as the only stdout line, and the same pre-run-ID stderr as attach; fails against pre-fix attach-only behavior.
+- [x] `workflow.test.ts` regression `after detach the workflow reaches workflow entry terminal while the launching CLI has already exited` drives a daemon fixture past admission without a client `wait` and asserts the entry run is terminal while the subprocess has already exited `0`; fails against pre-fix attach-only behavior.
+- [x] `--detach` is accepted on intent, plan, and implement workflow invocations (including reviewed/legacy aliases); workflow help/usage for each documents the flag.
+- [x] With `--detach` on argv, failed daemon admission matches attach: non-zero exit, named stderr, no run ID on stdout (extend or mirror `run workflow implement passes through daemon guard errors without local workflow logic`).
+- [x] Inverting the detach guard (always calling `waitForRunCompletion` after `start` even when `--detach` is set) fails `run workflow implement with --detach admits and exits without client wait`.
+- [x] `workflow.test.ts` `run workflow implement passes through daemon guard errors without local workflow logic` stays green.
 
 ## Documentation updates
 

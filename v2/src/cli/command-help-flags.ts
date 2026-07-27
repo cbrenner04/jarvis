@@ -101,6 +101,13 @@ const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
     "Retire a stale workspace on incomplete re-run even when the worktree is dirty; porcelain or listing errors still refuse.",
 };
 
+const WORKFLOW_DETACH_FLAG: CommandFlag = {
+  name: "--detach",
+  argumentShape: "",
+  description:
+    "Return after daemon admission with the workflow entry run ID on stdout; do not block on workflow completion.",
+};
+
 const WORKFLOW_REVIEW_FLAGS: readonly CommandFlag[] = [
   {
     name: "--review-passes",
@@ -119,6 +126,7 @@ export const WORKFLOW_INTENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--seed-text", argumentShape: "<text>", description: "Seed prose inline." },
   { name: "--target-dir", argumentShape: "<dir>", description: "Directory for the new spec tree." },
   ...WORKFLOW_REVIEW_FLAGS,
+  WORKFLOW_DETACH_FLAG,
 ];
 
 export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
@@ -126,6 +134,7 @@ export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--target-dir", argumentShape: "<dir>", description: "Directory for the new spec tree." },
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_DETACH_FLAG,
 ];
 
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
@@ -135,4 +144,5 @@ export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--artifact", argumentShape: "<path>", description: "Completion artifact path for single-file specs." },
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_DETACH_FLAG,
 ];

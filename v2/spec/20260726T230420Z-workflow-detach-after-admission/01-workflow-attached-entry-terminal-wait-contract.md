@@ -45,9 +45,9 @@ require `--detach` to implement or verify.
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` regression `attached run workflow waits through a multi-step workflow until the entry run is terminal` uses the staged multi-row fixture and a real attached CLI subprocess; at the fixture's deterministic mid-state (second constituent non-terminal, entry non-terminal) observes the subprocess still alive via a deterministic hook (not timing); exits only once the entry run is terminal; **pins** entry-terminal client `wait` — baseline `main` already satisfies it; the test must fail when client `wait` is omitted or retargeted at a constituent run ID (mutation), not when run unchanged against pre-fix code.
-- [ ] The same regression asserts final stdout minified JSON and exit code match the workflow entry terminal rollup, not an intermediate constituent row's wait payload.
-- [ ] Omitting client `wait` when `--detach` is absent (or retargeting `wait` at a constituent run ID) fails `attached run workflow waits through a multi-step workflow until the entry run is terminal`.
+- [x] `workflow.test.ts` regression `attached run workflow waits through a multi-step workflow until the entry run is terminal` uses the staged multi-row fixture and a real attached CLI subprocess; at the fixture's deterministic mid-state (second constituent non-terminal, entry non-terminal) observes the subprocess still alive via a deterministic hook (not timing); exits only once the entry run is terminal; **pins** entry-terminal client `wait` — baseline `main` already satisfies it; the test must fail when client `wait` is omitted or retargeted at a constituent run ID (mutation), not when run unchanged against pre-fix code.
+- [x] The same regression asserts final stdout minified JSON and exit code match the workflow entry terminal rollup, not an intermediate constituent row's wait payload.
+- [x] Omitting client `wait` when `--detach` is absent (or retargeting `wait` at a constituent run ID) fails `attached run workflow waits through a multi-step workflow until the entry run is terminal`.
 
 ## Documentation updates
 

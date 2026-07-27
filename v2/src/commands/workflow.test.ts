@@ -9,6 +9,9 @@ import { withExternalWorktree } from "../execution/external-worktree.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import type { RpcHandler } from "../ipc/server.ts";
+import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import {
   type CliRepoFixture,
   COMPLETED_WAIT_JSON,
@@ -18,6 +21,7 @@ import {
   makeCliRepoFixture,
   makeIpcClient,
   makeStaleResetIpcClient,
+  TEST_EXECUTABLE_DIGEST,
   withStaleResetPreflightUuids,
   withStaleResetWorkflowUuids,
   withWorkflowUuids,
@@ -25,7 +29,13 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
+import {
+  setAttachWaitRunIdOverrideForTest,
+  setForceSkipAttachClientWaitForTest,
+  setInvertDetachClientWaitGuardForTest,
+} from "./workflow.ts";
 
 let fx: CliRepoFixture;
 
@@ -50,11 +60,15 @@ const IMPLEMENT_ARGS = [
 ] as const;
 
 const IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--detach]\n";
 const INTENT_USAGE =
-  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]\n";
+  "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 const PLAN_USAGE =
-  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty]\n";
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--detach]\n";
+
+function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
+  return sent.filter((frame) => (frame as { method?: string }).method === method);
+}
 
 const REJECT_BASE_ARGS = {
   implement: IMPLEMENT_ARGS,
@@ -245,6 +259,546 @@ describe("run workflow dispatch", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n" });
   });
+});
+
+const INTENT_STAGE_DURABLE_DIR = "v2/spec/ready-intents";
+
+function fakeIntentStageWriteSteps(repoRoot: string): AnyWorkflowStep[] {
+  return [
+    {
+      behavior: "write",
+      stepId: "intent-split",
+      role: "intent",
+      promptId: "intent.prompt.split",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+      agents: ["claude"],
+      agentModelConfig: {},
+      worktree: {
+        projectRoot: realpathSync(repoRoot),
+        projectName: "demo",
+        branchName: "intent-run",
+        baseRef: "HEAD",
+      },
+      specPath: "seed.md",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      publishCompletion: false,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: INTENT_STAGE_DURABLE_DIR },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-paths-test",
+        baseRef: "HEAD",
+      },
+    },
+  ];
+}
+
+describe("workflow detach after admission", () => {
+  afterEach(() => {
+    setInvertDetachClientWaitGuardForTest(false);
+  });
+
+  test("run workflow implement with --detach admits and exits without client wait", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-detach-1", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "run-detach-1\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+    expect(ipcFramesWithMethod(sent, "start").length).toBeGreaterThan(0);
+  });
+
+  test("inverting the detach client-wait guard fails run workflow implement with --detach admits and exits without client wait", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    setInvertDetachClientWaitGuardForTest(true);
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-detach-guard", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(1);
+    expect(cap.read().stdout).toContain(COMPLETED_WAIT_JSON);
+  });
+
+  test("run workflow implement passes through daemon guard errors without local workflow logic when --detach is set", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000005";
+
+    const code = await withFixedUuid(requestId, () =>
+      main([...IMPLEMENT_ARGS, "--detach"], cap.io, {
+        cwd: () => fx.repoSub,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: { implement: () => ({ ok: true, steps: fx.fakeImplementSteps }) },
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "error",
+              id: requestId,
+              code: "run_in_progress",
+              message: "A run is already in progress; at most one in-flight run globally",
+            },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("run workflow intent with --detach prints intent paths stderr before run ID without client wait", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const intentSteps = fakeIntentStageWriteSteps(fx.repoRoot);
+    const runId = "intent-detach-paths";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], cap.io, {
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true, steps: intentSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({
+      stdout: `${runId}\n`,
+      stderr: `intent paths: ${INTENT_STAGE_DURABLE_DIR}\n`,
+    });
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+  });
+
+  test("run workflow intent prints intent paths stderr before run ID when attached", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const intentSteps = fakeIntentStageWriteSteps(fx.repoRoot);
+    const runId = "intent-attach-paths";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => fx.repoRoot,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true, steps: intentSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const output = cap.read();
+    expect(output.stderr).toBe(`intent paths: ${INTENT_STAGE_DURABLE_DIR}\n`);
+    expect(output.stdout).toContain(`${runId}\n`);
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(1);
+  });
+
+  test.skipIf(!canUseUnixSockets())(
+    "after detach the workflow reaches workflow entry terminal while the launching CLI has already exited",
+    async () => {
+      const runId = "run-detach-continuation";
+      const fixture: DetachContinuationFixture = { entryTerminal: false, releaseEntryTerminal: () => {} };
+      const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, fixture);
+      const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+      const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+      const childScriptPath = join(childDir, "child.ts");
+
+      try {
+        const proc = spawnWorkflowCliChild(childScriptPath, {
+          socketPath,
+          cwd: fx.repoSub,
+          registry: { "test-project": { root: fx.repoRoot } },
+          argv: [...IMPLEMENT_ARGS, "--detach"],
+          steps: fx.fakeImplementSteps,
+          machineConfigPath,
+        });
+
+        const exitCode = await proc.exited;
+        expect(exitCode).toBe(0);
+        expect(fixture.entryTerminal).toBe(false);
+
+        fixture.releaseEntryTerminal();
+        expect(fixture.entryTerminal).toBe(true);
+      } finally {
+        await server.close();
+        rmSync(socketPath, { force: true });
+        rmSync(childDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each([
+    ["implement", [...IMPLEMENT_ARGS, "--detach"], "implement", () => fx.repoSub],
+    ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], "intent", () => fx.repoRoot],
+    [
+      "intent-reviewed",
+      ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--detach"],
+      "intent",
+      () => fx.repoRoot,
+    ],
+    [
+      "plan",
+      ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
+      "plan",
+      () => fx.repoRoot,
+    ],
+    [
+      "plan-reviewed",
+      ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
+      "plan",
+      () => fx.repoRoot,
+    ],
+    [
+      "plan-reviewed-light",
+      ["run", "workflow", "plan-reviewed-light", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
+      "plan",
+      () => fx.repoRoot,
+    ],
+  ] as const)("run workflow %s accepts --detach without client wait", async (_label, args, builderKey, cwd) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const runId = `detach-${_label}`;
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...args], cap.io, {
+        cwd,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          [builderKey]: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", runId, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(`${runId}\n`);
+    expect(ipcFramesWithMethod(sent, "wait")).toHaveLength(0);
+  });
+});
+
+const ATTACHED_ENTRY_WAIT_RUN_ID = "attached-entry-wait-run";
+const ATTACHED_CONSTITUENT_WAIT_RUN_ID = "attached-constituent-wait-run";
+const ATTACHED_CONSTITUENT_WAIT_RESULT = {
+  runStatus: "completed",
+  loopOutcomeKind: "complete",
+  iterationsConsumed: 1,
+  resumable: false,
+} as const;
+const ATTACHED_HELD_ENTRY_WAIT_RESULT = {
+  runStatus: "failed",
+  loopOutcomeKind: "invocation_failure",
+  iterationsConsumed: 2,
+  resumable: false,
+} as const;
+const ATTACHED_HELD_ENTRY_WAIT_JSON =
+  '{"runStatus":"failed","loopOutcomeKind":"invocation_failure","iterationsConsumed":2,"resumable":false}';
+const ATTACHED_HELD_ENTRY_WAIT_EXIT = 2;
+const ATTACHED_HELD_ENTRY_WAIT_STDOUT = `${ATTACHED_ENTRY_WAIT_RUN_ID}\n${ATTACHED_HELD_ENTRY_WAIT_JSON}\n`;
+
+type AttachedEntryWaitFixture = {
+  whenEntryWaitPending: Promise<void>;
+  releaseEntryWait: () => void;
+};
+
+type DetachContinuationFixture = {
+  entryTerminal: boolean;
+  releaseEntryTerminal: () => void;
+};
+
+function createAttachedEntryWaitRpcHandlers(): {
+  handlers: Record<string, RpcHandler>;
+  fixture: AttachedEntryWaitFixture;
+} {
+  let releaseHeld: (() => void) | undefined;
+  let notifyEntryWaitPending: (() => void) | undefined;
+  const whenEntryWaitPending = new Promise<void>((resolve) => {
+    notifyEntryWaitPending = resolve;
+  });
+
+  const handlers: Record<string, RpcHandler> = {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    status: () => ({ kind: "response", result: { state: "running" } }),
+    start: () => ({ kind: "response", result: { runId: ATTACHED_ENTRY_WAIT_RUN_ID } }),
+    wait: async (frame) => {
+      const runId = (frame.params as { runId?: string } | undefined)?.runId;
+      if (runId === ATTACHED_CONSTITUENT_WAIT_RUN_ID) {
+        return { kind: "response", result: ATTACHED_CONSTITUENT_WAIT_RESULT };
+      }
+      if (runId === ATTACHED_ENTRY_WAIT_RUN_ID) {
+        notifyEntryWaitPending?.();
+        notifyEntryWaitPending = undefined;
+        await new Promise<void>((resolve) => {
+          releaseHeld = resolve;
+        });
+        return { kind: "response", result: ATTACHED_HELD_ENTRY_WAIT_RESULT };
+      }
+      return { kind: "error", code: "unknown_run", message: `unknown run: ${String(runId)}` };
+    },
+  };
+
+  return {
+    handlers,
+    fixture: {
+      whenEntryWaitPending,
+      releaseEntryWait: () => {
+        releaseHeld?.();
+        releaseHeld = undefined;
+      },
+    },
+  };
+}
+
+function createDetachContinuationRpcHandlers(
+  runId: string,
+  fixture: DetachContinuationFixture,
+): Record<string, RpcHandler> {
+  let releaseHeld: (() => void) | undefined;
+  fixture.releaseEntryTerminal = () => {
+    releaseHeld?.();
+    releaseHeld = undefined;
+  };
+
+  return {
+    health: () => ({ kind: "response", result: { ok: true } }),
+    status: () => ({ kind: "response", result: { state: "running" } }),
+    start: () => {
+      void new Promise<void>((resolve) => {
+        releaseHeld = () => {
+          fixture.entryTerminal = true;
+          resolve();
+        };
+      });
+      return { kind: "response", result: { runId } };
+    },
+  };
+}
+
+const jarvisRepoRoot = join(import.meta.dir, "../../..");
+
+function writeWorkflowCliChildScript(scriptPath: string): void {
+  mkdirSync(dirname(scriptPath), { recursive: true });
+  writeFileSync(
+    scriptPath,
+    `import { join } from "node:path";
+import { main } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/cli.ts"))};
+import { createRuntimeDeps } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/cli/deps.ts"))};
+import { connectIpcClient } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/ipc/client.ts"))};
+import { TEST_EXECUTABLE_DIGEST } from ${JSON.stringify(join(jarvisRepoRoot, "v2/src/testing/cli-test-helpers.ts"))};
+
+const socketPath = process.env.JARVIS_WORKFLOW_CLI_SOCKET!;
+const cwd = process.env.JARVIS_WORKFLOW_CLI_CWD!;
+const registry = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_REGISTRY!);
+const argv = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_ARGV!) as string[];
+const steps = JSON.parse(process.env.JARVIS_WORKFLOW_CLI_STEPS!);
+const machineConfigPath = process.env.JARVIS_WORKFLOW_CLI_MACHINE_CONFIG!;
+const socketDir = join(socketPath, "..");
+
+const code = await main(argv, undefined, createRuntimeDeps({
+  cwd: () => cwd,
+  socketPath,
+  pidPath: join(socketDir, "daemon.pid"),
+  logPath: join(socketDir, "daemon.log"),
+  connectIpcClient,
+  startDaemon: async (sp) => ({ pid: process.pid, socketPath: sp }),
+  getDaemonStatus: async () => ({
+    state: "running" as const,
+    loadedRevision: "test",
+    currentRevision: "test",
+  }),
+  readProjectRegistry: () => registry,
+  workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },
+  getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+  machineConfigPath,
+}));
+process.exit(code);
+`,
+    "utf8",
+  );
+}
+
+type WorkflowCliChildEnv = {
+  socketPath: string;
+  cwd: string;
+  registry: Record<string, { root: string }>;
+  argv: readonly string[];
+  steps: AnyWorkflowStep[];
+  machineConfigPath: string;
+};
+
+function spawnWorkflowCliChild(scriptPath: string, env: WorkflowCliChildEnv) {
+  writeWorkflowCliChildScript(scriptPath);
+  return Bun.spawn([process.execPath, scriptPath], {
+    env: {
+      ...process.env,
+      JARVIS_WORKFLOW_CLI_SOCKET: env.socketPath,
+      JARVIS_WORKFLOW_CLI_CWD: env.cwd,
+      JARVIS_WORKFLOW_CLI_REGISTRY: JSON.stringify(env.registry),
+      JARVIS_WORKFLOW_CLI_ARGV: JSON.stringify(env.argv),
+      JARVIS_WORKFLOW_CLI_STEPS: JSON.stringify(env.steps),
+      JARVIS_WORKFLOW_CLI_MACHINE_CONFIG: env.machineConfigPath,
+    },
+    stdout: "pipe" as const,
+    stderr: "pipe" as const,
+    cwd: env.cwd,
+  });
+}
+
+async function startAttachedEntryWaitWorkflowServer(): Promise<{
+  server: IpcServer;
+  socketPath: string;
+  fixture: AttachedEntryWaitFixture;
+}> {
+  const socketPath = join(tmpdir(), `jarvis-attached-workflow-${process.pid}-${crypto.randomUUID()}.sock`);
+  rmSync(socketPath, { force: true });
+  const { handlers, fixture } = createAttachedEntryWaitRpcHandlers();
+  const server = await startIpcServer(socketPath, handlers);
+  return { server, socketPath, fixture };
+}
+
+async function startDetachContinuationWorkflowServer(
+  runId: string,
+  fixture: DetachContinuationFixture,
+): Promise<{ server: IpcServer; socketPath: string }> {
+  const socketPath = join(tmpdir(), `jarvis-detach-continuation-${process.pid}-${crypto.randomUUID()}.sock`);
+  rmSync(socketPath, { force: true });
+  const handlers = createDetachContinuationRpcHandlers(runId, fixture);
+  const server = await startIpcServer(socketPath, handlers);
+  return { server, socketPath };
+}
+
+function attachedEntryWaitWorkflowDeps(
+  socketPath: string,
+  machineConfigPath: string,
+  cwd: string,
+  steps: AnyWorkflowStep[],
+) {
+  const socketDir = dirname(socketPath);
+  return {
+    cwd: () => cwd,
+    socketPath,
+    pidPath: join(socketDir, "daemon.pid"),
+    logPath: join(socketDir, "daemon.log"),
+    machineConfigPath,
+    connectIpcClient,
+    startDaemon: async (sp: string) => ({ pid: process.pid, socketPath: sp }),
+    readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+    workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },
+    getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
+  };
+}
+
+async function assertAttachedEntryTerminalWait(): Promise<void> {
+  const { server, socketPath, fixture } = await startAttachedEntryWaitWorkflowServer();
+  const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+  const steps = fx.fakeImplementSteps;
+  const argv = [...IMPLEMENT_ARGS];
+  const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+  const childScriptPath = join(childDir, "child.ts");
+
+  try {
+    const proc = spawnWorkflowCliChild(childScriptPath, {
+      socketPath,
+      cwd: fx.repoSub,
+      registry: { "test-project": { root: fx.repoRoot } },
+      argv,
+      steps,
+      machineConfigPath,
+    });
+
+    await fixture.whenEntryWaitPending;
+    expect(proc.exitCode).toBeNull();
+    fixture.releaseEntryWait();
+    const exitCode = await proc.exited;
+    const stdout = await new Response(proc.stdout).text();
+    expect(exitCode).toBe(ATTACHED_HELD_ENTRY_WAIT_EXIT);
+    expect(stdout).toBe(ATTACHED_HELD_ENTRY_WAIT_STDOUT);
+  } finally {
+    await server.close();
+    rmSync(socketPath, { force: true });
+    rmSync(childDir, { recursive: true, force: true });
+  }
+}
+
+async function expectAttachedWorkflowMissesEntryTerminalContract(mutate: () => void): Promise<void> {
+  mutate();
+  const { server, socketPath } = await startAttachedEntryWaitWorkflowServer();
+  const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+  const cap = captureIo();
+  try {
+    const code = await main(
+      [...IMPLEMENT_ARGS],
+      cap.io,
+      attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps) as NonNullable<
+        Parameters<typeof main>[2]
+      >,
+    );
+    const stdout = cap.read().stdout;
+    expect(code === ATTACHED_HELD_ENTRY_WAIT_EXIT && stdout === ATTACHED_HELD_ENTRY_WAIT_STDOUT).toBe(false);
+  } finally {
+    await server.close();
+    rmSync(socketPath, { force: true });
+  }
+}
+
+describe("workflow attached entry-terminal wait", () => {
+  const attachedSocketTest = test.skipIf(!canUseUnixSockets());
+
+  afterEach(() => {
+    setForceSkipAttachClientWaitForTest(false);
+    setAttachWaitRunIdOverrideForTest(undefined);
+  });
+
+  attachedSocketTest(
+    "attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await assertAttachedEntryTerminalWait();
+    },
+  );
+
+  attachedSocketTest(
+    "inverting attach client-wait guard fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await expectAttachedWorkflowMissesEntryTerminalContract(() => setForceSkipAttachClientWaitForTest(true));
+    },
+  );
+
+  attachedSocketTest(
+    "retargeting attach client wait at a constituent run ID fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
+    async () => {
+      await expectAttachedWorkflowMissesEntryTerminalContract(() =>
+        setAttachWaitRunIdOverrideForTest(ATTACHED_CONSTITUENT_WAIT_RUN_ID),
+      );
+    },
+  );
 });
 
 describe("review-passes and review-behavior resolution", () => {

@@ -747,6 +747,7 @@ type LiveRunCheck = { live: false } | { live: true; reason: string };
 export type DirtyWorktreeListResult =
   | { status: "clean" }
   | { status: "dirty"; paths: string[] }
+  | { status: "not-git-repository" }
   | { status: "error"; message: string };
 
 export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
@@ -771,8 +772,18 @@ export async function listDirtyWorktreePathsForStaleReset(
     }
     return { status: "dirty", paths };
   } catch (err) {
-    return { status: "error", message: err instanceof Error ? err.message : String(err) };
+    const message = err instanceof Error ? err.message : String(err);
+    return hasNotGitRepositoryDiagnostic(err) ? { status: "not-git-repository" } : { status: "error", message };
   }
+}
+
+function hasNotGitRepositoryDiagnostic(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const stderr =
+    typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
+      ? (error as { stderr: string }).stderr
+      : "";
+  return `${message}\n${stderr}`.includes("not a git repository");
 }
 
 export function staleResetDirtyWorktreeGateReason(
@@ -834,6 +845,7 @@ export async function resetStaleWorkspace(
   }
 
   const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
+  if (dirtyList.status === "not-git-repository") return { status: "no-op" };
   const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.skipDirtyWorktreeGate === true);
   if (dirtyReason !== undefined) return { status: "refused", reason: dirtyReason };
 

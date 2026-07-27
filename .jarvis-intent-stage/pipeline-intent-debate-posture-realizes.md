@@ -6,20 +6,21 @@ name: pipeline-intent-debate-posture-realizes
 
 ## Problem
 
-`validatePipelineDefinition` treats `intent` + `debate` as unrealizable (`unrealizable-review-posture`), and stage resolution has no mapping for that pair. Bare `jarvis run workflow intent` accepts `--review-behavior debate` today, so admission refuses a composition the harness can run.
+`validatePipelineDefinition` treats `intent` + `debate` as unrealizable (`unrealizable-review-posture`), and `resolveStageWorkflowSteps` has no preset mapping for that pair. Bare `jarvis run workflow intent` accepts `--review-behavior debate` today, so admission refuses a composition the harness can run.
 
 ## Decisions
 
 - `intent` + `debate` is realizable; admission drops the `intent`/`debate` branch from `isUnrealizableReview` — rules out keeping that cell unrealizable.
-- `intent` + `debate` resolves through the bare `intent` preset with `reviewPasses: 1` and `reviewBehavior: "debate"` — rules out routing via `intent-reviewed` or leaving resolution unmapped.
+- `intent` + `debate` resolves through preset `intent` with `reviewPasses: 1` and `reviewBehavior: "debate"` — rules out routing via `intent-reviewed` or leaving resolution unmapped.
+- `intent` + `light` keeps the existing `intent-reviewed` preset path in `WORKFLOW_POSTURE_PRESETS`; only `debate` uses bare `intent` plus explicit behavior — rules out refactoring light resolution in this slice.
 - `implement` + `none` stays unrealizable in admission — rules out relaxing the only remaining unrealizable workflow cell.
-- Posture realizations in `v2/docs/workflow-runner.md` are stated against bare presets plus review behavior (and `reviewPasses` where `none`), not legacy `*-reviewed` alias names — rules out doc copy that still implies `intent-reviewed` is the light/debate carrier for pipeline stages.
+- Posture realizations in `v2/docs/workflow-runner.md` are stated against bare presets plus `reviewPasses` / `reviewBehavior`, not legacy `*-reviewed` alias names — rules out doc copy that still implies `intent-reviewed` is the debate carrier for pipeline stages.
 
 ## Acceptance criteria
 
-- [ ] An `intent` workflow stage with `review: "debate"` passes `validatePipelineDefinition`; a test that expects `unrealizable-review-posture` for that stage fails on baseline and passes after the fix.
-- [ ] The same stage resolves through real preset builders to steps that include debate review with `reviewBehavior: "debate"` (equivalent to CLI `--review-behavior debate` on bare `intent`); resolution no longer returns unmapped for that pair.
-- [ ] An `implement` stage with `review: "none"` still yields `unrealizable-review-posture` with stage ID, field `review`, workflow name, and posture in the message; `implement` + `light` on the same stage still validates clean.
+- [ ] `pipeline-definition-validation.test.ts` test `"intent under debate is unrealizable; light on the same stage validates clean"` is replaced (or inverted) so `intent` + `debate` validates clean and still asserts `intent` + `light` validates clean; it fails on baseline expecting `unrealizable-review-posture` for debate.
+- [ ] `pipeline-stage-resolve.test.ts` test `"a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw"` for `intent` + `debate` is replaced so resolution succeeds and built steps carry `reviewBehavior: "debate"`; it fails on baseline unmapped resolution.
+- [ ] `pipeline-definition-validation.test.ts` test `"implement under none is unrealizable; light on the same stage validates clean"` still passes unchanged: `unrealizable-review-posture` with stage ID, field `review`, workflow name, and posture in the message.
 - [ ] `bun run typecheck` and scoped v2 tests for touched surfaces pass.
 
 ## Documentation updates

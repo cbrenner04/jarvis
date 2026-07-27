@@ -137,6 +137,24 @@ export function loadMachineConfig(configPath: string = MACHINE_CONFIG_PATH): str
 
 export type ImplementReviewBehavior = "debate" | "light";
 
+export type ProjectPipelineConfig = {
+  projectKey: string;
+  pipeline: unknown;
+};
+
+/** Reads the raw pipeline fragment without changing the project-registry projection. */
+export function readProjectPipelineConfig(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): ProjectPipelineConfig {
+  const projects = readMachineConfigDocument(configPath)?.projects;
+  const project = isRecord(projects) ? projects[projectKey] : undefined;
+  return {
+    projectKey,
+    pipeline: isRecord(project) ? project.pipeline : undefined,
+  };
+}
+
 /**
  * Walks projects.<projectKey>.implement.<field>. Absent ancestors (or a non-object project)
  * yield `value: undefined` so callers apply their default; a present non-object `implement`

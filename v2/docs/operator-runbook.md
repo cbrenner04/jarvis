@@ -189,7 +189,10 @@ jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md
 jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md --review-passes 0  # draft-only
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 # omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0
+jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
+
+Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved
 project-relative path in `--base` before daemon contact. If it is unavailable,
@@ -906,8 +909,8 @@ Operators add bullets here; delete when fixed.
   `terminal_run` recovery text instead of abandoning the run because the log looked resumable.
 
 - **Nothing you normally check tells you a workflow is finished (2026-07-21):** three separate
-  signals all read "done" while agents were still writing the worktree — the `jarvis run workflow`
-  exit (it returns on its *first* constituent run), `jarvis run list` showing every row
+  signals all read "done" while agents were still writing the worktree — attached `jarvis run workflow`
+  exit after workflow entry-terminal rollup (not merely the first step), `jarvis run list` showing every row
   `completed` / `not-live`, and an idle run table. Post-completion mutation verification keeps
   running in the worktree after all of them, and while it runs the tree legitimately contains
   deliberately broken source (the verifier flips a guard, e.g. `===` → `!==`, then runs scoped

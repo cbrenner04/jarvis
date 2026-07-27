@@ -560,6 +560,7 @@ function validateConfig(input: unknown, file: string): Config {
       process.stderr.write(`warning: project ${JSON.stringify(name)} readyGateRetryBound is deprecated and ignored\n`);
     }
     // Strict keys validation for project object
+    // "pipeline" is v2-only (see v2/src/config/machine-config-loader.ts); v1 ignores it but must not reject it.
     const allowedProjectKeys = new Set([
       "root",
       "origin",
@@ -571,6 +572,7 @@ function validateConfig(input: unknown, file: string): Config {
       "fixCommand",
       "readyGateRetryBound",
       "installCommand",
+      "pipeline",
     ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
@@ -584,7 +586,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, installCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, fixCommand, installCommand, pipeline)`,
         );
       }
     }

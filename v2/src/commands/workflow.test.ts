@@ -9,9 +9,9 @@ import { withExternalWorktree } from "../execution/external-worktree.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
-import type { RpcHandler } from "../ipc/server.ts";
-import { startIpcServer, type IpcServer } from "../ipc/server.ts";
 import { connectIpcClient } from "../ipc/client.ts";
+import type { RpcHandler } from "../ipc/server.ts";
+import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import {
   type CliRepoFixture,
   COMPLETED_WAIT_JSON,
@@ -424,45 +424,40 @@ describe("workflow detach after admission", () => {
   test.skipIf(!canUseUnixSockets())(
     "after detach the workflow reaches workflow entry terminal while the launching CLI has already exited",
     async () => {
-    const runId = "run-detach-continuation";
-    const fixture: DetachContinuationFixture = { entryTerminal: false, releaseEntryTerminal: () => {} };
-    const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, fixture);
-    const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
-    const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
-    const childScriptPath = join(childDir, "child.ts");
+      const runId = "run-detach-continuation";
+      const fixture: DetachContinuationFixture = { entryTerminal: false, releaseEntryTerminal: () => {} };
+      const { server, socketPath } = await startDetachContinuationWorkflowServer(runId, fixture);
+      const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
+      const childDir = mkdtempSync(join(tmpdir(), "jarvis-workflow-cli-child-"));
+      const childScriptPath = join(childDir, "child.ts");
 
-    try {
-      const proc = spawnWorkflowCliChild(childScriptPath, {
-        socketPath,
-        cwd: fx.repoSub,
-        registry: { "test-project": { root: fx.repoRoot } },
-        argv: [...IMPLEMENT_ARGS, "--detach"],
-        steps: fx.fakeImplementSteps,
-        machineConfigPath,
-      });
+      try {
+        const proc = spawnWorkflowCliChild(childScriptPath, {
+          socketPath,
+          cwd: fx.repoSub,
+          registry: { "test-project": { root: fx.repoRoot } },
+          argv: [...IMPLEMENT_ARGS, "--detach"],
+          steps: fx.fakeImplementSteps,
+          machineConfigPath,
+        });
 
-      const exitCode = await proc.exited;
-      expect(exitCode).toBe(0);
-      expect(fixture.entryTerminal).toBe(false);
+        const exitCode = await proc.exited;
+        expect(exitCode).toBe(0);
+        expect(fixture.entryTerminal).toBe(false);
 
-      fixture.releaseEntryTerminal();
-      expect(fixture.entryTerminal).toBe(true);
-    } finally {
-      await server.close();
-      rmSync(socketPath, { force: true });
-      rmSync(childDir, { recursive: true, force: true });
-    }
+        fixture.releaseEntryTerminal();
+        expect(fixture.entryTerminal).toBe(true);
+      } finally {
+        await server.close();
+        rmSync(socketPath, { force: true });
+        rmSync(childDir, { recursive: true, force: true });
+      }
     },
   );
 
   test.each([
     ["implement", [...IMPLEMENT_ARGS, "--detach"], "implement", () => fx.repoSub],
-    [
-      "intent",
-      ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"],
-      "intent",
-      () => fx.repoRoot,
-    ],
+    ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], "intent", () => fx.repoRoot],
     [
       "intent-reviewed",
       ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--detach"],
@@ -762,12 +757,9 @@ async function expectAttachedWorkflowMissesEntryTerminalContract(mutate: () => v
     const code = await main(
       [...IMPLEMENT_ARGS],
       cap.io,
-      attachedEntryWaitWorkflowDeps(
-        socketPath,
-        machineConfigPath,
-        fx.repoSub,
-        fx.fakeImplementSteps,
-      ) as NonNullable<Parameters<typeof main>[2]>,
+      attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps) as NonNullable<
+        Parameters<typeof main>[2]
+      >,
     );
     const stdout = cap.read().stdout;
     expect(code === ATTACHED_HELD_ENTRY_WAIT_EXIT && stdout === ATTACHED_HELD_ENTRY_WAIT_STDOUT).toBe(false);

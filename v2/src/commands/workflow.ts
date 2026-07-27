@@ -259,8 +259,7 @@ async function startWorkflowRun(
   }
   io.stdout(`${start.runId}\n`);
   const skipClientWait =
-    (detach && !invertDetachClientWaitGuardForTest) ||
-    (!detach && forceSkipAttachClientWaitForTest);
+    (detach && !invertDetachClientWaitGuardForTest) || (!detach && forceSkipAttachClientWaitForTest);
   if (skipClientWait) return 0;
   return waitForRunCompletion(client, attachWaitRunIdOverrideForTest ?? start.runId, io);
 }

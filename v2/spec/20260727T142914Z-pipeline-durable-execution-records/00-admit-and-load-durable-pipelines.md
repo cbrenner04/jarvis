@@ -24,12 +24,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` admits an already validated multi-stage definition and reads one pipeline plus one `pending` stage per authored stage in authored order; the regression fails against the pre-change store.
-- [ ] The admitted pipeline reads its original definition name and immutable definition snapshot after the live source definition is changed, and has no stored pipeline lifecycle status.
-- [ ] A deterministic failure after at least one valid stage insert leaves neither its pipeline row nor any of its stage rows committed.
-- [ ] The store rejects duplicate stage IDs or duplicate authored positions within one pipeline, rejects a stage whose parent pipeline is absent, and preserves ordering by stored position rather than insertion order.
-- [ ] A fixture created with the pre-change migrations upgrades without losing existing runs, attempts, or migration history; it can then admit and load a pipeline, and a further reopen is idempotent.
-- [ ] The admission regressions fail when transaction rollback, parent/unique integrity, or position ordering is removed.
+- [x] `v2/src/persistence/state-store.test.ts` admits an already validated multi-stage definition and reads one pipeline plus one `pending` stage per authored stage in authored order; the regression fails against the pre-change store.
+- [x] The admitted pipeline reads its original definition name and immutable definition snapshot after the live source definition is changed, and has no stored pipeline lifecycle status.
+- [x] A deterministic failure after at least one valid stage insert leaves neither its pipeline row nor any of its stage rows committed.
+- [x] The store rejects duplicate stage IDs or duplicate authored positions within one pipeline, rejects a stage whose parent pipeline is absent, and preserves ordering by stored position rather than insertion order.
+- [x] A fixture created with the pre-change migrations upgrades without losing existing runs, attempts, or migration history; it can then admit and load a pipeline, and a further reopen is idempotent.
+- [x] The admission regressions fail when transaction rollback, parent/unique integrity, or position ordering is removed.
 
 ## Documentation updates
 

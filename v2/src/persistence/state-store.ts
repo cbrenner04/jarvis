@@ -1,9 +1,10 @@
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
 
@@ -118,6 +119,42 @@ export type Run = {
   prUrl?: string | null;
 };
 
+/** A durable admitted pipeline record: identity, source name, and immutable admitted-definition snapshot. */
+export type Pipeline = {
+  id: string;
+  name: string;
+  createdAt: number;
+  definition: PipelineDefinition;
+};
+
+/** A durable stage record belonging to an admitted pipeline. */
+export type PipelineStageRecord = {
+  id: string;
+  pipelineId: string;
+  stageId: string;
+  position: number;
+  status: string;
+  workflowInvocationId: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  artifact: unknown | null;
+  failureDetail: unknown | null;
+};
+
+/**
+ * A targeted patch to one stage's durable lifecycle fields. Omitted fields are
+ * unchanged; an explicit `null` clears a nullable field. `status`, when
+ * present, is a non-null string. Empty patches are rejected by `updateStage`.
+ */
+export type StageLifecyclePatch = {
+  status?: string;
+  workflowInvocationId?: string | null;
+  startedAt?: number | null;
+  endedAt?: number | null;
+  artifact?: unknown;
+  failureDetail?: unknown;
+};
+
 /** A durable attempt record linked to a run. */
 export type Attempt = {
   id: string;
@@ -171,6 +208,24 @@ export interface StateStore {
 
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
+
+  /**
+   * Admit an already-validated pipeline definition: one pipeline row plus one
+   * `pending` stage row per authored stage, in a single transaction. Returns
+   * the generated pipeline ID. `beforeStageInsert` is a test seam to force a
+   * mid-transaction failure after a given authored-stage index.
+   */
+  createPipeline(args: { definition: PipelineDefinition; beforeStageInsert?: (stageIndex: number) => void }): string;
+
+  /** Load an admitted pipeline and its stages, ordered by authored position; null when unknown. */
+  loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null;
+
+  /**
+   * Apply a targeted lifecycle patch to one stage row in place, preserving its
+   * durable ID, pipeline ID, stage ID, and position. Rejects an empty patch and
+   * an unknown `(pipelineId, stageId)`.
+   */
+  updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void;
 
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
@@ -245,6 +300,12 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent`;
 
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, definition AS definitionJson`;
+
+const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
+  workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
+  artifact AS artifactJson, failure_detail AS failureDetailJson`;
+
 const SCHEMA_MIGRATIONS = [
   {
     id: "004-invocation-failure-detail",
@@ -282,6 +343,31 @@ const SCHEMA_MIGRATIONS = [
     id: "012-run-pr-evidence",
     up: `ALTER TABLE runs ADD COLUMN pr_number INTEGER;
         ALTER TABLE runs ADD COLUMN pr_url TEXT;`,
+  },
+  {
+    id: "013-pipelines-and-stages",
+    up: `
+      CREATE TABLE pipelines (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        definition TEXT NOT NULL
+      );
+      CREATE TABLE pipeline_stages (
+        id TEXT PRIMARY KEY,
+        pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+        stage_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        workflow_invocation_id TEXT,
+        started_at INTEGER,
+        ended_at INTEGER,
+        artifact TEXT,
+        failure_detail TEXT,
+        UNIQUE (pipeline_id, stage_id),
+        UNIQUE (pipeline_id, position)
+      );
+    `,
   },
 ] as const;
 
@@ -377,6 +463,27 @@ function mapRunRow(row: RunRow): Run {
   };
 }
 
+type PipelineRow = Omit<Pipeline, "definition"> & { definitionJson: string };
+
+function mapPipelineRow(row: PipelineRow): Pipeline {
+  const { definitionJson, ...pipeline } = row;
+  return { ...pipeline, definition: JSON.parse(definitionJson) as PipelineDefinition };
+}
+
+type StageRow = Omit<PipelineStageRecord, "artifact" | "failureDetail"> & {
+  artifactJson: string | null;
+  failureDetailJson: string | null;
+};
+
+function mapStageRow(row: StageRow): PipelineStageRecord {
+  const { artifactJson, failureDetailJson, ...stage } = row;
+  return {
+    ...stage,
+    artifact: artifactJson === null ? null : (JSON.parse(artifactJson) as unknown),
+    failureDetail: failureDetailJson === null ? null : (JSON.parse(failureDetailJson) as unknown),
+  };
+}
+
 class StateStoreImpl implements StateStore {
   private db: Database;
   private currentIdentity: string;
@@ -388,6 +495,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec(SCHEMA);
     this.db.exec(`PRAGMA busy_timeout=${STATE_STORE_BUSY_TIMEOUT_MS}`);
     this.db.exec("PRAGMA journal_mode=WAL");
+    this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
@@ -485,6 +593,81 @@ class StateStoreImpl implements StateStore {
         )
         .all(invocationId) as RunRow[]
     ).map(mapRunRow);
+  }
+
+  createPipeline(args: { definition: PipelineDefinition; beforeStageInsert?: (stageIndex: number) => void }): string {
+    const pipelineId = crypto.randomUUID();
+    const definitionJson = JSON.stringify(args.definition);
+
+    this.db.transaction(() => {
+      this.db
+        .prepare("INSERT INTO pipelines (id, name, created_at, definition) VALUES (?, ?, ?, ?)")
+        .run(pipelineId, args.definition.name, Date.now(), definitionJson);
+
+      args.definition.stages.forEach((stage, index) => {
+        args.beforeStageInsert?.(index);
+        this.db
+          .prepare(`
+            INSERT INTO pipeline_stages (
+              id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+            )
+            VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)
+          `)
+          .run(crypto.randomUUID(), pipelineId, stage.stageId, index);
+      });
+    })();
+
+    return pipelineId;
+  }
+
+  loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null {
+    const pipelineRow = this.db
+      .prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines WHERE id = ?`)
+      .get(pipelineId) as PipelineRow | null;
+    if (pipelineRow === null) return null;
+
+    const stages = (
+      this.db
+        .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC`)
+        .all(pipelineId) as StageRow[]
+    ).map(mapStageRow);
+
+    return { ...mapPipelineRow(pipelineRow), stages };
+  }
+
+  updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void {
+    const patch = args.patch;
+    const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);
+    if (keys.length === 0) {
+      throw new Error("Stage lifecycle patch must include at least one field");
+    }
+
+    const columnByField: Record<keyof StageLifecyclePatch, string> = {
+      status: "status",
+      workflowInvocationId: "workflow_invocation_id",
+      startedAt: "started_at",
+      endedAt: "ended_at",
+      artifact: "artifact",
+      failureDetail: "failure_detail",
+    };
+
+    const setClauses: string[] = [];
+    const params: SQLQueryBindings[] = [];
+    for (const key of keys) {
+      const rawValue = patch[key];
+      const value =
+        (key === "artifact" || key === "failureDetail") && rawValue !== null ? JSON.stringify(rawValue) : rawValue;
+      setClauses.push(`${columnByField[key]} = ?`);
+      params.push(value as SQLQueryBindings);
+    }
+    params.push(args.pipelineId, args.stageId);
+
+    const result = this.db
+      .prepare(`UPDATE pipeline_stages SET ${setClauses.join(", ")} WHERE pipeline_id = ? AND stage_id = ?`)
+      .run(...params);
+    if (result.changes === 0) {
+      throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
+    }
   }
 
   recordAttemptStart(runId: string): string {

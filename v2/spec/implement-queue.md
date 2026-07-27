@@ -26,14 +26,19 @@ The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices ar
 | Slice | Work | State |
 | --- | --- | --- |
 | 1a | definitions, registry, admission validation | shipped #2240 |
-| 1b | project config selects a pipeline | in flight |
-| 2a | durable pipeline + stage records | in flight |
-| 2b | daemon-ordered stage execution | blocked on 2a |
-| 2c | restart reconciliation | blocked on 2a |
+| 1b | project config selects a pipeline | shipped #2248 |
+| 2a | durable pipeline + stage records | shipped #2249 |
+| 2b | daemon-ordered stage execution | planning |
+| 2c | restart reconciliation | planned #2250 |
 | 3 | approve/reject + resume | seeded |
 | 4 | CLI start/list/wait/detach | seeded |
 | 5 | configured terminal actions | seeded |
 | 6 | one e2e integration proof | seeded |
+
+**Slot before slices 3–6:** `seeds/intent-splits-by-surface.md` and
+`seeds/plan-splits-an-oversized-subspec.md`. Slices 3–6 are the next work to go through `intent` and
+`plan`, so split discipline pays there first. Evidence: every subspec at this session's norm landed on
+its first implement; the one oversized spec cost two failed runs.
 
 **Slot before 2b:** `seeds/pipeline-posture-table-rejects-a-realizable-cell.md`. #2240's validator
 rejects `intent` + `debate`, which the CLI supports. Inert only while nothing resolves a posture —

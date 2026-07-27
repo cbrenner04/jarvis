@@ -595,10 +595,7 @@ class StateStoreImpl implements StateStore {
     ).map(mapRunRow);
   }
 
-  createPipeline(args: {
-    definition: PipelineDefinition;
-    beforeStageInsert?: (stageIndex: number) => void;
-  }): string {
+  createPipeline(args: { definition: PipelineDefinition; beforeStageInsert?: (stageIndex: number) => void }): string {
     const pipelineId = crypto.randomUUID();
     const definitionJson = JSON.stringify(args.definition);
 
@@ -624,9 +621,9 @@ class StateStoreImpl implements StateStore {
   }
 
   loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null {
-    const pipelineRow = this.db.prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines WHERE id = ?`).get(pipelineId) as
-      | PipelineRow
-      | null;
+    const pipelineRow = this.db
+      .prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines WHERE id = ?`)
+      .get(pipelineId) as PipelineRow | null;
     if (pipelineRow === null) return null;
 
     const stages = (
@@ -658,7 +655,8 @@ class StateStoreImpl implements StateStore {
     const params: SQLQueryBindings[] = [];
     for (const key of keys) {
       const rawValue = patch[key];
-      const value = (key === "artifact" || key === "failureDetail") && rawValue !== null ? JSON.stringify(rawValue) : rawValue;
+      const value =
+        (key === "artifact" || key === "failureDetail") && rawValue !== null ? JSON.stringify(rawValue) : rawValue;
       setClauses.push(`${columnByField[key]} = ?`);
       params.push(value as SQLQueryBindings);
     }

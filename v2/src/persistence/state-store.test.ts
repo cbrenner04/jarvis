@@ -583,14 +583,15 @@ describe("pipelines", () => {
 
   test("rejects duplicate stage IDs and duplicate authored positions within one pipeline", () => {
     const pipelineId = store.createPipeline({
-      definition: { name: "dup-check", stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }] },
+      definition: {
+        name: "dup-check",
+        stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
+      },
     });
 
     const raw = new Database(TEST_DB_PATH);
     try {
-      expect(() =>
-        insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1 }),
-      ).toThrow();
+      expect(() => insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1 })).toThrow();
 
       expect(() =>
         insertStageRow(raw, { id: "stage-dup-position", pipelineId, stageId: "other", position: 0 }),
@@ -605,12 +606,12 @@ describe("pipelines", () => {
 
     const raw = new Database(TEST_DB_PATH);
     try {
-      raw.prepare("UPDATE pipeline_stages SET position = 99 WHERE pipeline_id = ? AND stage_id = 'plan'").run(
-        pipelineId,
-      );
-      raw.prepare("UPDATE pipeline_stages SET position = -1 WHERE pipeline_id = ? AND stage_id = 'implement'").run(
-        pipelineId,
-      );
+      raw
+        .prepare("UPDATE pipeline_stages SET position = 99 WHERE pipeline_id = ? AND stage_id = 'plan'")
+        .run(pipelineId);
+      raw
+        .prepare("UPDATE pipeline_stages SET position = -1 WHERE pipeline_id = ? AND stage_id = 'implement'")
+        .run(pipelineId);
     } finally {
       raw.close();
     }
@@ -734,7 +735,9 @@ describe("pipelines", () => {
 
   test("updateStage rejects an unknown pipeline or stage target", () => {
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
-    expect(() => store.updateStage({ pipelineId: "unknown-pipeline", stageId: "plan", patch: { status: "x" } })).toThrow();
+    expect(() =>
+      store.updateStage({ pipelineId: "unknown-pipeline", stageId: "plan", patch: { status: "x" } }),
+    ).toThrow();
     expect(() => store.updateStage({ pipelineId, stageId: "unknown-stage", patch: { status: "x" } })).toThrow();
   });
 

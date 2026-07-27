@@ -492,6 +492,16 @@ criterion is checked (across every linked subspec, or in a single file), it exit
 `1` with `implement.already_complete` before workflow construction, daemon contact,
 worktree creation, or a run row. Index link checkboxes do not determine this check.
 
+For CLI launches, the builder also reads the matched project's raw `pipeline`
+fragment, resolves its source definition and overrides against the loaded agent
+model config, and carries the validated definition as admission evidence.
+Resolution preserves parse → source lookup → override-target → composed-definition
+validation precedence. A named resolution error stops the command before stale
+reset, daemon connection/start, durable run-row creation, external-worktree
+materialization, or agent invocation. This gate only validates implement
+admission; dispatching the selected pipeline's stages is deferred to the pipeline
+execution consumer.
+
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
 to resolve the first unchecked linked subspec via

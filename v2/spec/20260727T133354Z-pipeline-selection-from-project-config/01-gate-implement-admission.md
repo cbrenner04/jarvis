@@ -23,12 +23,12 @@ pipeline stages is deferred to the later pipeline-execution slice.
 
 ## Acceptance criteria
 
-- [ ] A `v2/src/commands/workflow.test.ts` regression drives `jarvis run workflow implement` through its existing project-config and admission-facing entry point. A valid configured selection admits the legacy implement workflow, and the assertion fails against the pre-change baseline.
-- [ ] The same regression gives that project an invalid selected definition and asserts the named resolver error plus zero run-row creations, zero external-worktree materializations (including stale-reset work), and zero agent invocations; it fails against the pre-change baseline and passes after the gate is wired.
-- [ ] The command preserves the resolver's parse → lookup → override-target → validation precedence, and a failure at any phase reaches the operator before daemon start or all other admission effects.
-- [ ] Inverting the admission-resolution guard or any failure-effect suppression guard makes the corresponding command regression fail; zero-effect assertions cover each suppressed effect.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` documents validation before implement admission, the zero-effect failure boundary, and that dispatching selected pipeline stages is deferred.
+- [x] A `v2/src/commands/workflow.test.ts` regression drives `jarvis run workflow implement` through its existing project-config and admission-facing entry point. A valid configured selection admits the legacy implement workflow, and the assertion fails against the pre-change baseline.
+- [x] The same regression gives that project an invalid selected definition and asserts the named resolver error plus zero run-row creations, zero external-worktree materializations (including stale-reset work), and zero agent invocations; it fails against the pre-change baseline and passes after the gate is wired.
+- [x] The command preserves the resolver's parse → lookup → override-target → validation precedence, and a failure at any phase reaches the operator before daemon start or all other admission effects.
+- [x] Inverting the admission-resolution guard or any failure-effect suppression guard makes the corresponding command regression fail; zero-effect assertions cover each suppressed effect.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/workflow-runner.md` documents validation before implement admission, the zero-effect failure boundary, and that dispatching selected pipeline stages is deferred.
 
 ## Documentation updates
 

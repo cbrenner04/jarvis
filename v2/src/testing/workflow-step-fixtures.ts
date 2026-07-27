@@ -12,12 +12,18 @@ export const DEFAULT_AGENT_MODEL_CONFIG = {
 };
 
 export function createBindingFactory(
-  invoke: (binding: { agentId: string; adapterModel: string; cwd: string }) => Promise<InvocationResult>,
+  invoke: (binding: {
+    agentId: string;
+    adapterModel: string;
+    cwd: string;
+    signal: AbortSignal | undefined;
+  }) => Promise<InvocationResult>,
 ): NonNullable<WriteWorkflowStep["createBinding"]> {
   return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => {
     return {
       id: `${agentId}/${adapterModel}`,
-      invoke: ({ cwd }: Parameters<InvocationBinding["invoke"]>[0]) => invoke({ agentId, adapterModel, cwd }),
+      invoke: ({ cwd, signal }: Parameters<InvocationBinding["invoke"]>[0]) =>
+        invoke({ agentId, adapterModel, cwd, signal }),
       metadata: { agent: agentId, model: adapterModel },
     } satisfies InvocationBinding;
   };
@@ -32,8 +38,17 @@ export const doneWithArtifactBindingFactory = createBindingFactory(async ({ cwd 
   return { kind: "ok", stdout: "done", stderr: "" } as const;
 });
 
-/** Never settles, so the step's write loop stays live for the duration of the test. */
-export const neverResolvingBindingFactory = createBindingFactory(() => new Promise<InvocationResult>(() => {}));
+/**
+ * Never settles on its own, so the step's write loop stays live for the duration of the test.
+ * Reacts to `signal` so tests that abort or watchdog-timeout it still observe quiescence
+ * (a settled, rejected invocation) rather than hanging the write loop indefinitely.
+ */
+export const neverResolvingBindingFactory = createBindingFactory(
+  ({ signal }) =>
+    new Promise<InvocationResult>((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }),
+);
 
 /** Call once per test file; wires temp-root cleanup and returns a write-step builder. */
 export function writeStepFixtures(): {

@@ -52,7 +52,7 @@ export type RuntimeSmokeOutcomeEvent =
       discoveryReason: string;
     };
 
-/** Emitted on every `progress` iteration: the per-iteration commit made, or why it was skipped. */
+/** Emitted on every settled main-loop iteration: the per-iteration commit made, or why it was skipped. */
 export type IterationCommitEvent =
   | {
       kind: "iteration_commit";
@@ -62,7 +62,7 @@ export type IterationCommitEvent =
   | {
       kind: "iteration_commit";
       attemptId: string;
-      skipReason: "no_git" | "no_file_changes";
+      skipReason: "no_git" | "no_file_changes" | "no_binding";
     };
 
 export type RunExecutionFailedEvent = {

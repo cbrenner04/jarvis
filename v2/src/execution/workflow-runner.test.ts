@@ -1638,15 +1638,20 @@ describe("executeWorkflow", () => {
       });
       expect(implementRun).not.toBeNull();
       expect(shrinkRun).not.toBeNull();
+      const implementRunId = implementRun?.id;
+      const shrinkRunId = shrinkRun?.id;
+      expect(implementRunId).toBeDefined();
+      expect(shrinkRunId).toBeDefined();
+      if (implementRunId === undefined || shrinkRunId === undefined) {
+        throw new Error("expected implement and shrink runs");
+      }
 
       const implementDetail = logSink
-        .getEventsForRun(implementRun!.id)
+        .getEventsForRun(implementRunId)
         .find((event) => event.kind === "contract_miss_detail");
       expect(implementDetail).toBeUndefined();
 
-      const shrinkDetail = logSink
-        .getEventsForRun(shrinkRun!.id)
-        .find((event) => event.kind === "contract_miss_detail");
+      const shrinkDetail = logSink.getEventsForRun(shrinkRunId).find((event) => event.kind === "contract_miss_detail");
       expect(shrinkDetail).toMatchObject({
         kind: "contract_miss_detail",
         failedContractId: "artifact.exists",
@@ -1676,8 +1681,17 @@ describe("executeWorkflow", () => {
         branch: branchName,
         stepId: "implement~shrink",
       });
+      expect(shrinkRun).not.toBeNull();
       expect(shrinkRun?.status).toBe("paused");
-      const terminal = logSink.getEventsForRun(shrinkRun!.id).filter((event) => event.kind === "loop_finished").at(-1);
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
       expect(terminal).toMatchObject({ loopOutcomeKind: "contract_miss", resumable: true });
     });
   });
@@ -1727,11 +1741,7 @@ describe("executeWorkflow", () => {
     const branchName = "implement-contract-miss-non-resumable";
     const { step, workspace } = createImplementBodySummaryStep(branchName);
     const subspecPath = join(IMPLEMENT_BODY_SPEC_PATH, "00-first.md");
-    writeFileSync(
-      join(workspace, subspecPath),
-      "# First\n\n## Acceptance criteria\n\n- [ ] ship it\n",
-      "utf8",
-    );
+    writeFileSync(join(workspace, subspecPath), "# First\n\n## Acceptance criteria\n\n- [ ] ship it\n", "utf8");
     step.expectedArtifactPath = subspecPath;
     step.createBinding = doneBindingFactory;
 
@@ -1766,8 +1776,17 @@ describe("executeWorkflow", () => {
         branch: branchName,
         stepId: "implement~shrink",
       });
+      expect(shrinkRun).not.toBeNull();
       expect(shrinkRun?.status).toBe("blocked");
-      const terminal = logSink.getEventsForRun(shrinkRun!.id).filter((event) => event.kind === "loop_finished").at(-1);
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
       expect(terminal).toMatchObject({ loopOutcomeKind: "blocked", resumable: false });
     });
   });
@@ -1790,8 +1809,17 @@ describe("executeWorkflow", () => {
         branch: branchName,
         stepId: "implement~shrink",
       });
+      expect(shrinkRun).not.toBeNull();
       expect(shrinkRun?.status).toBe("paused");
-      const terminal = logSink.getEventsForRun(shrinkRun!.id).filter((event) => event.kind === "loop_finished").at(-1);
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
       expect(terminal).toMatchObject({ resumable: true });
     });
   });

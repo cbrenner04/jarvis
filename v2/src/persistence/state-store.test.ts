@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import { isOwnerAlive, openStateStore, type StateStore } from "./state-store";
+import { isOwnerAlive, type OwnerLivenessProbe, openStateStore, type StateStore } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
@@ -508,7 +508,7 @@ describe("pipelines", () => {
     expect(pipeline.stages.map((stage) => stage.position)).toEqual([0, 1, 2]);
   });
 
-  test("retains the admitted definition name and snapshot after the live source definition is mutated, and stores no pipeline status", () => {
+  test("retains the admitted definition name and snapshot after the live source definition is mutated, and stamps owner/status at admission", () => {
     const definition: PipelineDefinition = {
       name: "mutable-source",
       stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
@@ -528,14 +528,8 @@ describe("pipelines", () => {
       stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
     });
     expect(pipeline.stages).toHaveLength(1);
-
-    const raw = new Database(TEST_DB_PATH);
-    try {
-      const columns = raw.prepare("PRAGMA table_info(pipelines)").all() as Array<{ name: string }>;
-      expect(columns.map((column) => column.name)).not.toContain("status");
-    } finally {
-      raw.close();
-    }
+    expect(pipeline.status).toBe("active");
+    expect(pipeline.ownerIdentity).not.toBeNull();
   });
 
   test("a deterministic fault after a prior stage insert rolls back the pipeline and all its stages", () => {
@@ -775,6 +769,20 @@ describe("pipelines", () => {
     expect(implement.failureDetail).toBeNull();
   });
 
+  test("createPipeline stamps owner_identity and status='active'; loadPipeline reads both back across close and reopen", () => {
+    const identity = "admitter:1234";
+    store.close();
+    store = openStateStore(TEST_DB_PATH, { currentIdentity: identity });
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+    expect(pipeline.ownerIdentity).toBe(identity);
+    expect(pipeline.status).toBe("active");
+  });
+
   test("a fixture created with the pre-change migrations upgrades and can then admit and load a pipeline", () => {
     const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-pipelines.sqlite");
     removeOrchestrationStore(legacyDbPath);
@@ -852,7 +860,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(10);
+      expect(migrationCount.total).toBe(11);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -868,6 +876,204 @@ describe("pipelines", () => {
     } finally {
       removeOrchestrationStore(legacyDbPath);
     }
+  });
+});
+
+describe("pipeline reconciliation", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function openSweepStore(isOwnerAliveProbe: OwnerLivenessProbe): StateStore {
+    return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
+  }
+
+  /** Admit a pipeline via `seedStore` (owner = PRIOR_IDENTITY), then overwrite owner and per-stage statuses directly. */
+  function seedPipeline(ownerIdentity: string | null, stageStatuses: string[]): string {
+    const pipelineId = seedStore.createPipeline({
+      definition: {
+        name: "sweep-pipeline",
+        stages: stageStatuses.map((_, index) => ({ stageId: `stage-${index}`, kind: "approval" })),
+      },
+    });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET owner_identity = ? WHERE id = ?").run(ownerIdentity, pipelineId);
+      stageStatuses.forEach((status, index) => {
+        raw
+          .prepare("UPDATE pipeline_stages SET status = ? WHERE pipeline_id = ? AND stage_id = ?")
+          .run(status, pipelineId, `stage-${index}`);
+      });
+    } finally {
+      raw.close();
+    }
+    return pipelineId;
+  }
+
+  test("settles a dead-owner pipeline with a mid-stage active stage: pipeline and active stage interrupted, terminal stages untouched byte-for-byte, pending stages remain pending", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "in-progress", "pending"]);
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+    const succeededBefore = before.stages.find((stage) => stage.stageId === "stage-0");
+    const pendingBefore = before.stages.find((stage) => stage.stageId === "stage-2");
+
+    const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    if (!after) throw new Error("Pipeline should exist");
+    expect(after.status).toBe("interrupted");
+    expect(after.stages.find((stage) => stage.stageId === "stage-0")).toEqual(succeededBefore);
+    const active = after.stages.find((stage) => stage.stageId === "stage-1");
+    expect(active?.status).toBe("interrupted");
+    expect(active?.endedAt).not.toBeNull();
+    expect(after.stages.find((stage) => stage.stageId === "stage-2")).toEqual(pendingBefore);
+    sweepStore.close();
+  });
+
+  test("leaves a pipeline owned by a still-live different process unsettled and unchanged", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["in-progress"]);
+    const before = seedStore.loadPipeline(pipelineId);
+
+    const sweepStore = openSweepStore(async (identity) => identity === PRIOR_IDENTITY);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([]);
+    expect(sweepStore.loadPipeline(pipelineId)).toEqual(before);
+    sweepStore.close();
+  });
+
+  test("never settles a pipeline owned by the current process's own sweep", async () => {
+    const ownStore = openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY });
+    const pipelineId = ownStore.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    ownStore.close();
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([]);
+    expect(sweepStore.loadPipeline(pipelineId)?.status).toBe("active");
+    sweepStore.close();
+  });
+
+  test("re-running the sweep against an already-interrupted pipeline changes nothing and does not re-return its ID", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["in-progress"]);
+    const sweepStore = openSweepStore(async () => false);
+    const first = await sweepStore.reconcilePipelines();
+    expect(first).toEqual([pipelineId]);
+    const afterFirst = sweepStore.loadPipeline(pipelineId);
+
+    const second = await sweepStore.reconcilePipelines();
+
+    expect(second).toEqual([]);
+    expect(sweepStore.loadPipeline(pipelineId)).toEqual(afterFirst);
+    sweepStore.close();
+  });
+
+  test("settles a dead-owner pipeline with no active stage: every stage already terminal", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "failed"]);
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    expect(after?.status).toBe("interrupted");
+    expect(after?.stages).toEqual(before.stages);
+    sweepStore.close();
+  });
+
+  test("settles a dead-owner pipeline with no active stage: later stages pending, none active", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "pending"]);
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    expect(after?.status).toBe("interrupted");
+    expect(after?.stages).toEqual(before.stages);
+    sweepStore.close();
+  });
+
+  test("a NULL owner_identity (pre-migration row) is treated as orphaned with no liveness probe", async () => {
+    const pipelineId = seedPipeline(null, ["in-progress"]);
+
+    const sweepStore = openSweepStore(async () => {
+      throw new Error("liveness probe should not be called for a NULL owner");
+    });
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    expect(sweepStore.loadPipeline(pipelineId)?.status).toBe("interrupted");
+    sweepStore.close();
+  });
+
+  test("settling a dead-owner pipeline leaves an already-interrupted stage byte-for-byte unchanged, including its ended_at", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["interrupted", "in-progress"]);
+    const priorEndedAt = 12345;
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw
+        .prepare("UPDATE pipeline_stages SET ended_at = ? WHERE pipeline_id = ? AND stage_id = ?")
+        .run(priorEndedAt, pipelineId, "stage-0");
+    } finally {
+      raw.close();
+    }
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+    const alreadyInterruptedBefore = before.stages.find((stage) => stage.stageId === "stage-0");
+    expect(alreadyInterruptedBefore?.endedAt).toBe(priorEndedAt);
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    if (!after) throw new Error("Pipeline should exist");
+    expect(after.status).toBe("interrupted");
+    expect(after.stages.find((stage) => stage.stageId === "stage-0")).toEqual(alreadyInterruptedBefore);
+    const active = after.stages.find((stage) => stage.stageId === "stage-1");
+    expect(active?.status).toBe("interrupted");
+    sweepStore.close();
+  });
+
+  test("sweeps every dead-owner pipeline in one pass, leaving a live-owner pipeline untouched", async () => {
+    const firstOrphanId = seedPipeline(PRIOR_IDENTITY, ["in-progress"]);
+    const secondOrphanId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "in-progress"]);
+    const liveOwnerId = seedPipeline(PRIOR_IDENTITY, ["in-progress"]);
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET owner_identity = ? WHERE id = ?").run("33333:3000000", liveOwnerId);
+    } finally {
+      raw.close();
+    }
+    const liveBefore = seedStore.loadPipeline(liveOwnerId);
+
+    const sweepStore = openSweepStore(async (identity) => identity === "33333:3000000");
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(new Set(settled)).toEqual(new Set([firstOrphanId, secondOrphanId]));
+    expect(sweepStore.loadPipeline(firstOrphanId)?.status).toBe("interrupted");
+    expect(sweepStore.loadPipeline(secondOrphanId)?.status).toBe("interrupted");
+    expect(sweepStore.loadPipeline(liveOwnerId)).toEqual(liveBefore);
+    sweepStore.close();
   });
 });
 

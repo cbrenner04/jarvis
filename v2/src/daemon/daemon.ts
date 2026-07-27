@@ -1784,6 +1784,7 @@ export async function startDaemonRuntime(
   let reconciledRunIds: string[];
   try {
     reconciledRunIds = await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
+    await store.reconcilePipelines();
   } finally {
     reconciliationLogSink.close();
   }

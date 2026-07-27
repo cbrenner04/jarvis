@@ -95,8 +95,6 @@ type ActiveRun =
       abortController: AbortController;
     };
 
-let invertWorkflowKillAuthorizationForTests = false;
-
 const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
 
 /** Test seam: lookup a live run row for a specific handler instance. */
@@ -104,18 +102,19 @@ export function activeRunForHandler(handlers: object, id: string): ActiveRun | u
   return activeRunsByHandler.get(handlers)?.get(id);
 }
 
-export function setInvertWorkflowKillAuthorizationForTests(value: boolean): void {
-  invertWorkflowKillAuthorizationForTests = value;
-}
-
-/** Whether `kill` may abort the named durable run id (write-loop or live workflow row). */
+/**
+ * Whether `kill` may abort the named durable run id (write-loop or live workflow row).
+ *
+ * Authorization is liveness and identity only — deliberately no stall, idle-age, or progress
+ * predicate. Four prior attempts gated kill on a stall discriminant and all failed because every
+ * such signal coincides with the run terminating, so no `(live ∧ reapable)` state was observable.
+ */
 export function activeRunAcceptsKill(
   activeRun: ActiveRun | undefined,
   runId: string,
 ): activeRun is ActiveRun & { abortController: AbortController } {
   if (!activeRun || activeRun.runId !== runId) return false;
-  if (activeRun.kind === "write-loop") return true;
-  return activeRun.kind === "workflow" && !invertWorkflowKillAuthorizationForTests;
+  return activeRun.kind === "write-loop" || activeRun.kind === "workflow";
 }
 
 export class DaemonDoubleClaimError extends Error {

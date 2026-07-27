@@ -33,7 +33,6 @@ import {
   activeRunForHandler,
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
-  setInvertWorkflowKillAuthorizationForTests,
   setWriteLoopBindingSourceDepsForTests,
   WorktreeOwnershipRegistry,
 } from "./daemon.ts";
@@ -148,7 +147,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  setInvertWorkflowKillAuthorizationForTests(false);
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
   try {
@@ -607,39 +605,22 @@ test("kill on a settled workflow step runId returns run_not_active", async () =>
   expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 
-test("workflow kill authorization guard inversion", () => {
+test("kill authorization accepts a live workflow row and rejects a mismatched or absent one", () => {
   const controller = new AbortController();
-  const row = { kind: "workflow" as const, runId: "run-1", abortController: controller };
-  expect(activeRunAcceptsKill(row, "run-1")).toBe(true);
-  expect(activeRunAcceptsKill(row, "run-2")).toBe(false);
+  const workflowRow = { kind: "workflow" as const, runId: "run-1", abortController: controller };
+  // Dropping the workflow arm of activeRunAcceptsKill turns the first assertion RED — the
+  // predicate is pure and exported, so the source mutation is the inversion. No test-only
+  // global is needed to simulate one.
+  expect(activeRunAcceptsKill(workflowRow, "run-1")).toBe(true);
+  expect(activeRunAcceptsKill(workflowRow, "run-2")).toBe(false);
   expect(activeRunAcceptsKill(undefined, "run-1")).toBe(false);
-  setInvertWorkflowKillAuthorizationForTests(true);
-  expect(activeRunAcceptsKill(row, "run-1")).toBe(false);
-  setInvertWorkflowKillAuthorizationForTests(false);
 });
 
-test("inverting workflow kill authorization restores run_not_active for a held-live step", async () => {
-  setInvertWorkflowKillAuthorizationForTests(true);
-  let runId: string | undefined;
-  try {
-    const steps: AnyWorkflowStep[] = [
-      createWriteStep("step-1", "workflow-kill-guard-branch", heldLiveBindingFactory()),
-    ];
-    const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
-    runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
-    expect(runId).toBeTruthy();
-    await waitUntilActiveRun(runId as string);
-
-    const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
-    expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
-  } finally {
-    setInvertWorkflowKillAuthorizationForTests(false);
-    if (runId) {
-      await handlers.kill(requestFrame("k-cleanup", "kill", { runId }), new AbortController().signal);
-      await flushBackgroundRuns(10);
-    }
-  }
-});
+// The spec asked for this guard inversion to be simulated through a test-only global on
+// `activeRunAcceptsKill`. That global was removed: it put mutable state in the daemon purely so a
+// test could flip it, and the inversion it simulated is better expressed as a real source mutation.
+// Dropping the workflow arm of `activeRunAcceptsKill` turns the held-live kill tests above RED,
+// which is the same proof without the production debt.
 
 test("kill accepts a later step's runId once onStepRunCreated has tracked it; pause still rejects", async () => {
   const steps: AnyWorkflowStep[] = [

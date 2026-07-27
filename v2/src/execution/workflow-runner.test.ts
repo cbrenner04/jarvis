@@ -6974,6 +6974,78 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("selects on attempt-completion order even when it contradicts row-creation order", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-out-of-order", "implement: out of order");
+      const base = { project: "demo", specRef: "main", branch: "review-mutation/out-of-order" };
+      // Created first, completed *last* — the winner by completion order, the loser by creation order.
+      const firstCreatedId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-first-created",
+        specPath: "spec-first-created.md",
+        stepId: "implement~link-1",
+        workflowSnapshot: snapshot,
+      });
+      const created = Date.now();
+      while (Date.now() === created) {
+        /* busy-wait so the two rows carry distinct creation timestamps */
+      }
+      const secondCreatedId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-second-created",
+        specPath: "spec-second-created.md",
+        stepId: "implement~link-2",
+        workflowSnapshot: snapshot,
+      });
+
+      store.setRunStatus(secondCreatedId, "completed");
+      const secondAttemptId = store.recordAttemptStart(secondCreatedId);
+      store.commitCompletionBoundary({
+        attemptId: secondAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-second-created",
+      });
+
+      // Force a distinct millisecond so the two completion timestamps differ.
+      const boundary = Date.now();
+      while (Date.now() === boundary) {
+        /* busy-wait for the next millisecond */
+      }
+
+      store.setRunStatus(firstCreatedId, "completed");
+      const firstAttemptId = store.recordAttemptStart(firstCreatedId);
+      store.commitCompletionBoundary({
+        attemptId: firstAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-first-created",
+      });
+
+      const reviewRunId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-review",
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      // Attempt completion, not `createdAt`, decides: skipping uncompleted attempts must leave a real
+      // completion timestamp behind, or this falls back to creation order and picks the wrong row.
+      expect(resolved).toMatchObject({
+        ok: true,
+        context: {
+          specPath: "spec-first-created.md",
+          worktreePath: "/fake/out-of-order-first-created",
+          completionAgent: "codex-first-created",
+        },
+      });
+    });
+  });
+
   test("aggregates missing critic and actuator bindings before durable state", async () => {
     const step: ReviewWorkflowStep = {
       behavior: "review",

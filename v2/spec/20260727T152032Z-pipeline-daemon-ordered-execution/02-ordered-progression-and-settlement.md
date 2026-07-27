@@ -48,23 +48,23 @@
 
 ## Acceptance criteria
 
-- [ ] A test calls `pipeline_start`, disconnects the client immediately after receiving `pipelineId`, and — via a
+- [x] A test calls `pipeline_start`, disconnects the client immediately after receiving `pipelineId`, and — via a
       fresh connection or a direct `loadPipeline` read — observes stage two dispatch only after stage one's row
       reads `succeeded`, and the pipeline reach derived state `succeeded`; it fails against the pre-change code
       (no `pipeline_start` handler exists).
-- [ ] A workflow-only pipeline's stages dispatch in authored-position order; a controlled stage N+1 receives no
+- [x] A workflow-only pipeline's stages dispatch in authored-position order; a controlled stage N+1 receives no
       dispatch while stage N's row reads anything other than `succeeded`.
-- [ ] A stage that settles `failed` settles the pipeline `failed`, writes `skipped` to every later stage, and
+- [x] A stage that settles `failed` settles the pipeline `failed`, writes `skipped` to every later stage, and
       dispatches none of them; inverting the failure-stop guard (continuing past a `failed` stage) turns the
       test RED.
-- [ ] The derived pipeline state reads `succeeded` only once every workflow stage row reads `succeeded`;
+- [x] The derived pipeline state reads `succeeded` only once every workflow stage row reads `succeeded`;
       inverting the all-succeeded guard (reporting `succeeded` with an unsettled stage present) turns the test
       RED.
-- [ ] A pipeline whose next stage is an approval stage stops there: no dispatch, derived state
+- [x] A pipeline whose next stage is an approval stage stops there: no dispatch, derived state
       `awaiting-approval`, every later stage still `pending`; inverting the approval-stop guard (dispatching past
       an approval stage) turns the test RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` documents `pipeline_start`, daemon ownership after client disconnect, ordered
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` documents `pipeline_start`, daemon ownership after client disconnect, ordered
       progression, one-loop-per-pipeline idempotency, failure settlement with `skipped` stages, the
       approval-stage stop, refusal-as-failure, and the ownership-contention and observability deferrals;
       `v2/docs/state-store.md` documents the five derived pipeline states computed from stage rows.

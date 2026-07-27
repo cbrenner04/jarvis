@@ -15,7 +15,8 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // "eagerly provisions the managed worktree before dispatch for a linked implement step"
   // asserted 3 provisioning calls, got 2 under load; 26/26 pass idle (2026-07-26).
   "v2/src/daemon/daemon-workflow-start.test.ts",
-  // Real `bun run` subprocess probes hit the verifier's 10s wall clock under concurrent bun test load.
+  // Real git/bun/daemon subprocess probes exceed the 10s runtime-smoke wall clock when co-runners
+  // load the machine; isolated, the same file finishes in ~12s (2026-07-27).
   "v2/src/execution/runtime-smoke-verifier.test.ts",
 ];
 

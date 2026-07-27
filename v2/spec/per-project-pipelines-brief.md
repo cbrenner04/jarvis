@@ -1,6 +1,6 @@
 # Per-project pipelines — build brief
 
-Next meta-index phase after the [recovery batch](implement-queue.md#p0--recovery-batch-serialize-1--2--3). Plan this brief with `jarvis run workflow plan`, then implement. `--detach` (#2215) is on `main` — reuse its admission/detach contract for pipeline CLI surfaces.
+Next meta-index phase after the [recovery batch](implement-queue.md#p0--recovery-batch-serialize-1--2--3). **Do not send this brief to `plan`** — it is a brief, not a ready-intent. Each slice below has its own seed under `seeds/`; fan those out with `jarvis run workflow intent`, then `plan`, then implement. `--detach` (#2215) is on `main` — reuse its admission/detach contract for pipeline CLI surfaces.
 
 ## Product contract
 
@@ -16,12 +16,16 @@ Next meta-index phase after the [recovery batch](implement-queue.md#p0--recovery
 
 ## Minimum slices
 
-1. Schema + source definitions + validation
-2. Durable stage state + daemon execution
-3. Approve/reject + resume
-4. CLI start/list/wait/detach
-5. Configured final actions (draft PR / ready / merge)
-6. Docs + one e2e integration
+Serialize 1 → 2 → {3, 4} → 5 → 6. Each row is a seed; docs ride with each slice.
+
+| # | Slice | Seed |
+| --- | --- | --- |
+| 1 | Schema + source definitions + validation | `seeds/pipeline-definition-schema-and-validation.md` |
+| 2 | Durable stage state + daemon execution | `seeds/pipeline-durable-stage-state-and-daemon-execution.md` |
+| 3 | Approve/reject + resume | `seeds/pipeline-approval-stage-and-resume.md` |
+| 4 | CLI start/list/wait/detach | `seeds/pipeline-cli-start-list-wait-detach.md` |
+| 5 | Configured final actions (draft PR / ready / merge) | `seeds/pipeline-configured-final-actions.md` |
+| 6 | One e2e integration proof | `seeds/pipeline-end-to-end-integration-proof.md` |
 
 ## Serialize with TUI
 

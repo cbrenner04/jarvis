@@ -276,8 +276,6 @@ export type WorkflowRunnerInput = {
   readyFinalizer?: ReadyFinalizer;
   /** When set, suppresses reuse of completed runs from prior invocations, forcing new run rows. */
   freshDispatch?: boolean;
-  /** Test-only: negate `isPostCommitShrinkResumableOutcome` at the post-commit shrink settle seam. */
-  invertPostCommitShrinkResumableGuardForTest?: boolean;
 };
 
 function isWriteStep(step: AnyWorkflowStep): step is WriteWorkflowStep {
@@ -750,10 +748,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           worktreePath,
           expectedArtifactPath: step.expectedArtifactPath,
         });
-        const admitPostCommitShrinkResume = args.invertPostCommitShrinkResumableGuardForTest
-          ? !postCommitShrinkResumable
-          : postCommitShrinkResumable;
-        if (admitPostCommitShrinkResume) {
+        if (postCommitShrinkResumable) {
           // The implement output is already checkpointed. Leave only this shrink run resumable.
           shrinkResult = settlePostCommitShrinkForResume(store, args.logSink, shrinkResult);
         }

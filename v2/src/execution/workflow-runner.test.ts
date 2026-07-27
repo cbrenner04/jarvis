@@ -1824,27 +1824,12 @@ describe("executeWorkflow", () => {
     });
   });
 
-  test("post-commit shrink contract_miss resumability guard inversion", async () => {
-    const branchName = "post-commit-shrink-contract-miss-guard-inversion";
-    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
-      if (shrink) {
-        rmSync(join(cwd, "proof.txt"), { force: true });
-        return { kind: "ok", stdout: "done", stderr: "" };
-      }
-      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-      return { kind: "ok", stdout: "done", stderr: "" };
-    });
-
-    await withStateStore(async (store) => {
-      const result = await executeWorkflow({
-        steps: [step],
-        stateStore: store,
-        invertPostCommitShrinkResumableGuardForTest: true,
-      });
-
-      expect(result).toMatchObject({ kind: "contract_miss", resumable: false });
-    });
-  });
+  // The spec asked for this guard inversion to be simulated via an
+  // `invertPostCommitShrinkResumableGuardForTest` input field. That field was removed: it put a
+  // test-only branch on the production settle path. `isPostCommitShrinkResumableOutcome` is a pure
+  // exported predicate, so the inversion is a real source mutation — making its `contract_miss` arm
+  // return false turns `post-commit shrink contract_miss is resumable` RED, which is the same proof
+  // without the production branch.
 
   test("non-complete shrink outcome stops at the implement step without running later steps", async () => {
     const invoked: string[] = [];

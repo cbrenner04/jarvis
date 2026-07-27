@@ -29,6 +29,7 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
@@ -40,7 +41,7 @@ import {
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { survivingMutationLogFields } from "./ready-finalize.ts";
+import { SurvivingMutationError, survivingMutationLogFields } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -74,7 +75,9 @@ import {
   appendRuntimeSmokeOutcome,
   executeWriteLoop,
   getUncommittedPaths,
+  MAX_MUTATION_REPAIR_ATTEMPTS,
   publishWithReadyRepair,
+  runMutationRepairIteration,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -2265,7 +2268,7 @@ function resolveReviewRowHead(
  * pre-existing behavior.
  */
 function resolveReviewMutationRowHead(
-  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  run: Run,
   store: StateStore,
 ): ReviewRowHeadResolution {
   const snapshot = run.workflowSnapshot;
@@ -2285,7 +2288,7 @@ function resolveReviewMutationRowHead(
   const writeRun = writeStepId ? resolveDurableWriteSiblingRun(run, store, snapshot, writeStepId) : undefined;
   if (!writeRun) return { ok: false, message: "durable write step row not found" };
   const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
-  const completionAgent = reviewCompletionAgent(run) ?? reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
+  const completionAgent = reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
   return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent } };
 }
 
@@ -2591,7 +2594,7 @@ export async function resumePopulatedIntentPublication(
  * them onto a review-behavior row. `runtime_smoke_failed` is excluded: retrying this tail cannot
  * change a runtime-smoke outcome, so it never gets a second attempt.
  */
-const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
+export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
   "surviving_mutation_failed",
   "ready_gate_failed",
   "completion_commit_failed",
@@ -2616,6 +2619,32 @@ export type ReviewMutationResumeResolution =
   | { ok: true; context: ReviewMutationResumeContext }
   | { ok: false; message: string };
 
+/** Reconstruct a durable review-mutation row's write-sibling context without admitting its outcome. */
+export function resolveReviewMutationLineageContext(
+  run: Run,
+  store: StateStore,
+): ReviewMutationResumeResolution {
+  const head = resolveReviewMutationRowHead(run, store);
+  if (!head.ok) return head;
+  const { snapshot, writeStep, writeRun } = head.head;
+  const completionAgent = reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
+  return {
+    ok: true,
+    context: {
+      runId: run.id,
+      worktreePath: writeRun.worktreePath,
+      project: run.project,
+      branch: run.branch,
+      baseRef: writeRun.specRef,
+      specPath: writeRun.specPath,
+      invocationId: snapshot.invocationId,
+      landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
+      completionAgent,
+      creationTitleHint: snapshot.creationTitle,
+    },
+  };
+}
+
 /**
  * Admission and reconstruction for resuming a review-behavior row's `surviving_mutation_failed`
  * failure: the sibling durable write step already committed (landing, if any, already succeeded),
@@ -2627,48 +2656,28 @@ export function resolveReviewMutationResumeContext(
   store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
-  const head = resolveReviewMutationRowHead(run, store);
-  if (!head.ok) return head;
-  const { snapshot, writeStep, writeRun } = head.head;
+  const resolved = resolveReviewMutationLineageContext(run, store);
+  if (!resolved.ok) return resolved;
   if (
     terminalRecord?.event.kind !== "loop_finished" ||
     !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(terminalRecord.event.loopOutcomeKind)
   ) {
     return { ok: false, message: "run did not fail with a surviving mutation" };
   }
-  // Completion attribution follows the selected write row alone (its own completed boundary, then
-  // its configured agent) — the review row's own attempts never override it, so a conflicting
-  // completion agent recorded on the review row can't leak into publication attribution here.
-  const completionAgent = reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
-
-  return {
-    ok: true,
-    context: {
-      runId: run.id,
-      // Sourced from the selected write-step sibling, not the review row: a review row's own
-      // `worktreePath`/`specRef` are informational only and must never override the row that
-      // actually committed the mutation being re-verified.
-      worktreePath: writeRun.worktreePath,
-      project: run.project,
-      branch: run.branch,
-      baseRef: writeRun.specRef,
-      specPath: writeRun.specPath,
-      invocationId: snapshot.invocationId,
-      // `role: "plan"` alone is ambiguous: `plan`/`plan-reviewed` workflows share it with `intent`
-      // but land to `.jarvis-plan-stage/` (plan-tree, spec-template shape), not `.jarvis-intent-stage/`.
-      // `expectedArtifactPath` is the snapshot field that actually distinguishes them.
-      landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
-      completionAgent,
-      creationTitleHint: snapshot.creationTitle,
-    },
-  };
+  return resolved;
 }
 
 export type ReviewMutationResumeOutcome =
   | { ok: true; prNumber?: number; prUrl?: string }
   | { ok: false; message: string };
 
-export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps;
+export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
+  /** Present only for `implement.recover`; plain `run resume` remains agent-free. */
+  mutationRepair?: Pick<
+    WriteLoopInput,
+    "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
+  >;
+};
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
 function settleReviewMutationResumeFailure(
@@ -2763,6 +2772,181 @@ async function deriveReviewMutationResumeBodySummary(
   return { bodySummary, specTemplate: true };
 }
 
+function mutationRepairLoopInput(
+  context: ReviewMutationResumeContext,
+  deps: ReviewMutationResumeDeps,
+): WriteLoopInput | undefined {
+  const repair = deps.mutationRepair;
+  if (repair === undefined) return undefined;
+  return {
+    worktree: {
+      projectRoot: context.worktreePath,
+      projectName: context.project,
+      branchName: context.branch,
+      baseRef: context.baseRef,
+      git: false,
+      localPath: context.worktreePath,
+    },
+    specPath: context.specPath,
+    expectedArtifactPath: context.specPath,
+    bindings: repair.bindings,
+    stepRules: repair.stepRules,
+    // The ready-gate budget is independently enforced by `publishWithReadyRepair`; recovery's
+    // inert resume limit must not suppress its three repair attempts.
+    maxIterations: Number.POSITIVE_INFINITY,
+    ...(repair.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: repair.iterationTimeoutMs } : {}),
+    ...(repair.iterationCeilingMs !== undefined ? { iterationCeilingMs: repair.iterationCeilingMs } : {}),
+    ...(repair.idleOutputMs !== undefined ? { idleOutputMs: repair.idleOutputMs } : {}),
+    ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
+    ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
+    ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
+    ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+  };
+}
+
+function settleMutationRepairExhausted(
+  store: StateStore,
+  context: ReviewMutationResumeContext,
+  message: string,
+  iterationsConsumed: number,
+  deps: ReviewMutationResumeDeps,
+): ReviewMutationResumeOutcome {
+  const attemptId = store.recordAttemptStart(context.runId);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+  });
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "mutation_repair_exhausted",
+    iterationsConsumed,
+    resumable: false,
+  });
+  return { ok: false, message };
+}
+
+async function runMutationRepairContinuation(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  originalAttemptId: string,
+  initialError: SurvivingMutationError,
+  deps: ReviewMutationResumeDeps,
+  body: { bodySummary: string | undefined; specTemplate: boolean },
+): Promise<ReviewMutationResumeOutcome> {
+  const repairArgs = mutationRepairLoopInput(context, deps);
+  if (repairArgs === undefined) return { ok: false, message: initialError.message };
+
+  store.commitCompletionBoundary({ attemptId: originalAttemptId, runStatus: "in-progress", outcomeKind: "progress" });
+  deps.logSink?.append(context.runId, {
+    kind: "boundary_committed",
+    attemptId: originalAttemptId,
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  });
+
+  let mutationError = initialError;
+  for (let attempt = 1; attempt <= MAX_MUTATION_REPAIR_ATTEMPTS; attempt += 1) {
+    const result: WriteLoopResult = {
+      kind: "complete",
+      runId: context.runId,
+      iterationsConsumed: attempt - 1,
+      resumable: false,
+      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+    };
+    const repairOutcome = await runMutationRepairIteration(repairArgs, store, result, mutationError, attempt);
+    if (repairOutcome === "blocked") {
+      return settleMutationRepairExhausted(store, context, "Mutation repair agent reported blocked", attempt, deps);
+    }
+    if (repairOutcome === "unsettled") {
+      return settleMutationRepairExhausted(store, context, "Mutation repair agent did not settle", attempt, deps);
+    }
+
+    store.setRunStatus(context.runId, "in-progress");
+    const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
+    try {
+      await (deps.completionCommitter ?? createCompletionCommitter())({
+        worktreePath: context.worktreePath,
+        baseRef: context.baseRef,
+        specPath: context.specPath,
+        agent: context.completionAgent ?? "",
+        title: creationTitle,
+        forceDistinctCommit: true,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return settleReviewMutationResumeFailure(store, context, store.recordAttemptStart(context.runId), "completion_commit_failed", message, deps);
+    }
+
+    const verification = await verifyDiffDerivedMutations({
+      worktreePath: context.worktreePath,
+      runBase: context.baseRef,
+    });
+    if (verification.kind === "surviving-mutation") {
+      mutationError = new SurvivingMutationError(
+        verification.mutation,
+        verification.sourceSite.file,
+        verification.sourceSite.line,
+        verification.dualConstraint,
+      );
+      continue;
+    }
+
+    const publication = await publishWithReadyRepair(repairArgs, store, result, attempt, {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+      branch: context.branch,
+      creationTitle,
+      ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
+      ...(body.specTemplate ? { specTemplate: true } : {}),
+    });
+    if (publication.failure?.kind === "surviving_mutation_failed" && publication.failure.error instanceof SurvivingMutationError) {
+      mutationError = publication.failure.error;
+      continue;
+    }
+    if (publication.failure !== undefined) {
+      appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.failure.runtimeSmokeOutcome);
+      return settleReviewMutationResumeFailure(
+        store,
+        context,
+        store.recordAttemptStart(context.runId),
+        publication.failure.kind,
+        publication.failure.error?.message ?? publication.failure.kind,
+        deps,
+      );
+    }
+
+    const finalAttemptId = store.recordAttemptStart(context.runId);
+    appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+    store.commitCompletionBoundary({
+      attemptId: finalAttemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+    });
+    deps.logSink?.append(context.runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: publication.iterationsConsumed,
+      resumable: false,
+    });
+    return {
+      ok: true,
+      ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
+      ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+    };
+  }
+  return settleMutationRepairExhausted(
+    store,
+    context,
+    "Mutation survived every repair attempt",
+    MAX_MUTATION_REPAIR_ATTEMPTS,
+    deps,
+  );
+}
+
 /**
  * Commit any uncommitted worktree changes and run the shared mutation-reverification / ready-gate /
  * publication tail.
@@ -2806,6 +2990,16 @@ async function runReviewMutationCommitAndPublish(
 
   if (publication.failure !== undefined) {
     const failure = publication.failure;
+    if (failure.kind === "surviving_mutation_failed" && failure.error instanceof SurvivingMutationError && deps.mutationRepair) {
+      return await runMutationRepairContinuation(
+        context,
+        store,
+        attemptId,
+        failure.error,
+        deps,
+        { bodySummary, specTemplate },
+      );
+    }
     const isFlip = failure.kind === "ready_flip_failed";
     const message = failure.error?.message ?? failure.kind;
     const publicationFailure = publicationFailureFor(failure.error);

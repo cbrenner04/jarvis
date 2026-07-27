@@ -624,6 +624,47 @@ test("workflow entry wait and list report surviving_mutation_failed owned by a d
   );
 });
 
+test("workflow entry wait and list preserve mutation_repair_exhausted guidance", async () => {
+  const invocationId = "inv-entry-review-mutation-repair-exhausted";
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      { stepId: "implement", role: "implement", stepRules: "rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] },
+      { stepId: "implement-review", role: "review", behavior: "review" as const, stepRules: "rules", expectedArtifactPath: "/tmp/artifact", agents: ["codex"] },
+    ],
+  };
+  const base = {
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: "entry-review-mutation-repair-exhausted",
+    specPath: "/tmp/test-project/spec.md",
+    workflowSnapshot,
+  };
+  const entryRunId = stateStore.createRun({ ...base, stepId: "implement" });
+  const reviewRunId = stateStore.createRun({ ...base, stepId: "implement-review" });
+  finishLoop(entryRunId, "completed", 1);
+  stateStore.setRunStatus(reviewRunId, "failed");
+  logSink.append(reviewRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "mutation_repair_exhausted",
+    iterationsConsumed: 3,
+    resumable: false,
+  });
+
+  const expectedError = { reason: "mutation_repair_exhausted", retryable: false, nextAction: "inspect_spec" };
+  expect(await expectResponse(await waitDirect("entry-review-mutation-repair-exhausted", entryRunId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "mutation_repair_exhausted",
+    iterationsConsumed: 3,
+    resumable: false,
+    error: expectedError,
+  });
+  const list = await expectResponse(await listDirect());
+  const entry = (list.runs as Array<{ runId: string; error?: unknown }>).find((row) => row.runId === entryRunId);
+  expect(entry).toEqual(expect.objectContaining({ error: expectedError }));
+});
+
 test("workflow entry owner adoption stays confined to a failed rollup", async () => {
   const invocationId = "inv-entry-non-failed-rollup";
   const workflowSnapshot = {

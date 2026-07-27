@@ -411,8 +411,17 @@ The builder first resolves `specPath` from the caller's cwd, finds its registere
 project root, verifies that the resulting project-relative path exists in
 `baseRef`, then reads the source spec tree. If every non-human-only acceptance
 criterion is checked (across every linked subspec, or in a single file), it exits
-`1` with `implement.already_complete` before workflow construction, daemon contact,
-worktree creation, or a run row. Index link checkboxes do not determine this check.
+`1` with `implement.already_complete` before workflow construction, worktree creation,
+or a run row. Index link checkboxes do not determine this check. A fully ticked implement
+spec first asks the daemon to recover its own failed review-mutation lineage. The daemon
+uses the newest durable failed review/review-debate row for the resolved `(project, branch)`
+whose completed write sibling wrote that spec, admitting only
+`surviving_mutation_failed`, `ready_gate_failed`, or `completion_commit_failed`. It verifies
+the retained worktree and local branch and refuses a live claim as `worktree_claimed`; a
+retired worktree or branch is `implement.recovery_target_missing`. An admitted
+`implement.recover` runs only mutation re-verification, ready-gate repair, and publication:
+it never resets the workspace or re-enters the write step. No admitted lineage falls through
+to the ordinary `implement.already_complete` preflight.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
@@ -854,5 +863,7 @@ The publication tail (status transitions and the terminal `loop_finished`) settl
 For publication and ready-flip failures, the result and terminal row also retain normalized operation, message, exit code, and bounded labelled stdout/stderr tails. Ready-flip failures record `resumable: false` in the `loop_finished` terminal row. A successful runtime verifier appends a separate `runtime_smoke_outcome`: `{ outcome: "observed-clean" }` for an executed clean probe, or `{ outcome: "not-runnable", inspectedPaths: string[], discoveryReason: string }` when discovery found no runnable surface. The latter fields are required and `discoveryReason` is non-empty.
 
 ## Ready gate repair
+
+Implement recovery also has bounded mutation repair. `write.mutation-repair` may run at most `MAX_MUTATION_REPAIR_ATTEMPTS` (3) times; each repaired commit is fully mutation-reverified before its ready gate and can independently enter the existing `MAX_READY_GATE_REPAIRS` (3) loop. One recovery can therefore invoke up to `3 × (1 + 3) = 12` agents. A surviving, blocked, or unsettled repair settles `mutation_repair_exhausted` and requires operator intervention.
 
 When the ready gate raises `ReadyGateError` during publication, the workflow runs a bounded repair loop: it reprompts the agent with the gate failure details, records the boundary, re-commits, and republishes up to 3 times (configurable via `MAX_READY_GATE_REPAIRS`). Each repair iteration consumes an iteration from the workflow's budget; repair stops early if the agent returns `blocked`. A deadline-killed gate (detected via exit code 124 or a deadline-kill marker in the output) skips repair, emits a `ready_gate_timeout` log event instead, and settles immediately as `ready_gate_failed` for resumption; this is a budget kill, not a red gate. Non-`ReadyGateError` failures (ready-flip failures) skip repair and settle immediately as `ready_flip_failed`. Repair iterations are recorded as `ready_gate_repair` log events with attempt count and gate exit code.

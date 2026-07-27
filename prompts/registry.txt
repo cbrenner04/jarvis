@@ -26,6 +26,7 @@ write/principles.md
 write/token-reprompt.md
 write/blocker-reprompt.md
 write/ready-repair.md
+write/mutation-repair.md
 write/coverage-advisory.md
 prompt/instructions.md
 prompt/rules.md

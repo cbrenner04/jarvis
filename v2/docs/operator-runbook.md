@@ -457,6 +457,8 @@ Mutation verification requires expectations independent of the mutated productio
 
 A `surviving_mutation_failed` outcome whose site is a timer callback in a determinism-guarded root (v2/src/daemon or v2/src/execution .test.ts) names both constraints: the natural kill test (which is forbidden by the determinism guard's real-timer prohibition) and the fix (extract the guard into a pure exported predicate and test both truth directions directly without a real-timer wait, then resume). Codify the extracted predicate directly in the guarded suite's test file and verify its coverage independently.
 
+`surviving_mutation_failed` → `jarvis run resume` applies before implement recovery exhausts its bounded repair attempts. `mutation_repair_exhausted` is not admitted again: manually fix and publish the retained worktree, or untick criteria before a fresh implement run.
+
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.
 
 A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
@@ -1105,19 +1107,21 @@ Operators add bullets here; delete when fixed.
   projected `unsupported_resume_context` and `run resume` refused on step *kind* — three surfaces,
   three answers. Seed: `resume-refuses-the-review-row-it-advertises`.
 
-  **No jarvis-native recovery once acceptance criteria are already ticked still applies.** If the
-  agent ticked every acceptance criterion before the mutation failure, `jarvis run workflow implement`
-  also exits `1` with `implement.already_complete`, because preflight reads the spec tree and finds no
-  unchecked work. Resume admits the row (per above) but there is nothing left to re-run automatically
-  in that specific case; recovery is manual: write the missing coverage in the run's worktree, verify
-  the mutation dies, commit, push, `gh pr ready`, merge. Done twice on 2026-07-26 (#2201, #2212). Seed:
-  `ticked-criteria-plus-mutation-failure-is-unrecoverable`. **Commit first:** mutation verification and
+  **Ticked mutation failures recover through implement.** If the agent ticked every acceptance
+  criterion before the mutation failure, rerun `jarvis run workflow implement` with the same branch
+  and spec. It finds the retained lineage and runs only mutation re-verification, gate repair, and
+  publication; it does not untick criteria or replay the write step. **Commit first:** mutation verification and
   body-summary derivation are diff-derived against the base ref; fix coverage in the worktree and let
   `run resume` commit it (or `git commit` it yourself first) — an uncommitted fix either gets committed
   by the resume tail or settles a named `completion_commit_failed` failure, it is never silently
   re-verified against the stale diff. A resumed row that itself settles `ready_gate_failed` or
   `completion_commit_failed` (not just a repeat `surviving_mutation_failed`) is admitted by a further
   `run resume` on the same row; a `runtime_smoke_failed` settlement from this tail is not.
+  When the criteria are already ticked, `jarvis run workflow implement --base <ref> --spec <path>`
+  finds the newest matching failed mutation-finalization row itself and retries that tail without
+  unticking or replaying the agent write step. `implement.recovery_target_missing` means its retained
+  worktree or branch was cleaned up; `worktree_claimed` means another live run owns it. Both refuse
+  without changing the workspace.
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Test doubles must not call production behavior (shipped 2026-07-22):** Fixtures under `v2/src/testing/**` are statically guarded by `scripts/guard-test-double-production-calls.ts` (runs as part of `bun run check`). Test doubles that compute responses by calling production behavior violate the guard and must be refactored to use direct value returns or allowlisted entry points (state-store, daemon-lifecycle, CLI main). Type-only imports, unused constants, and calls to allowlisted builders are permitted. See [`v2/docs/test-writing.md` § Test doubles must not call production behavior](./test-writing.md#test-doubles-must-not-call-production-behavior).
 - **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding

@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -29,7 +29,9 @@ import {
   type IntentFinalizationResumeDeps,
   LinkedIndexReadError,
   type ReviewProgress,
+  REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS,
   resolveIntentFinalizationResumeContext,
+  resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
@@ -93,6 +95,10 @@ type ActiveRun =
       kind: "workflow";
       runId: string;
       abortController: AbortController;
+    }
+  | {
+      kind: "finalization";
+      runId: string;
     };
 
 const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
@@ -603,7 +609,7 @@ function workflowEntrySnapshot(run: LoadedRun | undefined): WorkflowSnapshot | u
   return run?.stepId === snapshot.steps[0]?.stepId ? snapshot : undefined;
 }
 
-function workflowSurvivingMutationOwner(
+function workflowReviewMutationOwner(
   entryRun: LoadedRun,
   rollupStatus: RunStatus,
   siblingRuns: LoadedRun[],
@@ -616,7 +622,8 @@ function workflowSurvivingMutationOwner(
     const terminalRecord = findTerminalLogRecord(reader?.tail(sibling.id) ?? []);
     if (
       terminalRecord?.event.kind !== "loop_finished" ||
-      terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed"
+      (terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed" &&
+        terminalRecord.event.loopOutcomeKind !== "mutation_repair_exhausted")
     ) {
       continue;
     }
@@ -644,7 +651,12 @@ export function projectWorkflowEntryResult(
       : {}),
     ...(entryResult?.error === undefined
       ? {}
-      : { error: entryCanResume ? entryResult.error : { ...entryResult.error, retryable: false, nextAction: "stop" } }),
+      : {
+          error:
+            entryCanResume || entryResult.error.reason === "mutation_repair_exhausted"
+              ? entryResult.error
+              : { ...entryResult.error, retryable: false, nextAction: "stop" },
+        }),
   };
 }
 
@@ -794,7 +806,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       .findRunsByInvocationId(snapshot.invocationId)
       .map((run) => store.loadRun(run.id))
       .filter((run): run is LoadedRun => run !== undefined);
-    const owner = workflowSurvivingMutationOwner(entryRun, rollupStatus, siblingRuns, logReader);
+    const owner = workflowReviewMutationOwner(entryRun, rollupStatus, siblingRuns, logReader);
     if (owner === undefined) {
       return resultFrom(entryRun.id, rollupStatus, entryRecord);
     }
@@ -1308,11 +1320,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     run: LoadedRun,
     key: OwnershipKey,
     execute: (deps: IntentFinalizationResumeDeps) => Promise<{ ok: true } | { ok: false; message: string }>,
+    failureAsResponse = false,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     const claimError = checkWorktreeClaimed(_registry, key);
     if (claimError) return claimError;
     _registry.claim(key, { runId: run.id, worktreePath: run.worktreePath });
     const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+    const activeKey = ownershipKeyString(key);
+    activeRuns.set(activeKey, { kind: "finalization", runId: run.id });
     try {
       const resumeDeps: IntentFinalizationResumeDeps = {
         ...intentFinalizationResumeDeps,
@@ -1320,13 +1335,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       };
       const outcome = await execute(resumeDeps);
       if (!outcome.ok) {
+        if (failureAsResponse) return { kind: "response", result: outcome };
         return { kind: "error", code: "internal_error", message: outcome.message };
       }
-      return { kind: "response", result: { ok: true } };
+      return { kind: "response", result: outcome };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const attemptId = store.recordAttemptStart(run.id);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+      });
+      logSink?.append(run.id, {
+        kind: "loop_finished",
+        loopOutcomeKind: "invocation_failure",
+        iterationsConsumed: 0,
+        resumable: false,
+      });
       return { kind: "error", code: "internal_error", message };
     } finally {
+      activeRuns.delete(activeKey);
       logSink?.close();
       _registry.release(key);
     }
@@ -1354,6 +1384,125 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     key: OwnershipKey,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> =>
     resumeFinalizationOnly(run, key, (deps) => resumeReviewMutationFinalization(run, store, terminalRecord, deps));
+
+  const implementRecoverHandler: RpcHandler = async (frame) => {
+    if (retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+    const params = frame.params as {
+      project?: string;
+      branch?: string;
+      specPath?: string;
+      detach?: boolean;
+      mutationRepair?: {
+        agents?: readonly string[];
+        agentModelConfig?: AgentModelConfig;
+        stepRules?: string;
+        iterationTimeoutMs?: number;
+        iterationCeilingMs?: number;
+        idleOutputMs?: number;
+      };
+    } | undefined;
+    if (
+      typeof params?.project !== "string" ||
+      typeof params.branch !== "string" ||
+      typeof params.specPath !== "string"
+    ) {
+      return { kind: "error", code: "invalid_params", message: "project, branch, and specPath required" };
+    }
+
+    const key: OwnershipKey = { project: params.project, branch: params.branch };
+    for (const row of store.findReviewMutationLineageRows(key)) {
+      const resolved = resolveReviewMutationLineageContext(row, store);
+      if (!resolved.ok || resolved.context.specPath !== params.specPath) continue;
+      const run = store.loadRun(row.id);
+      if (!run) continue;
+      const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(run.id)) : undefined;
+      const outcomeKind =
+        terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined;
+      if (outcomeKind === undefined || !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(outcomeKind)) {
+        return { kind: "response", result: { kind: "not_admitted" } };
+      }
+
+      if (!existsSync(resolved.context.worktreePath)) {
+        return {
+          kind: "error",
+          code: "implement.recovery_target_missing",
+          message: `Recovery worktree missing: ${resolved.context.worktreePath}`,
+        };
+      }
+      try {
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["rev-parse", "--verify", `refs/heads/${resolved.context.branch}`],
+          resolved.context.worktreePath,
+          { stdio: "ignore" },
+        );
+      } catch {
+        return {
+          kind: "error",
+          code: "implement.recovery_target_missing",
+          message: `Recovery branch missing: ${resolved.context.branch}`,
+        };
+      }
+
+      const claimError = checkWorktreeClaimed(_registry, key);
+      if (claimError) return claimError;
+      const repair = params.mutationRepair;
+      const mutationRepair =
+        repair !== undefined &&
+        Array.isArray(repair.agents) &&
+        repair.agentModelConfig !== undefined &&
+        typeof repair.stepRules === "string"
+          ? {
+              bindings: resolveInvocationBindings(
+                resolveExecutableRole("implement"),
+                repair.agents,
+                repair.agentModelConfig,
+                createResolvedAgentBinding,
+              ),
+              stepRules: repair.stepRules,
+              ...(repair.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: repair.iterationTimeoutMs } : {}),
+              ...(repair.iterationCeilingMs !== undefined ? { iterationCeilingMs: repair.iterationCeilingMs } : {}),
+              ...(repair.idleOutputMs !== undefined ? { idleOutputMs: repair.idleOutputMs } : {}),
+            }
+          : undefined;
+      if (params.detach === true) {
+        void resumeFinalizationOnly(
+          run,
+          key,
+          (deps) => resumeReviewMutationFinalization(run, store, terminalRecord, { ...deps, ...(mutationRepair ? { mutationRepair } : {}) }),
+          true,
+        );
+        return { kind: "response", result: { kind: "admitted", ok: true } };
+      }
+      const outcome = await resumeFinalizationOnly(
+        run,
+        key,
+        (deps) => resumeReviewMutationFinalization(run, store, terminalRecord, { ...deps, ...(mutationRepair ? { mutationRepair } : {}) }),
+        true,
+      );
+      if (outcome.kind === "error") return outcome;
+      const result = outcome.result as { ok?: unknown; message?: unknown; prNumber?: unknown; prUrl?: unknown };
+      return {
+        kind: "response",
+        result:
+          result.ok === true
+            ? {
+                kind: "admitted",
+                ok: true,
+                ...(typeof result.prNumber === "number" ? { prNumber: result.prNumber } : {}),
+                ...(typeof result.prUrl === "string" ? { prUrl: result.prUrl } : {}),
+              }
+            : {
+                kind: "admitted",
+                ok: false,
+                message: typeof result.message === "string" ? result.message : "Recovery finalization failed",
+              },
+      };
+    }
+    return { kind: "response", result: { kind: "not_admitted" } };
+  };
 
   function terminalResumeBlocked(
     run: LoadedRun,
@@ -1511,6 +1660,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const handlersOut = {
     start: startHandler,
+    "implement.recover": implementRecoverHandler,
     check_workflow_start_claim: checkWorkflowStartClaimHandler,
     list: listHandler,
     pause: pauseHandler,

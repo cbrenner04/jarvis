@@ -28,6 +28,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "ready_gate_failed",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "mutation_repair_exhausted",
   "iteration_timeout",
   "idle_output_timeout",
   "unsupported_resume_context",
@@ -154,6 +155,9 @@ export function resolveFailedBlockedAttemptPrecedence(
   lastAttempt: Attempt | undefined,
   loopFinishedEvent: LoopFinishedEvent | undefined,
 ): RunOperatorError | undefined {
+  if (loopFinishedEvent?.loopOutcomeKind === "mutation_repair_exhausted") {
+    return mapFromLoopFinished(loopFinishedEvent, lastAttempt, false);
+  }
   if (loopFinishedEvent && resumableFinalizationLoopFinishedOutranksAttemptDetail(loopFinishedEvent)) {
     const fromFinalization = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true);
     if (fromFinalization) return fromFinalization;
@@ -194,6 +198,8 @@ function mapFromLoopFinished(
         ...op("surviving_mutation_failed", "resume", true),
         ...survivingMutationLogFields(event),
       };
+    case "mutation_repair_exhausted":
+      return op("mutation_repair_exhausted", "inspect_spec");
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
@@ -236,7 +242,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
   ready_flip_failed:
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
-  surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume",
+  surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume (before repair exhaustion)",
+  mutation_repair_exhausted: "manually fix and publish the worktree, or untick criteria before re-running implement",
   iteration_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
   idle_output_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",

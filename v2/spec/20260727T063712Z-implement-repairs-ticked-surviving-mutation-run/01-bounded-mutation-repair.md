@@ -78,37 +78,37 @@ terminal outcome instead of looping.
 
 ## Acceptance criteria
 
-- [ ] A new test in `v2/src/execution/workflow-runner.test.ts` drives implement-initiated recovery
+- [x] A new test in `v2/src/execution/workflow-runner.test.ts` drives implement-initiated recovery
       whose first re-verification finds a surviving mutation, proves one `write.mutation-repair`
       iteration runs in the retained worktree using implement-role bindings supplied by the current
       invocation (not the original run's stored args), and proves the killed mutation then passes
       full re-verification, the ready gate, publication, and settles `completed`; it fails against
       the baseline.
-- [ ] Repair that never kills the mutation across `MAX_MUTATION_REPAIR_ATTEMPTS` attempts stops at
+- [x] Repair that never kills the mutation across `MAX_MUTATION_REPAIR_ATTEMPTS` attempts stops at
       that bound and settles `mutation_repair_exhausted`; the run row is failed and its operator
       error reports `mutation_repair_exhausted` with `retryable: false` and `nextAction:
       "inspect_spec"`.
-- [ ] A repair iteration that settles `blocked`, and separately one that times out unsettled, each
+- [x] A repair iteration that settles `blocked`, and separately one that times out unsettled, each
       independently stop the tail without publishing and settle `mutation_repair_exhausted` (not a
       fresh budget-exhaustion count) — proving the tail does not retry past a blocked/unsettled
       iteration within the same invocation.
-- [ ] `jarvis run workflow implement` against a spec whose latest lineage row settled
+- [x] `jarvis run workflow implement` against a spec whose latest lineage row settled
       `mutation_repair_exhausted` returns `implement.already_complete` (not `implement.recover`
       admission) and starts no repair, no worktree claim, no agent invocation.
-- [ ] Repair records zero `patch.prompt.body` invocations and leaves every acceptance criterion
+- [x] Repair records zero `patch.prompt.body` invocations and leaves every acceptance criterion
       ticked.
-- [ ] A repair iteration's changes are committed and full mutation re-verification runs before the
+- [x] A repair iteration's changes are committed and full mutation re-verification runs before the
       ready gate; a gate-repair loop triggered by that commit (bounded by the existing
       `MAX_READY_GATE_REPAIRS`) is exercised at least once in the same test run, proving the two
       budgets compose rather than one silently absorbing the other.
-- [ ] `jarvis run resume` on the same owning row still runs the agent-free tail (`inertResumeWriteLoopInput`,
+- [x] `jarvis run resume` on the same owning row still runs the agent-free tail (`inertResumeWriteLoopInput`,
       `maxIterations: 0`) and invokes no repair agent; `v2/src/daemon/daemon-resume.test.ts`
       review-mutation coverage stays green.
-- [ ] Inverting the `MAX_MUTATION_REPAIR_ATTEMPTS` bound and inverting the implement-initiated
+- [x] Inverting the `MAX_MUTATION_REPAIR_ATTEMPTS` bound and inverting the implement-initiated
       bindings guard (so `run resume` would also receive bindings) each independently turn their
       corresponding negative case above RED, proving in each case that no repair agent ran beyond
       the bound, or that no repair agent ran at all on a plain resume.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

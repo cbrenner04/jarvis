@@ -1,3 +1,5 @@
+import { basename, dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -10,7 +12,14 @@ import {
   readReviewRoleTimeoutMs,
   resolveWritePathIterationBounds,
 } from "../config/machine-config-loader.ts";
+import { loadWorkflowSteps } from "../execution/workflow-loader.ts";
+import {
+  resolveImplementSpecIdentity,
+  validateImplementSpecTreeCompletion,
+} from "../execution/implement-workflow-steps.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type {
   WorkflowPresetBuilder,
   WorkflowPresetBuilderInput,
@@ -124,6 +133,75 @@ type ResolvedWorkflowPreset = {
 };
 
 type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }>;
+
+type ImplementRecoveryRequest = {
+  project: string;
+  branch: string;
+  specPath: string;
+  detach?: boolean;
+  mutationRepair?: {
+    agents: readonly string[];
+    agentModelConfig: AgentModelConfig;
+    stepRules: string;
+    iterationTimeoutMs: number;
+    iterationCeilingMs: number;
+    idleOutputMs?: number;
+  };
+};
+
+function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest["mutationRepair"] | undefined {
+  try {
+    const [step] = loadWorkflowSteps(
+      [
+        {
+          behavior: "write",
+          stepId: "implement",
+          role: "implement",
+          promptId: "patch.prompt.body",
+          stepRules: DEFAULT_WRITE_STEP_RULES,
+          worktree: { projectRoot: "", projectName: "", branchName: "", baseRef: "" },
+          specPath: "",
+          expectedArtifactPath: "",
+        },
+      ],
+      { machineConfigPath: deps.machineConfigPath },
+    );
+    if (step === undefined || step.behavior !== "write") return undefined;
+    const bounds = resolveWritePathIterationBounds(deps.machineConfigPath);
+    return {
+      agents: step.agents,
+      agentModelConfig: step.agentModelConfig,
+      stepRules: step.stepRules,
+      iterationTimeoutMs: bounds.iterationTimeoutMs,
+      iterationCeilingMs: bounds.iterationCeilingMs,
+      ...(bounds.idleOutputMs !== undefined ? { idleOutputMs: bounds.idleOutputMs } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveImplementRecoveryRequest(
+  parsed: Extract<ImplementWorkflowCliInput, { ok: true }>,
+  deps: CliDeps,
+): ImplementRecoveryRequest | undefined {
+  const registry = deps.readProjectRegistry();
+  const identity = resolveImplementSpecIdentity(deps.cwd(), parsed.specPath, registry);
+  if ("error" in identity) return undefined;
+  const completion = validateImplementSpecTreeCompletion(identity.absoluteSpecPath, identity.projectRoot, (path) =>
+    readFileSync(path, "utf8"),
+  );
+  if (completion !== "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria") {
+    return undefined;
+  }
+  const mutationRepair = resolveImplementMutationRepair(deps);
+  return {
+    project: identity.project,
+    branch: parsed.branchName ?? basename(dirname(identity.absoluteSpecPath)),
+    specPath: identity.specPath,
+    ...(mutationRepair !== undefined ? { mutationRepair } : {}),
+  };
+}
 
 function resolveWorkflowPresetBuilder(name: string | undefined, deps: CliDeps): ResolvedWorkflowPreset | undefined {
   if (name === undefined) return undefined;
@@ -274,6 +352,41 @@ async function startWorkflowRun(
   return waitForRunCompletion(client, attachWaitRunIdOverrideForTest ?? start.runId, io);
 }
 
+async function maybeRecoverImplement(
+  client: IpcClient,
+  recovery: ImplementRecoveryRequest | undefined,
+  detach: boolean,
+  io: Io,
+): Promise<{ admitted: boolean; exitCode: number }> {
+  if (recovery === undefined) return { admitted: false, exitCode: 0 };
+  let result: unknown;
+  try {
+    result = await request(client, "implement.recover", { ...recovery, ...(detach ? { detach: true } : {}) });
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return { admitted: true, exitCode: 1 };
+    }
+    throw error;
+  }
+  if (typeof result !== "object" || result === null || !("kind" in result)) {
+    io.stderr("invalid daemon response\n");
+    return { admitted: true, exitCode: 1 };
+  }
+  const recoveryResult = result as { kind: unknown; ok?: unknown; message?: unknown; prUrl?: unknown };
+  if (recoveryResult.kind === "not_admitted") return { admitted: false, exitCode: 0 };
+  if (recoveryResult.kind !== "admitted" || typeof recoveryResult.ok !== "boolean") {
+    io.stderr("invalid daemon response\n");
+    return { admitted: true, exitCode: 1 };
+  }
+  if (!recoveryResult.ok) {
+    io.stderr(`${typeof recoveryResult.message === "string" ? recoveryResult.message : "Recovery finalization failed"}\n`);
+    return { admitted: true, exitCode: 1 };
+  }
+  if (typeof recoveryResult.prUrl === "string") io.stdout(`${recoveryResult.prUrl}\n`);
+  return { admitted: true, exitCode: 0 };
+}
+
 function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string {
   const lines: string[] = ["Retirement destroyed artifacts:"];
   if (destroyed.worktreePath) lines.push(`  worktree: ${destroyed.worktreePath}`);
@@ -302,10 +415,22 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
   applyLegacyWorkflowAlias(parsed, alias, io);
   const builderInputResult = buildWorkflowBuilderInput(canonicalName, parsed, isIntentPreset, isPlanPreset, deps);
   if (!builderInputResult.ok) return 1;
-  const prepared = await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io);
-  if (!prepared.ok) return 1;
+  const recovery =
+    canonicalName === "implement"
+      ? resolveImplementRecoveryRequest(parsed as Extract<ImplementWorkflowCliInput, { ok: true }>, deps)
+      : undefined;
+  const initialPreparation =
+    recovery === undefined ? await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io) : undefined;
+  if (initialPreparation !== undefined && !initialPreparation.ok) return 1;
   let destroyedArtifacts: DestroyedArtifacts | undefined;
   const exitCode = await withConnectDispatch(io, deps, async (client) => {
+    if (canonicalName === "implement") {
+      const recovered = await maybeRecoverImplement(client, recovery, detach, io);
+      if (recovered.admitted) return recovered.exitCode;
+    }
+    const prepared =
+      initialPreparation ?? (await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io));
+    if (!prepared.ok) return 1;
     const resetExitCode = await maybeResetStaleWorkspace(
       canonicalName,
       prepared.built,

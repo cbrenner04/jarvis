@@ -2974,13 +2974,26 @@ describe("write loop", () => {
         },
       }));
       mock.module("./uncovered-changed-lines.ts", () => ({
-        reportUncoveredChangedLines: async () => ({ uncoveredSites: [{ file: "primary.txt", line: 1 }], reportText: "primary.txt:1" }),
+        reportUncoveredChangedLines: async () => ({
+          uncoveredSites: [{ file: "primary.txt", line: 1 }],
+          reportText: "primary.txt:1",
+        }),
       }));
       mock.module("../../../shared/invocation/execute.ts", () => ({
         executeWithQuotaFallback: async ({ cwd }: { cwd: string }) => {
-          advisorySawPrimary.push(existsSync(join(cwd, "primary.txt")) && execFileSync("git", ["-C", cwd, "status", "--porcelain"], { encoding: "utf8" }).trim() === "");
+          advisorySawPrimary.push(
+            existsSync(join(cwd, "primary.txt")) &&
+              execFileSync("git", ["-C", cwd, "status", "--porcelain"], { encoding: "utf8" }).trim() === "",
+          );
           writeFileSync(join(cwd, "advisory.txt"), "advisory\n");
-          return { attempts: [], final: { binding: { id: "advisory", metadata: { agent: "Primary Agent", model: "test" } }, result: { kind: "ok", stdout: "noted", stderr: "" } }, telemetryFailures: [] };
+          return {
+            attempts: [],
+            final: {
+              binding: { id: "advisory", metadata: { agent: "Primary Agent", model: "test" } },
+              result: { kind: "ok", stdout: "noted", stderr: "" },
+            },
+            telemetryFailures: [],
+          };
         },
       }));
 
@@ -3000,9 +3013,13 @@ describe("write loop", () => {
         });
         expect(result.kind).toBe("complete");
         expect(advisorySawPrimary).toEqual([true]);
-        expect(execFileSync("git", ["-C", worktreePath, "show", "HEAD:advisory.txt"], { encoding: "utf8" })).toBe("advisory\n");
+        expect(execFileSync("git", ["-C", worktreePath, "show", "HEAD:advisory.txt"], { encoding: "utf8" })).toBe(
+          "advisory\n",
+        );
         const events = sink.getEventsForRun(result.runId);
-        const commits = events.map((event, index) => ({ event, index })).filter(({ event }) => event.kind === "iteration_commit");
+        const commits = events
+          .map((event, index) => ({ event, index }))
+          .filter(({ event }) => event.kind === "iteration_commit");
         const advisory = events.findIndex((event) => event.kind === "coverage_advisory");
         const boundary = events.findIndex((event) => event.kind === "boundary_committed");
         expect(commits).toHaveLength(2);
@@ -3408,7 +3425,11 @@ describe("write loop", () => {
         expect(result.kind).toBe("complete");
         expect(gitIn(worktreePath, ["rev-parse", "HEAD"])).toBe(base);
         const events = sink.getEventsForRun(result.runId);
-        expect(events).toContainEqual({ kind: "iteration_commit", attemptId: expect.any(String), skipReason: "no_file_changes" });
+        expect(events).toContainEqual({
+          kind: "iteration_commit",
+          attemptId: expect.any(String),
+          skipReason: "no_file_changes",
+        });
         expect(events.findIndex((event) => event.kind === "iteration_commit")).toBeLessThan(
           events.findIndex((event) => event.kind === "boundary_committed"),
         );
@@ -3442,7 +3463,9 @@ describe("write loop", () => {
       }));
 
       try {
-        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { publishCompletion: false }));
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { publishCompletion: false }),
+        );
         expect(result.kind).toBe("iteration_commit_failed");
         expect(gitIn(worktreePath, ["rev-parse", "HEAD"])).toBe(base);
         expect(gitIn(worktreePath, ["status", "--porcelain"])).toContain("unattributed.txt");
@@ -3580,7 +3603,12 @@ describe("write loop", () => {
       ["invalid_token", { kind: "invalid_token", tokenText: "unknown", invocation: settledInvocation }],
       [
         "missing_blocker",
-        { kind: "missing_blocker", token: "blocked", responseText: "blocked without detail", invocation: settledInvocation },
+        {
+          kind: "missing_blocker",
+          token: "blocked",
+          responseText: "blocked without detail",
+          invocation: settledInvocation,
+        },
       ],
       ["invocation_failure", { kind: "invocation_failure", failureKind: "error", invocation: settledInvocation }],
       ["idle_output_timeout", { kind: "stall", invocation: settledInvocation }],
@@ -3707,7 +3735,9 @@ describe("write loop", () => {
         expect(failedRun?.status).toBe("failed");
         expect(failedRun?.attempts).toMatchObject([{ status: "in-progress", outcomeKind: null }]);
         expect(publisherCalls).toBe(0);
-        expect(sink.getEventsForRun(first.runId).filter((event) => event.kind === "boundary_committed")).toHaveLength(0);
+        expect(sink.getEventsForRun(first.runId).filter((event) => event.kind === "boundary_committed")).toHaveLength(
+          0,
+        );
 
         commitFails = false;
         const resumed = await executeWriteLoop(
@@ -4242,9 +4272,7 @@ describe("write loop", () => {
         expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
         const events = sink.getEventsForRun(result.runId);
         expect(events.findIndex((event) => event.kind === "iteration_commit")).toBeLessThan(
-          events.findIndex(
-            (event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout",
-          ),
+          events.findIndex((event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout"),
         );
       } finally {
         store.close();
@@ -4255,7 +4283,7 @@ describe("write loop", () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-kill-checkpoint-order";
-      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const _worktreePath = initGitWorktree(jarvisRoot, branchName);
       const store = openStateStore(stateDbPath);
       const sink = new TestLogSink();
       const kill = new AbortController();
@@ -4351,7 +4379,7 @@ describe("write loop", () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-watchdog-checkpoint-failure";
-      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const _worktreePath = initGitWorktree(jarvisRoot, branchName);
       const store = openStateStore(stateDbPath);
       const sink = new TestLogSink();
       const manual = createManualWallSchedule();
@@ -4426,7 +4454,7 @@ describe("write loop", () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-kill-checkpoint-failure";
-      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const _worktreePath = initGitWorktree(jarvisRoot, branchName);
       const store = openStateStore(stateDbPath);
       const sink = new TestLogSink();
       const kill = new AbortController();
@@ -4468,7 +4496,10 @@ describe("write loop", () => {
 
         expect(result).toMatchObject({ kind: "progress", resumable: true });
         expect(loadRunOnce(stateDbPath, runId)?.status).toBe("killed");
-        expect(sink.getEventsForRun(runId)).toContainEqual({ kind: "run_execution_failed", message: "kill checkpoint failed" });
+        expect(sink.getEventsForRun(runId)).toContainEqual({
+          kind: "run_execution_failed",
+          message: "kill checkpoint failed",
+        });
         expect(sink.getEventsForRun(runId).some((event) => event.kind === "boundary_committed")).toBe(false);
         expect(publisherCalls).toBe(0);
       } finally {

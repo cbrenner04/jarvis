@@ -185,7 +185,6 @@ async function runCoverageAdvisory(
   signal?: AbortSignal,
 ): Promise<{ responseText: string }> {
   try {
-
     const invocation = await executeWithQuotaFallback({
       prompt,
       cwd: worktreePath,

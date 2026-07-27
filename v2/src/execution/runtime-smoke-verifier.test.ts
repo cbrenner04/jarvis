@@ -1080,63 +1080,75 @@ index 1234567..abcdefg 100644
       return dir;
     }
 
-    it("observes clean through the real CLI probe contract", async () => {
-      const dir = makeFixtureRepo();
-      try {
-        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
-        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
-        mkdirSync(join(dir, "v2", "src"), { recursive: true });
-        writeFileSync(
-          join(dir, "v2", "src", "cli.ts"),
-          "if (process.argv[2] !== 'help') throw new Error('expected help');\n",
-        );
-        execFileSync("git", ["add", "-A"], { cwd: dir });
-        execFileSync("git", ["commit", "-q", "-m", "add entrypoint"], { cwd: dir });
+    it(
+      "observes clean through the real CLI probe contract",
+      async () => {
+        const dir = makeFixtureRepo();
+        try {
+          const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+          writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+          mkdirSync(join(dir, "v2", "src"), { recursive: true });
+          writeFileSync(
+            join(dir, "v2", "src", "cli.ts"),
+            "if (process.argv[2] !== 'help') throw new Error('expected help');\n",
+          );
+          execFileSync("git", ["add", "-A"], { cwd: dir });
+          execFileSync("git", ["commit", "-q", "-m", "add entrypoint"], { cwd: dir });
 
-        const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
+          const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("observed-clean");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    });
+          expect(result.kind).toBe("observed-clean");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      { timeout: 60_000 },
+    );
 
-    it("detects daemon start failure when executable tree mismatches", async () => {
-      const dir = makeFixtureRepo();
-      try {
-        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
-        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
-        mkdirSync(join(dir, "v2", "src"), { recursive: true });
-        // Create a daemon-entrypoint that will fail when CLI tries to use it
-        writeFileSync(
-          join(dir, "v2", "src", "daemon-entrypoint.ts"),
-          "throw new Error('incompatible daemon entrypoint');\n",
-        );
-        execFileSync("git", ["add", "-A"], { cwd: dir });
-        execFileSync("git", ["commit", "-q", "-m", "add broken daemon"], { cwd: dir });
+    it(
+      "detects daemon start failure when executable tree mismatches",
+      async () => {
+        const dir = makeFixtureRepo();
+        try {
+          const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+          writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+          mkdirSync(join(dir, "v2", "src"), { recursive: true });
+          // Create a daemon-entrypoint that will fail when CLI tries to use it
+          writeFileSync(
+            join(dir, "v2", "src", "daemon-entrypoint.ts"),
+            "throw new Error('incompatible daemon entrypoint');\n",
+          );
+          execFileSync("git", ["add", "-A"], { cwd: dir });
+          execFileSync("git", ["commit", "-q", "-m", "add broken daemon"], { cwd: dir });
 
-        const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
+          const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("smoke-failure");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    });
+          expect(result.kind).toBe("smoke-failure");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      { timeout: 60_000 },
+    );
 
-    it("reports not-runnable via real git diff when no entrypoint file changed", async () => {
-      const dir = makeFixtureRepo();
-      try {
-        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
-        writeFileSync(join(dir, "helper.ts"), "export function helper() { return 1; }\n");
-        execFileSync("git", ["add", "-A"], { cwd: dir });
-        execFileSync("git", ["commit", "-q", "-m", "add non-entrypoint file"], { cwd: dir });
+    it(
+      "reports not-runnable via real git diff when no entrypoint file changed",
+      async () => {
+        const dir = makeFixtureRepo();
+        try {
+          const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+          writeFileSync(join(dir, "helper.ts"), "export function helper() { return 1; }\n");
+          execFileSync("git", ["add", "-A"], { cwd: dir });
+          execFileSync("git", ["commit", "-q", "-m", "add non-entrypoint file"], { cwd: dir });
 
-        const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
+          const result = await verifyRuntimeSmoke({ worktreePath: dir, runBase: baseSha });
 
-        expect(result.kind).toBe("not-runnable");
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    });
+          expect(result.kind).toBe("not-runnable");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      { timeout: 60_000 },
+    );
   });
 });

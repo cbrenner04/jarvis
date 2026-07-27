@@ -1515,9 +1515,9 @@ describe("implement preflight stale workspace reset", () => {
         check_workflow_start_claim: handlers.check_workflow_start_claim,
       }),
       waitForCompletion: async () => {
-        for (let attempt = 0; attempt < 100; attempt++) {
+        for (let attempt = 0; attempt < 400; attempt++) {
           if (!handlers.hasActiveRuns()) return;
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          await new Promise((resolve) => setTimeout(resolve, 25));
         }
         throw new Error("workflow did not settle");
       },

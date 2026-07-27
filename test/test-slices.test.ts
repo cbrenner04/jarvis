@@ -111,6 +111,7 @@ describe("Test slice boundaries", () => {
 
   it("known load-sensitive daemon files are classified load-sensitive", () => {
     expect(isLoadSensitive("v2/src/daemon/daemon-workflow-start.test.ts")).toBeTrue();
+    expect(isLoadSensitive("v2/src/execution/runtime-smoke-verifier.test.ts")).toBeTrue();
     expect(isLoadSensitive("v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts")).toBeTrue();
   });
 

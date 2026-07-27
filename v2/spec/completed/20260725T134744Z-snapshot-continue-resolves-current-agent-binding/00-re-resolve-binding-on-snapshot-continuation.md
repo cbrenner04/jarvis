@@ -8,7 +8,7 @@ the gap is per-run replay on continuation and queue promotion.
 
 ## Decisions
 
-- Continuation **execution** resolves bindings from the current machine profile via the same loader path as fresh write-step admission, then `resolveWriteLoopBindings` for the step role; rules out passing snapshot `step.agentModelConfig` into `bindingResolution`. On-disk snapshot `agentModelConfig` may stay historical until a later change updates it — operators confirm the active rung from attempt telemetry (run-list binding truth is the sibling `run-list-reports-active-agent-binding` spec).
+- Continuation **execution** resolves bindings from the current machine profile via the same loader path as fresh write-step admission, then `resolveWriteLoopBindings` for the step role; rules out passing snapshot `step.agentModelConfig` into `bindingResolution`. On-disk snapshot `agentModelConfig` may stay historical until a later change updates it — operators confirm the active rung from attempt telemetry until `run list` agent/model columns ship (`v2/spec/tui-overhaul-brief.md`).
 - **Current machine profile** means the same resolution as fresh admission: committed profile file for the active `machineProfile` key in `~/.jarvis/config.json`, not only an in-file rung edit with an unchanged profile key.
 - Continuation keeps snapshot `step.agents` as the outer-loop scope; rules out re-reading `~/.jarvis/config.json` agent order in this change.
 - Re-resolve keeps today's shrink role mapping when loading rungs (hidden shrink step id → `shrink` role, same as `reconstructWriteResume` / `resolveExecutableRole`).
@@ -17,7 +17,7 @@ the gap is per-run replay on continuation and queue promotion.
 - **`--reset-despite-dirty`:** binding proof is continuation/admission-shaped — a successful re-run uses the same `resolveWriteLoopBindings` / fresh write-step admission path as a new step, not necessarily `reconstructWriteResume`. Docs state clean-slate re-dispatch picks up the current rung; optional dedicated workflow re-dispatch integration test only if admission coverage is insufficient.
 - **`role_timeout` / `role_stalled` / `retry_later`:** no separate workflow-layer snapshot-binding replay mode; review-phase re-dispatch is out of scope for implement write `adapterModel` re-resolve (does not claim shared binding behavior with resume).
 - Deferred to first consumer: explicit opt-out to replay snapshot-recorded binding for reproducibility.
-- No binding-replay path ships; run-list divergence is owned by `run-list-reports-active-agent-binding`.
+- No binding-replay path ships; run-list agent/model columns are owned by `v2/spec/tui-overhaul-brief.md`.
 - Out of scope: whether `~/.jarvis/config.json` `agents` / `machineProfile` selection shares snapshot replay — pin when a later caller needs it.
 
 ## Tasks

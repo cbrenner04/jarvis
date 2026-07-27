@@ -1,10 +1,27 @@
----
-name: daemon-inventory-and-retirement
+# TUI overhaul — build brief
+
+Meta-index phase after [per-project pipelines](per-project-pipelines-brief.md). Build against the pipeline state model so rows are not rewritten immediately.
+
+Folded from former `ready-intents/daemon-inventory-and-retirement.md` and
+`ready-intents/run-list-reports-active-agent-binding.md` (2026-07-27 priorities). Monitor honesty
+lives in `seeds/tui-monitor-row-honesty.md` — store/list fixes there may precede this phase; dropped-row
+chrome and the `e` keybinding stay here.
+
+## North star
+
+- Pipeline-first rows; expandable stages and constituent runs
+- Elapsed and completed times; active agent/model; queue/admission; current role
+- Honest terminal rows, attempts, errors, resumability
+- Cross-daemon inventory / retirement visibility
+- Approval/rejection controls for human gates
+- Keep log follow
+- **No tmux** — daemon already owns process lifecycle
+
 ---
 
-# Daemons are inventoried, log what blocks their exit, and are retired by cleanup
+## Daemon inventory and retirement
 
-## Problem
+### Problem
 
 On 2026-07-24 seventeen live daemons held `~/.jarvis/state/v2.sqlite` open. Nothing in the harness
 could see or clear them:
@@ -21,7 +38,7 @@ could see or clear them:
   exit is not established — candidates are that supersede was never delivered (peer discovery found no
   peers) and that `activeRuns` retained a stuck entry so `hasActiveRuns()` never went false.
 
-## Decisions
+### Decisions
 
 - Extend `jarvis daemon status` rather than add a subcommand — `status` is where an operator already
   looks, and the north star is fewer commands. Rules out a `daemon list`/`daemon ps` subcommand.
@@ -44,7 +61,7 @@ could see or clear them:
 - Retire via the daemon's own shutdown path, not a signal, so in-flight state is respected. Rules out
   `SIGKILL` by PID. The invoking/current daemon is never retired by cleanup.
 
-## Acceptance criteria
+### Acceptance criteria
 
 - [ ] `jarvis daemon status` lists every live keyed daemon with PID, socket, loaded digest, retiring
       state, and active-run count; a test with several live daemons fails if any one is hidden.
@@ -60,16 +77,54 @@ could see or clear them:
       run, untouched — naming each with its reason. Inverting either guard fails a test.
 - [ ] Dead-socket reaping still works unchanged.
 
-## Documentation updates
+### Documentation updates
 
 - `v2/docs/daemon-host.md` — the `status` reply shape covering all live daemons; the
   retirement-blocked log record and how to read it; cleanup's live-daemon retirement gate.
-- `v2/docs/operator-runbook.md` — § Overlapping daemons promises "once settled, the daemon disappears
-  on its own… no manual stop command is needed"; seventeen daemons over three days contradict that.
-  Replace it with how to inventory daemons and how cleanup retires them.
+- `v2/docs/operator-runbook.md` — § Overlapping daemons: how to inventory daemons and how cleanup
+  retires them.
 
-## Prerequisites
+### Plan order
 
-Plan as three subspecs in order: inventory (`status`), retirement instrumentation, cleanup
-retirement. Cleanup depends on the inventory's peer-socket query path — reuse it rather than adding a
-second one.
+Three subspecs: inventory (`status`), retirement instrumentation, cleanup retirement. Cleanup reuses
+the inventory peer-socket query path.
+
+---
+
+## Run list agent and model columns
+
+`jarvis run list` exposes status and workflow metadata but not which agent/model binding the active
+attempt is using. Operators discover `adapterModel` only from `telemetry.jsonl` after the run finishes.
+
+### Decisions
+
+- Daemon `list` run objects expose wire fields `agent` and `model` for the active attempt's resolved
+  binding.
+- `jarvis run list` extends the existing tab-separated row with `agent` and `model` columns (same
+  contract surface as `write-behavior.md`).
+- Fields reflect the binding actually used or about to be used for the current attempt, not merely the
+  first snapshot write.
+- Deferred: row-level “diverges from current profile” flag when a deliberate replay path ships.
+
+### Acceptance criteria
+
+- [ ] `jarvis run list` (daemon `list` wire) includes agent and model for the active attempt on each
+      run row; a test removes either field and fails.
+- [ ] CLI list rendering surfaces the same agent/model without reading telemetry; removing the
+      rendered fields fails the test.
+
+### Documentation updates
+
+- `v2/docs/v1-behaviors.md`, `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`,
+  `v2/docs/agent-model-config.md`, `v2/docs/operator-runbook.md` — list row agent/model fields.
+
+### Prerequisites
+
+`snapshot-continue-resolves-current-agent-binding` — **satisfied** (`v2/spec/completed/20260725T134744Z-snapshot-continue-resolves-current-agent-binding`).
+
+---
+
+## Monitor row honesty (seed)
+
+See `seeds/tui-monitor-row-honesty.md`. Split if needed: `finishedAtMs`, real `attempts`, and
+removing `setInvert*ForTest` globals may land before the full TUI phase.

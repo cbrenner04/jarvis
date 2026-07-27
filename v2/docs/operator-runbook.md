@@ -36,7 +36,7 @@ that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
 Prioritization for seeds and ready intents (operator-maintained):
-`.scratch/v2-seeds-ready-intents-prioritization.md`.
+`v2/spec/implement-queue.md`.
 
 Successful publication consumes the queue input only after its durable output
 lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
@@ -131,7 +131,7 @@ Template for a new gotcha:
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
 3. Register the jarvis repo if needed: `jarvis1 init` from the project root.
-4. Read `.scratch/v2-seeds-ready-intents-prioritization.md` for current gates.
+4. Read `v2/spec/implement-queue.md` for current gates.
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**
 

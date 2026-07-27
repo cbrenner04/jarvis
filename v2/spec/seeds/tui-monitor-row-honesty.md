@@ -1,5 +1,7 @@
 # The TUI monitor hides killed runs, miscounts attempts, and ships test flags
 
+Part of the [TUI overhaul brief](../tui-overhaul-brief.md). Store/list honesty here may land before the full TUI phase; dropped-row chrome and the `e` keybinding stay in the phase brief.
+
 ## Problem
 
 Follow-ups from `20260724T230804Z-tui-limits-terminal-rows-to-one-hour` (#2123) plus the two

@@ -1,5 +1,7 @@
 # Review checkpoint reuse is keyed like a cache, not a retry aid
 
+**Deferred.** `freshDispatch` already gates reuse in `workflow-runner.ts`; no remaining behavioral failure without a caller that omits the flag. Promote only if reuse scope regresses or a shape-only fix is scheduled.
+
 ## Problem
 
 `findReviewLandingCheckpoint` (`v2/src/execution/workflow-runner.ts`) looks up a completed review

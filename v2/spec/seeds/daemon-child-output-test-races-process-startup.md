@@ -4,6 +4,8 @@ name: daemon-child-output-test-races-process-startup
 
 # `captures a real child's stdout into logPath` races real process startup
 
+**Open, low priority.** Mitigated 2026-07-26 (#2208): 30 s bound, no busy-spin; 6/6 green. The race remains but no longer bites sessions.
+
 ## Problem
 
 `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` → `startDaemon` →

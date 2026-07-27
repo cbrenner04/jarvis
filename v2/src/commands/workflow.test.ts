@@ -30,6 +30,7 @@ import {
   COMPLETED_WAIT_JSON,
   COMPLETED_WAIT_RESULT,
   captureIo,
+  INCOMPLETE_SPEC_CONTENT,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
@@ -146,7 +147,7 @@ describe("run workflow dispatch", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
     const specPath = join(fx.repoSub, "index.md");
-    const original = "# Index\n";
+    const original = INCOMPLETE_SPEC_CONTENT;
     let built = false;
     writeFileSync(specPath, "# Index\n\n## Acceptance criteria\n\n- [x] recovered\n", "utf8");
     try {
@@ -216,7 +217,7 @@ describe("run workflow dispatch", () => {
       expect(sent).toHaveLength(1);
       expect((sent[0] as { method?: string }).method).toBe("implement.recover");
     } finally {
-      writeFileSync(specPath, "# Index\n", "utf8");
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
     }
   });
 
@@ -303,7 +304,7 @@ describe("run workflow dispatch", () => {
       expect(code).toBe(1);
       expect(cap.read()).toEqual({ stdout: "", stderr: "surviving mutation: source.ts:12\n" });
     } finally {
-      writeFileSync(specPath, "# Index\n", "utf8");
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
     }
   });
 
@@ -334,7 +335,7 @@ describe("run workflow dispatch", () => {
       expect(code).toBe(0);
       expect(sent[0]).toMatchObject({ method: "implement.recover", params: { detach: true } });
     } finally {
-      writeFileSync(specPath, "# Index\n", "utf8");
+      writeFileSync(specPath, INCOMPLETE_SPEC_CONTENT, "utf8");
     }
   });
 
@@ -599,7 +600,7 @@ describe("ticked implement recovery", () => {
   ] as const)("admits a retained %s lineage and finalizes without a write-step invocation", async (outcomeKind) => {
     const fixture = createRecoveryFixture({ outcomeKind });
     try {
-      const frame = await fixture.handlers["implement.recover"]!(
+      const frame = await fixture.handlers["implement.recover"](
         {
           kind: "request",
           id: "recover",
@@ -651,7 +652,7 @@ describe("ticked implement recovery", () => {
     for (const testCase of cases) {
       const fixture = createRecoveryFixture(testCase.args);
       try {
-        const frame = await fixture.handlers["implement.recover"]!(
+        const frame = await fixture.handlers["implement.recover"](
           {
             kind: "request",
             id: "recover",
@@ -682,7 +683,7 @@ describe("ticked implement recovery", () => {
       },
     });
     try {
-      const frame = await fixture.handlers["implement.recover"]!(
+      const frame = await fixture.handlers["implement.recover"](
         {
           kind: "request",
           id: "recover",
@@ -710,7 +711,7 @@ describe("ticked implement recovery", () => {
         }),
     });
     try {
-      const frame = await fixture.handlers["implement.recover"]!(
+      const frame = await fixture.handlers["implement.recover"](
         {
           kind: "request",
           id: "recover",
@@ -1659,7 +1660,7 @@ describe("implement spec and artifact validation", () => {
     execFileSync("git", ["add", ".gitignore", "README.md"], { cwd: root });
     execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
     mkdirSync(join(root, "local-spec"));
-    writeFileSync(join(root, "local-spec", "index.md"), "- [ ] Work\n", "utf8");
+    writeFileSync(join(root, "local-spec", "index.md"), "# Index\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
     const cap = captureIo();
 
     const code = await main(
@@ -1674,7 +1675,7 @@ describe("implement spec and artifact validation", () => {
 
   test("run workflow implement rejects a missing non-index artifact before daemon contact", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
-    writeFileSync(join(root, "spec.md"), "# Spec\n", "utf8");
+    writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
 
     const code = await main(
@@ -1692,7 +1693,7 @@ describe("implement spec and artifact validation", () => {
     const outside = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-outside-"));
     writeFileSync(join(outside, "outside.md"), "# Outside\n", "utf8");
     symlinkSync(join(outside, "outside.md"), join(root, "escaped.md"));
-    writeFileSync(join(root, "spec.md"), "# Spec\n", "utf8");
+    writeFileSync(join(root, "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const specCap = captureIo();
 
     const specCode = await main(
@@ -1717,7 +1718,7 @@ describe("implement spec and artifact validation", () => {
   test("run workflow implement accepts contained symlinks and passes relative paths to the builder", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
     mkdirSync(join(root, "specs"));
-    writeFileSync(join(root, "specs", "spec.md"), "# Spec\n", "utf8");
+    writeFileSync(join(root, "specs", "spec.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     writeFileSync(join(root, "specs", "artifact.md"), "# Artifact\n", "utf8");
     symlinkSync(join(root, "specs", "spec.md"), join(root, "spec-link.md"));
     symlinkSync(join(root, "specs", "artifact.md"), join(root, "artifact-link.md"));
@@ -1751,7 +1752,7 @@ describe("implement spec and artifact validation", () => {
 
   test("run workflow implement ignores an unresolved registry root unrelated to the spec", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
-    writeFileSync(join(root, "index.md"), "# Index\n", "utf8");
+    writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
 
     const code = await withWorkflowUuids("start", "wait", () =>
@@ -1770,7 +1771,7 @@ describe("implement spec and artifact validation", () => {
 
   test("run workflow implement ignores --artifact for index specs", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-implement-project-"));
-    writeFileSync(join(root, "index.md"), "# Index\n", "utf8");
+    writeFileSync(join(root, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     const cap = captureIo();
     let builtInput: BuildImplementWorkflowStepsInput | undefined;
 
@@ -1995,7 +1996,7 @@ describe("implement preflight stale workspace reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["init"], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], resetProjectRoot);
-    writeFileSync(join(resetProjectRoot, "index.md"), "# Index\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "index.md"), INCOMPLETE_SPEC_CONTENT, "utf8");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], resetProjectRoot);
   });

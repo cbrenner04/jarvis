@@ -31,9 +31,7 @@ export type PipelineValidationError = {
   message: string;
 };
 
-export type PipelineValidationResult =
-  | { ok: true }
-  | { ok: false; errors: PipelineValidationError[] };
+export type PipelineValidationResult = { ok: true } | { ok: false; errors: PipelineValidationError[] };
 
 export interface WorkflowPipelineStage {
   stageId: string;
@@ -52,6 +50,81 @@ export type PipelineStage = WorkflowPipelineStage | ApprovalPipelineStage;
 export interface PipelineDefinition {
   name: string;
   stages: PipelineStage[];
+}
+
+function isUnrealizableReview(workflow: string, review: string, workflowKnown: boolean): boolean {
+  return (
+    workflowKnown && ((workflow === "intent" && review === "debate") || (workflow === "implement" && review === "none"))
+  );
+}
+
+function collectDuplicateStageIdErrors(stages: PipelineStage[], errors: PipelineValidationError[]): void {
+  const stageIdCounts = new Map<string, number>();
+  for (const stage of stages) {
+    stageIdCounts.set(stage.stageId, (stageIdCounts.get(stage.stageId) ?? 0) + 1);
+  }
+  for (const [duplicatedId, count] of stageIdCounts) {
+    if (count > 1) {
+      errors.push({
+        code: "duplicate-stage-id",
+        stageId: null,
+        field: "stages",
+        message: `duplicate stageId "${duplicatedId}"`,
+      });
+    }
+  }
+}
+
+function validateWorkflowStage(
+  stage: WorkflowPipelineStage,
+  baseWorkflowNames: readonly string[],
+  agentModelConfig: AgentModelConfig,
+  errors: PipelineValidationError[],
+): void {
+  const { stageId, workflow, review } = stage;
+  const workflowKnown = baseWorkflowNames.includes(workflow);
+
+  if (!workflowKnown) {
+    errors.push({
+      code: "unknown-workflow",
+      stageId,
+      field: "workflow",
+      message: `stage "${stageId}": field workflow has unknown value "${workflow}"`,
+    });
+  }
+
+  if (!VALID_REVIEW_POSTURES.has(review)) {
+    errors.push({
+      code: "invalid-review-posture",
+      stageId,
+      field: "review",
+      message: `stage "${stageId}": field review has invalid posture "${review}"`,
+    });
+    return;
+  }
+
+  if (isUnrealizableReview(workflow, review, workflowKnown)) {
+    errors.push({
+      code: "unrealizable-review-posture",
+      stageId,
+      field: "review",
+      message: `stage "${stageId}": workflow "${workflow}" has no realization for review posture "${review}"`,
+    });
+    return;
+  }
+
+  if (review === "light" || review === "debate") {
+    for (const role of POSTURE_REQUIRED_ROLES[review]) {
+      if (!isRoleBoundInConfig(agentModelConfig, role)) {
+        errors.push({
+          code: "missing-role-binding",
+          stageId,
+          field: "review",
+          message: `stage "${stageId}": review posture "${review}" requires unbound role "${role}"`,
+        });
+      }
+    }
+  }
 }
 
 export function validatePipelineDefinition(
@@ -73,72 +146,11 @@ export function validatePipelineDefinition(
     return { ok: false, errors };
   }
 
-  const stageIdCounts = new Map<string, number>();
-  for (const stage of stages) {
-    stageIdCounts.set(stage.stageId, (stageIdCounts.get(stage.stageId) ?? 0) + 1);
-  }
-  for (const [duplicatedId, count] of stageIdCounts) {
-    if (count > 1) {
-      errors.push({
-        code: "duplicate-stage-id",
-        stageId: null,
-        field: "stages",
-        message: `duplicate stageId "${duplicatedId}"`,
-      });
-    }
-  }
+  collectDuplicateStageIdErrors(stages, errors);
 
   for (const stage of stages) {
-    if (stage.kind !== "workflow") {
-      continue;
-    }
-
-    const { stageId, workflow, review } = stage;
-    const workflowKnown = baseWorkflowNames.includes(workflow);
-
-    if (!workflowKnown) {
-      errors.push({
-        code: "unknown-workflow",
-        stageId,
-        field: "workflow",
-        message: `stage "${stageId}": field workflow has unknown value "${workflow}"`,
-      });
-    }
-
-    if (!VALID_REVIEW_POSTURES.has(review)) {
-      errors.push({
-        code: "invalid-review-posture",
-        stageId,
-        field: "review",
-        message: `stage "${stageId}": field review has invalid posture "${review}"`,
-      });
-      continue;
-    }
-
-    if (
-      workflowKnown &&
-      ((workflow === "intent" && review === "debate") || (workflow === "implement" && review === "none"))
-    ) {
-      errors.push({
-        code: "unrealizable-review-posture",
-        stageId,
-        field: "review",
-        message: `stage "${stageId}": workflow "${workflow}" has no realization for review posture "${review}"`,
-      });
-      continue;
-    }
-
-    if (review === "light" || review === "debate") {
-      for (const role of POSTURE_REQUIRED_ROLES[review]) {
-        if (!isRoleBoundInConfig(agentModelConfig, role)) {
-          errors.push({
-            code: "missing-role-binding",
-            stageId,
-            field: "review",
-            message: `stage "${stageId}": review posture "${review}" requires unbound role "${role}"`,
-          });
-        }
-      }
+    if (stage.kind === "workflow") {
+      validateWorkflowStage(stage, baseWorkflowNames, agentModelConfig, errors);
     }
   }
 

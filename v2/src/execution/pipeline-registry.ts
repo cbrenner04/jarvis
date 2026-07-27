@@ -23,9 +23,7 @@ export const PIPELINE_REGISTRY: Record<string, PipelineDefinition> = {
 
 export function getPipelineDefinition(
   name: string,
-):
-  | { ok: true; definition: PipelineDefinition }
-  | { ok: false; error: { code: "unknown-pipeline"; name: string } } {
+): { ok: true; definition: PipelineDefinition } | { ok: false; error: { code: "unknown-pipeline"; name: string } } {
   const definition = PIPELINE_REGISTRY[name];
   if (!definition) {
     return { ok: false, error: { code: "unknown-pipeline", name } };

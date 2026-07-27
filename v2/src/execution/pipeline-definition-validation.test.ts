@@ -27,18 +27,13 @@ const LIGHT_INTENT_DEFINITION: PipelineDefinition = {
   stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "light" }],
 };
 
-function workflowStage(
-  stageId: string,
-  workflow: string,
-  review: string,
-): PipelineDefinition["stages"][number] {
+function workflowStage(stageId: string, workflow: string, review: string): PipelineDefinition["stages"][number] {
   return { stageId, kind: "workflow", workflow, review };
 }
 
-function expectValidationFailure(result: PipelineValidationResult): asserts result is Extract<
-  PipelineValidationResult,
-  { ok: false }
-> {
+function expectValidationFailure(
+  result: PipelineValidationResult,
+): asserts result is Extract<PipelineValidationResult, { ok: false }> {
   expect(result.ok).toBe(false);
   if (result.ok) throw new Error("expected failure");
 }

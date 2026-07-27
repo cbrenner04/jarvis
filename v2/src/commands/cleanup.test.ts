@@ -4,8 +4,11 @@ import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";
@@ -2676,10 +2679,21 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   test("reset refuses fail-closed when dirty listing fails", async () => {
     const branch = "impl/dirty-list-fail";
     const worktreePath = await setupWorktreeAndBranch(branch);
+    const teardownCalls: string[] = [];
 
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "status") throw new Error("git status unavailable");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+        if (cmd === "git" && args[0] === "worktree" && args[1] === "prune") teardownCalls.push("worktree-prune");
+        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+          teardownCalls.push("remote-branch-delete");
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d") {
+          teardownCalls.push("remote-tracking-ref-prune");
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -2696,9 +2710,29 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     if (overrideResult.status !== "refused" || "code" in overrideResult) throw new Error("expected generic refused");
     expect(overrideResult.reason).toContain("could not list worktree changes");
     expect(overrideResult.reason).not.toContain(STALE_RESET_OVERRIDE_CLI_FLAG);
+    expect(teardownCalls).toEqual([]);
 
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset classifies Git's missing-repository diagnostic from subprocess stderr", async () => {
+    const branch = "impl/non-git-stderr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot);
+    mkdirSync(worktreePath, { recursive: true });
+
+    const result = await callReset(branch, {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "status") {
+          throw new AsyncSubprocessError("git exited 128", 128, "", "fatal: not a git repository", undefined);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    });
+
+    expect(result).toEqual({ status: "no-op" });
+    expect(existsSync(worktreePath)).toBe(true);
   });
 
   test("reset retires a dirty worktree when dirty gate override is set", async () => {

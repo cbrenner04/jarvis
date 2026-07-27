@@ -20,14 +20,14 @@ Incomplete workflow re-dispatch refuses before materialization when its managed 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow.test.ts` connected re-dispatch coverage drives incomplete `implement` and `plan` workflows, each with and without `--reset-despite-dirty`, through locked materialization from an ordinary non-Git directory at the managed path to the write callback. It proves preflight performs no retirement, the materializer replaces the husk, and the checkout is the fixture's surviving branch at its captured initial `HEAD`; it fails against the pre-fix `not a git repository` refusal.
-- [ ] `v2/src/commands/workflow.test.ts` connected re-dispatch coverage proves a registered non-Git managed path and an inconclusive materializer probe both refuse without deleting their residue. `v2/src/execution/external-worktree.test.ts` tests `refuses a registered non-Git directory and leaves it intact`, `refuses an ambiguous Git-worktree probe and leaves the path intact`, and `refuses an inconclusive worktree-registration probe and leaves the path intact` stay green.
-- [ ] `v2/src/commands/cleanup.test.ts` test `reset refuses fail-closed when dirty listing fails` proves a non-missing-repository status error still refuses with the existing recovery text and no retirement mutations both with and without `--reset-despite-dirty`.
-- [ ] Guard inversion: the connected workflow and cleanup tests fail if the missing-repository classifier is removed or widened to accept the other status failure; the workflow safety cases fail if registered or inconclusive paths are reclaimed.
-- [ ] `v2/src/commands/cleanup.test.ts` tests `reset refuses when worktree has uncommitted tracked changes`, `reset refuses when worktree has untracked paths`, and `staleResetDirtyWorktreeGateReason refuses dirty paths and skips dirty refusal only when overridden` stay green.
-- [ ] `v2/docs/operator-runbook.md` records that incomplete implement and plan re-dispatch defer a non-Git managed-path husk to locked materialization regardless of `--reset-despite-dirty`, while other listing failures still refuse.
-- [ ] `v2/docs/v1-behaviors.md` records the narrowed stale-reset preflight classification and source paths.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/workflow.test.ts` connected re-dispatch coverage drives incomplete `implement` and `plan` workflows, each with and without `--reset-despite-dirty`, through locked materialization from an ordinary non-Git directory at the managed path to the write callback. It proves preflight performs no retirement, the materializer replaces the husk, and the checkout is the fixture's surviving branch at its captured initial `HEAD`; it fails against the pre-fix `not a git repository` refusal.
+- [x] `v2/src/commands/workflow.test.ts` connected re-dispatch coverage proves a registered non-Git managed path and an inconclusive materializer probe both refuse without deleting their residue. `v2/src/execution/external-worktree.test.ts` tests `refuses a registered non-Git directory and leaves it intact`, `refuses an ambiguous Git-worktree probe and leaves the path intact`, and `refuses an inconclusive worktree-registration probe and leaves the path intact` stay green.
+- [x] `v2/src/commands/cleanup.test.ts` test `reset refuses fail-closed when dirty listing fails` proves a non-missing-repository status error still refuses with the existing recovery text and no retirement mutations both with and without `--reset-despite-dirty`.
+- [x] Guard inversion: the connected workflow and cleanup tests fail if the missing-repository classifier is removed or widened to accept the other status failure; the workflow safety cases fail if registered or inconclusive paths are reclaimed.
+- [x] `v2/src/commands/cleanup.test.ts` tests `reset refuses when worktree has uncommitted tracked changes`, `reset refuses when worktree has untracked paths`, and `staleResetDirtyWorktreeGateReason refuses dirty paths and skips dirty refusal only when overridden` stay green.
+- [x] `v2/docs/operator-runbook.md` records that incomplete implement and plan re-dispatch defer a non-Git managed-path husk to locked materialization regardless of `--reset-despite-dirty`, while other listing failures still refuse.
+- [x] `v2/docs/v1-behaviors.md` records the narrowed stale-reset preflight classification and source paths.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -1,10 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
@@ -12,6 +13,7 @@ import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import {
   type CliRepoFixture,
   COMPLETED_WAIT_JSON,
@@ -29,6 +31,7 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
 import {
@@ -1341,15 +1344,22 @@ describe("implement preflight stale workspace reset", () => {
         promptId: "patch.prompt.body",
         stepRules: DEFAULT_WRITE_STEP_RULES,
         agents: ["claude"],
-        agentModelConfig: {},
+        agentModelConfig: {
+          claude: {
+            implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
         worktree: {
           projectRoot: realpathSync(resetProjectRoot),
           projectName: "demo",
           branchName: branch,
           baseRef: "HEAD",
+          jarvisRoot: resetJarvisRoot,
         },
         specPath: "index.md",
         expectedArtifactPath: "index.md",
+        publishCompletion: false,
       },
     ];
   }
@@ -1399,6 +1409,68 @@ describe("implement preflight stale workspace reset", () => {
           return "";
         }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? resetProjectRoot);
+      },
+    };
+  }
+
+  function workflowExecutionClient(handlers: Record<string, RpcHandler>) {
+    const client = makeDeferredIpcClient([], { gated: true, deferred: true });
+    return {
+      ...client,
+      send(frame: unknown): void {
+        client.send(frame);
+        const request = frame as { id?: string; method?: string; params?: unknown };
+        if (typeof request.id !== "string") return;
+        const requestId = request.id;
+        const handler = typeof request.method === "string" ? handlers[request.method] : undefined;
+        if (handler === undefined) {
+          client.push({ kind: "error", id: requestId, code: "unknown_method", message: "unknown method" });
+          return;
+        }
+        void Promise.resolve(
+          handler(
+            { kind: "request", id: requestId, method: request.method as string, params: request.params },
+            new AbortController().signal,
+          ),
+        )
+          .then((response) => client.push({ ...response, id: requestId }))
+          .catch((error: unknown) =>
+            client.push({
+              kind: "error",
+              id: requestId,
+              code: "internal_error",
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      },
+    };
+  }
+
+  function connectedWorkflowHandlers() {
+    const stateStore = openStateStore(join(resetTmp, `state-${crypto.randomUUID()}.sqlite`));
+    const handlers = createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: async () => {},
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+    return {
+      client: workflowExecutionClient({
+        start: handlers.start,
+        list: handlers.list,
+        check_workflow_start_claim: handlers.check_workflow_start_claim,
+      }),
+      waitForCompletion: async () => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          if (!handlers.hasActiveRuns()) return;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        throw new Error("workflow did not settle");
+      },
+      close: () => {
+        handlers.close();
+        stateStore.close();
       },
     };
   }
@@ -1547,6 +1619,163 @@ describe("implement preflight stale workspace reset", () => {
     expect(closedPrs).toEqual([56]);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).not.toContain(worktreePath);
+  });
+
+  test("incomplete implement and plan re-dispatch defer an ordinary non-Git husk to locked materialization", async () => {
+    for (const workflow of ["implement", "plan"] as const) {
+      for (const override of [false, true]) {
+        const worktreePath = await materializeStaleWorktree();
+        const initialHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+        ).trim();
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
+        mkdirSync(worktreePath, { recursive: true });
+        const residue = join(worktreePath, "failed-materialization");
+        writeFileSync(residue, "husk");
+
+        const cap = captureIo();
+        const preflightTeardownCalls: string[] = [];
+        let callbackBranch: string | undefined;
+        let callbackHead: string | undefined;
+        let materializedPath: string | undefined;
+        const subprocessRunner = staleResetSubprocessRunner((cmd, args) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+            preflightTeardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "prune")
+            preflightTeardownCalls.push("worktree-prune");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") preflightTeardownCalls.push("branch-delete");
+          if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+            preflightTeardownCalls.push("remote-branch-delete");
+          }
+          if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d") {
+            preflightTeardownCalls.push("remote-tracking-ref-prune");
+          }
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "close") preflightTeardownCalls.push("pr-close");
+          return undefined;
+        });
+        let callbackDone: (() => void) | undefined;
+        const callbackReached = new Promise<void>((resolve) => {
+          callbackDone = resolve;
+        });
+        let callbackCount = 0;
+        const steps = resetImplementSteps();
+        const writeStep = steps[0];
+        if (writeStep?.behavior !== "write") throw new Error("expected write step");
+        writeStep.createBinding = ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ cwd }) => {
+            try {
+              if (callbackCount++ === 0) {
+                materializedPath = cwd;
+                callbackBranch = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], cwd)
+                ).trim();
+                callbackHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
+              }
+            } finally {
+              callbackDone?.();
+            }
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        });
+        const connected = connectedWorkflowHandlers();
+        const args =
+          workflow === "implement"
+            ? ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"]
+            : ["run", "workflow", "plan", "--ready-intent", "index.md"];
+        if (override) args.push(STALE_RESET_OVERRIDE_CLI_FLAG);
+        args.push("--detach");
+
+        let code: number;
+        try {
+          code = await main(
+            args,
+            cap.io,
+            resetImplementDeps({
+              workflowPresetBuilders:
+                workflow === "implement"
+                  ? { implement: () => ({ ok: true as const, steps }) }
+                  : { plan: () => ({ ok: true as const, steps }) },
+              subprocessRunner,
+              connectIpcClient: async () => connected.client,
+            }),
+          );
+          await callbackReached;
+          await connected.waitForCompletion();
+        } finally {
+          connected.close();
+        }
+
+        expect(code).toBe(0);
+        expect(preflightTeardownCalls).toEqual([]);
+        expect(existsSync(residue)).toBe(false);
+        expect(materializedPath).toBe(worktreePath);
+        expect(callbackBranch).toBe(resetBranch);
+        expect(callbackHead).toBe(initialHead);
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
+        await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", resetBranch], resetProjectRoot);
+      }
+    }
+  });
+
+  test("incomplete re-dispatch leaves registered and inconclusive non-Git husks for materialization safeguards", async () => {
+    for (const probe of ["registered", "inconclusive"] as const) {
+      const worktreePath = await materializeStaleWorktree();
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["worktree", "remove", "--force", worktreePath],
+        resetProjectRoot,
+      );
+      mkdirSync(worktreePath, { recursive: true });
+      const residue = join(worktreePath, `${probe}-residue`);
+      writeFileSync(residue, "keep");
+      const cap = captureIo();
+      const steps = resetImplementSteps();
+      const writeStep = steps[0];
+      if (writeStep?.behavior !== "write") throw new Error("expected write step");
+      writeStep.withExternalWorktree = (input, run) =>
+        withExternalWorktree(input, run, {
+          runAsync: async (cmd, args, cwd, options) => {
+            if (cmd === "git" && args.join(" ") === "worktree list --porcelain") {
+              if (probe === "registered") return `worktree ${worktreePath}\n`;
+              throw new Error("worktree registration probe failed");
+            }
+            return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+          },
+        });
+      const connected = connectedWorkflowHandlers();
+      let code: number;
+      try {
+        code = await main(
+          ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md", "--detach"],
+          cap.io,
+          resetImplementDeps({
+            workflowPresetBuilders: { implement: () => ({ ok: true as const, steps }) },
+            subprocessRunner: staleResetSubprocessRunner(),
+            connectIpcClient: async () => connected.client,
+          }),
+        );
+      } finally {
+        connected.close();
+      }
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain(
+        probe === "registered" ? "existing path is registered" : "worktree registration probe failed",
+      );
+      expect(existsSync(residue)).toBe(true);
+      rmSync(worktreePath, { recursive: true, force: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", resetBranch], resetProjectRoot);
+    }
   });
 
   test("run workflow implement refuses reset when the workspace is live-held", async () => {

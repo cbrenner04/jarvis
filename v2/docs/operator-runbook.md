@@ -222,8 +222,9 @@ the resolved `(project, branch)` after daemon connect and before the write step
 starts, in this order: remove the materialized worktree, delete the local branch,
 delete the remote branch, prune a stale `origin/<branch>` remote-tracking ref when
 it still resolves locally, then close the matching open draft PR (when exactly one
-exists), so materialization recreates from `--base`. The sequence aborts at the
-first failing step. First runs with no existing worktree skip this path.
+exists). Implement rematerializes from its explicit `--base`; plan rematerializes
+from its resolved repository base. The sequence aborts at the first failing step.
+First runs with no existing worktree skip this path.
 
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
@@ -304,13 +305,16 @@ v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
 Implement branch defaults to the spec directory basename.
 
 Merged worktrees are retired by `jarvis cleanup`. A leaked worktree from a **failed/unmerged** run
-is reset automatically on the next incomplete `jarvis run workflow implement` re-run (see above);
+is reset automatically on the next incomplete `jarvis run workflow implement` or `plan` re-run (see above);
 for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
 If a failed materialization leaves an ordinary directory at its managed path, retry the workflow:
 v2 removes that proven unregistered non-Git husk and rematerializes it under the same branch lock.
 It refuses and leaves the path intact when Git recognizes it as a worktree, the target repository
 still registers it, or Git ownership/validation is inconclusive; inspect that state before manual removal.
+Incomplete implement and plan re-dispatches defer this non-Git husk to locked materialization,
+with or without `--reset-despite-dirty`. Other `git status` listing failures still refuse before
+any retirement; the override applies only to a successful dirty listing.
 
 ## Implementation on jarvis specs
 
@@ -657,9 +661,10 @@ blocker.
 **`jarvis run resume` does not work on a blocked run** — it refuses with
 `terminal_run` and names spec inspection / re-run recovery, and `run list` correctly reports the row as
 `resumable: false` with remediation `inspect_spec`. To continue the work, resolve the blocker and **re-run the spec**. An incomplete
-`jarvis run workflow implement` re-run resets the stale worktree from `--base` (see
-[Implement workflow](#implement-workflow)); uncommitted work in the prior worktree is not carried
-forward.
+`jarvis run workflow implement` or `plan` re-run resets the stale worktree from `--base` (see
+[Implement workflow](#implement-workflow)). A managed ordinary non-Git directory is instead left for
+locked materialization to validate and replace; other status-listing failures still refuse. Uncommitted
+work in a prior worktree is not carried forward.
 
 When an agent emits a `blocked` token without appending a `## Blocker` section to the spec (or active
 subspec on the implement path), the harness reprompts for blocker text. If the agent still fails to

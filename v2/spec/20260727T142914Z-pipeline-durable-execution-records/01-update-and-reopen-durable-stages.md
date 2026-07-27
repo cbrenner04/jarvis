@@ -20,12 +20,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` updates one admitted stage and preserves its durable row ID, pipeline ID, stage ID, and position while every sibling remains unchanged; the regression fails against the pre-change store.
-- [ ] Lifecycle patches retain omitted fields, clear nullable fields when passed explicit `null`, reject an empty patch and an unknown `(pipelineId, stageId)`, and round-trip millisecond timestamps plus a non-null status string without imposing post-`pending` transition rules.
-- [ ] After closing and reopening a file-backed store, the regression reads the same pipeline identity, definition name and snapshot, stage order, and populated workflow snapshot `invocationId`, status, start/end timestamps, artifact, and failure detail.
-- [ ] The update regressions fail when target rejection or sibling-update isolation is removed.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/state-store.md` documents the pipeline and stage tables, immutable definition snapshot, fields and initial nulls, derived pipeline status, authored ordering, atomic admission, load operation, in-place lifecycle update operation, workflow snapshot linkage, and schema-free artifact/failure envelopes.
+- [x] `v2/src/persistence/state-store.test.ts` updates one admitted stage and preserves its durable row ID, pipeline ID, stage ID, and position while every sibling remains unchanged; the regression fails against the pre-change store.
+- [x] Lifecycle patches retain omitted fields, clear nullable fields when passed explicit `null`, reject an empty patch and an unknown `(pipelineId, stageId)`, and round-trip millisecond timestamps plus a non-null status string without imposing post-`pending` transition rules.
+- [x] After closing and reopening a file-backed store, the regression reads the same pipeline identity, definition name and snapshot, stage order, and populated workflow snapshot `invocationId`, status, start/end timestamps, artifact, and failure detail.
+- [x] The update regressions fail when target rejection or sibling-update isolation is removed.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/state-store.md` documents the pipeline and stage tables, immutable definition snapshot, fields and initial nulls, derived pipeline status, authored ordering, atomic admission, load operation, in-place lifecycle update operation, workflow snapshot linkage, and schema-free artifact/failure envelopes.
 
 ## Documentation updates
 

@@ -137,9 +137,7 @@ describe("review-feedback command", () => {
   });
 
   test("branch on origin with missing worktree creates it and runs review", async () => {
-    const worktreePath = createGitWorktree("feature-branch");
-    // Remove the worktree directory to simulate a missing worktree that needs to be created
-    rmSync(worktreePath, { recursive: true, force: true });
+    const worktreePath = join(worktreeRoot, "feature-branch");
     expect(existsSync(worktreePath)).toBe(false);
 
     // Track whether ensurePatchWorktreeForExistingBranch was called from the command

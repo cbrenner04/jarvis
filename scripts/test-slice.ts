@@ -12,9 +12,15 @@ export function isSandboxUnrunnable(file: string): boolean {
  * convention. Each entry names the observed failure that made it flake under concurrent load.
  */
 export const LOAD_SENSITIVE_FILES: readonly string[] = [
+  // Exceeded the 180s file budget under pooled load; passes idle.
+  "v1/test/run.test.ts",
   // "eagerly provisions the managed worktree before dispatch for a linked implement step"
   // asserted 3 provisioning calls, got 2 under load; 26/26 pass idle (2026-07-26).
   "v2/src/daemon/daemon-workflow-start.test.ts",
+  // A 500ms completion poll expired under pooled load, then teardown closed the live store.
+  "v2/src/commands/workflow.test.ts",
+  // The real CLI probe exceeded its 10s runtime-smoke deadline under pooled load; passes idle.
+  "v2/src/execution/runtime-smoke-verifier.test.ts",
 ];
 
 /**

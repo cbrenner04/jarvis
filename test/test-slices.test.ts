@@ -109,8 +109,15 @@ describe("Test slice boundaries", () => {
     expect(integration).toEqual(["v2/example/foo.sandbox-unrunnable.test.ts"]);
   });
 
-  it("known load-sensitive daemon files are classified load-sensitive", () => {
-    expect(isLoadSensitive("v2/src/daemon/daemon-workflow-start.test.ts")).toBeTrue();
+  it("known load-sensitive files are classified load-sensitive", () => {
+    for (const file of [
+      "v1/test/run.test.ts",
+      "v2/src/commands/workflow.test.ts",
+      "v2/src/daemon/daemon-workflow-start.test.ts",
+      "v2/src/execution/runtime-smoke-verifier.test.ts",
+    ]) {
+      expect(isLoadSensitive(file)).toBeTrue();
+    }
     expect(isLoadSensitive("v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts")).toBeTrue();
   });
 

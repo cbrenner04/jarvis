@@ -114,7 +114,7 @@ export async function connectTuiLogTail(runId: string, options: ConnectTuiLogTai
           }
 
           streamId = crypto.randomUUID();
-          client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq } });
+          client.send({ kind: "stream-open", streamId, payload: { runId, afterSeq, follow: true } });
 
           while (true) {
             const frame = await readTailFrame(client);

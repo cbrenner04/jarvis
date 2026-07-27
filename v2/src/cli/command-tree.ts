@@ -2,6 +2,7 @@ import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
+  RUN_LOG_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
   WORKFLOW_PLAN_HELP_FLAGS,
@@ -14,6 +15,7 @@ import {
   DAEMON_USAGE,
   HELP_USAGE,
   RUN_LIST_USAGE,
+  RUN_LOG_USAGE,
   RUN_USAGE,
   TUI_LOG_USAGE,
   TUI_USAGE,
@@ -116,6 +118,8 @@ export const commandTree: CommandNode = {
         {
           name: "log",
           summary: "Stream run logs.",
+          usage: RUN_LOG_USAGE,
+          flags: RUN_LOG_HELP_FLAGS,
         },
         {
           name: "pause",

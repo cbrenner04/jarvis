@@ -11,11 +11,12 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import {
+  readProjectConfigRecord,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
-  readProjectPipelineConfig,
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
+import { MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
@@ -398,8 +399,12 @@ function admitProjectPipeline(
   if (agentModelConfig === undefined) {
     return { ok: false, error: "invalid-pipeline-definition: loaded workflow has no agent model config" };
   }
+  const project = readProjectConfigRecord(match.key, configPath ?? MACHINE_CONFIG_PATH);
+  if (project !== undefined && !("pipeline" in project)) {
+    return built;
+  }
   const resolution = resolveProjectPipeline(
-    readProjectPipelineConfig(match.key, configPath),
+    { projectKey: match.key, pipeline: project?.pipeline },
     getPipelineDefinition,
     agentModelConfig,
   );

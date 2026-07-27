@@ -142,17 +142,23 @@ export type ProjectPipelineConfig = {
   pipeline: unknown;
 };
 
+export function readProjectConfigRecord(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): Record<string, unknown> | undefined {
+  const projects = readMachineConfigDocument(configPath)?.projects;
+  if (!isRecord(projects)) return undefined;
+  const project = projects[projectKey];
+  return isRecord(project) ? project : undefined;
+}
+
 /** Reads the raw pipeline fragment without changing the project-registry projection. */
 export function readProjectPipelineConfig(
   projectKey: string,
   configPath: string = MACHINE_CONFIG_PATH,
 ): ProjectPipelineConfig {
-  const projects = readMachineConfigDocument(configPath)?.projects;
-  const project = isRecord(projects) ? projects[projectKey] : undefined;
-  return {
-    projectKey,
-    pipeline: isRecord(project) ? project.pipeline : undefined,
-  };
+  const project = readProjectConfigRecord(projectKey, configPath);
+  return { projectKey, pipeline: project?.pipeline };
 }
 
 /**

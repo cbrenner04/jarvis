@@ -2034,7 +2034,11 @@ describe("implement preflight stale workspace reset", () => {
     },
   };
 
-  function pipelineAdmissionBuilder(effects: PipelineAdmissionEffects, expectedPipeline?: string) {
+  function pipelineAdmissionBuilder(
+    effects: PipelineAdmissionEffects,
+    expectedPipeline?: string,
+    expectOmitPipelineDefinition?: boolean,
+  ) {
     return async (input: BuildImplementWorkflowStepsInput) => {
       const built = await buildImplementWorkflowSteps(input, {
         loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
@@ -2049,6 +2053,7 @@ describe("implement preflight stale workspace reset", () => {
       });
       if (!built.ok) return built;
       if (expectedPipeline !== undefined) expect(built.pipelineDefinition?.name).toBe(expectedPipeline);
+      if (expectOmitPipelineDefinition) expect(built.pipelineDefinition).toBeUndefined();
       const writeStep = built.steps[0];
       if (writeStep?.behavior !== "write") throw new Error("expected implement write step");
       writeStep.worktree.git = false;
@@ -2099,26 +2104,30 @@ describe("implement preflight stale workspace reset", () => {
     };
   }
 
-  test("project pipeline selection gates implement before durable admission effects", async () => {
-    const validEffects = emptyPipelineAdmissionEffects();
-    const validConfigPath = writeMachineConfig({
-      projects: { demo: { root: resetProjectRoot, pipeline: { name: "fast" } } },
-    });
-    const connected = connectedWorkflowHandlers(validEffects);
-    let validCode: number;
+  async function runConnectedPipelineAdmission(
+    projects: Record<string, unknown>,
+    effects: PipelineAdmissionEffects,
+    expectedPipeline?: string,
+    expectOmitPipelineDefinition?: boolean,
+  ): Promise<number> {
+    const configPath = writeMachineConfig({ projects });
+    const connected = connectedWorkflowHandlers(effects);
+    let code: number;
     try {
-      validCode = await main(
+      code = await main(
         pipelineAdmissionArgs(),
         captureIo().io,
         resetImplementDeps({
-          machineConfigPath: validConfigPath,
-          workflowPresetBuilders: { implement: pipelineAdmissionBuilder(validEffects, "fast") },
+          machineConfigPath: configPath,
+          workflowPresetBuilders: {
+            implement: pipelineAdmissionBuilder(effects, expectedPipeline, expectOmitPipelineDefinition),
+          },
           subprocessRunner: staleResetSubprocessRunner(() => {
-            validEffects.staleResetWork += 1;
+            effects.staleResetWork += 1;
             return undefined;
           }),
           connectIpcClient: async () => {
-            validEffects.daemonConnections += 1;
+            effects.daemonConnections += 1;
             return connected.client;
           },
         }),
@@ -2127,12 +2136,25 @@ describe("implement preflight stale workspace reset", () => {
     } finally {
       connected.close();
     }
+    return code;
+  }
 
-    expect(validCode).toBe(0);
-    expect(validEffects.daemonConnections).toBe(1);
-    expect(validEffects.runRows).toBeGreaterThan(0);
-    expect(validEffects.materializations).toBeGreaterThan(0);
-    expect(validEffects.agentInvocations).toBeGreaterThan(0);
+  function expectPipelineAdmissionSuccess(effects: PipelineAdmissionEffects, code: number): void {
+    expect(code).toBe(0);
+    expect(effects.daemonConnections).toBe(1);
+    expect(effects.runRows).toBeGreaterThan(0);
+    expect(effects.materializations).toBeGreaterThan(0);
+    expect(effects.agentInvocations).toBeGreaterThan(0);
+  }
+
+  test("project pipeline selection gates implement before durable admission effects", async () => {
+    const validEffects = emptyPipelineAdmissionEffects();
+    const validCode = await runConnectedPipelineAdmission(
+      { demo: { root: resetProjectRoot, pipeline: { name: "fast" } } },
+      validEffects,
+      "fast",
+    );
+    expectPipelineAdmissionSuccess(validEffects, validCode);
 
     const invalidEffects = emptyPipelineAdmissionEffects();
     const invalidConfigPath = writeMachineConfig({
@@ -2171,6 +2193,17 @@ describe("implement preflight stale workspace reset", () => {
     expect(invalidEffects.runRows).toBe(0);
     expect(invalidEffects.materializations + invalidEffects.staleResetWork).toBe(0);
     expect(invalidEffects.agentInvocations).toBe(0);
+  });
+
+  test("admits implement without pipelineDefinition when projects.demo omits pipeline", async () => {
+    const effects = emptyPipelineAdmissionEffects();
+    const code = await runConnectedPipelineAdmission(
+      { demo: { root: resetProjectRoot } },
+      effects,
+      undefined,
+      true,
+    );
+    expectPipelineAdmissionSuccess(effects, code);
   });
 
   test.each([

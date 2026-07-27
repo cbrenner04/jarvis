@@ -96,14 +96,15 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
-Each registered project must select a source-owned pipeline:
+Each registered project may select a source-owned pipeline (optional; absence means legacy implement with no `pipelineDefinition`):
 
 | Key | Type | Validation |
 | --- | --- | --- |
-| `projects.<key>.pipeline.name` | non-empty string | Must name a source-registry pipeline |
+| `projects.<key>.pipeline` | object | Optional; when absent, implement admission skips pipeline resolution |
+| `projects.<key>.pipeline.name` | non-empty string | Required when `pipeline` is present; must name a source-registry pipeline |
 | `projects.<key>.pipeline.reviewOverrides` | object of stage ID → string | Optional; each key must name a workflow stage, not an approval stage |
 
-The `pipeline` object accepts only `name` and `reviewOverrides`. Missing or malformed
+When the `pipeline` key is present, the object accepts only `name` and `reviewOverrides`. Missing or malformed
 pipeline fields, non-string override values, forbidden keys, unknown stage IDs, and
 approval-stage targets fail with `invalid-project-pipeline-config` naming the full
 offending config path. An unknown name fails with `unknown-pipeline`; a selected or

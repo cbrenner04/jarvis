@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
+import {
+  executeWithQuotaFallback as realExecuteWithQuotaFallback,
+  type InvocationBinding,
+  type InvocationCompletedRecord,
+} from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
@@ -10,6 +14,7 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
+import { reportUncoveredChangedLines as realReportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -341,11 +346,11 @@ function progressThenDone(n: number): InvocationBinding[] {
 
 describe("write loop", () => {
   beforeEach(() => {
-    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    mock.restore();
   });
 
   afterEach(() => {
-    mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    mock.restore();
   });
 
   test("calls executeWrite repeatedly until terminal", async () => {
@@ -3029,8 +3034,12 @@ describe("write loop", () => {
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-        mock.module("./uncovered-changed-lines.ts", () => ({}));
-        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+        mock.module("./uncovered-changed-lines.ts", () => ({
+          reportUncoveredChangedLines: realReportUncoveredChangedLines,
+        }));
+        mock.module("../../../shared/invocation/execute.ts", () => ({
+          executeWithQuotaFallback: realExecuteWithQuotaFallback,
+        }));
       }
     });
 
@@ -3123,8 +3132,12 @@ describe("write loop", () => {
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-        mock.module("./uncovered-changed-lines.ts", () => ({}));
-        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+        mock.module("./uncovered-changed-lines.ts", () => ({
+          reportUncoveredChangedLines: realReportUncoveredChangedLines,
+        }));
+        mock.module("../../../shared/invocation/execute.ts", () => ({
+          executeWithQuotaFallback: realExecuteWithQuotaFallback,
+        }));
       }
     });
 
@@ -3178,8 +3191,12 @@ describe("write loop", () => {
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-        mock.module("./uncovered-changed-lines.ts", () => ({}));
-        mock.module("../../../shared/invocation/execute.ts", () => ({}));
+        mock.module("./uncovered-changed-lines.ts", () => ({
+          reportUncoveredChangedLines: realReportUncoveredChangedLines,
+        }));
+        mock.module("../../../shared/invocation/execute.ts", () => ({
+          executeWithQuotaFallback: realExecuteWithQuotaFallback,
+        }));
       }
     });
 
@@ -3233,7 +3250,9 @@ describe("write loop", () => {
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-        mock.module("./uncovered-changed-lines.ts", () => ({}));
+        mock.module("./uncovered-changed-lines.ts", () => ({
+          reportUncoveredChangedLines: realReportUncoveredChangedLines,
+        }));
       }
     });
 
@@ -3290,7 +3309,9 @@ describe("write loop", () => {
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-        mock.module("./uncovered-changed-lines.ts", () => ({}));
+        mock.module("./uncovered-changed-lines.ts", () => ({
+          reportUncoveredChangedLines: realReportUncoveredChangedLines,
+        }));
       }
     });
 
@@ -3401,6 +3422,39 @@ describe("write loop", () => {
         lock: { kind: "acquired" },
         value: await run({ path: worktreePath, reused: false }),
       });
+    }
+
+    async function executeControlledLossWrite(worktreePath: string, input: WriteExecuteInput) {
+      const attempts: Array<{ binding: InvocationBinding; result: Awaited<ReturnType<InvocationBinding["invoke"]>> }> = [];
+      for (const binding of input.bindings) {
+        const result = await binding.invoke({
+          prompt: "",
+          cwd: worktreePath,
+          ...(input.signal !== undefined ? { signal: input.signal } : {}),
+        });
+        attempts.push({ binding, result });
+        if (binding.shouldAdvance?.(result) ?? result.kind === "quota") continue;
+        return {
+          worktreePath,
+          worktreeReused: false,
+          lock: { kind: "acquired" },
+          result: {
+            kind: result.kind === "ok" && result.stdout.trim() === "done" ? "complete" : "progress",
+            token: result.kind === "ok" && result.stdout.trim() === "done" ? "done" : "progress",
+            invocation: { attempts, final: attempts.at(-1) ?? null, telemetryFailures: [] },
+          },
+        } as Awaited<ReturnType<typeof realExecuteWrite>>;
+      }
+      return {
+        worktreePath,
+        worktreeReused: false,
+        lock: { kind: "acquired" },
+        result: {
+          kind: "progress",
+          token: "progress",
+          invocation: { attempts, final: attempts.at(-1) ?? null, telemetryFailures: [] },
+        },
+      } as Awaited<ReturnType<typeof realExecuteWrite>>;
     }
 
     test("clean attribution-less settled result keeps its boundary", async () => {
@@ -4204,6 +4258,9 @@ describe("write loop", () => {
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(worktreePath, input),
+      }));
 
       try {
         const settled = executeWriteLoop(
@@ -4251,6 +4308,9 @@ describe("write loop", () => {
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(worktreePath, input),
+      }));
 
       try {
         const settled = executeWriteLoop(
@@ -4301,6 +4361,9 @@ describe("write loop", () => {
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(_worktreePath, input),
+      }));
 
       try {
         const settled = executeWriteLoop(
@@ -4354,6 +4417,9 @@ describe("write loop", () => {
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(worktreePath, input),
+      }));
 
       try {
         const settled = executeWriteLoop(
@@ -4397,6 +4463,8 @@ describe("write loop", () => {
           if (writes === 1) {
             wrote();
             await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+          } else {
+            writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
           }
           return { kind: "ok", stdout: "done", stderr: "" };
         },
@@ -4405,6 +4473,9 @@ describe("write loop", () => {
         if (failCommit) throw new Error("watchdog checkpoint failed");
         return createCompletionCommitter()(input);
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(_worktreePath, input),
+      }));
 
       try {
         const firstPromise = executeWriteLoop(
@@ -4472,6 +4543,9 @@ describe("write loop", () => {
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       };
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => executeControlledLossWrite(_worktreePath, input),
+      }));
 
       try {
         const settled = executeWriteLoop(

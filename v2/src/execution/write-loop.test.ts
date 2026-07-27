@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  executeWithQuotaFallback as realExecuteWithQuotaFallback,
   type InvocationBinding,
   type InvocationCompletedRecord,
+  executeWithQuotaFallback as realExecuteWithQuotaFallback,
 } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -14,10 +14,10 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
-import { reportUncoveredChangedLines as realReportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
+import { reportUncoveredChangedLines as realReportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
@@ -3425,7 +3425,8 @@ describe("write loop", () => {
     }
 
     async function executeControlledLossWrite(worktreePath: string, input: WriteExecuteInput) {
-      const attempts: Array<{ binding: InvocationBinding; result: Awaited<ReturnType<InvocationBinding["invoke"]>> }> = [];
+      const attempts: Array<{ binding: InvocationBinding; result: Awaited<ReturnType<InvocationBinding["invoke"]>> }> =
+        [];
       for (const binding of input.bindings) {
         const result = await binding.invoke({
           prompt: "",

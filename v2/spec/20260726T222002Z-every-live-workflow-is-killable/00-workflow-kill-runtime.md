@@ -58,31 +58,31 @@ from `jarvis run kill`.
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/daemon-workflow-start.test.ts` (replacing
+- [x] A test in `v2/src/daemon/daemon-workflow-start.test.ts` (replacing
       `kill rejects a workflow-started run's step-0 runId with run_not_active`) holds step 0 live
       via a never-resolving binding, calls `kill` on that `runId`, and asserts `{ ok: true }`; it
       fails against the pre-fix code (`run_not_active`).
-- [ ] A test in `v2/src/daemon/daemon-workflow-start.test.ts` (replacing the kill half of
+- [x] A test in `v2/src/daemon/daemon-workflow-start.test.ts` (replacing the kill half of
       `kill/pause reject a later step's runId once onStepRunCreated has tracked it`) holds a later
       tracked step live, asserts `{ ok: true }` from `kill`, and leaves the pause half expecting
       `run_not_active`.
-- [ ] A test asserts the claim row and every `onStepRunCreated` workflow row share the same
+- [x] A test asserts the claim row and every `onStepRunCreated` workflow row share the same
       `AbortController` instance (not merely that kill aborts in tests).
-- [ ] A test asserts the `signal` on steps passed to `executeWorkflow` is aborted by `kill` and the
+- [x] A test asserts the `signal` on steps passed to `executeWorkflow` is aborted by `kill` and the
       in-flight step unwinds (binding observes abort); omitting daemon-side signal injection fails
       the test.
-- [ ] After kill settles, `list` reports the targeted step `isLive: false` with durable status
+- [x] After kill settles, `list` reports the targeted step `isLive: false` with durable status
       `killed`, the workflow entry row reported status is `killed`, and the project worktree path
       for the run's branch still exists on disk; a completed sibling step row's durable status is
       unchanged when kill targets a later in-flight step.
-- [ ] After a workflow finishes and `activeRuns` clears, `kill` on a prior step `runId` still
+- [x] After a workflow finishes and `activeRuns` clears, `kill` on a prior step `runId` still
       returns `run_not_active`.
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` includes a guard-inversion test that inverting
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` includes a guard-inversion test that inverting
       the workflow `activeRuns` liveness check in `killHandler` (`v2/src/daemon/daemon.ts`) restores
       `run_not_active` for a held-live workflow step; no stall, idle-age, or progress predicate
       appears in that authorization path.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` kill tests stay green (write-loop kill behavior unchanged).
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` `pause rejects a workflow-started run's step-0 runId with
+- [x] `v2/src/daemon/daemon-start-list.test.ts` kill tests stay green (write-loop kill behavior unchanged).
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` `pause rejects a workflow-started run's step-0 runId with
       run_not_active` and the pause half of `kill/pause reject a later step's runId once
       onStepRunCreated has tracked it` stay green.
 

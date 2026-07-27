@@ -23,15 +23,15 @@ Operator docs still describe workflow-started runs as rejecting live `kill` and 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` documents that `kill` accepts any live workflow-started run and that
+- [x] `v2/docs/daemon-host.md` documents that `kill` accepts any live workflow-started run and that
       `pause` still rejects workflow rows `run_not_active`.
-- [ ] `v2/docs/first-workflow-walkthrough.md` no longer states workflow implement cannot be killed
+- [x] `v2/docs/first-workflow-walkthrough.md` no longer states workflow implement cannot be killed
       live; it describes `jarvis run kill <run-id>` for a live workflow run.
-- [ ] `v2/docs/operator-runbook.md` omits the 2026-07-16 "`run kill` does not work on
+- [x] `v2/docs/operator-runbook.md` omits the 2026-07-16 "`run kill` does not work on
       workflow-started runs" gotcha and the direct agent-process-tree workaround; § workflow kill
       and the gotcha list no longer pair "`daemon stop` refused for active runs" with workflow
       `run kill` being impossible or ineffective (headings and body match the live-kill contract).
-- [ ] `v2/docs/v1-behaviors.md` records that v2 workflow-started runs are killable while live.
+- [x] `v2/docs/v1-behaviors.md` records that v2 workflow-started runs are killable while live.
 
 ## Documentation updates
 

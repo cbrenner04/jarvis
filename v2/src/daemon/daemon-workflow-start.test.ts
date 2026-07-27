@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +9,12 @@ import {
 } from "../../../shared/prompts/review-profile.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
-import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WriteWorkflowStep,
+} from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
@@ -24,6 +29,8 @@ import {
 import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
+  activeRunAcceptsKill,
+  activeRunForHandler,
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
@@ -31,6 +38,22 @@ import {
 } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
+
+/** Stays live until the workflow step signal aborts (daemon kill path). */
+const heldLiveBindingFactory =
+  (onSignal?: (signal: AbortSignal | undefined) => void): NonNullable<WriteWorkflowStep["createBinding"]> =>
+  ({ agentId, adapterModel }) => ({
+    id: `${agentId}/${adapterModel}`,
+    invoke: ({ signal }) => {
+      onSignal?.(signal);
+      return new Promise((resolve) => {
+        signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" } as const), {
+          once: true,
+        });
+      });
+    },
+    metadata: { agent: agentId, model: adapterModel },
+  });
 
 const DEBATE_AGENT_MODEL_CONFIG = {
   claude: {
@@ -79,9 +102,23 @@ async function waitDirect(handlers: ReturnType<typeof createRunControlHandlers>,
 }
 
 /** Polls until `predicate` holds, so a slow step fails on its own assertion rather than on a sleep. */
-async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+  while (!(await predicate()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+async function waitForStepRunId(branch: string, stepId: string): Promise<string> {
+  let runId: string | undefined;
+  for (let attempt = 0; attempt < 20 && !runId; attempt++) {
+    await flushBackgroundRuns();
+    runId = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId })?.id;
+  }
+  expect(runId).toBeTruthy();
+  return runId as string;
+}
+
+async function waitUntilActiveRun(runId: string): Promise<void> {
+  await waitFor(() => activeRunForHandler(handlers, runId) !== undefined);
 }
 
 let stateStore: StateStore;
@@ -421,14 +458,16 @@ test("start with steps is rejected worktree_claimed when the (project, branch) a
   expect(response).toEqual({ kind: "error", code: "worktree_claimed", message: expect.any(String) });
 });
 
-test("kill rejects a workflow-started run's step-0 runId with run_not_active", async () => {
-  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch")];
+test("kill accepts a workflow-started run's step-0 runId when held live", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-branch", heldLiveBindingFactory())];
   const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
   expect(runId).toBeTruthy();
+  await waitUntilActiveRun(runId as string);
 
   const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
-  expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  await flushBackgroundRuns(10);
 });
 
 test("pause rejects a workflow-started run's step-0 runId with run_not_active", async () => {
@@ -441,26 +480,163 @@ test("pause rejects a workflow-started run's step-0 runId with run_not_active", 
   expect(pauseResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
 });
 
-test("kill/pause reject a later step's runId once onStepRunCreated has tracked it", async () => {
+test("workflow claim and step activeRuns rows share one AbortController", async () => {
+  const branch = "shared-abort-branch";
   const steps: AnyWorkflowStep[] = [
-    createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory),
-    createWriteStep("step-2", "workflow-branch"),
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-2", branch, heldLiveBindingFactory()),
   ];
-  await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const entryRunId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(entryRunId).toBeTruthy();
 
-  let step2Run = null;
-  for (let attempt = 0; attempt < 20 && !step2Run; attempt++) {
-    await flushBackgroundRuns();
-    step2Run = stateStore.findRunByProjectBranch({ project: "demo", branch: "workflow-branch", stepId: "step-2" });
-  }
-  expect(step2Run?.id).toBeTruthy();
-  const step2RunId = step2Run?.id as string;
+  const step2RunId = await waitForStepRunId(branch, "step-2");
+  await waitUntilActiveRun(step2RunId);
+
+  const claimRunId = registry.get({ project: "demo", branch })?.runId;
+  expect(claimRunId).toBeTruthy();
+  const claimRow = activeRunForHandler(handlers, claimRunId as string);
+  const entryRow = activeRunForHandler(handlers, entryRunId as string);
+  const step2Row = activeRunForHandler(handlers, step2RunId);
+  expect(claimRow?.kind).toBe("workflow");
+  expect(entryRow?.kind).toBe("workflow");
+  expect(step2Row?.kind).toBe("workflow");
+  if (claimRow?.kind !== "workflow" || entryRow?.kind !== "workflow" || step2Row?.kind !== "workflow") return;
+  expect(entryRow.abortController).toBe(claimRow.abortController);
+  expect(step2Row.abortController).toBe(claimRow.abortController);
+});
+
+test("kill on a completed sibling step runId aborts the in-flight step via the shared controller", async () => {
+  const branch = "workflow-kill-completed-sibling-branch";
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-2", branch, heldLiveBindingFactory()),
+  ];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const step1RunId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(step1RunId).toBeTruthy();
+
+  const step2RunId = await waitForStepRunId(branch, "step-2");
+  await waitUntilActiveRun(step2RunId);
+  expect(stateStore.loadRun(step1RunId as string)?.status).toBe("completed");
+  expect(activeRunForHandler(handlers, step1RunId as string)?.kind).toBe("workflow");
+
+  const killResponse = await handlers.kill(
+    requestFrame("k2", "kill", { runId: step1RunId }),
+    new AbortController().signal,
+  );
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(stateStore.loadRun(step1RunId as string)?.status).toBe("completed");
+
+  await waitFor(() => stateStore.loadRun(step2RunId as string)?.status === "killed");
+  await flushBackgroundRuns(5);
+});
+
+test("kill aborts the daemon-injected workflow step signal and unwinds the in-flight step", async () => {
+  let observedSignal: AbortSignal | undefined;
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep(
+      "step-1",
+      "workflow-signal-branch",
+      heldLiveBindingFactory((signal) => {
+        observedSignal = signal;
+      }),
+    ),
+  ];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+  await waitFor(() => observedSignal !== undefined);
+
+  const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  await flushBackgroundRuns(5);
+  expect(observedSignal?.aborted).toBe(true);
+});
+
+test("after kill settles, list reports killed rollup and preserves worktree and completed siblings", async () => {
+  const branch = "workflow-kill-settle-branch";
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep("step-1", branch, doneWithArtifactBindingFactory),
+    createWriteStep("step-2", branch, heldLiveBindingFactory()),
+  ];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const entryRunId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(entryRunId).toBeTruthy();
+
+  const step2RunId = await waitForStepRunId(branch, "step-2");
+  await waitUntilActiveRun(step2RunId);
 
   const killResponse = await handlers.kill(
     requestFrame("k2", "kill", { runId: step2RunId }),
     new AbortController().signal,
   );
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+
+  await waitFor(() => stateStore.loadRun(step2RunId as string)?.status === "killed");
+  await waitFor(async () => {
+    const runs = await listRunsDirect(handlers);
+    const entry = runs?.find((row) => row.runId === entryRunId);
+    return entry?.status === "killed" && entry?.isLive === false;
+  });
+  await flushBackgroundRuns(5);
+
+  const runs = await listRunsDirect(handlers);
+  const entryRow = runs?.find((row) => row.runId === entryRunId);
+  const step1Row = runs?.find((row) => row.stepId === "step-1");
+  const step2Row = runs?.find((row) => row.runId === step2RunId);
+  expect(step2Row).toMatchObject({ status: "killed", isLive: false });
+  expect(entryRow).toMatchObject({ status: "killed", isLive: false });
+  expect(stateStore.loadRun(step1Row?.runId as string)?.status).toBe("completed");
+
+  const step1WorktreePath = stateStore.loadRun(step1Row?.runId as string)?.worktreePath;
+  expect(step1WorktreePath).toBeTruthy();
+  expect(existsSync(step1WorktreePath as string)).toBe(true);
+});
+
+test("kill on a settled workflow step runId returns run_not_active", async () => {
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", "workflow-settled-kill-branch", doneBindingFactory)];
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+  await flushBackgroundRuns(20);
+
+  const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
   expect(killResponse).toEqual({ kind: "error", code: "run_not_active", message: expect.any(String) });
+});
+
+test("kill authorization accepts a live workflow row and rejects a mismatched or absent one", () => {
+  const controller = new AbortController();
+  const workflowRow = { kind: "workflow" as const, runId: "run-1", abortController: controller };
+  // Dropping the workflow arm of activeRunAcceptsKill turns the first assertion RED — the
+  // predicate is pure and exported, so the source mutation is the inversion. No test-only
+  // global is needed to simulate one.
+  expect(activeRunAcceptsKill(workflowRow, "run-1")).toBe(true);
+  expect(activeRunAcceptsKill(workflowRow, "run-2")).toBe(false);
+  expect(activeRunAcceptsKill(undefined, "run-1")).toBe(false);
+});
+
+// The spec asked for this guard inversion to be simulated through a test-only global on
+// `activeRunAcceptsKill`. That global was removed: it put mutable state in the daemon purely so a
+// test could flip it, and the inversion it simulated is better expressed as a real source mutation.
+// Dropping the workflow arm of `activeRunAcceptsKill` turns the held-live kill tests above RED,
+// which is the same proof without the production debt.
+
+test("kill accepts a later step's runId once onStepRunCreated has tracked it; pause still rejects", async () => {
+  const steps: AnyWorkflowStep[] = [
+    createWriteStep("step-1", "workflow-branch", doneWithArtifactBindingFactory),
+    createWriteStep("step-2", "workflow-branch", heldLiveBindingFactory()),
+  ];
+  await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+
+  const step2RunId = await waitForStepRunId("workflow-branch", "step-2");
+  await waitUntilActiveRun(step2RunId);
+
+  const killResponse = await handlers.kill(
+    requestFrame("k2", "kill", { runId: step2RunId }),
+    new AbortController().signal,
+  );
+  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
 
   const pauseResponse = await handlers.pause(
     requestFrame("p2", "pause", { runId: step2RunId }),

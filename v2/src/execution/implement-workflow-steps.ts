@@ -457,13 +457,14 @@ export async function buildImplementWorkflowSteps(
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
   };
+  const pipelineConfigPath = resolvedInput.configPath ?? deps.configPath;
 
   if (reviewPasses === 0) {
     return admitProjectPipeline(
       loadImplementWorkflowSteps(loadSteps, [sourceStep], reviewPasses, reviewBehavior),
       resolvedInput,
       match,
-      resolvedInput.configPath ?? deps.configPath,
+      pipelineConfigPath,
     );
   }
 
@@ -496,7 +497,7 @@ export async function buildImplementWorkflowSteps(
       loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior),
       resolvedInput,
       match,
-      resolvedInput.configPath ?? deps.configPath,
+      pipelineConfigPath,
     );
   }
 
@@ -521,6 +522,6 @@ export async function buildImplementWorkflowSteps(
     loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior),
     resolvedInput,
     match,
-    resolvedInput.configPath ?? deps.configPath,
+    pipelineConfigPath,
   );
 }

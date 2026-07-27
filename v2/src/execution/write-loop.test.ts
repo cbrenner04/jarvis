@@ -12,6 +12,7 @@ import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-
 import { renderAttribution } from "./pr-attribution.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
+import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
@@ -1668,6 +1669,7 @@ describe("write loop", () => {
     expect(run?.status).toBe("completed");
     expect(logSink.getEventsForRun(result.runId).map((event) => event.kind)).toEqual([
       "iteration_started",
+      "iteration_commit",
       "boundary_committed",
       "loop_finished",
     ]);
@@ -1870,15 +1872,19 @@ describe("write loop", () => {
     expect(run?.attempts[0]?.outcomeKind).toBe("done");
 
     const events = sink.getEventsForRun(resumed.runId);
-    expect(events.length).toBe(5);
+    // The interrupted attempt's quiesced progress result checkpoints (no_git skip, no worktree
+    // git dir in this fixture) before its own loop_finished, same as the resumed attempt's.
+    expect(events.length).toBe(7);
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("loop_finished");
-    expect(events[2]?.kind).toBe("iteration_started");
-    expect(events[3]?.kind).toBe("boundary_committed");
-    expect(events[4]?.kind).toBe("loop_finished");
+    expect(events[1]?.kind).toBe("iteration_commit");
+    expect(events[2]?.kind).toBe("loop_finished");
+    expect(events[3]?.kind).toBe("iteration_started");
+    expect(events[4]?.kind).toBe("iteration_commit");
+    expect(events[5]?.kind).toBe("boundary_committed");
+    expect(events[6]?.kind).toBe("loop_finished");
 
     const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
-    const resumedAttemptId = events[2]?.kind === "iteration_started" ? events[2].attemptId : undefined;
+    const resumedAttemptId = events[3]?.kind === "iteration_started" ? events[3].attemptId : undefined;
     expect(firstAttemptId).toBeDefined();
     expect(resumedAttemptId).toBeDefined();
     expect(resumedAttemptId).toBe(firstAttemptId);
@@ -2011,15 +2017,18 @@ describe("write loop", () => {
     expect(run?.attempts).toHaveLength(1);
 
     const events = sink.getEventsForRun(resumed.runId);
-    // Should have: iteration_started (failed), iteration_started (retry with same attemptId), boundary_committed (success), loop_finished
-    expect(events.length).toBe(4);
+    // Should have: iteration_started (failed), iteration_commit (failed run's checkpoint),
+    // iteration_started (retry with same attemptId), iteration_commit, boundary_committed (success), loop_finished
+    expect(events.length).toBe(6);
     expect(events[0]?.kind).toBe("iteration_started");
-    expect(events[1]?.kind).toBe("iteration_started");
-    expect(events[2]?.kind).toBe("boundary_committed");
-    expect(events[3]?.kind).toBe("loop_finished");
+    expect(events[1]?.kind).toBe("iteration_commit");
+    expect(events[2]?.kind).toBe("iteration_started");
+    expect(events[3]?.kind).toBe("iteration_commit");
+    expect(events[4]?.kind).toBe("boundary_committed");
+    expect(events[5]?.kind).toBe("loop_finished");
 
     const firstAttemptId = events[0]?.kind === "iteration_started" ? events[0].attemptId : undefined;
-    const retryAttemptId = events[1]?.kind === "iteration_started" ? events[1].attemptId : undefined;
+    const retryAttemptId = events[2]?.kind === "iteration_started" ? events[2].attemptId : undefined;
     expect(firstAttemptId).toBeDefined();
     expect(retryAttemptId).toBeDefined();
     expect(retryAttemptId).toBe(firstAttemptId);
@@ -2066,8 +2075,8 @@ describe("write loop", () => {
     expect(result.iterationsConsumed).toBe(3);
 
     const events = sink.getEventsForRun(result.runId);
-    // 3 iteration_started, 2 iteration_commit (progress iterations only), 3 boundary_committed, 1 loop_finished
-    expect(events.length).toBe(9);
+    // 3 iteration_started, 3 iteration_commit (every settled iteration checkpoints), 3 boundary_committed, 1 loop_finished
+    expect(events.length).toBe(10);
 
     expect(events[0]?.kind).toBe("iteration_started");
     expect(events[1]?.kind).toBe("iteration_commit");
@@ -2076,10 +2085,11 @@ describe("write loop", () => {
     expect(events[4]?.kind).toBe("iteration_commit");
     expect(events[5]?.kind).toBe("boundary_committed");
     expect(events[6]?.kind).toBe("iteration_started");
-    expect(events[7]?.kind).toBe("boundary_committed");
-    expect(events[8]?.kind).toBe("loop_finished");
-    expect(events[8]?.kind === "loop_finished" && events[8].loopOutcomeKind).toBe("complete");
-    expect(events[8]?.kind === "loop_finished" && events[8].iterationsConsumed).toBe(3);
+    expect(events[7]?.kind).toBe("iteration_commit");
+    expect(events[8]?.kind).toBe("boundary_committed");
+    expect(events[9]?.kind).toBe("loop_finished");
+    expect(events[9]?.kind === "loop_finished" && events[9].loopOutcomeKind).toBe("complete");
+    expect(events[9]?.kind === "loop_finished" && events[9].iterationsConsumed).toBe(3);
   });
 
   test("terminal boundary_committed and loop_finished payloads match terminalMapping for each outcome", async () => {
@@ -2138,7 +2148,7 @@ describe("write loop", () => {
       expect(result.kind).toBe(testCase.expectedResultKind);
 
       const events = sink.getEventsForRun(result.runId);
-      const boundaryEvent = events[1];
+      const boundaryEvent = events[2];
       expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe(
         testCase.expectedBoundaryOutcomeKind,
       );
@@ -2213,8 +2223,9 @@ describe("write loop", () => {
 
     const allEvents = sink.getEventsForRun(second.runId);
     expect(allEvents.length).toBeGreaterThan(firstEventCount);
-    // Should have: first run's 4 events + second run's 3 events (iteration_started, boundary_committed, loop_finished) = 7 total
-    expect(allEvents.length).toBe(7);
+    // Should have: first run's 4 events + second run's 4 events (iteration_started, iteration_commit,
+    // boundary_committed, loop_finished) = 8 total
+    expect(allEvents.length).toBe(8);
   });
 
   test("abort/cancellation stops the loop without committing the in-flight boundary, emitting matching events and state", async () => {
@@ -2247,15 +2258,17 @@ describe("write loop", () => {
 
     const events = sink.getEventsForRun(result.runId);
     // Should have: iteration_started, iteration_commit, boundary_committed (completed),
-    // iteration_started (aborted, no boundary), loop_finished
-    expect(events.length).toBe(5);
+    // iteration_started (aborted), iteration_commit (quiesced progress result, no_git skip),
+    // loop_finished
+    expect(events.length).toBe(6);
     expect(events[0]?.kind).toBe("iteration_started");
     expect(events[1]?.kind).toBe("iteration_commit");
     expect(events[2]?.kind).toBe("boundary_committed");
     expect(events[3]?.kind).toBe("iteration_started");
-    expect(events[4]?.kind).toBe("loop_finished");
-    expect(events[4]?.kind === "loop_finished" && events[4].loopOutcomeKind).toBe("progress");
-    expect(events[4]?.kind === "loop_finished" && events[4].iterationsConsumed).toBe(2);
+    expect(events[4]?.kind).toBe("iteration_commit");
+    expect(events[5]?.kind).toBe("loop_finished");
+    expect(events[5]?.kind === "loop_finished" && events[5].loopOutcomeKind).toBe("progress");
+    expect(events[5]?.kind === "loop_finished" && events[5].iterationsConsumed).toBe(2);
 
     const run = loadRunOnce(stateDbPath, result.runId);
     expect(run?.attempts).toHaveLength(2);
@@ -2633,7 +2646,12 @@ describe("write loop", () => {
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
     const sink = new TestLogSink();
-    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) =>
+        new Promise<never>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    }));
 
     try {
       const result = await executeWriteLoop({
@@ -2664,13 +2682,12 @@ describe("write loop", () => {
     }
   });
 
-  test("gives each iteration a fresh timeout and ignores a late execution failure", async () => {
+  test("gives each iteration a fresh timeout and quiesces the second iteration's execution before finalizing", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
     const sink = new TestLogSink();
     let calls = 0;
-    let rejectLate!: (error: Error) => void;
     mock.module("./write.ts", () => ({
       executeWrite: (input: WriteExecuteInput) => {
         calls += 1;
@@ -2686,8 +2703,10 @@ describe("write loop", () => {
             },
           });
         }
+        // Second iteration's invocation only quiesces (rejects) once the watchdog aborts it —
+        // proving the timeout boundary waits for that quiescence rather than moving on early.
         return new Promise<never>((_resolve, reject) => {
-          rejectLate = reject;
+          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
         });
       },
     }));
@@ -2714,8 +2733,6 @@ describe("write loop", () => {
 
       expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 2, resumable: false });
       expect(calls).toBe(2);
-      rejectLate(new Error("late failure"));
-      await Promise.resolve();
       expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished")).toHaveLength(1);
       expect(loadRunOnce(stateDbPath, result.runId)?.attempts.map((attempt) => attempt.outcomeKind)).toEqual([
         "progress",
@@ -2731,7 +2748,12 @@ describe("write loop", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
-    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) =>
+        new Promise<never>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    }));
 
     try {
       for (let i = 0; i < 50; i++) {
@@ -2780,7 +2802,12 @@ describe("write loop", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
-    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) =>
+        new Promise<never>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    }));
 
     try {
       const result = await runAbortWatchdogOrdering({
@@ -3357,7 +3384,9 @@ describe("write loop", () => {
           }),
         );
         expect(first.kind).toBe("completion_commit_failed");
-        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
+        // 2 progress checkpoints + the completing iteration's own checkpoint + the terminal
+        // forceDistinctCommit commit, before publication throws.
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 4);
 
         const resumed = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {
@@ -3370,7 +3399,7 @@ describe("write loop", () => {
         expect(resumed.kind).toBe("complete");
         expect(forceDistinctFlags.filter(Boolean).length).toBeGreaterThanOrEqual(2);
         expect(forceDistinctFlags.at(-1)).toBe(true);
-        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 4);
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 5);
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
@@ -3399,13 +3428,18 @@ describe("write loop", () => {
       }));
 
       try {
+        // Progress iterations checkpoint normally; the completing iteration's own checkpoint
+        // and the terminal forceDistinctCommit call both no-op, simulating a committer that
+        // cannot capture the completing iteration's worktree state either time.
+        let commitCalls = 0;
         const result = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {
             stepRules: "Return progress or done.",
             expectedArtifactPath: "subspec.md",
             bindings: simulatedBindings(["progress", "progress", "done"]),
             completionCommitter: async (input) => {
-              if (input.forceDistinctCommit) return {};
+              commitCalls += 1;
+              if (commitCalls > 2) return {};
               return createCompletionCommitter()(input);
             },
             completionPublisher: async () => ({}),
@@ -3468,7 +3502,9 @@ describe("write loop", () => {
         );
 
         expect(result.kind).toBe("complete");
-        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 3);
+        // 2 progress checkpoints + the completing iteration's own checkpoint + the distinct
+        // terminal completion commit.
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 4);
         for (const rev of ["HEAD~1", "HEAD~2"]) {
           const message = gitIn(worktreePath, ["log", "-1", "--format=%B", rev]);
           expect(message).toContain("Jarvis-Agent: Test Agent");
@@ -3772,6 +3808,262 @@ describe("write loop", () => {
       }
     });
 
+    test("single-iteration done without progress emits iteration_commit", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-single-done";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const initialCount = Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]));
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["done"]),
+            logSink: sink,
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("complete");
+        expect(sink.getEventsForRun(result.runId).map((event) => event.kind)).toEqual([
+          "iteration_started",
+          "iteration_commit",
+          "boundary_committed",
+          "loop_finished",
+        ]);
+
+        // The checkpoint commit (capturing proof.txt) is distinct from the terminal completion commit.
+        const checkpointSha = gitIn(worktreePath, ["rev-parse", "HEAD~1"]);
+        const terminalSha = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        expect(checkpointSha).not.toBe(terminalSha);
+        expect(result.commitSha).toBe(terminalSha);
+        expect(Number(gitIn(worktreePath, ["rev-list", "--count", "HEAD"]))).toBe(initialCount + 2);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("settled result classes checkpoint before their boundary", async () => {
+      const checkpointCaseInvocation = {
+        attempts: [],
+        final: {
+          result: { kind: "ok" as const, stdout: "response", stderr: "" },
+          binding: {
+            id: "sim.1",
+            metadata: { agent: "Test Agent", model: "sim-model" },
+            invoke: async () => ({ kind: "ok" as const, stdout: "response", stderr: "" }),
+          },
+        },
+        telemetryFailures: [],
+      };
+      const cases: Array<{ label: string; result: StepRunResult; expectedOutcomeKind: OutcomeKind }> = [
+        {
+          label: "no-work",
+          result: { kind: "complete", token: "no-work", invocation: checkpointCaseInvocation },
+          expectedOutcomeKind: "no-work",
+        },
+        {
+          label: "blocked",
+          result: { kind: "blocked", token: "blocked", invocation: checkpointCaseInvocation },
+          expectedOutcomeKind: "blocked",
+        },
+        {
+          label: "invalid_token",
+          result: {
+            kind: "invalid_token",
+            tokenText: "prose without a terminal token",
+            invocation: checkpointCaseInvocation,
+          },
+          expectedOutcomeKind: "invalid_token",
+        },
+        {
+          label: "missing_blocker",
+          result: {
+            kind: "missing_blocker",
+            token: "blocked",
+            responseText: "no blocker text here",
+            invocation: checkpointCaseInvocation,
+          },
+          expectedOutcomeKind: "missing_blocker",
+        },
+        {
+          label: "invocation_failure",
+          result: { kind: "invocation_failure", failureKind: "error", invocation: checkpointCaseInvocation },
+          expectedOutcomeKind: "invocation_failure",
+        },
+        {
+          label: "idle_output_timeout",
+          result: { kind: "stall", invocation: checkpointCaseInvocation },
+          expectedOutcomeKind: "idle_output_timeout",
+        },
+      ];
+
+      for (const testCase of cases) {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        roots.push(join(jarvisRoot, ".."));
+        const branchName = `settled-checkpoint-${testCase.label}`;
+        const worktreePath = initGitWorktree(jarvisRoot, branchName);
+        const store = openStateStore(stateDbPath);
+        const sink = new TestLogSink();
+
+        mock.module("./write.ts", () => ({
+          executeWrite: async () => {
+            writeFileSync(join(worktreePath, `${testCase.label}.txt`), "x\n", "utf8");
+            return {
+              worktreePath,
+              worktreeReused: false as const,
+              lock: { kind: "acquired" as const },
+              result: testCase.result,
+            };
+          },
+        }));
+
+        try {
+          const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { logSink: sink }));
+
+          const events = sink.getEventsForRun(result.runId);
+          const commitIndex = events.findIndex((event) => event.kind === "iteration_commit");
+          const boundaryIndex = events.findIndex((event) => event.kind === "boundary_committed");
+          expect(commitIndex).toBeGreaterThanOrEqual(0);
+          expect(boundaryIndex).toBeGreaterThan(commitIndex);
+
+          const boundaryEvent = events.find((event) => event.kind === "boundary_committed");
+          expect(boundaryEvent?.kind === "boundary_committed" && boundaryEvent.outcomeKind).toBe(
+            testCase.expectedOutcomeKind,
+          );
+        } finally {
+          store.close();
+          mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+        }
+      }
+    });
+
+    test("contract-miss blocker is included in its settled checkpoint", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-contract-miss-checkpoint";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "agent-edit.txt"), "edit\n", "utf8");
+          return {
+            worktreePath,
+            worktreeReused: false as const,
+            lock: { kind: "acquired" as const },
+            result: {
+              kind: "contract_miss" as const,
+              token: "done" as const,
+              failedContractId: "artifact.expected",
+              failureReason: "expected artifact missing",
+              invocation: progressInvocation,
+            },
+          };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { logSink: sink }));
+
+        expect(result.kind).toBe("contract_miss");
+        const events = sink.getEventsForRun(result.runId);
+        const commitIndex = events.findIndex((event) => event.kind === "iteration_commit");
+        const boundaryIndex = events.findIndex((event) => event.kind === "boundary_committed");
+        expect(commitIndex).toBeGreaterThanOrEqual(0);
+        expect(boundaryIndex).toBeGreaterThan(commitIndex);
+
+        const commitEvent = events.find((event) => event.kind === "iteration_commit");
+        const checkpointSha =
+          commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent ? commitEvent.commitSha : undefined;
+        expect(checkpointSha).toBeDefined();
+
+        const specAtCheckpoint = gitIn(worktreePath, ["show", `${checkpointSha}:spec.md`]);
+        expect(specAtCheckpoint).toContain("## Blocker");
+        const treeAtCheckpoint = gitIn(worktreePath, ["ls-tree", "--name-only", checkpointSha as string]);
+        expect(treeAtCheckpoint.split("\n")).toContain("agent-edit.txt");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("settled checkpoint failure supersedes terminal boundary and publication", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-checkpoint-failure-supersedes";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let publishCalls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["done"]),
+            logSink: sink,
+            completionCommitter: async () => {
+              throw new Error("checkpoint commit blew up");
+            },
+            completionPublisher: async () => {
+              publishCalls += 1;
+              return {};
+            },
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_commit_failed");
+        expect(result.resumable).toBe(true);
+        expect(publishCalls).toBe(0);
+        const failedRun = loadRunOnce(stateDbPath, result.runId);
+        expect(failedRun?.status).toBe("failed");
+        expect(failedRun?.attempts.at(-1)?.status).toBe("in-progress");
+        expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "boundary_committed")).toHaveLength(
+          0,
+        );
+
+        let resumedCalls = 0;
+        mock.module("./write.ts", () => ({
+          executeWrite: async () => {
+            resumedCalls += 1;
+            return completeWrite(worktreePath);
+          },
+        }));
+        const resumed = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["done"]),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+        expect(resumed.kind).toBe("complete");
+        expect(resumedCalls).toBe(1);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("deadline-killed gate (exit 124) skips repair and emits ready_gate_timeout", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
@@ -3896,6 +4188,461 @@ describe("write loop", () => {
 
         const timeoutEvents = events.filter((event) => event.kind === "ready_gate_timeout");
         expect(timeoutEvents).toHaveLength(0);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    /**
+     * A kill mirrors the daemon's real sequencing: `commitGuardedKill` persists the killed status
+     * durably before `abortController.abort()` fires, so a checkpoint failure racing the abort can
+     * see that status already recorded and preserve it (`kill checkpoint failure preserves killed
+     * state` proves nothing otherwise). Driven synchronously right after `executeWriteLoop` is
+     * called (not awaited yet): the loop's synchronous prefix — `prepareRun`, `onRunCreated`, and
+     * the first binding invocation up to its own first `await` — has already run by then, so the
+     * write is already on disk and `runId` is already captured.
+     */
+    function killAfterDispatch(
+      store: StateStore,
+      controller: AbortController,
+      getRunId: () => string | undefined,
+    ): void {
+      const runId = getRunId();
+      if (runId === undefined) throw new Error("runId not captured before kill");
+      store.commitGuardedKill(runId);
+      controller.abort();
+    }
+
+    /** Resolves only once the executionController's abort signal fires, after a real macrotask
+     * hop — so it never wins a same-tick race against the awaitIteration `abort` promise. */
+    function resolveOnAbort<T>(input: WriteExecuteInput, value: T): Promise<T> {
+      return new Promise((resolve) => {
+        input.signal?.addEventListener("abort", () => setTimeout(() => resolve(value), 5), { once: true });
+      });
+    }
+
+    test("a non-progress result that settles before abort still checkpoints", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "settle-before-abort";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+
+      // Resolves on its own, never touching `input.signal`: this write has already settled by
+      // the time the abort fires, unlike the kill/watchdog tests below which race the abort.
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "settle-before-abort.txt"), "settled-before-abort\n", "utf8");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, { signal: controller.signal }),
+        );
+        controller.abort();
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+        expect(result.resumable).toBe(true);
+
+        expect(gitIn(worktreePath, ["show", "HEAD:settle-before-abort.txt"])).toBe("settled-before-abort");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("mid-iteration kill commits agent edits before settle", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "kill-mid-iteration";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+      let runId: string | undefined;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "kill-proof.txt"), "killed-work\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            signal: controller.signal,
+            onRunCreated: (id) => {
+              runId = id;
+            },
+          }),
+        );
+        killAfterDispatch(store, controller, () => runId);
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+        expect(result.resumable).toBe(true);
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("killed");
+
+        expect(gitIn(worktreePath, ["show", "HEAD:kill-proof.txt"])).toBe("killed-work");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("iteration watchdog checkpoints quiesced agent edits before timeout settlement", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "watchdog-checkpoint";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "watchdog-proof.txt"), "watchdog-work\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_timeout");
+        expect(result.resumable).toBe(false);
+        expect(gitIn(worktreePath, ["show", "HEAD:watchdog-proof.txt"])).toBe("watchdog-work");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+
+        const events = sink.getEventsForRun(result.runId);
+        const commitIndex = events.findIndex((event) => event.kind === "iteration_commit");
+        const boundaryIndex = events.findIndex(
+          (event) => event.kind === "boundary_committed" && event.outcomeKind === "iteration_timeout",
+        );
+        expect(commitIndex).toBeGreaterThanOrEqual(0);
+        expect(boundaryIndex).toBeGreaterThan(commitIndex);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("kill checkpoint precedes loop settlement", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "kill-precedes-settlement";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const controller = new AbortController();
+      let runId: string | undefined;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "kill-order-proof.txt"), "x\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            signal: controller.signal,
+            logSink: sink,
+            onRunCreated: (id) => {
+              runId = id;
+            },
+          }),
+        );
+        killAfterDispatch(store, controller, () => runId);
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+
+        const events = sink.getEventsForRun(result.runId);
+        const commitIndex = events.findIndex((event) => event.kind === "iteration_commit");
+        const finishedIndex = events.findIndex((event) => event.kind === "loop_finished");
+        expect(commitIndex).toBeGreaterThanOrEqual(0);
+        expect(finishedIndex).toBeGreaterThan(commitIndex);
+
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("killed");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("interrupted fallback checkpoint attributes the active binding", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "kill-fallback-attribution";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+      let runId: string | undefined;
+
+      const primaryBinding = { id: "primary", metadata: { agent: "Primary Agent", model: "primary-model" } };
+      const fallbackBinding = { id: "fallback", metadata: { agent: "Fallback Agent", model: "fallback-model" } };
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "fallback-proof.txt"), "fallback-work\n", "utf8");
+          return resolveOnAbort(input, {
+            worktreePath,
+            worktreeReused: false as const,
+            lock: { kind: "acquired" as const },
+            result: {
+              kind: "progress" as const,
+              token: "progress" as const,
+              invocation: {
+                attempts: [
+                  { binding: primaryBinding, result: { kind: "quota" as const, stderr: "quota" } },
+                  { binding: fallbackBinding, result: { kind: "ok" as const, stdout: "progress", stderr: "" } },
+                ],
+                final: { binding: fallbackBinding, result: { kind: "ok" as const, stdout: "progress", stderr: "" } },
+                telemetryFailures: [],
+              },
+            },
+          });
+        },
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            signal: controller.signal,
+            onRunCreated: (id) => {
+              runId = id;
+            },
+          }),
+        );
+        killAfterDispatch(store, controller, () => runId);
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+        const checkpointSha = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        const message = gitIn(worktreePath, ["log", "-1", "--format=%B", checkpointSha]);
+        expect(message).toContain("Jarvis-Agent: Fallback Agent");
+        expect(message).not.toContain("Jarvis-Agent: Primary Agent");
+        expect(gitIn(worktreePath, ["show", `${checkpointSha}:fallback-proof.txt`])).toBe("fallback-work");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("watchdog checkpoint failure supersedes timeout boundary", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "watchdog-checkpoint-fail";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      let publishCalls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "watchdog-fail-proof.txt"), "x\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationTimeoutMs: 15,
+            completionCommitter: async () => {
+              throw new Error("checkpoint blew up");
+            },
+            completionPublisher: async () => {
+              publishCalls += 1;
+              return {};
+            },
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_commit_failed");
+        expect(result.resumable).toBe(true);
+        expect(publishCalls).toBe(0);
+
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "boundary_committed")).toBe(false);
+        expect(
+          events.some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "iteration_timeout"),
+        ).toBe(false);
+
+        const failedRun = loadRunOnce(stateDbPath, result.runId);
+        expect(failedRun?.status).toBe("failed");
+        expect(failedRun?.attempts.at(-1)?.status).toBe("in-progress");
+
+        mock.module("./write.ts", () => ({
+          executeWrite: async () => {
+            writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+            return completeWrite(worktreePath);
+          },
+        }));
+
+        const resumed = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["done"]),
+            completionCommitter: createCompletionCommitter(),
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+        expect(resumed.kind).toBe("complete");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("kill checkpoint failure preserves killed state", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "kill-checkpoint-fail";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const controller = new AbortController();
+      let runId: string | undefined;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "kill-fail-proof.txt"), "x\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            signal: controller.signal,
+            logSink: sink,
+            onRunCreated: (id) => {
+              runId = id;
+            },
+            completionCommitter: async () => {
+              throw new Error("checkpoint after kill blew up");
+            },
+          }),
+        );
+        killAfterDispatch(store, controller, () => runId);
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+        expect(result.resumable).toBe(true);
+
+        const run = loadRunOnce(stateDbPath, result.runId);
+        expect(run?.status).toBe("killed");
+        expect(run?.attempts.at(-1)?.status).toBe("in-progress");
+
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "boundary_committed")).toBe(false);
+        expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
+        const diagnostic = events.find(
+          (event) =>
+            event.kind === "run_execution_failed" && event.message?.includes("checkpoint after kill failed") === true,
+        );
+        expect(diagnostic).toBeDefined();
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("quiescence wait is bounded when the invocation never quiesces", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "quiescence-bound";
+      initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const controller = new AbortController();
+
+      // Ignores `signal` entirely: never settles, mirroring an invocation that ignores its
+      // AbortSignal, the case the durability floor explicitly excludes.
+      mock.module("./write.ts", () => ({
+        executeWrite: () => new Promise<never>(() => undefined),
+      }));
+
+      try {
+        const resultPromise = executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            signal: controller.signal,
+            logSink: sink,
+            quiescenceTimeoutMs: 20,
+          }),
+        );
+        controller.abort();
+        const result = await resultPromise;
+
+        expect(result.kind).toBe("progress");
+        expect(result.resumable).toBe(true);
+
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
+        expect(events.some((event) => event.kind === "boundary_committed")).toBe(false);
+        expect(events.some((event) => event.kind === "loop_finished")).toBe(true);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("invocation_failure with no binding skips the checkpoint and preserves detail", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "no-binding-checkpoint-skip";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => ({
+          worktreePath,
+          worktreeReused: false as const,
+          lock: { kind: "acquired" as const },
+          result: {
+            kind: "invocation_failure" as const,
+            failureKind: "no_binding" as const,
+            invocation: { attempts: [], final: null, telemetryFailures: [] },
+          },
+        }),
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: [],
+            logSink: sink,
+          }),
+        );
+
+        expect(result.kind).toBe("invocation_failure");
+        expect(result.resumable).toBe(false);
+        expect(result.failureKind).toBe("no_binding");
+        expect(result.bindingAttempts).toEqual([]);
+
+        const events = sink.getEventsForRun(result.runId);
+        const commitEvent = events.find((event) => event.kind === "iteration_commit");
+        expect(commitEvent?.kind === "iteration_commit" && "skipReason" in commitEvent && commitEvent.skipReason).toBe(
+          "no_binding",
+        );
+        expect(events.some((event) => event.kind === "boundary_committed")).toBe(true);
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

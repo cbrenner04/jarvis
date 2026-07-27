@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openStateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
@@ -9,11 +9,17 @@ import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
 
-/** git-inits the worktree path the fake `withExternalWorktree` hands the loop. */
+/** git-inits the worktree path the fake `withExternalWorktree` hands the loop, with a seed commit
+ * so HEAD exists, matching a real worktree materialized off a base branch. */
 function initWorktreeRepo(jarvisRoot: string): string {
   const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
   mkdirSync(worktreePath, { recursive: true });
   execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
   return worktreePath;
 }
 

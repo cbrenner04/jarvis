@@ -687,20 +687,40 @@ Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
 and resume while the branch exists; only in-flight edits before that iteration's
 git commit may be lost.
 
-**Do not rely on in-flight iteration commits (corrected 2026-07-26).** This paragraph previously
-said a `publishCompletion: false` workflow write step "still commits each `progress` iteration
-in-flight, so a mid-run kill or crash leaves prior iterations' commits on the branch rather than an
-all-dirty worktree." **That guarantee does not engage on implement runs.** `write-loop.ts:396`
-commits only when the agent returns `result.kind === "progress"`; an agent that finishes its subspec
-returns `done`, so `commitProgressIteration` is never called. Five run rows on 2026-07-26 each
-consumed exactly one iteration, settled `outcomeKind: "done"`, and produced zero `iteration_commit`
-records. A run killed inside that single iteration loses **everything** — observed the same day:
-`idle_output_timeout` at 948s left 9 modified files and 0 commits, non-retryable. Seed:
-`write-iteration-commits-never-engage`. Cleanup: restore an accurate durability claim here when it
-ships. Uncommitted work from the killed step is left dirty in the worktree, and its token spend is
-lost. **Implement re-run reset**
+**In-flight iteration commits now cover every settled result (fixed 2026-07-27; previously corrected
+2026-07-26).** A `publishCompletion: false` workflow write step (and every other git-backed write
+loop) checkpoints before the SQLite boundary of *every* settled main-loop iteration — `progress`,
+`complete` (`done`/`no-work`), `blocked`, `contract_miss`, `invalid_token`, `missing_blocker`,
+`invocation_failure`, and `stall`/`idle_output_timeout` — not only `progress`. Previously
+`write-loop.ts` committed only when the agent returned `result.kind === "progress"`; an agent that
+finished its subspec on the first try returned `done` directly, so the committer was never called
+and a mid-iteration kill lost everything. That gap is closed: a single-iteration `done` run now
+emits an `iteration_commit` before `boundary_committed`, the same as a mid-loop `progress` step, so
+a kill or crash after the checkpoint retains that iteration's edits. Ready-gate repair iterations are
+the one exception — they keep their prior publish/recommit behavior, not this per-iteration
+checkpoint. See `v2/docs/write-behavior.md` § Per-iteration commits for the full contract. Seed
+`write-iteration-commits-never-engage` is resolved by this fix. **Implement re-run reset**
 (`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
 the branch and unpushed commits; publication remains terminal-`complete` only.
+
+**Controlled losses (kill, abort, watchdog) also checkpoint now (2026-07-27).** The gap above
+covered only a settled agent turn racing the loop's own settlement logic; a `jarvis run kill`,
+a plain `args.signal` abort, or an iteration watchdog (wall-segment or ceiling) firing
+*mid-invocation* previously declared the iteration lost without waiting to see whether the
+raced-away invocation had actually produced work. It now does: the loop waits for that
+invocation to quiesce (settle or throw, once its own cancellation unwinds it), and if it settled
+with a real step result, checkpoints that result before declaring the loss — before
+`loop_finished` on abort/kill, before the `iteration_timeout` boundary on watchdog. A kill
+acknowledgement (the RPC response) only records the kill; the checkpoint, and therefore full
+durability, is only guaranteed once the write loop itself settles — `run kill` returning success
+is not proof the checkpoint has landed, `run wait`/`run log` are. If a checkpoint after a kill
+fails, the already-recorded `killed` status is authoritative and is not clobbered; the error is
+logged for resume diagnostics instead. Ready-gate repair iterations are excluded from this floor
+too — same carve-out as above. Waiting for quiescence is bounded (30s by default,
+`quiescenceTimeoutMs`): an invocation that never quiesces at all (ignores its `AbortSignal`) still
+lets the loop settle once that bound expires, falling through to the un-checkpointed loss instead
+of hanging. Abrupt daemon/process death is outside this floor's guarantee — not a new limitation,
+the same one every checkpoint here has always had.
 
 **This trap observed live on 2026-07-14:**
 

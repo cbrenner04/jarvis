@@ -145,29 +145,85 @@ run records `completion_commit_failed` (resumable) and names the uncommitted pat
 `completionCommitError`; a clean worktree still records `complete`. This guarantees a
 reported `complete` always implies a commit exists.
 
-**Per-iteration commits (`progress` only):** On every git-backed loop —
-including workflow write steps, whose `publishCompletion: false` gates only
-completion publication (push/PR/ready), not in-flight committing — each
-settled `progress` step runs the same completion committer seam after the
-step settles and before the SQLite `progress` boundary. A worktree with no
-`.git` directory — typically `worktree.git: false` steps pointed at a
-non-repo staging dir — is skipped the same as before; the guard is on `.git`
-presence, not on the `git: false` flag itself. The committer no-ops when the isolated index
-tree matches `HEAD^{tree}` (reprompt-only or advisory-only iterations with no
-materialized diff). Iteration commits use the step binding's `Jarvis-Agent`
-label, a `Spec:` line for the active subspec path (`expectedArtifactPath` when
-that file exists in the worktree, otherwise the run `specPath`), and a subject
-from binding metadata `title` when set, else the same creation-title fallback
-as terminal completion. A throwing committer or missing agent label stops the
-run `failed` with `iteration_commit_failed` (resumable); the loop does not
-advance to another iteration — this failure now reaches a path that was
-previously unreachable (the guard used to skip the call entirely), and resumes
-like any other write-loop failure. `iteration_timeout` and other terminal
-outcomes do not trigger per-iteration git commits. Push and PR publication
-remain on terminal `complete` only.
+**Per-iteration commits (every settled main-loop result):** On every
+git-backed loop — including workflow write steps, whose `publishCompletion:
+false` gates only completion publication (push/PR/ready), not in-flight
+committing — each settled main-loop iteration (`progress`, `complete`
+`done`/`no-work`, `blocked`, `contract_miss`, `invalid_token`,
+`missing_blocker`, `invocation_failure`, and `stall`/`idle_output_timeout`)
+runs the same completion committer seam after the step settles and before its
+SQLite boundary. This is a durability floor, not just a `progress` cadence: a
+single-iteration `done` (or any other settled terminal result) checkpoints its
+git state before `boundary_committed` the same as a mid-loop `progress` step,
+so a crash after the SQLite boundary never strands uncommitted agent edits.
+A `contract_miss` harness-appended blocker is written to the spec file before
+this checkpoint runs, so it lands in the same checkpointed tree. Ready-gate
+repair iterations (`runReadyRepairIteration`) are excluded from this floor —
+they keep their existing publish/recommit behavior, not a per-iteration
+checkpoint. A worktree with no `.git` directory — typically `worktree.git:
+false` steps pointed at a non-repo staging dir — is skipped the same as
+before; the guard is on `.git` presence, not on the `git: false` flag itself.
+The committer no-ops when the isolated index tree matches `HEAD^{tree}`
+(reprompt-only or advisory-only iterations with no materialized diff).
+Iteration commits use the step binding's `Jarvis-Agent` label, a `Spec:` line
+for the active subspec path (`expectedArtifactPath` when that file exists in
+the worktree, otherwise the run `specPath`), and a subject from binding
+metadata `title` when set, else the same creation-title fallback as terminal
+completion. A throwing committer or missing agent label stops the run
+`failed` with `iteration_commit_failed` (resumable) instead of persisting the
+candidate terminal boundary; the loop does not advance to another iteration
+— this failure now reaches a path that was previously unreachable (the guard
+used to skip the call entirely) for `progress`, and is newly reachable for
+every other settled result too, and resumes like any other write-loop
+failure. Push and PR publication remain on terminal `complete` only, via a
+separate `forceDistinctCommit` completion commit after this checkpoint.
 
-Every `progress` iteration appends a distinct `iteration_commit` log event
-(`v2/src/persistence/log-stream.ts`), separate from the SQLite-only
+**Controlled-loss checkpoint (abort/kill and watchdog):** an abort/kill
+(`args.signal`) or watchdog (wall-segment or ceiling) race does not declare an
+iteration lost the instant it wins the race against the in-flight invocation.
+The main loop first waits for that raced-away invocation to quiesce — settle
+or throw, once its own `AbortSignal` cancellation has actually unwound it —
+and only then checkpoints. A quiesced invocation that produced a real step
+result runs the same committer seam as any other settled iteration, before the
+loss is declared final: on abort/kill, before `loop_finished`; on watchdog,
+before the `iteration_timeout` boundary. A quiesced invocation that instead
+threw (no step result to checkpoint) skips the commit and proceeds exactly as
+before. This is the durability floor's boundary condition, not a broader
+guarantee: it applies only once the raced-away invocation has actually
+quiesced and can no longer mutate the worktree. Waiting for that quiescence is
+bounded (`quiescenceTimeoutMs`, default `DEFAULT_QUIESCENCE_TIMEOUT_MS` = 30s):
+an invocation that never quiesces at all (ignores its `AbortSignal`) falls
+through to the un-checkpointed loss once the bound expires, the same as an
+invocation that quiesced by throwing — the loop still settles rather than
+hanging. Abrupt daemon/process death falls outside the floor entirely; that is
+not a new risk introduced here.
+
+An interrupted fallback attempt — the last-started binding when the invocation
+had already advanced past an earlier failed binding — checkpoints under its
+own attribution: `commitSettledIteration` reads `invocation.final`, which is
+whichever binding was active when quiescence happened, so the checkpoint's
+`Jarvis-Agent` trailer and title/creation-title fallback name that binding, not
+an earlier one that had already failed over.
+
+A checkpoint failure during a controlled loss takes precedence over the loss
+outcome that was about to be declared. On watchdog, a throwing committer
+persists resumable `iteration_commit_failed` instead of `iteration_timeout`;
+no boundary is committed and no publication starts, identical to a checkpoint
+failure on an ordinary settled iteration. On abort/kill, the same failure
+ordinarily also demotes to `iteration_commit_failed` — except when a kill was
+already durably recorded (`commitGuardedKill`, checked via the current run
+status) before the checkpoint ran: that killed status is authoritative and is
+not overwritten. The loop instead returns its ordinary resumable abort/kill
+result, appends a `run_execution_failed` log event naming the checkpoint error
+for resume diagnostics, and starts no boundary or publication — resume still
+retries the write path since the attempt was never marked complete.
+
+Ready-gate repair iterations (`runReadyRepairIteration`) are not covered write-
+loop iterations for this floor either; an abort/watchdog loss mid-repair keeps
+its pre-existing unsettled/blocked handling, unchanged by this checkpoint.
+
+Every settled main-loop iteration appends a distinct `iteration_commit` log
+event (`v2/src/persistence/log-stream.ts`), separate from the SQLite-only
 `boundary_committed` event that follows it — one is a git commit, the other a
 state-store boundary, and they must stay distinguishable. The event carries
 `commitSha` when this iteration produced a new commit, or `skipReason` (`no_git`

@@ -108,6 +108,13 @@ export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
+  /**
+   * Bound on waiting for a raced-away invocation to quiesce after an abort/kill or watchdog loss,
+   * so an invocation that ignores its `AbortSignal` cannot hang the loop forever. Defaults to
+   * `DEFAULT_QUIESCENCE_TIMEOUT_MS`. On expiry the loop falls through to the un-checkpointed loss,
+   * same as an invocation that quiesced by throwing.
+   */
+  quiescenceTimeoutMs?: number;
   /** Test seam: when false, stdout/stderr progress does not re-arm the wall segment. */
   resetIterationWallOnOutput?: boolean;
   /** Test seam: wall-segment scheduling in `awaitIteration`, including `bumpWallSegment` cancel/reschedule. */
@@ -164,6 +171,8 @@ const MAX_READY_GATE_REPAIRS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
+/** Bound on waiting for a raced-away invocation to quiesce after it loses an abort/watchdog race. */
+export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
 /** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
 async function runCoverageAdvisory(
@@ -362,11 +371,31 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const settled = await awaitIteration(args, runId, attemptId, sessionLog);
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
-        return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
+        return finishControlledLoss(
+          args,
+          store,
+          prepared,
+          runId,
+          worktreePath,
+          attemptId,
+          iterationsConsumed + 1,
+          settled.quiesced,
+          "aborted",
+        );
       }
       if (settled.kind === "timed_out") {
         closeSessionLog(sessionLog, "timeout");
-        return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
+        return finishControlledLoss(
+          args,
+          store,
+          prepared,
+          runId,
+          worktreePath,
+          attemptId,
+          iterationsConsumed + 1,
+          settled.quiesced,
+          "timed_out",
+        );
       }
       if (settled.kind === "threw") {
         if (args.signal?.aborted) {
@@ -382,9 +411,20 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const { result } = stepResult;
 
-      // Non-progress: abort before terminal boundary when the signal fired mid-step.
+      // Non-progress: abort before terminal boundary when the signal fired mid-step, but the
+      // settled result still checkpoints first, same as any other settled iteration.
       if (args.signal?.aborted && result.kind !== "progress") {
-        return finishLoop(args, runId, "progress", iterationsConsumed, true);
+        const failure = await checkpointBeforeControlledLoss(
+          args,
+          prepared,
+          store,
+          runId,
+          worktreePath,
+          attemptId,
+          iterationsConsumed,
+          result,
+        );
+        return failure ?? finishLoop(args, runId, "progress", iterationsConsumed, true);
       }
 
       if (result.reprompt !== undefined) {
@@ -405,9 +445,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       if (result.kind === "progress") {
-        let commitOutcome: ProgressIterationCommitOutcome;
         try {
-          commitOutcome = await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
+          await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
         } catch (error) {
           return iterationCommitFailed(
             args,
@@ -418,14 +457,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             error instanceof Error ? error : new Error(String(error)),
           );
         }
-
-        args.logSink?.append(runId, {
-          kind: "iteration_commit",
-          attemptId,
-          ...(commitOutcome.kind === "committed"
-            ? { commitSha: commitOutcome.commitSha }
-            : { skipReason: commitOutcome.skipReason }),
-        });
 
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {
@@ -467,6 +498,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             responseText: truncateLogText(advisoryResult.responseText),
           });
         }
+      }
+
+      try {
+        await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+      } catch (error) {
+        return iterationCommitFailed(
+          args,
+          store,
+          runId,
+          attemptId,
+          iterationsConsumed,
+          error instanceof Error ? error : new Error(String(error)),
+        );
       }
 
       const terminal = terminalMapping(result);
@@ -678,11 +722,19 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
   }
 }
 
-type IterationSettlement =
+type RaceOutcome =
   | { kind: "settled"; result: Awaited<ReturnType<typeof executeWrite>> }
   | { kind: "threw"; error: unknown }
   | { kind: "timed_out" }
   | { kind: "aborted" };
+
+/** What the raced-away invocation actually produced once it quiesced (or failed to). */
+export type QuiescedExecutionOutcome = Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>;
+
+type IterationSettlement =
+  | Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>
+  | { kind: "timed_out"; quiesced: QuiescedExecutionOutcome }
+  | { kind: "aborted"; quiesced: QuiescedExecutionOutcome };
 
 export type AbortWatchdogRole = "abort" | "watchdog";
 
@@ -691,8 +743,13 @@ export function resolveIterationSettlementKind(role: AbortWatchdogRole, invert: 
   return (role === "abort") !== invert ? "aborted" : "timed_out";
 }
 
-/** Starts after `iteration_started`, so pre-spawn stalls are fenced too. */
-function awaitIteration(
+/**
+ * Starts after `iteration_started`, so pre-spawn stalls are fenced too. On an abort/watchdog win,
+ * this does not return until the raced-away `execution` promise itself quiesces (settles or
+ * throws), so the caller always has the last-started invocation's actual outcome to checkpoint
+ * before it declares the iteration lost.
+ */
+async function awaitIteration(
   args: WriteLoopInput,
   runId: string,
   attemptId: string,
@@ -709,7 +766,7 @@ function awaitIteration(
   let wallSchedule: WallSegmentScheduleHandle | undefined;
   let ceilingTimeout: ReturnType<typeof setTimeout> | undefined;
   let watchdogSettled = false;
-  let resolveWatchdog!: (value: IterationSettlement) => void;
+  let resolveWatchdog!: (value: RaceOutcome) => void;
 
   const fireWatchdogTimeout = () => {
     if (watchdogSettled) return;
@@ -726,7 +783,7 @@ function awaitIteration(
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
 
-  const watchdog = new Promise<IterationSettlement>((resolve) => {
+  const watchdog = new Promise<RaceOutcome>((resolve) => {
     resolveWatchdog = resolve;
     bumpWallSegment();
     if (args.iterationCeilingMs !== undefined) {
@@ -734,15 +791,15 @@ function awaitIteration(
     }
   });
 
-  const execution = executeWrite({
+  const execution: Promise<QuiescedExecutionOutcome> = executeWrite({
     ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
-    (result): IterationSettlement => ({ kind: "settled", result }),
-    (error): IterationSettlement => ({ kind: "threw", error }),
+    (result): QuiescedExecutionOutcome => ({ kind: "settled", result }),
+    (error): QuiescedExecutionOutcome => ({ kind: "threw", error }),
   );
   let removeAbort: (() => void) | undefined;
-  const abort = new Promise<IterationSettlement>((resolve) => {
+  const abort = new Promise<RaceOutcome>((resolve) => {
     if (!args.signal) return;
     const resolveAbort = () =>
       queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort", invertPrecedence) }));
@@ -751,12 +808,49 @@ function awaitIteration(
     args.signal.addEventListener("abort", onAbort, { once: true });
     removeAbort = () => args.signal?.removeEventListener("abort", onAbort);
   });
-  return Promise.race([execution, watchdog, abort]).finally(() => {
-    watchdogSettled = true;
-    wallSchedule?.cancel();
-    if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
-    args.signal?.removeEventListener("abort", abortExecution);
-    removeAbort?.();
+
+  const raced = await Promise.race([execution, watchdog, abort]);
+  watchdogSettled = true;
+  wallSchedule?.cancel();
+  if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
+  args.signal?.removeEventListener("abort", abortExecution);
+  removeAbort?.();
+
+  if (raced.kind === "aborted" || raced.kind === "timed_out") {
+    const quiesced = await boundQuiescenceWait(
+      execution,
+      schedule,
+      args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS,
+    );
+    return { kind: raced.kind, quiesced };
+  }
+  return raced;
+}
+
+/**
+ * Waits for a raced-away invocation to quiesce, but not forever: an invocation that ignores its
+ * `AbortSignal` never settles on its own, so past `boundMs` this synthesizes a "threw" outcome —
+ * nothing to checkpoint — letting the caller fall through to the un-checkpointed loss exactly as
+ * it would for an invocation that quiesced by throwing.
+ */
+function boundQuiescenceWait(
+  execution: Promise<QuiescedExecutionOutcome>,
+  schedule: WallSegmentSchedule,
+  boundMs: number,
+): Promise<QuiescedExecutionOutcome> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const handle = schedule(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ kind: "threw", error: new Error(`invocation did not quiesce within ${boundMs}ms`) });
+    }, boundMs);
+    execution.then((outcome) => {
+      if (settled) return;
+      settled = true;
+      handle.cancel();
+      resolve(outcome);
+    });
   });
 }
 
@@ -780,6 +874,81 @@ function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
   };
+}
+
+/**
+ * Checkpoints a settled result before a controlled loss (abort/kill mid-step, or a watchdog/abort
+ * race) is declared final, same committer seam as any other settled iteration. A checkpoint
+ * failure after a kill already persisted (`commitGuardedKill`) must not overwrite the killed
+ * status — checked here ahead of any race-kind distinction, since a watchdog can also fire after
+ * a kill has landed. That case is logged for resume diagnostics and returns the ordinary
+ * resumable loss result without writing a boundary or starting publication. Any other checkpoint
+ * failure resumes like any other `iteration_commit_failed`. Returns `undefined` on a successful
+ * checkpoint (or nothing to checkpoint), leaving the loss outcome to the caller.
+ */
+async function checkpointBeforeControlledLoss(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  result: StepRunResult,
+): Promise<WriteLoopResult | undefined> {
+  try {
+    await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+    return undefined;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    if (store.loadRun(runId)?.status === "killed") {
+      args.logSink?.append(runId, {
+        kind: "run_execution_failed",
+        message: `checkpoint after kill failed: ${err.message}`,
+      });
+      return finishLoop(args, runId, "progress", iterationsConsumed, true);
+    }
+    return iterationCommitFailed(args, store, runId, attemptId, iterationsConsumed, err);
+  }
+}
+
+/**
+ * Handles a controlled loss (abort/kill or watchdog) once the raced-away invocation has quiesced.
+ * When it settled with a real step result, that result is checkpointed before the loss is declared
+ * final, same as any other settled iteration.
+ */
+async function finishControlledLoss(
+  args: WriteLoopInput,
+  store: StateStore,
+  prepared: { creationTitle?: string },
+  runId: string,
+  worktreePath: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  quiesced: QuiescedExecutionOutcome,
+  race: "aborted" | "timed_out",
+): Promise<WriteLoopResult> {
+  if (quiesced.kind !== "settled") {
+    return race === "aborted"
+      ? finishLoop(args, runId, "progress", iterationsConsumed, true)
+      : finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed);
+  }
+
+  const failure = await checkpointBeforeControlledLoss(
+    args,
+    prepared,
+    store,
+    runId,
+    worktreePath,
+    attemptId,
+    iterationsConsumed,
+    quiesced.result.result,
+  );
+  if (failure !== undefined) return failure;
+
+  return race === "aborted"
+    ? finishLoop(args, runId, "progress", iterationsConsumed, true)
+    : finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed);
 }
 
 function finishExecuteWriteThrow(
@@ -1441,18 +1610,23 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
 
 export type ProgressIterationCommitOutcome =
   | { kind: "committed"; commitSha: string }
-  | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" };
+  | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
 
-async function commitProgressIteration(
+async function commitSettledIteration(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
   store: StateStore,
   runId: string,
   worktreePath: string,
-  result: Extract<StepRunResult, { kind: "progress" }>,
+  result: StepRunResult,
 ): Promise<ProgressIterationCommitOutcome> {
   if (!existsSync(join(worktreePath, ".git"))) {
     return { kind: "skipped", skipReason: "no_git" };
+  }
+  // No binding ever attributed (e.g. `invocation_failure`/`no_binding`): nothing was invoked and
+  // nothing to checkpoint, so skip rather than fail the run over missing attribution.
+  if (result.invocation.final === null) {
+    return { kind: "skipped", skipReason: "no_binding" };
   }
   const agent = result.invocation.final?.binding.metadata?.agent?.trim();
   if (!agent) throw new Error("completion attribution is missing");
@@ -1475,6 +1649,27 @@ async function commitProgressIteration(
     return { kind: "skipped", skipReason: "no_file_changes" };
   }
   return { kind: "committed", commitSha: committed.commitSha };
+}
+
+/** Commits the settled result's checkpoint and appends its `iteration_commit` log event. */
+async function checkpointSettledIteration(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  attemptId: string,
+  result: StepRunResult,
+): Promise<ProgressIterationCommitOutcome> {
+  const commitOutcome = await commitSettledIteration(args, prepared, store, runId, worktreePath, result);
+  args.logSink?.append(runId, {
+    kind: "iteration_commit",
+    attemptId,
+    ...(commitOutcome.kind === "committed"
+      ? { commitSha: commitOutcome.commitSha }
+      : { skipReason: commitOutcome.skipReason }),
+  });
+  return commitOutcome;
 }
 
 function iterationCommitFailed(

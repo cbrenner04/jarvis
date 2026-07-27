@@ -73,12 +73,16 @@ function defaultSessionsDir(jarvisRoot: string): string {
   return join(jarvisRoot, "sessions");
 }
 
+/** Never produces output on its own, but quiesces (rejects) once the write loop aborts it. */
 function hangingBindings(): InvocationBinding[] {
   return [
     {
       id: "hang",
       metadata: { agent: "sim", model: "sim" },
-      invoke: () => new Promise<never>(() => undefined),
+      invoke: ({ signal }) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
     },
   ];
 }

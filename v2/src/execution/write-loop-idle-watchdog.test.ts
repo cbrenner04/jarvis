@@ -157,7 +157,12 @@ describe("write loop idle-output watchdog", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
-    mock.module("./write.ts", () => ({ executeWrite: () => new Promise<never>(() => undefined) }));
+    mock.module("./write.ts", () => ({
+      executeWrite: (input: WriteExecuteInput) =>
+        new Promise<never>((_resolve, reject) => {
+          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    }));
 
     try {
       const result = await executeWriteLoop({

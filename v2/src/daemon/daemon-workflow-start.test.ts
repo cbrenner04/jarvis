@@ -393,6 +393,7 @@ test("start with steps appends observability log events when logsPath is configu
   expect(records.map((record) => record.event.kind)).toEqual([
     "iteration_started",
     "token_reprompt",
+    "iteration_commit",
     "boundary_committed",
     "invalid_token_detail",
     "loop_finished",

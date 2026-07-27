@@ -33,23 +33,23 @@ therefore precede durable agent work.
 
 ## Task checklist
 
-- [ ] Wait for cancellation quiescence before checkpointing controlled losses.
-- [ ] Checkpoint abort/kill and watchdog losses with interrupted-binding attribution.
-- [ ] Preserve kill-state, watchdog failure, terminal publication, and existing progress-path behavior.
-- [ ] Add focused real-git loss-path, attribution, ordering, failure-precedence, and inversion coverage in `v2/src/execution/write-loop.test.ts`.
-- [ ] Complete the documentation updates below.
+- [x] Wait for cancellation quiescence before checkpointing controlled losses.
+- [x] Checkpoint abort/kill and watchdog losses with interrupted-binding attribution.
+- [x] Preserve kill-state, watchdog failure, terminal publication, and existing progress-path behavior.
+- [x] Add focused real-git loss-path, attribution, ordering, failure-precedence, and inversion coverage in `v2/src/execution/write-loop.test.ts`.
+- [x] Complete the documentation updates below.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` test `mid-iteration kill commits agent edits before settle` drives a daemon kill after an agent writes but before it returns, waits for write-loop settlement, and proves the written paths and contents are in `base..HEAD`, with no post-quiescence dirty paths; it fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop.test.ts` test `iteration watchdog checkpoints quiesced agent edits before timeout settlement` writes before watchdog cancellation, proves no late write remains dirty after quiescence, and orders `iteration_commit` before `boundary_committed(iteration_timeout)`; it fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop.test.ts` test `kill checkpoint precedes loop settlement` orders the quiesced-loss checkpoint before `loop_finished` while preserving the already-persisted killed status; it fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop.test.ts` test `interrupted fallback checkpoint attributes the active binding` fails one binding, kills the fallback after it writes, and proves the checkpoint subject and `Jarvis-Agent:` trailer belong to that fallback; it fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop.test.ts` test `watchdog checkpoint failure supersedes timeout boundary` proves a committer error persists resumable `iteration_commit_failed`, suppresses `iteration_timeout` and publication, and resumes through the write path; it fails against the pre-fix code.
-- [ ] `v2/src/execution/write-loop.test.ts` test `kill checkpoint failure preserves killed state` proves a post-ack checkpoint error neither overwrites the killed state nor starts publication, and is visible to resume diagnostics; it fails against the pre-fix code.
-- [ ] Disabling or inverting the abort/kill trigger turns `mid-iteration kill commits agent edits before settle` and `kill checkpoint precedes loop settlement` red; disabling or inverting the watchdog trigger turns `iteration watchdog checkpoints quiesced agent edits before timeout settlement` red.
-- [ ] Durability coverage includes killed/aborted and watchdog runs; no test claims the floor from a successfully completed run alone.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test.ts` test `mid-iteration kill commits agent edits before settle` drives a daemon kill after an agent writes but before it returns, waits for write-loop settlement, and proves the written paths and contents are in `base..HEAD`, with no post-quiescence dirty paths; it fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` test `iteration watchdog checkpoints quiesced agent edits before timeout settlement` writes before watchdog cancellation, proves no late write remains dirty after quiescence, and orders `iteration_commit` before `boundary_committed(iteration_timeout)`; it fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` test `kill checkpoint precedes loop settlement` orders the quiesced-loss checkpoint before `loop_finished` while preserving the already-persisted killed status; it fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` test `interrupted fallback checkpoint attributes the active binding` fails one binding, kills the fallback after it writes, and proves the checkpoint subject and `Jarvis-Agent:` trailer belong to that fallback; it fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` test `watchdog checkpoint failure supersedes timeout boundary` proves a committer error persists resumable `iteration_commit_failed`, suppresses `iteration_timeout` and publication, and resumes through the write path; it fails against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` test `kill checkpoint failure preserves killed state` proves a post-ack checkpoint error neither overwrites the killed state nor starts publication, and is visible to resume diagnostics; it fails against the pre-fix code.
+- [x] Disabling or inverting the abort/kill trigger turns `mid-iteration kill commits agent edits before settle` and `kill checkpoint precedes loop settlement` red; disabling or inverting the watchdog trigger turns `iteration watchdog checkpoints quiesced agent edits before timeout settlement` red.
+- [x] Durability coverage includes killed/aborted and watchdog runs; no test claims the floor from a successfully completed run alone.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

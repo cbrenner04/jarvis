@@ -521,13 +521,48 @@ Diagnose with:
 - `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
 - `jarvis run log <id>` — trailing `run_execution_failed` record with the message
 - `jarvis run wait <entry-id>` — reports `harness_failure` instead of a clean complete
-- `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran
+- `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran; **filter by
+  `run_id`, do not read the tail and assume** (see [Reading telemetry](#reading-telemetry))
 
 Plan debate review has its own durable `run list` and TUI row, identified by the
 authored workflow `stepId` alongside the plan draft row. During execution its
 workflow detail shows the active adversary, advocate, adjudicator, or actuator;
 after completion, failure, interruption, or daemon restart the retained row
 shows its terminal status. Telemetry remains the per-role audit trail.
+
+### Reading telemetry
+
+`~/.jarvis/telemetry.jsonl` is the per-role audit trail: one JSON row per role invocation. Rows are
+**snake_case** and carry full attribution plus cost:
+
+```text
+run_id  branch  project  step_id  attempt_id  invocation_id  workflow  spec_ref  worktree_path
+role  agent  model  binding_id  binding_index  duration_ms  exit_kind  exit_reason
+cost_usd  cost_source  usage  usage_source  ts  operator_session_id  record_kind  schema_version
+```
+
+Filter by `run_id`. Do **not** read the tail and attribute by recency — with two lanes running,
+rows from different runs interleave:
+
+```sh
+python3 -c "
+import json
+rid='<run-id>'
+for l in open('$HOME/.jarvis/telemetry.jsonl'):
+    d=json.loads(l)
+    if d.get('run_id')==rid:
+        print(d['role'], d['agent'], d['model'], d['duration_ms'], d['exit_kind'], d.get('cost_usd'))
+"
+```
+
+**Gotcha (2026-07-26): the keys are `run_id`, not `runId`.** Querying `runId` returns `None` on
+every row, which reads exactly like "telemetry has no run attribution" and invites recency-guessing.
+It cost one wrong conclusion this session. Print `sorted(d.keys())` on one row before concluding a
+field is absent.
+
+`cost_usd` is per-invocation agent cost, so agent-side spend is queryable per run and per spec —
+subscription-billed agents (cursor) record `0.0`, metered ones record real dollars. That is the
+source for the agent-cost column in a session report; the operator's own `/cost` is separate.
 
 ### Workflow reports a stale worktree claim
 
@@ -831,6 +866,15 @@ and threads it onto every write-behavior step, alongside the existing wall segme
 rehydrate the persisted `idleOutputMs` bound from the workflow snapshot, so a paused/resumed
 run stays armed.
 
+**`idleOutputTimeoutMs` reaches write steps only — review roles ignore it (2026-07-26).**
+`v2/src/commands/workflow.ts:142-148` applies the resolved bounds to `behavior === "write"` steps;
+review and review-debate steps get `roleTimeoutMs` and never `idleOutputMs`, so
+`review-role-invocation.ts` always falls back to its hardcoded 90 s. Raising the config does nothing
+for review roles, silently — same class as the `JARVIS_READY_TIER` stomp. Observed the same day
+`home.json` went to 240 s: an implement run's **write** step survived on the raised budget and its
+**review** step died `idle_output_timeout` on the unraised one, in the same run. Seed:
+`review-roles-ignore-the-configured-idle-budget`. Cleanup: delete this paragraph when it ships.
+
 **Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Review-role
 invocations (`v2/src/execution/review-role-invocation.ts`) have carried their own idle-output
 budget since before the write path did. Under `--output-format text` cursor emitted nothing
@@ -900,6 +944,64 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **Match the `live` field, never grep the substring (2026-07-26):** `jarvis run list` rows are
+  tab-separated and column 5 is `live` or `not-live`. `grep -q "live"` matches **`not-live`**, so a
+  wait loop built on it never exits. Worse, branch names can contain the word: watching
+  `every-live-workflow-is-killable` matched on the branch name alone. Four background watchers span
+  for hours reporting nothing. Use the field:
+
+  ```sh
+  jarvis run list | awk -F'\t' '$5=="live"'          # genuinely live rows
+  until [ -z "$(jarvis run list | awk -F'\t' '$5=="live"')" ]; do sleep 45; done   # wait for idle
+  ```
+
+- **Watch a workflow by branch, not by run id (2026-07-26):** any id you are handed goes stale.
+  `jarvis run workflow` returns its *entry* run id, which settles while the workflow continues under
+  new ids, and `jarvis run wait <id>` returns on that row, not the workflow. A run id quoted in
+  conversation is usually already terminal by the time it is read. The branch is stable for the life
+  of the work:
+
+  ```sh
+  jarvis run list --branch <spec-dir-basename>
+  ```
+
+  In `jarvis tui` the workflow is **one collapsed row per invocation**, labelled by spec name; press
+  **`e`** to expand constituent runs. A terminal constituent id you are hunting for is hidden inside
+  that row until you do.
+
+- **Never `git checkout -- <file>` to undo a mutation test (2026-07-26):** it reverts *all*
+  uncommitted work in that file, not just the mutation. Done twice in one session, silently
+  discarding an in-progress fix each time. Copy the file first and restore from the copy:
+
+  ```sh
+  cp path/to/file.ts "$TMPDIR/file.bak"
+  # mutate, run the test, confirm it fails
+  cp "$TMPDIR/file.bak" path/to/file.ts
+  git status --short   # confirm your own edits survived
+  ```
+
+- **An empty result from your own query is not evidence (2026-07-26):** three wrong conclusions this
+  session came from a malformed query rather than the system — `grep "live"` matching `not-live`,
+  `runId` returning `None` because the key is `run_id`, and a sandboxed `git`/`gh` call failing on
+  TLS and reading as "no open PRs". Before concluding a thing is absent, prove the query works:
+  print the available keys, check the exit code, or run it against a case you know is non-empty.
+
+- **Cursor can report a false `quota` at ~24s (2026-07-26, not seeded — cost only):** three cursor
+  invocations across three days settled `exit_kind: "quota"` at 24584 / 24246 / 24430 ms, and in the
+  last case cursor ran the *next* role successfully 46 s later and a 497 s role after that. Real
+  quota exhaustion fails fast and stays failed; this tight a duration cluster is a timeout or
+  stream-disconnect matching the quota stderr heuristic (`v1/docs/quota-signals.md`). Consequence is
+  spend, not correctness: the spurious signal escalates to the next rung, one instance costing
+  $1.48 of `claude-opus-5` for work cursor would have done on subscription. It also quietly
+  undermines a cursor-first order. Check telemetry before believing a quota escalation.
+
+- **`missing_blocker` can fire when the agent did append a blocker (2026-07-26):** run `4bfca748`
+  settled `paused` / `invocation_failure` / `missing_blocker` while `## Blocker` sat at line 93 of
+  the active subspec, with accurate content. That run had **0 commits and 4 dirty files**, so the
+  blocker text existed only in the uncommitted worktree — the leading suspicion for why detection
+  missed it. Read the subspec in the worktree before treating `missing_blocker` as agent
+  misbehavior.
+
 - **Trust `list` / `wait` `resumable`, not a stale `loop_finished` flag (2026-07-25):** admission
   projects from the composed operator error (`nextAction: "resume"`). A historical log row may still
   say `resumable: true` while the row is not admitted — use the row's `resumable` field and the
@@ -950,10 +1052,20 @@ Operators add bullets here; delete when fixed.
   post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
   `surviving-mutation-failure-is-resumable-failed`. When the owning row is a durable review-behavior
   step (`implement-review` or a durable `review-debate` last step) rather than the write step,
-  `run resume` previously hard-errored `resume_unsupported` despite advertising `nextAction:
-  "resume"` — fixed: resume on that row's own id now replays mutation re-verification, the ready
-  gate, and publication without re-invoking the completed write step's agent. The workflow entry id
-  and a completed `~shrink` row still refuse for that scenario. **Commit first:** mutation
+  `run resume` hard-errors `resume_unsupported: step "<id>" is not an executable write step`.
+  **This entry previously claimed that was fixed. It is not (verified 2026-07-26).** Measured on run
+  `0c81e851`: the row settled `surviving_mutation_failed` with `resumable: true` in its
+  `loop_finished` record, `run list` projected `unsupported_resume_context` / `resumable: false` /
+  `nextAction: "stop"`, and `run resume` then refused on a third condition — step *kind*. Three
+  surfaces, three answers. Seed: `resume-refuses-the-review-row-it-advertises`. The workflow entry id
+  and a completed `~shrink` row also refuse for that scenario.
+
+  **Worse, that combination has no jarvis-native recovery.** If the agent ticked every acceptance
+  criterion before the mutation failure, `jarvis run workflow implement` also exits `1` with
+  `implement.already_complete`, because preflight reads the spec tree and finds no unchecked work.
+  Resume refuses, re-run refuses. Recovery is manual: write the missing coverage in the run's
+  worktree, verify the mutation dies, commit, push, `gh pr ready`, merge. Done twice on 2026-07-26
+  (#2201, #2212). Seed: `ticked-criteria-plus-mutation-failure-is-unrecoverable`. **Commit first:** mutation
   verification and body-summary derivation are diff-derived against the base ref; fix coverage in the
   worktree and let `run resume` commit it (or `git commit` it yourself first) — an uncommitted fix
   either gets committed by the resume tail or settles a named `completion_commit_failed` failure, it

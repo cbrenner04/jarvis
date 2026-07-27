@@ -94,6 +94,10 @@ export const DAEMON_LOG_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--follow", argumentShape: "", description: "Stream new log bytes after the retained snapshot." },
 ];
 
+export const RUN_LOG_HELP_FLAGS: readonly CommandFlag[] = [
+  { name: "--follow", argumentShape: "", description: "Keep tailing new records after the replay." },
+];
+
 const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
   name: "--reset-despite-dirty",
   argumentShape: "",

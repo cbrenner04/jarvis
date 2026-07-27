@@ -304,7 +304,9 @@ test("run log stream-open and tui log tail-open accept dimension-listed runs bey
     });
     const iter = tail.records()[Symbol.asyncIterator]();
     await iter.next();
-    expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId, afterSeq: 0 } }]);
+    expect(sent).toEqual([
+      { kind: "stream-open", streamId: STREAM_ID, payload: { runId: historicalId, afterSeq: 0, follow: true } },
+    ]);
     tail.close();
   });
 

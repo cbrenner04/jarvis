@@ -3,9 +3,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StreamHandler } from "../ipc/server.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { type LogReader, openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { createTailStreamHandler } from "./daemon.ts";
+import { createTailStreamHandler, parseTailStreamParams, streamRunLogRecords } from "./daemon.ts";
 
 const LOGS_PATH = join(tmpdir(), `jarvis-daemon-tail-logs-${process.pid}.jsonl`);
 
@@ -163,7 +163,7 @@ test("tail stream aborts follow signal on client stream-end", async () => {
   logSink.close();
 
   const controller = new AbortController();
-  const { onData, closes, handlerPromise } = callTailHandler("tail-abort", { runId }, controller.signal);
+  const { onData, closes, handlerPromise } = callTailHandler("tail-abort", { runId, follow: true }, controller.signal);
 
   await waitForRecords(onData, 1);
 
@@ -286,7 +286,7 @@ test("tail stream with afterSeq larger than last replay uses afterSeq for follow
   const controller = new AbortController();
   const { closes, handlerPromise } = callTailHandler(
     "tail-after-seq-large",
-    { runId, afterSeq: 10 },
+    { runId, afterSeq: 10, follow: true },
     controller.signal,
   );
 
@@ -296,4 +296,221 @@ test("tail stream with afterSeq larger than last replay uses afterSeq for follow
   await handlerPromise;
   expect(closes.count).toBe(1);
   expect(followCalled).toBe(true);
+});
+
+test("streamRunLogRecords closes after replay for a non-follow in-progress run", async () => {
+  const runId = seedRun();
+  const records: PersistedRecord[] = [
+    { runId, seq: 1, ts: "2026-01-01T00:00:00.000Z", event: { kind: "iteration_started", attemptId: "attempt-1" } },
+    { runId, seq: 2, ts: "2026-01-01T00:00:01.000Z", event: { kind: "iteration_started", attemptId: "attempt-2" } },
+  ];
+  const neverFollowingReader: LogReader = {
+    tail: () => records,
+    follow: () => new Promise<never>(() => {}) as unknown as AsyncIterable<PersistedRecord>,
+  } as unknown as LogReader;
+
+  const onData: PersistedRecord[] = [];
+  const controller = new AbortController();
+
+  const timeout = new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 200));
+  const run = streamRunLogRecords(
+    { stateStore, logReader: neverFollowingReader },
+    runId,
+    0,
+    false,
+    (record) => onData.push(record),
+    controller.signal,
+  ).then(() => "returned" as const);
+
+  const outcome = await Promise.race([run, timeout]);
+
+  expect(outcome).toBe("returned");
+  expect(onData).toEqual(records);
+});
+
+test("parseTailStreamParams follow field", () => {
+  expect(parseTailStreamParams({ runId: "r1" })).toEqual({ runId: "r1", afterSeq: 0, follow: false });
+  expect(parseTailStreamParams({ runId: "r1", follow: false })).toEqual({ runId: "r1", afterSeq: 0, follow: false });
+  expect(parseTailStreamParams({ runId: "r1", follow: true })).toEqual({ runId: "r1", afterSeq: 0, follow: true });
+  expect(parseTailStreamParams({ runId: "r1", follow: "true" })).toEqual({ runId: "r1", afterSeq: 0, follow: false });
+  expect(parseTailStreamParams(JSON.stringify({ runId: "r1", follow: true }))).toEqual({
+    runId: "r1",
+    afterSeq: 0,
+    follow: true,
+  });
+});
+
+test("tail stream closes immediately for a terminal run even with follow: true", async () => {
+  const runId = createRunWithLogs();
+  stateStore.setRunStatus(runId, "failed");
+
+  const { onData, closes, handlerPromise } = callTailHandler(
+    "tail-terminal-follow",
+    { runId, follow: true },
+    new AbortController().signal,
+  );
+  await handlerPromise;
+
+  expect(onData).toHaveLength(2);
+  expect(closes.count).toBe(1);
+  expect(followCalled).toBe(false);
+});
+
+test("tail stream enters follow loop for an in-progress run with follow: true", async () => {
+  const runId = createRunWithLogs();
+
+  const controller = new AbortController();
+  const { closes, handlerPromise } = callTailHandler(
+    "tail-inprogress-follow",
+    { runId, follow: true },
+    controller.signal,
+  );
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+  controller.abort();
+  await handlerPromise;
+  expect(closes.count).toBe(1);
+  expect(followCalled).toBe(true);
+});
+
+test("follow closes once the run settles", async () => {
+  const runId = seedRun();
+  const followRecord: PersistedRecord = {
+    runId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: { kind: "iteration_started", attemptId: "attempt-1" },
+  };
+
+  let loadRunCalls = 0;
+  const fakeStateStore = {
+    loadRun: () => {
+      loadRunCalls++;
+      const status = loadRunCalls <= 2 ? "in-progress" : "completed";
+      return { id: runId, status } as unknown as ReturnType<StateStore["loadRun"]>;
+    },
+  } as unknown as StateStore;
+
+  const fakeLogReader: LogReader = {
+    tail: () => [],
+    follow: async function* () {
+      yield followRecord;
+      await new Promise<never>(() => {});
+    },
+  } as unknown as LogReader;
+
+  const onData: PersistedRecord[] = [];
+  const controller = new AbortController();
+
+  const timeout = new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 200));
+  const run = streamRunLogRecords(
+    { stateStore: fakeStateStore, logReader: fakeLogReader },
+    runId,
+    0,
+    true,
+    (record) => onData.push(record),
+    controller.signal,
+  ).then(() => "returned" as const);
+
+  const outcome = await Promise.race([run, timeout]);
+
+  expect(outcome).toBe("returned");
+  expect(onData).toEqual([followRecord]);
+});
+
+test("follow drains a record that lands only after the run is found already terminal by the first re-read", async () => {
+  const runId = "run-drain-pre-loop";
+  const replayRecord: PersistedRecord = {
+    runId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: { kind: "iteration_started", attemptId: "attempt-1" },
+  };
+  // Models `workflow-runner.ts` committing `runStatus: "completed"` before appending
+  // `loop_finished`: the record is absent from `tail()` at replay time and only shows up on
+  // a later re-read, once the run is already terminal.
+  const terminalRecord: PersistedRecord = {
+    runId,
+    seq: 2,
+    ts: "2026-01-01T00:00:02.000Z",
+    event: { kind: "loop_finished", loopOutcomeKind: "complete", iterationsConsumed: 3, resumable: false },
+  };
+
+  let loadRunCalls = 0;
+  const fakeStateStore = {
+    loadRun: () => {
+      loadRunCalls++;
+      const status = loadRunCalls === 1 ? "in-progress" : "completed";
+      return { id: runId, status } as unknown as ReturnType<StateStore["loadRun"]>;
+    },
+  } as unknown as StateStore;
+
+  let tailCalls = 0;
+  let followCalledHere = false;
+  const fakeLogReader: LogReader = {
+    tail: () => {
+      tailCalls++;
+      return tailCalls === 1 ? [replayRecord] : [replayRecord, terminalRecord];
+    },
+    follow: () => {
+      followCalledHere = true;
+      return new Promise<never>(() => {}) as unknown as AsyncIterable<PersistedRecord>;
+    },
+  } as unknown as LogReader;
+
+  const onData: PersistedRecord[] = [];
+  const controller = new AbortController();
+
+  await streamRunLogRecords(
+    { stateStore: fakeStateStore, logReader: fakeLogReader },
+    runId,
+    0,
+    true,
+    (record) => onData.push(record),
+    controller.signal,
+  );
+
+  expect(onData).toEqual([replayRecord, terminalRecord]);
+  expect(followCalledHere).toBe(false);
+});
+
+test("follow closes when the run settles without a further record ever appended", async () => {
+  const runId = "run-empty-tick";
+  let loadRunCalls = 0;
+  const fakeStateStore = {
+    loadRun: () => {
+      loadRunCalls++;
+      const status = loadRunCalls <= 2 ? "in-progress" : "completed";
+      return { id: runId, status } as unknown as ReturnType<StateStore["loadRun"]>;
+    },
+  } as unknown as StateStore;
+
+  const fakeLogReader: LogReader = {
+    tail: () => [],
+    // Never yields — models a killed run that appends no further record after settling.
+    follow: async function* (_runId: string, signal?: AbortSignal) {
+      while (!signal?.aborted) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      }
+    },
+  } as unknown as LogReader;
+
+  const onData: PersistedRecord[] = [];
+  const controller = new AbortController();
+
+  const timeout = new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 300));
+  const run = streamRunLogRecords(
+    { stateStore: fakeStateStore, logReader: fakeLogReader, followStatusPollMs: 20 },
+    runId,
+    0,
+    true,
+    (record) => onData.push(record),
+    controller.signal,
+  ).then(() => "returned" as const);
+
+  const outcome = await Promise.race([run, timeout]);
+
+  expect(outcome).toBe("returned");
+  expect(onData).toEqual([]);
 });

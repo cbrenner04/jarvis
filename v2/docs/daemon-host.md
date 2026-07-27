@@ -476,14 +476,31 @@ concurrently across different `(project, branch)` keys.
 ## Streaming
 
 Streams multiplex on the same connection via `stream-open` / `stream-data` /
-`stream-end`. The `stream-open` payload carries `{ runId: string, afterSeq?: number }` to identify
-the run and optionally resume from a prior log position. The `afterSeq` field specifies a cursor:
-the server emits only persisted records with `seq > afterSeq`, then streams new appends. Absent,
-non-numeric, or negative `afterSeq` resolves to `0` (full replay). Follow subscribe uses
-`max(last replayed seq, afterSeq)` to dedupe appends past the replay. The server streams
-new appends as `stream-data` frames — one record per frame — until the client closes with
-`stream-end` or the connection drops. Each record is a `PersistedRecord` serialized as JSON in
-the `payload` field.
+`stream-end`. The `stream-open` payload carries `{ runId: string, afterSeq?: number, follow?: boolean }`
+to identify the run and optionally resume from a prior log position. The `afterSeq` field specifies
+a cursor: the server emits only persisted records with `seq > afterSeq`, then streams new appends.
+Absent, non-numeric, or negative `afterSeq` resolves to `0` (full replay). Follow subscribe uses
+`max(last replayed seq, afterSeq)` to dedupe appends past the replay.
+
+`follow` defaults to `false`: after replay, the server closes the stream with `stream-end`
+regardless of the run's status — this is snapshot mode, and completion is the server closing after
+replay, independent of the run settling. When `follow: true` and the run is `in-progress`, the
+server instead streams new appends as `stream-data` frames — one record per frame — until the
+client closes with `stream-end` or the connection drops; that continued-tail completion is separate
+from snapshot mode's replay-then-close. Each record is a `PersistedRecord` serialized as JSON in the
+`payload` field.
+
+In follow mode the server also re-reads the run's status from the state store: once immediately
+after replay (before entering the follow loop), then again after each record `follow()` yields, and
+independently on a fixed timer (`FOLLOW_POLL_MS`, configurable via `followStatusPollMs` for tests) so
+an empty poll tick — no new record — still triggers a re-read. This matters because a run can go
+terminal without appending a further record (e.g. a kill), which would otherwise leave a
+record-triggered-only re-read blocked forever. Once status is terminal (`isTerminalRunStatus`), the
+server stops consuming `follow()` and closes the stream with `stream-end` on its own — an operator
+following a run to completion no longer needs Ctrl-C or a separate `run wait`/`run list` to notice it
+settled. Before closing, the server re-reads `tail()` once more and emits any record beyond the last
+one delivered, so a record appended at or after the status flip (e.g. `workflow-runner.ts` commits
+`runStatus: "completed"` before appending `loop_finished`) is drained, not dropped.
 
 RPC traffic on the same connection keeps `id` correlation while a stream is
 open.

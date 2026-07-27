@@ -41,6 +41,7 @@ import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
+  FOLLOW_POLL_MS,
   type LogReader,
   type LogSink,
   type LoopFinishedEvent,
@@ -1545,22 +1546,45 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 export type TailStreamHandlerDeps = {
   stateStore: StateStore;
   logReader: LogReader;
+  /** Interval to re-check run status independent of `follow()` yields; defaults to `FOLLOW_POLL_MS`. */
+  followStatusPollMs?: number;
 };
 
-function parseTailStreamParams(payload: unknown): { runId: string; afterSeq: number } | undefined {
+/** Resolves after `ms`, or immediately once `signal` aborts (whichever comes first). */
+function sleepOrAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    timer.unref?.();
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export function parseTailStreamParams(
+  payload: unknown,
+): { runId: string; afterSeq: number; follow: boolean } | undefined {
   const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
   if (typeof params !== "object" || params === null) return undefined;
   const runId = (params as { runId?: unknown }).runId;
   if (typeof runId !== "string") return undefined;
   const afterSeq = (params as { afterSeq?: unknown }).afterSeq;
   const parsedAfterSeq = typeof afterSeq === "number" && afterSeq >= 0 ? afterSeq : 0;
-  return { runId, afterSeq: parsedAfterSeq };
+  const follow = (params as { follow?: unknown }).follow === true;
+  return { runId, afterSeq: parsedAfterSeq, follow };
 }
 
-async function streamRunLogRecords(
+export async function streamRunLogRecords(
   deps: TailStreamHandlerDeps,
   runId: string,
   afterSeq: number,
+  follow: boolean,
   onData: (record: PersistedRecord) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -1576,13 +1600,66 @@ async function streamRunLogRecords(
     subscribeSeq = record.seq;
   }
 
-  if (run.status !== "in-progress") return;
+  if (!follow) return;
 
-  for await (const record of deps.logReader.follow(runId, signal)) {
-    if (signal.aborted) break;
-    if (record.seq <= subscribeSeq) continue;
-    onData(record);
+  const drainRemaining = () => {
+    for (const record of deps.logReader.tail(runId)) {
+      if (record.seq > subscribeSeq) {
+        onData(record);
+        subscribeSeq = record.seq;
+      }
+    }
+  };
+
+  let current = deps.stateStore.loadRun(runId) ?? run;
+  if (isTerminalRunStatus(current.status)) {
+    drainRemaining();
+    return;
   }
+
+  // followSignal aborts on either terminal settlement or the caller's own signal, so the
+  // follow() consumer and the independent status poller below can both stop it early.
+  const followSignal = new AbortController();
+  const abortFollow = () => followSignal.abort();
+  if (signal.aborted) abortFollow();
+  else signal.addEventListener("abort", abortFollow, { once: true });
+
+  const pollMs = deps.followStatusPollMs ?? FOLLOW_POLL_MS;
+  // Re-reads status on a timer independent of record arrival, so a run that settles without
+  // appending a further record (e.g. a kill) still closes the stream within a bounded interval.
+  const statusPoll = (async () => {
+    while (!followSignal.signal.aborted) {
+      await sleepOrAbort(pollMs, followSignal.signal);
+      if (followSignal.signal.aborted) return;
+      current = deps.stateStore.loadRun(runId) ?? current;
+      if (isTerminalRunStatus(current.status)) {
+        abortFollow();
+        return;
+      }
+    }
+  })();
+
+  try {
+    for await (const record of deps.logReader.follow(runId, followSignal.signal)) {
+      if (signal.aborted) break;
+      if (record.seq > subscribeSeq) {
+        onData(record);
+        subscribeSeq = record.seq;
+      }
+
+      current = deps.stateStore.loadRun(runId) ?? current;
+      if (isTerminalRunStatus(current.status)) {
+        abortFollow();
+        break;
+      }
+    }
+  } finally {
+    abortFollow();
+    signal.removeEventListener("abort", abortFollow);
+    await statusPoll;
+  }
+
+  if (!signal.aborted) drainRemaining();
 }
 
 /**
@@ -1601,7 +1678,7 @@ export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHand
     }
 
     try {
-      await streamRunLogRecords(deps, params.runId, params.afterSeq, onData, signal);
+      await streamRunLogRecords(deps, params.runId, params.afterSeq, params.follow, onData, signal);
     } finally {
       onClose();
     }

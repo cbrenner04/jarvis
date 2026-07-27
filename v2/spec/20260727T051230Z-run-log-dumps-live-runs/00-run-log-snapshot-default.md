@@ -48,23 +48,23 @@ follow with no dump-and-exit, while `jarvis run list` on the same daemon answers
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` regression test `streamRunLogRecords closes after
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` regression test `streamRunLogRecords closes after
       replay for a non-follow in-progress run` drives `streamRunLogRecords` with a fake `LogReader`
       whose `tail()` returns pre-written records for an `in-progress` run and whose `follow()` never
       yields or resolves, and asserts (via a bounded `Promise.race` against a short timer) that all
       records reach `onData` and the call returns without invoking `follow()`; run against the
       pre-fix code (which has no `follow` param and unconditionally calls `follow()`), it times out
       instead of returning.
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` covers `parseTailStreamParams`' new field: absent,
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` covers `parseTailStreamParams`' new field: absent,
       `false`, `true`, non-boolean, and string-JSON payload cases, plus the composed guard — a
       terminal run closes immediately regardless of `follow`, an `in-progress` run with
       `follow: true` still enters the follow loop.
-- [ ] `v2/src/commands/run.test.ts` test `run log sends no follow flag by default` and `run log
+- [x] `v2/src/commands/run.test.ts` test `run log sends no follow flag by default` and `run log
       --follow sends follow: true` assert the `stream-open` payload sent for each invocation; both
       fail against the pre-fix CLI, which never sends a `follow` field.
-- [ ] Terminal-run `run log` output and exit status are unchanged: existing `run.test.ts` log tests
+- [x] Terminal-run `run log` output and exit status are unchanged: existing `run.test.ts` log tests
       stay green.
-- [ ] `jarvis tui log` still replays then tails a live run: `v2/src/tui/tui-log-tail-client.test.ts`
+- [x] `jarvis tui log` still replays then tails a live run: `v2/src/tui/tui-log-tail-client.test.ts`
       stays green, with its `stream-open` payload assertions updated to carry `follow: true`.
 
 ## Documentation updates

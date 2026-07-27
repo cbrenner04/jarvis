@@ -443,6 +443,93 @@ describe("run control", () => {
     });
   });
 
+  test("run log sends no follow flag by default", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000006";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+      main(["run", "log", "run-123"], cap.io, {
+        socketDiscovery: async () => [],
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
+  });
+
+  test("run log --follow sends follow: true", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000007";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+      main(["run", "log", "run-123", "--follow"], cap.io, {
+        socketDiscovery: async () => [],
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+  });
+
+  test("run log --follow exits when the daemon closes the stream", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000009";
+    const record = logRecord(1, "iteration_started");
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+      main(["run", "log", "run-123", "--follow"], cap.io, {
+        socketDiscovery: async () => [],
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+          makeIpcClient(
+            [
+              { kind: "stream-data", streamId, payload: JSON.stringify(record) },
+              { kind: "stream-end", streamId },
+            ],
+            { sent },
+          ),
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+    expect(cap.read()).toEqual({ stdout: `${JSON.stringify(record)}\n`, stderr: "" });
+  });
+
+  test("run log --follow before the run id also sends follow: true", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const streamId = "00000000-0000-4000-8000-000000000008";
+
+    const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
+      main(["run", "log", "--follow", "run-123"], cap.io, {
+        socketDiscovery: async () => [],
+        connectIpcClient: connectAfterSoloOwnerList(SOLO_LIST_REQUEST_ID, [soloDaemonListRow("run-123")], () =>
+          makeIpcClient([{ kind: "stream-end", streamId }], { sent }),
+        ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0, follow: true } }]);
+  });
+
+  test("run log rejects extra positional args", async () => {
+    const cap = captureIo();
+    const code = await main(["run", "log", "run-123", "extra"], cap.io, {});
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage:");
+  });
+
   test("run pause reports daemon success", async () => {
     const cap = captureIo();
     const requestId = "00000000-0000-4000-8000-000000000005";

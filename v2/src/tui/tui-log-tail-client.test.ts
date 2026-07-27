@@ -77,7 +77,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
 
   expect(connectCalls).toBe(1);
   expect(sent).toEqual([
-    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0, follow: true } },
     { kind: "stream-end", streamId: STREAM_ID },
   ]);
 });
@@ -120,7 +120,9 @@ test("replays then follows records in server stream-data arrival order until ben
   client.push({ kind: "stream-end", streamId: STREAM_ID });
 
   await expect(pending).resolves.toEqual(records);
-  expect(sent).toEqual([{ kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } }]);
+  expect(sent).toEqual([
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0, follow: true } },
+  ]);
   tail.close();
 });
 
@@ -218,7 +220,7 @@ test("close sends stream-end for the opened stream id", async () => {
     await pending;
     tail.close();
     expect(sent).toEqual([
-      { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
+      { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0, follow: true } },
       { kind: "stream-end", streamId: STREAM_ID },
     ]);
   });
@@ -268,7 +270,7 @@ test("stream-open includes afterSeq when provided", async () => {
   });
 
   expect(sent).toEqual([
-    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 1 } },
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 1, follow: true } },
     { kind: "stream-end", streamId: STREAM_ID },
   ]);
 });
@@ -296,7 +298,7 @@ test("stream-open includes afterSeq 0 when not provided", async () => {
   });
 
   expect(sent).toEqual([
-    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0 } },
+    { kind: "stream-open", streamId: STREAM_ID, payload: { runId: "run-123", afterSeq: 0, follow: true } },
     { kind: "stream-end", streamId: STREAM_ID },
   ]);
 });

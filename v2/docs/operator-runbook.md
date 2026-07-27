@@ -281,7 +281,8 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 | `jarvis run list --since … [--limit <n>]` | Filtered history query: optional `--limit` caps matching rows (default **200** newest when omitted); dimension flags compose conjunctively with each other and with `--since` |
 | `jarvis run list --limit <n>` | Without a filter, the daemon does not use `limit` to reduce rows: row count and retention match plain `jarvis run list` (fifty-newest terminal policy). The CLI still passes `limit` on the RPC; the retention path ignores it |
 | `jarvis run wait <run-id>` | Block until next boundary |
-| `jarvis run log <run-id>` | Structured run log (not daemon process log) |
+| `jarvis run log <run-id>` | Structured run log (not daemon process log); snapshot only — replays persisted records and exits once the daemon closes the stream, even for a live run |
+| `jarvis run log <run-id> --follow` | Same replay, then keeps tailing new records until the daemon closes the stream — which happens automatically once the followed run settles — or the client disconnects |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait).
@@ -1184,15 +1185,15 @@ Operators add bullets here; delete when fixed.
   `jarvis run log <id>` for a `loop_finished` and wait out the gate** — a genuinely stranded run
   never settles at all, and `daemon.log` names its failure. See also the `run wait` caveat below: a
   terminal run id does not mean the workflow is done.
-- **`run log` blocks on a live run — and it is not the daemon (corrected 2026-07-26):** this entry
+- **`run log` snapshots by default; `--follow` still blocks (corrected 2026-07-27):** this entry
   previously read "the daemon goes deaf while a run is active," blaming sync git in the publication
   path and reporting that `jarvis run list` hung too. Measured during one live implement run:
   `run list --limit 3` returned in **0.246s**, `run log <terminal-run>` in **0.295s**, while
   `run log <live-run>` hung past 120s printing nothing — and returned the instant the run went
-  terminal. The daemon is responsive. `runLogSubcommand` (`v2/src/commands/run.ts:326-356`) loops
-  until `stream-end`, which the daemon sends only for terminal runs, so `run log` is an unbounded
-  follow with no dump-and-exit. Use `jarvis run list` (fast) or `jarvis tui log <id>` while a run is
-  live. Seed: `run-log-blocks-on-live-runs`. Cleanup: delete this bullet when it ships.
+  terminal. The daemon was responsive; the CLI just followed unconditionally. `run log <id>` now
+  replays persisted records and exits once the daemon closes the stream, live run or not. Pass
+  `--follow` to keep tailing new records as they append — it now exits on its own once the followed
+  run settles, in addition to closing on client disconnect.
 - **A `completed` P0 may not be fixed (2026-07-12):** two P0 seeds were archived as
   complete while the bug they named still reproduced on first launch — the fix
   landed one layer away (CLI preflight, not the runner; prompt text, not the

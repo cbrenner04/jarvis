@@ -5,13 +5,17 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { derivePipelineState } from "./pipeline-execution.ts";
-import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
-import { createBindingFactory, doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import {
+  createBindingFactory,
+  doneWithArtifactBindingFactory,
+  writeStepFixtures,
+} from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+import { derivePipelineState } from "./pipeline-execution.ts";
+import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -103,7 +107,9 @@ test("pipeline_start admits a pipeline, keeps running after the client disconnec
 
   // "Disconnect": nothing further is awaited on the client's behalf; observe solely through a
   // fresh `loadPipeline` read, proving the loop is daemon-owned and keeps running unattended.
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running",
+  );
 
   const midFlight = stateStore.loadPipeline(pipelineId);
   if (!midFlight) throw new Error("expected pipeline to exist");
@@ -112,7 +118,9 @@ test("pipeline_start admits a pipeline, keeps running after the client disconnec
 
   stage1.settle();
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 
   const finalPipeline = stateStore.loadPipeline(pipelineId);

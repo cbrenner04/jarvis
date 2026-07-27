@@ -8,9 +8,7 @@ import { composeRunOperatorError } from "./run-operator-error.ts";
  */
 export type PipelineWorkflowDispatch = (
   steps: AnyWorkflowStep[],
-) => Promise<
-  { ok: true; entryRunId: string; invocationId?: string } | { ok: false; code: string; message: string }
->;
+) => Promise<{ ok: true; entryRunId: string; invocationId?: string } | { ok: false; code: string; message: string }>;
 
 /**
  * Awaits settlement of a dispatched entry run through the daemon's own wait primitive (the
@@ -118,8 +116,7 @@ export async function dispatchPipelineStage(args: {
     // `running` while later stages are marked `skipped`.
     const entryRun = store.loadRun(dispatched.entryRunId);
     const composed = entryRun ? composeRunOperatorError(entryRun) : undefined;
-    const failureDetail =
-      composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
+    const failureDetail = composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
     store.updateStage({
       pipelineId,
       stageId,

@@ -1,6 +1,10 @@
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import type { Pipeline, PipelineStageRecord, StateStore } from "../persistence/state-store.ts";
-import { dispatchPipelineStage, type PipelineWorkflowDispatch, type PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import {
+  dispatchPipelineStage,
+  type PipelineWorkflowDispatch,
+  type PipelineWorkflowWait,
+} from "./pipeline-stage-dispatch.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 export type PipelineDerivedState = "succeeded" | "failed" | "awaiting-approval" | "running" | "pending";
@@ -64,7 +68,8 @@ async function advanceWorkflowStage(args: {
   wait: PipelineWorkflowWait;
   resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
 }): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, context, artifactSpecPaths, store, dispatch, wait, resolveStage } = args;
+  const { pipelineId, definition, stage, index, context, artifactSpecPaths, store, dispatch, wait, resolveStage } =
+    args;
 
   try {
     const current = store.loadPipeline(pipelineId);

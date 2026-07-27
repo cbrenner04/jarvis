@@ -23,6 +23,7 @@ import {
   withExternalWorktree as realWithExternalWorktree,
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
@@ -35,7 +36,6 @@ import {
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
@@ -1544,11 +1544,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     const { definition, context } = params;
     const pipelineId = store.createPipeline({ definition });
-    void runPipeline(pipelineId, { store, dispatch: pipelineDispatch, wait: pipelineWait, context, resolveStage }).catch(
-      (err: unknown) => {
-        console.error(`Pipeline ${pipelineId} execution failed:`, err);
-      },
-    );
+    void runPipeline(pipelineId, {
+      store,
+      dispatch: pipelineDispatch,
+      wait: pipelineWait,
+      context,
+      resolveStage,
+    }).catch((err: unknown) => {
+      console.error(`Pipeline ${pipelineId} execution failed:`, err);
+    });
     return { kind: "response", result: { pipelineId } };
   };
 

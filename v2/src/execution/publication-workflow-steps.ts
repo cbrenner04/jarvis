@@ -402,7 +402,11 @@ export async function buildIntentWorkflowSteps(
       behavior === "light" ? step.behavior === "review" : step.behavior === "review-debate",
     );
     if (!loadedReview) return { ok: false, error: "intent: review step was not loaded" };
-    return { ok: true, steps: [...publish("intent", loaderDeps, r.source, loaded), loadedReview], identity: r.identity };
+    return {
+      ok: true,
+      steps: [...publish("intent", loaderDeps, r.source, loaded), loadedReview],
+      identity: r.identity,
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

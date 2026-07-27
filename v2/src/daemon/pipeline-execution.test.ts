@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { derivePipelineState, runPipeline } from "./pipeline-execution.ts";
-import type { PipelineStageResolveDeps, PipelineStageResolutionResult, PipelineContext } from "./pipeline-stage-resolve.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import type {
+  PipelineContext,
+  PipelineStageResolutionResult,
+  PipelineStageResolveDeps,
+} from "./pipeline-stage-resolve.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -46,7 +50,13 @@ function fakeStore(
   const store = {
     loadPipeline: (id: string) =>
       id === PIPELINE_ID
-        ? ({ id: PIPELINE_ID, name: definition.name, createdAt: 0, definition, stages: stages.map((s) => ({ ...s })) } as Pipeline & {
+        ? ({
+            id: PIPELINE_ID,
+            name: definition.name,
+            createdAt: 0,
+            definition,
+            stages: stages.map((s) => ({ ...s })),
+          } as Pipeline & {
             stages: PipelineStageRecord[];
           })
         : null,

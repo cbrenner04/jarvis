@@ -252,11 +252,7 @@ describe("resolveStageWorkflowSteps", () => {
   test("plan review none resolves through real preset builders without a review step", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-"));
     mkdirSync(join(cwd, "spec", "ready-intents"), { recursive: true });
-    writeFileSync(
-      join(cwd, "spec/ready-intents/feature.md"),
-      "---\nname: feature\n---\n## Prerequisites\n",
-      "utf8",
-    );
+    writeFileSync(join(cwd, "spec/ready-intents/feature.md"), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
     const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
     const context: PipelineContext = { cwd, configPath, seed: "unused" };
     const definition: PipelineDefinition = {

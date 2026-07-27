@@ -25,12 +25,12 @@ the next subspec.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/project-pipeline-resolution.test.ts` resolves a registered project to the named source-owned definition; an unknown configured name returns `unknown-pipeline` with that name, without throwing or choosing a default.
-- [ ] The test rejects path-specifically: missing/non-object `pipeline`; missing, empty, or non-string `pipeline.name`; malformed `pipeline.reviewOverrides`; non-string override values; and forbidden keys including `pipeline.stages`, `pipeline.prompt`, and `pipeline.code`. Parsing failures occur before lookup.
-- [ ] A review override changes only its named workflow stage in the resolved copy; unknown stage IDs and approval-stage targets name their offending `reviewOverrides` key; later source or other-project resolutions retain their original posture and independent stage objects, including without overrides.
-- [ ] Invalid override posture reaches `validatePipelineDefinition`; its result preserves every existing error's stage ID, `review` field, code, and message. The validator is also called for a selected definition with no overrides.
-- [ ] Inverting the parsing, registry hit/miss, workflow-stage target, deep-copy, or validation-result guard makes its positive or negative test fail.
-- [ ] `v2/docs/install-and-config.md` documents `pipeline.name`, stage-ID-keyed `reviewOverrides`, strict named errors, a complete project example, and its non-composition with `implement.reviewBehavior`.
+- [x] `v2/src/execution/project-pipeline-resolution.test.ts` resolves a registered project to the named source-owned definition; an unknown configured name returns `unknown-pipeline` with that name, without throwing or choosing a default.
+- [x] The test rejects path-specifically: missing/non-object `pipeline`; missing, empty, or non-string `pipeline.name`; malformed `pipeline.reviewOverrides`; non-string override values; and forbidden keys including `pipeline.stages`, `pipeline.prompt`, and `pipeline.code`. Parsing failures occur before lookup.
+- [x] A review override changes only its named workflow stage in the resolved copy; unknown stage IDs and approval-stage targets name their offending `reviewOverrides` key; later source or other-project resolutions retain their original posture and independent stage objects, including without overrides.
+- [x] Invalid override posture reaches `validatePipelineDefinition`; its result preserves every existing error's stage ID, `review` field, code, and message. The validator is also called for a selected definition with no overrides.
+- [x] Inverting the parsing, registry hit/miss, workflow-stage target, deep-copy, or validation-result guard makes its positive or negative test fail.
+- [x] `v2/docs/install-and-config.md` documents `pipeline.name`, stage-ID-keyed `reviewOverrides`, strict named errors, a complete project example, and its non-composition with `implement.reviewBehavior`.
 
 ## Documentation updates
 

@@ -7,7 +7,11 @@ import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
-import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
+import {
+  type BuildImplementWorkflowStepsInput,
+  buildImplementWorkflowSteps,
+} from "../execution/implement-workflow-steps.ts";
+import type { WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { connectIpcClient } from "../ipc/client.ts";
@@ -1490,8 +1494,13 @@ describe("implement preflight stale workspace reset", () => {
     };
   }
 
-  function connectedWorkflowHandlers() {
+  function connectedWorkflowHandlers(effects?: { runRows: number }) {
     const stateStore = openStateStore(join(resetTmp, `state-${crypto.randomUUID()}.sqlite`));
+    const createRun = stateStore.createRun.bind(stateStore);
+    stateStore.createRun = (args) => {
+      if (effects) effects.runRows += 1;
+      return createRun(args);
+    };
     const handlers = createRunControlHandlers({
       stateStore,
       writeLoopExecutor: async () => {},
@@ -1528,12 +1537,218 @@ describe("implement preflight stale workspace reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], resetProjectRoot);
     writeFileSync(join(resetProjectRoot, "index.md"), "# Index\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "AGENTS.md"), "# Test guidance\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [ ] Implement\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "proof.md"), "# Proof\n", "utf8");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], resetProjectRoot);
   });
 
   afterEach(() => {
     rmSync(resetTmp, { recursive: true, force: true });
+  });
+
+  type PipelineAdmissionEffects = {
+    runRows: number;
+    materializations: number;
+    agentInvocations: number;
+    staleResetWork: number;
+    daemonConnections: number;
+  };
+
+  const PIPELINE_AGENT_MODEL_CONFIG = {
+    claude: {
+      implement: { rungs: [{ adapterModel: "implement", priceKey: "implement" }] },
+      shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+      critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
+      actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] },
+    },
+  };
+
+  function pipelineAdmissionBuilder(effects: PipelineAdmissionEffects, expectedPipeline?: string) {
+    return async (input: BuildImplementWorkflowStepsInput) => {
+      const built = await buildImplementWorkflowSteps(input, {
+        loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
+          steps.map((step) => {
+            if (step.behavior !== "write") throw new Error("expected write-only implement workflow");
+            return {
+              ...step,
+              agents: ["claude"],
+              agentModelConfig: PIPELINE_AGENT_MODEL_CONFIG,
+            };
+          }),
+      });
+      if (!built.ok) return built;
+      if (expectedPipeline !== undefined) expect(built.pipelineDefinition?.name).toBe(expectedPipeline);
+      const writeStep = built.steps[0];
+      if (writeStep?.behavior !== "write") throw new Error("expected implement write step");
+      writeStep.worktree.git = false;
+      writeStep.withExternalWorktree = async (_input, run) => {
+        effects.materializations += 1;
+        const worktree = { path: resetProjectRoot, reused: true };
+        const value = await run(worktree);
+        return { worktree, lock: { kind: "acquired" }, value };
+      };
+      writeStep.createBinding = ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          effects.agentInvocations += 1;
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      });
+      return built;
+    };
+  }
+
+  function pipelineAdmissionArgs(): string[] {
+    return [
+      "run",
+      "workflow",
+      "implement",
+      "--branch",
+      resetBranch,
+      "--base",
+      "HEAD",
+      "--spec",
+      "spec.md",
+      "--artifact",
+      "proof.md",
+      "--review-passes",
+      "0",
+      "--detach",
+    ];
+  }
+
+  function emptyPipelineAdmissionEffects(): PipelineAdmissionEffects {
+    return {
+      runRows: 0,
+      materializations: 0,
+      agentInvocations: 0,
+      staleResetWork: 0,
+      daemonConnections: 0,
+    };
+  }
+
+  test("project pipeline selection gates implement before durable admission effects", async () => {
+    const validEffects = emptyPipelineAdmissionEffects();
+    const validConfigPath = writeMachineConfig({
+      projects: { demo: { root: resetProjectRoot, pipeline: { name: "fast" } } },
+    });
+    const connected = connectedWorkflowHandlers(validEffects);
+    let validCode: number;
+    try {
+      validCode = await main(
+        pipelineAdmissionArgs(),
+        captureIo().io,
+        resetImplementDeps({
+          machineConfigPath: validConfigPath,
+          workflowPresetBuilders: { implement: pipelineAdmissionBuilder(validEffects, "fast") },
+          subprocessRunner: staleResetSubprocessRunner(() => {
+            validEffects.staleResetWork += 1;
+            return undefined;
+          }),
+          connectIpcClient: async () => {
+            validEffects.daemonConnections += 1;
+            return connected.client;
+          },
+        }),
+      );
+      await connected.waitForCompletion();
+    } finally {
+      connected.close();
+    }
+
+    expect(validCode).toBe(0);
+    expect(validEffects.daemonConnections).toBe(1);
+    expect(validEffects.runRows).toBeGreaterThan(0);
+    expect(validEffects.materializations).toBeGreaterThan(0);
+    expect(validEffects.agentInvocations).toBeGreaterThan(0);
+
+    const invalidEffects = emptyPipelineAdmissionEffects();
+    const invalidConfigPath = writeMachineConfig({
+      projects: {
+        demo: {
+          root: resetProjectRoot,
+          pipeline: { name: "fast", reviewOverrides: { implement: "none" } },
+        },
+      },
+    });
+    const invalidCap = captureIo();
+    const invalidCode = await main(
+      pipelineAdmissionArgs(),
+      invalidCap.io,
+      resetImplementDeps({
+        machineConfigPath: invalidConfigPath,
+        workflowPresetBuilders: { implement: pipelineAdmissionBuilder(invalidEffects) },
+        subprocessRunner: staleResetSubprocessRunner(() => {
+          invalidEffects.staleResetWork += 1;
+          return undefined;
+        }),
+        connectIpcClient: async () => {
+          invalidEffects.daemonConnections += 1;
+          throw new Error("invalid selection must not contact daemon");
+        },
+      }),
+    );
+
+    expect(invalidCode).toBe(1);
+    expect(invalidCap.read()).toEqual({
+      stdout: "",
+      stderr:
+        'invalid-pipeline-definition: stage "implement": workflow "implement" has no realization for review posture "none"\n',
+    });
+    expect(invalidEffects.daemonConnections).toBe(0);
+    expect(invalidEffects.runRows).toBe(0);
+    expect(invalidEffects.materializations + invalidEffects.staleResetWork).toBe(0);
+    expect(invalidEffects.agentInvocations).toBe(0);
+  });
+
+  test.each([
+    [
+      "parse",
+      { name: "missing", reviewOverrides: [] },
+      "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides must be an object\n",
+    ],
+    ["lookup", { name: "missing", reviewOverrides: { absent: "none" } }, "unknown-pipeline: missing\n"],
+    [
+      "override target",
+      { name: "fast", reviewOverrides: { absent: "none" } },
+      "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides.absent must name an existing workflow stage\n",
+    ],
+    [
+      "validation",
+      { name: "fast", reviewOverrides: { implement: "none" } },
+      'invalid-pipeline-definition: stage "implement": workflow "implement" has no realization for review posture "none"\n',
+    ],
+  ])("pipeline %s failure precedes daemon and implement effects", async (_phase, pipeline, stderr) => {
+    const effects = emptyPipelineAdmissionEffects();
+    const configPath = writeMachineConfig({ projects: { demo: { root: resetProjectRoot, pipeline } } });
+    const cap = captureIo();
+
+    const code = await main(
+      pipelineAdmissionArgs(),
+      cap.io,
+      resetImplementDeps({
+        machineConfigPath: configPath,
+        workflowPresetBuilders: { implement: pipelineAdmissionBuilder(effects) },
+        subprocessRunner: staleResetSubprocessRunner(() => {
+          effects.staleResetWork += 1;
+          return undefined;
+        }),
+        connectIpcClient: async () => {
+          effects.daemonConnections += 1;
+          throw new Error("pipeline failure must not contact daemon");
+        },
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr });
+    expect(effects.daemonConnections).toBe(0);
+    expect(effects.runRows).toBe(0);
+    expect(effects.materializations + effects.staleResetWork).toBe(0);
+    expect(effects.agentInvocations).toBe(0);
   });
 
   test("run workflow implement resets a stale worktree before daemon start", async () => {

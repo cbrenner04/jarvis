@@ -13,9 +13,13 @@ import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts
 import {
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
+  readProjectPipelineConfig,
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { PipelineDefinition } from "./pipeline-definition.ts";
+import { getPipelineDefinition } from "./pipeline-registry.ts";
+import { type ProjectPipelineResolutionResult, resolveProjectPipeline } from "./project-pipeline-resolution.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,
@@ -61,7 +65,9 @@ export type BuildImplementWorkflowStepsDeps = {
   asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
-export type BuildImplementWorkflowStepsResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
+export type BuildImplementWorkflowStepsResult =
+  | { ok: true; steps: AnyWorkflowStep[]; pipelineDefinition?: PipelineDefinition }
+  | { ok: false; error: string };
 
 function resolveImplementReviewPasses(reviewPasses: number): number | { error: string } {
   if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
@@ -348,6 +354,39 @@ function loadImplementWorkflowSteps(
   }
 }
 
+function formatProjectPipelineResolutionError(
+  resolution: Extract<ProjectPipelineResolutionResult, { ok: false }>,
+): string {
+  const { error } = resolution;
+  if (error.code === "invalid-project-pipeline-config") {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error.code === "unknown-pipeline") {
+    return `${error.code}: ${error.name}`;
+  }
+  return `${error.code}: ${error.errors.map((item) => item.message).join("; ")}`;
+}
+
+function admitProjectPipeline(
+  built: BuildImplementWorkflowStepsResult,
+  input: BuildImplementWorkflowStepsInput,
+  match: ProjectMatch,
+  configPath: string | undefined,
+): BuildImplementWorkflowStepsResult {
+  if (!built.ok || input.projectRegistry === undefined) return built;
+  const agentModelConfig = built.steps[0]?.agentModelConfig;
+  if (agentModelConfig === undefined) {
+    return { ok: false, error: "invalid-pipeline-definition: loaded workflow has no agent model config" };
+  }
+  const resolution = resolveProjectPipeline(
+    readProjectPipelineConfig(match.key, configPath),
+    getPipelineDefinition,
+    agentModelConfig,
+  );
+  if (!resolution.ok) return { ok: false, error: formatProjectPipelineResolutionError(resolution) };
+  return { ...built, pipelineDefinition: resolution.definition };
+}
+
 /** Build the implement preset workflow for cwd + run args. */
 export async function buildImplementWorkflowSteps(
   input: BuildImplementWorkflowStepsInput,
@@ -408,9 +447,15 @@ export async function buildImplementWorkflowSteps(
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
   };
+  const pipelineConfigPath = resolvedInput.configPath ?? deps.configPath;
 
   if (reviewPasses === 0) {
-    return loadImplementWorkflowSteps(loadSteps, [sourceStep], reviewPasses, reviewBehavior);
+    return admitProjectPipeline(
+      loadImplementWorkflowSteps(loadSteps, [sourceStep], reviewPasses, reviewBehavior),
+      resolvedInput,
+      match,
+      pipelineConfigPath,
+    );
   }
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
@@ -438,7 +483,12 @@ export async function buildImplementWorkflowSteps(
       profile: implementReviewPromptProfile,
       profileContext,
     };
-    return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
+    return admitProjectPipeline(
+      loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior),
+      resolvedInput,
+      match,
+      pipelineConfigPath,
+    );
   }
 
   const reviewStep: ReviewDebateWorkflowSourceStep = {
@@ -458,5 +508,10 @@ export async function buildImplementWorkflowSteps(
     profileContext,
   };
 
-  return loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior);
+  return admitProjectPipeline(
+    loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior),
+    resolvedInput,
+    match,
+    pipelineConfigPath,
+  );
 }

@@ -1,0 +1,1 @@
+No valid issues require actuator action. Empty verdict.

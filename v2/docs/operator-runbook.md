@@ -362,10 +362,11 @@ That review re-dispatch path does not re-resolve implement write-step bindings �
 write-loop `resume`, recovery, queue promotion, and fresh write admission pick up a rung
 edit (confirm via attempt telemetry until `jarvis run list` reports binding).
 
-An idle-output
-watchdog on the same role invocation times out when the actuator produces no
-output for a configured idle budget (default 90_000 ms, v1 parity), settles
-`invocation_failure` with `failureKind: "stall"`, and reports `error.reason: "role_stalled"`.
+An idle-output watchdog on the same review-role invocation times out when a role
+produces no output for the machine-wide `idleOutputTimeoutMs` budget: a configured
+positive value arms it, an absent key uses the 90_000 ms fallback, and `0` disables
+it. A stall settles `invocation_failure` with `failureKind: "stall"` and reports
+`error.reason: "role_stalled"`.
 Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output,
 does not escalate through rungs, and is retryable (`retry_later`); recovery is
 re-dispatching the same workflow (see [Gate trust](#gate-trust)) — unlike an exhausted
@@ -874,14 +875,12 @@ and threads it onto every write-behavior step, alongside the existing wall segme
 rehydrate the persisted `idleOutputMs` bound from the workflow snapshot, so a paused/resumed
 run stays armed.
 
-**`idleOutputTimeoutMs` reaches write steps only — review roles ignore it (2026-07-26).**
-`v2/src/commands/workflow.ts:142-148` applies the resolved bounds to `behavior === "write"` steps;
-review and review-debate steps get `roleTimeoutMs` and never `idleOutputMs`, so
-`review-role-invocation.ts` always falls back to its hardcoded 90 s. Raising the config does nothing
-for review roles, silently — same class as the `JARVIS_READY_TIER` stomp. Observed the same day
-`home.json` went to 240 s: an implement run's **write** step survived on the raised budget and its
-**review** step died `idle_output_timeout` on the unraised one, in the same run. Seed:
-`review-roles-ignore-the-configured-idle-budget`. Cleanup: delete this paragraph when it ships.
+**`idleOutputTimeoutMs` applies to workflow write and review roles (2026-07-26).**
+Configured positive values are passed to every workflow review role, while `0` disables
+the review-role watchdog. An absent key leaves the step unstamped and uses the 90 s
+review fallback. Pre-fix `role_stalled` records, including the `home.json` 240 s
+observation, used the hardcoded 90 s review budget even when configuration requested
+otherwise; interpret those historical records under the old behavior.
 
 **Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Review-role
 invocations (`v2/src/execution/review-role-invocation.ts`) have carried their own idle-output

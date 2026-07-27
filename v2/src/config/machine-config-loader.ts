@@ -34,8 +34,13 @@ export function readIterationCeilingMs(configPath: string = MACHINE_CONFIG_PATH)
 
 /** Resolves idle-output watchdog budget for write-path ordering (v1-aligned default). */
 export function readIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+  return readConfiguredIdleOutputTimeoutMs(configPath) ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
+}
+
+/** Reads an explicitly configured idle-output watchdog budget without applying a default. */
+export function readConfiguredIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number | undefined {
   const value = readMachineConfigDocument(configPath)?.idleOutputTimeoutMs;
-  if (value === undefined) return DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
+  if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
     throw new Error("Machine config 'idleOutputTimeoutMs' must be a non-negative integer");
   }

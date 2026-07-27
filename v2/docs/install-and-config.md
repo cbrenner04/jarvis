@@ -95,16 +95,17 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
-### Write-path iteration bounds
+### Workflow invocation bounds
 
 Direct `jarvis write` and workflow write steps resolve three optional machine keys from
-`~/.jarvis/config.json` before dispatch:
+`~/.jarvis/config.json` before dispatch. The same machine-wide
+`idleOutputTimeoutMs` also governs every workflow review-role invocation.
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
 | `iterationTimeoutMs` | Progress-extended wall segment per iteration | `600000` (10 min) | Positive number |
 | `iterationCeilingMs` | Hard ceiling on total iteration wall time | `1800000` (30 min) | Positive number; must be ≥ resolved `iterationTimeoutMs` |
-| `idleOutputTimeoutMs` | Idle-output watchdog budget | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
+| `idleOutputTimeoutMs` | Idle-output watchdog budget for workflow write and review roles | `90000` (90 s) | Non-negative integer; `0` disables; when `> 0` must be ≤ resolved `iterationTimeoutMs` |
 
 Inverted idle/wall or wall/ceiling ordering fails at load with a message naming both
 compared keys and numeric values. `idleOutputTimeoutMs` is armed on the iteration's
@@ -116,6 +117,11 @@ coverage-advisory invocation is unarmed — no wall, ceiling, or idle bound.)
 wall segment and ceiling as the only bounds. Resolved `iterationTimeoutMs`,
 `iterationCeilingMs`, and `idleOutputMs` (when armed) are stamped on workflow write
 steps and persisted in workflow snapshots for resume and revise.
+
+Review and review-debate steps retain the configured `idleOutputTimeoutMs` value:
+a positive value arms each role, and `0` is passed through to disable that role's
+idle watchdog. When the key is absent, the step leaves `idleOutputMs` unstamped
+and the review-role invocation uses its 90 s fallback.
 
 An explicit `jarvis run workflow implement --review-passes <n>` overrides the
 registered-project value; `--review-passes 0` skips review. An explicit

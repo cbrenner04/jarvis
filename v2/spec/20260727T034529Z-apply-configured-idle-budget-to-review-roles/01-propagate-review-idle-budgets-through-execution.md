@@ -18,11 +18,11 @@ Workflow steps can reconstruct role-invocation inputs at several execution seams
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` tests `propagates review idleOutputMs through standard review dispatch` and `propagates review idleOutputMs through non-durable profile review dispatch` capture each configured positive and zero value at `invokeReviewRole`; either test fails when its dispatch reconstruction drops the value.
-- [ ] `v2/src/execution/workflow-runner.test.ts` test `propagates review idleOutputMs through full review-debate dispatch` captures both configured positive and zero values for adversary, advocate, adjudicator, and actuator; it fails when debate propagation is removed.
-- [ ] `v2/src/execution/workflow-runner.test.ts` test `propagates review idleOutputMs through actuator-only debate retry` captures both configured positive and zero values for the retry invocation and fails when retry reconstruction drops the value.
-- [ ] Workflow-path coverage proves an unstamped review step reaches `invokeReviewRole` with its 90 s fallback, while a stamped zero reaches the binding boundary as zero and does not activate that fallback or an idle-output watchdog.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/workflow-runner.test.ts` tests `propagates review idleOutputMs through standard review dispatch` and `propagates review idleOutputMs through non-durable profile review dispatch` capture each configured positive and zero value at `invokeReviewRole`; either test fails when its dispatch reconstruction drops the value.
+- [x] `v2/src/execution/workflow-runner.test.ts` test `propagates review idleOutputMs through full review-debate dispatch` captures both configured positive and zero values for adversary, advocate, adjudicator, and actuator; it fails when debate propagation is removed.
+- [x] `v2/src/execution/workflow-runner.test.ts` test `propagates review idleOutputMs through actuator-only debate retry` captures both configured positive and zero values for the retry invocation and fails when retry reconstruction drops the value.
+- [x] Workflow-path coverage proves an unstamped review step reaches `invokeReviewRole` with its 90 s fallback, while a stamped zero reaches the binding boundary as zero and does not activate that fallback or an idle-output watchdog.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -3623,6 +3623,40 @@ describe("executeWorkflow review-debate dispatch", () => {
     });
   });
 
+  test("propagates review idleOutputMs through full review-debate dispatch", async () => {
+    const captured = new Map<number, string[]>();
+
+    for (const idleOutputMs of [12_345, 0]) {
+      const roles: string[] = [];
+      const step = createDebateStep({
+        stepId: `debate-idle-${idleOutputMs}`,
+        verdictPath: debateVerdictPath(),
+        idleOutputMs,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
+            expect(observedIdleOutputMs).toBe(idleOutputMs);
+            roles.push(adapterModel);
+            return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
+          },
+        }),
+      });
+
+      await withStateStore(async (store) => {
+        expect((await executeWorkflow({ steps: [step], stateStore: store })).kind).toBe("complete");
+      });
+      captured.set(idleOutputMs, roles);
+    }
+
+    expect(captured).toEqual(
+      new Map([
+        [12_345, ["ADV", "ADVOC", "ADJ", "ACT"]],
+        [0, ["ADV", "ADVOC", "ADJ", "ACT"]],
+      ]),
+    );
+  });
+
   test("fails role validation for a review-debate step missing an (agent, role) entry, before any run", async () => {
     const step = createDebateStep({
       stepId: "debate-1",
@@ -3991,6 +4025,7 @@ describe("executeWorkflow implement patch review", () => {
     cwd: string;
     createBinding?: ReviewDebateWorkflowStep["createBinding"];
     roleTimeoutMs?: number;
+    idleOutputMs?: number;
     maxCycles?: number;
   }): ReviewDebateWorkflowStep {
     return {
@@ -4011,6 +4046,7 @@ describe("executeWorkflow implement patch review", () => {
       profile: implementReviewPromptProfile,
       profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
       ...(args.roleTimeoutMs !== undefined ? { roleTimeoutMs: args.roleTimeoutMs } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
       ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
     };
   }
@@ -4422,6 +4458,73 @@ describe("executeWorkflow implement patch review", () => {
   }
 
   runActuatorOnlyRetryTest("stall");
+
+  test("propagates review idleOutputMs through actuator-only debate retry", async () => {
+    const captured = new Map<number, number[]>();
+
+    for (const idleOutputMs of [12_345, 0]) {
+      const branchName = `implement-review-idle-retry-${idleOutputMs}`;
+      const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+        if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      });
+      const calls: string[] = [];
+      const retryIdleOutputMs: number[] = [];
+      let retried = false;
+      const reviewStep = createPatchReviewDebateStep({
+        branchName,
+        jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+        verdictPath: join(harness.workspace, "verdict-patch.md"),
+        cwd: harness.workspace,
+        idleOutputMs,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
+            calls.push(adapterModel);
+            if (retried) retryIdleOutputMs.push(observedIdleOutputMs ?? -1);
+            if (adapterModel !== "ACT") {
+              return {
+                kind: "ok",
+                stdout: adapterModel === "ADJ" ? "apply this fix" : "ok",
+                stderr: "",
+              } as const;
+            }
+            return { kind: "stall", stderr: "no output" } as const;
+          },
+        }),
+      });
+
+      await withStateStore(async (store) => {
+        await executeWorkflow({
+          steps: [implementStep, reviewStep],
+          stateStore: store,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+        calls.length = 0;
+        retried = true;
+        await executeWorkflow({
+          steps: [implementStep, reviewStep],
+          stateStore: store,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+      });
+
+      expect(calls).toEqual(["ACT"]);
+      captured.set(idleOutputMs, retryIdleOutputMs);
+    }
+
+    expect(captured).toEqual(
+      new Map([
+        [12_345, [12_345]],
+        [0, [0]],
+      ]),
+    );
+  });
 
   test("exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row", async () => {
     const branchName = "implement-review-timeout-not-actuator-only";
@@ -5350,6 +5453,117 @@ describe("executeWorkflow review dispatch", () => {
         ]),
       );
     });
+  });
+
+  test("propagates review idleOutputMs through non-durable profile review dispatch", async () => {
+    const captured = new Map<number, string[]>();
+
+    for (const idleOutputMs of [12_345, 0]) {
+      const roles: string[] = [];
+      const step: ReviewWorkflowStep = {
+        behavior: "review",
+        stepId: `profile-review-idle-${idleOutputMs}`,
+        project: "demo",
+        branch: "review-only",
+        cwd: "/fake",
+        prompt: "inspect",
+        verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-profile-review-idle-")), "verdict.md"),
+        maxCycles: 1,
+        idleOutputMs,
+        agents: { critic: ["claude"], actuator: ["codex"] },
+        agentModelConfig: config,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
+            expect(observedIdleOutputMs).toBe(idleOutputMs);
+            roles.push(adapterModel);
+            return { kind: "ok", stdout: adapterModel === "critic" ? "apply this fix" : "done", stderr: "" } as const;
+          },
+        }),
+      };
+
+      await withStateStore(async (store) => {
+        expect((await executeWorkflow({ steps: [step], stateStore: store })).kind).toBe("complete");
+      });
+      captured.set(idleOutputMs, roles);
+    }
+
+    expect(captured).toEqual(
+      new Map([
+        [12_345, ["critic", "actuator"]],
+        [0, ["critic", "actuator"]],
+      ]),
+    );
+  });
+
+  test("propagates review idleOutputMs through standard review dispatch", async () => {
+    const captured = new Map<number, string[]>();
+
+    for (const idleOutputMs of [12_345, 0]) {
+      const workspace = mkdtempSync(join(tmpdir(), "workflow-standard-review-idle-"));
+      stageReviewedIntent(workspace);
+      const roles: string[] = [];
+      const step = reviewedIntentStep(workspace, {
+        branch: `intent/review-idle-${idleOutputMs}`,
+        idleOutputMs,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
+            expect(observedIdleOutputMs).toBe(idleOutputMs);
+            roles.push(adapterModel);
+            return { kind: "ok", stdout: adapterModel === "critic" ? "apply this fix" : "done", stderr: "" } as const;
+          },
+        }),
+      });
+
+      await withStateStore(async (store) => {
+        expect((await executeWorkflow({ steps: [step], stateStore: store })).kind).toBe("complete");
+      });
+      captured.set(idleOutputMs, roles);
+    }
+
+    expect(captured).toEqual(
+      new Map([
+        [12_345, ["critic", "actuator"]],
+        [0, ["critic", "actuator"]],
+      ]),
+    );
+  });
+
+  test("uses the review idle fallback only for an unstamped step", async () => {
+    const observed: number[] = [];
+
+    for (const idleOutputMs of [undefined, 0] as const) {
+      const step: ReviewWorkflowStep = {
+        behavior: "review",
+        stepId: `review-idle-fallback-${idleOutputMs ?? "absent"}`,
+        project: "demo",
+        branch: "review-only",
+        cwd: "/fake",
+        prompt: "inspect",
+        verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-idle-fallback-")), "verdict.md"),
+        maxCycles: 1,
+        ...(idleOutputMs === undefined ? {} : { idleOutputMs }),
+        agents: { critic: ["claude"], actuator: ["codex"] },
+        agentModelConfig: config,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ idleOutputMs: observedIdleOutputMs }) => {
+            observed.push(observedIdleOutputMs ?? -1);
+            return { kind: "ok", stdout: "", stderr: "" } as const;
+          },
+        }),
+      };
+
+      await withStateStore(async (store) => {
+        expect((await executeWorkflow({ steps: [step], stateStore: store })).kind).toBe("complete");
+      });
+    }
+
+    expect(observed).toEqual([90_000, 0]);
   });
 
   test("persists reviewed-intent review as a durable snapshot step", async () => {

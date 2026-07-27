@@ -18,10 +18,10 @@ Durable guidance still describes review roles as fixed at 90 s or outside the ma
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/agent-model-config.md` and `v2/docs/install-and-config.md` state that `idleOutputTimeoutMs` governs workflow write and review-role invocations, with a 90 s absent-key fallback and `0` disabled semantics for reviews.
-- [ ] `v2/docs/workflow-runner.md` and `v2/docs/invocation-liveness.md` describe configured, fallback, and disabled review-role budgets without fixed-budget or no-global-budget claims.
-- [ ] `v2/docs/operator-runbook.md` removes the write-only warning, describes current review behavior, and retains the pre-fix 90 s caveat for old `role_stalled` records.
-- [ ] `v2/docs/v1-behaviors.md` records configured, fallback, and disabled v2 review-role idle-budget semantics and source paths.
+- [x] `v2/docs/agent-model-config.md` and `v2/docs/install-and-config.md` state that `idleOutputTimeoutMs` governs workflow write and review-role invocations, with a 90 s absent-key fallback and `0` disabled semantics for reviews.
+- [x] `v2/docs/workflow-runner.md` and `v2/docs/invocation-liveness.md` describe configured, fallback, and disabled review-role budgets without fixed-budget or no-global-budget claims.
+- [x] `v2/docs/operator-runbook.md` removes the write-only warning, describes current review behavior, and retains the pre-fix 90 s caveat for old `role_stalled` records.
+- [x] `v2/docs/v1-behaviors.md` records configured, fallback, and disabled v2 review-role idle-budget semantics and source paths.
 
 ## Documentation updates
 

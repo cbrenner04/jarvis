@@ -48,6 +48,8 @@ export type ReviewDebateInput = {
   maxCycles: number;
   /** Wall clock per role invocation; defaults to the configured review-role timeout. */
   roleTimeoutMs?: number;
+  /** Silence bound per role invocation; zero disables idle-output detection. */
+  idleOutputMs?: number;
   signal?: AbortSignal;
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
   /** Called just before each role's invocation starts, in debate order, once per cycle. */

@@ -3,10 +3,11 @@
 Behavioral contract for **stall** (process up, no useful progress toward the step
 outcome) vs **slow work** (long but legitimate) during one agent invocation. Shared
 invocation detects stdout/stderr-only stalls when a caller supplies an `idleOutputMs`
-budget; the review path (`critic`, `actuator`, debate roles) now enforces a concrete
-idle budget (default 90_000 ms); workflow loops consume outcomes. Workspace and marker
-signals, per-role and per-behavior idle budgets, stall-driven binding advance, and
-operator-visible stall diagnostics remain deferred.
+budget. Workflow write and review-role invocations share the machine-wide
+`idleOutputTimeoutMs` policy: a configured positive value arms the watchdog,
+an absent key gives review roles their 90_000 ms fallback, and `0` disables it.
+Workflow loops consume outcomes. Workspace and marker signals, stall-driven binding
+advance, and operator-visible stall diagnostics remain deferred.
 
 Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md),
 [`v1-behaviors.md`](./v1-behaviors.md).
@@ -61,8 +62,10 @@ workspace row applies when the resolved role may write toward the step outcome
 (`actuator`, `implement` under `write`, etc.).
 
 v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus
-`iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). Shared v2 currently
-enforces caller-supplied stdout/stderr idle budgets only.
+`iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). v2 currently
+enforces stdout/stderr idle budgets only: workflow writes and review roles use
+the same configured `idleOutputTimeoutMs` policy, including the review fallback
+and disabled state above.
 
 ## Stall-response categories
 
@@ -76,12 +79,13 @@ Recorded at policy level; kill-path wiring deferred.
 
 ## Liveness profiles (behavior × role)
 
-Policy varies by **behavior** and **role** — no global `idleOutputTimeoutMs`. Taxonomy:
+Outcome handling varies by **behavior** and **role**, but workflow write and review
+roles share the machine-wide `idleOutputTimeoutMs` configuration. Taxonomy:
 [`role-resolution.md`](./role-resolution.md).
 
-Each profile combines **stall detection** (multi-category, profile-specific budget)
-and an optional **absolute ceiling** (bounded steps; v1's parallel idle + wall is the
-contrast baseline, not the v2 default everywhere). Profile tables deferred.
+Each profile combines the current output-idle detection budget with an optional
+absolute ceiling (bounded steps; v1's parallel idle + wall is the contrast baseline,
+not the v2 default everywhere). Profile tables deferred.
 
 Exemplars:
 

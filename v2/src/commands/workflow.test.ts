@@ -961,6 +961,52 @@ describe("review-role timeout resolution", () => {
     };
   }
 
+  async function startReviewIdleBudgetWorkflow(idleOutputTimeoutMs?: number): Promise<AnyWorkflowStep[]> {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig(
+      idleOutputTimeoutMs === undefined ? {} : { idleOutputTimeoutMs },
+    );
+    const suffix = idleOutputTimeoutMs ?? "absent";
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({
+            ok: true,
+            steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep(), fakeReviewDebateStep()],
+          }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", `run-review-idle-${suffix}`, COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    return (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+  }
+
+  test("applies the configured idle budget to review and review-debate steps", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow(123_456);
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", idleOutputMs: 123_456 });
+    expect(sentSteps[2]).toMatchObject({ behavior: "review-debate", idleOutputMs: 123_456 });
+  });
+
+  test("leaves review idle budgets unstamped when absent", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow();
+    expect(sentSteps[1]).not.toHaveProperty("idleOutputMs");
+    expect(sentSteps[2]).not.toHaveProperty("idleOutputMs");
+  });
+
+  test("applies a disabled idle budget to review and review-debate steps", async () => {
+    const sentSteps = await startReviewIdleBudgetWorkflow(0);
+    expect(sentSteps[1]).toMatchObject({ behavior: "review", idleOutputMs: 0 });
+    expect(sentSteps[2]).toMatchObject({ behavior: "review-debate", idleOutputMs: 0 });
+  });
+
   test("stamps the default reviewRoleTimeoutMs onto review steps when unconfigured", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

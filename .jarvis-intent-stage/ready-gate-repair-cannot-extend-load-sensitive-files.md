@@ -11,11 +11,11 @@ policy change to green a red gate.
 
 ## Decisions
 
-- A ready-gate repair commit that increases the `LOAD_SENSITIVE_FILES` set (by any edit to its
-  defining source) fails the repair. Rules out repair-time relaxation of load-sensitivity
-  classification.
-- Decreases or non-list edits to the same file follow the ordinary run-diff path fence only. Rules
-  out banning all edits to the defining module when the run legitimately touched it for other reasons.
+- A ready-gate repair commit that increases the `LOAD_SENSITIVE_FILES` set fails the repair — rules
+  out repair-time relaxation of load-sensitivity classification.
+- Edits to the defining module that do not grow that set remain subject only to the ordinary run-diff
+  path fence — rules out banning all edits when the run legitimately touched the module for other
+  reasons.
 
 ## Acceptance criteria
 
@@ -29,4 +29,4 @@ policy change to green a red gate.
 
 ## Prerequisites
 
-- Ready-gate repair completion validates staged paths before commit.
+- Ready-gate repair completion validates staged paths against the run diff plus spec tree before commit.

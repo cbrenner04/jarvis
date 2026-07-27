@@ -11,18 +11,18 @@ output, so the agent "fixes" unrelated failures.
 
 ## Decisions
 
-- When the gate output can be attributed to failing paths, and every failing path lies outside the
-  run's diff plus spec tree, classify the outcome as out-of-scope gate failure — distinct from
-  `ready_gate_failed` caused by the run's own changes. Rules out entering bounded repair for pure
+- When gate output can be attributed to failing paths and every failing path lies outside the run's
+  diff plus spec tree, classify the outcome as out-of-scope gate failure — distinct from
+  `ready_gate_failed` caused by the run's own changes — rules out entering bounded repair for pure
   flake.
-- Operator-visible detail names that the failures are outside the run's touched paths. Rules out
-  silent repair against unrelated red tests.
+- Operator-visible detail states failures are outside the run's touched paths — rules out silent
+  repair against unrelated red tests.
 
 ## Acceptance criteria
 
 - [ ] A ready gate whose failures are all in paths outside the run diff plus spec tree settles as an
-      out-of-scope gate failure with a named reason; a test fails against pre-fix behavior that enters
-      repair instead.
+      out-of-scope gate failure with a named reason; a test fails against pre-fix behavior that
+      enters repair instead.
 - [ ] A gate failure that includes at least one failing path inside the run's touched set still
       follows today's `ready_gate_failed` repair path.
 

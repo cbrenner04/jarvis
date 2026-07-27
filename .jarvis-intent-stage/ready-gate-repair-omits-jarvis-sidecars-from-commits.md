@@ -11,15 +11,15 @@ harness artifacts that must not land on the branch.
 
 ## Decisions
 
-- Any staged path whose basename matches `.jarvis-*` is stripped or rejected before a ready-gate
-  repair completion commit. Rules out treating sidecars as ordinary worktree files.
-- The published branch head after a successful repair contains no `.jarvis-*` paths. Rules out
-  relying on operators to notice sidecars in the diff.
+- Ready-gate repair completion must not publish any path whose basename matches `.jarvis-*` — rules
+  out treating sidecars as ordinary worktree files.
+- A test asserts the post-repair published tree excludes `.jarvis-*` paths — rules out relying on
+  operators to notice sidecars in the diff.
 
 ## Acceptance criteria
 
-- [ ] A ready-gate repair attempt that leaves a `.jarvis-*` file staged does not publish it; a test
-      asserts the post-repair tree excludes `.jarvis-*` and fails if the exclusion is removed.
+- [ ] A ready-gate repair attempt that would publish a `.jarvis-*` path does not; a test asserts the
+      post-repair tree excludes `.jarvis-*` and fails if the exclusion is removed.
 - [ ] In-scope repair without sidecars still commits and republishes as today.
 
 ## Documentation updates
@@ -28,4 +28,4 @@ harness artifacts that must not land on the branch.
 
 ## Prerequisites
 
-- Ready-gate repair completion validates staged paths before commit.
+- Ready-gate repair completion validates staged paths against the run diff plus spec tree before commit.

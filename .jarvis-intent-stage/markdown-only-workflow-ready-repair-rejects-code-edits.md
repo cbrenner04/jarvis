@@ -11,11 +11,11 @@ v1 tests, scripts, and harness sidecars on PR #2243.
 
 ## Decisions
 
-- Workflows whose publication artifact contract is Markdown-only (intent, plan) treat every ready-gate
-  repair staged path as forbidden unless it is under the workflow's Markdown output roots and ends in
-  `.md`. Rules out agent judgment about "harmless" code fixes.
-- Rejection is per surface class: at least one test each for a staged source file, a staged script,
-  and a staged test file. Rules out one generic "non-md" case that misses a class.
+- Workflows whose publication artifact contract is Markdown-only (intent, plan) forbid every ready-gate
+  repair staged path unless it is under the workflow's Markdown output roots and ends in `.md` — rules
+  out agent judgment about "harmless" code fixes.
+- Rejection is asserted per surface class (source, script, test) with a dedicated test each — rules
+  out one generic non-Markdown case that misses a class.
 
 ## Acceptance criteria
 
@@ -34,4 +34,4 @@ v1 tests, scripts, and harness sidecars on PR #2243.
 
 ## Prerequisites
 
-- Ready-gate repair completion validates staged paths before commit (run diff plus spec tree fence).
+- Ready-gate repair completion validates staged paths against the run diff plus spec tree before commit.

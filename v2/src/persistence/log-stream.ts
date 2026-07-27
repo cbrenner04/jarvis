@@ -110,6 +110,14 @@ export type MissingBlockerDetailEvent = {
   responseText: string;
 };
 
+/** Agent response body when a terminal token misses a write-step contract; truncated at append time. */
+export type ContractMissDetailEvent = {
+  kind: "contract_miss_detail";
+  attemptId: string;
+  failedContractId: string;
+  responseText: string;
+};
+
 /** Agent's `## Blocker` body text persisted when a `blocked` outcome satisfies the blocker-text contract; truncated at append time. */
 export type BlockerTextDetailEvent = {
   kind: "blocker_text_detail";
@@ -152,6 +160,7 @@ export type LogEvent =
   | TokenRepromptEvent
   | BlockerRepromptEvent
   | MissingBlockerDetailEvent
+  | ContractMissDetailEvent
   | BlockerTextDetailEvent
   | CoverageAdvisoryEvent
   | IntentFinalizationEvent;

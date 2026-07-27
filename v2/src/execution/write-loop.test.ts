@@ -416,6 +416,95 @@ describe("write loop", () => {
     expect(spec).toContain("artifact.exists");
   });
 
+  test("contract_miss appends contract_miss_detail to the observability log", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const missOutput = "claimed done without artifact";
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "ok", stdout: `${missOutput}\ndone`, stderr: "" }),
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("contract_miss_detail");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toMatchObject({
+      kind: "contract_miss_detail",
+      failedContractId: "artifact.exists",
+      responseText: `${missOutput}\ndone`,
+    });
+  });
+
+  test("contract_miss after token reprompt logs reprompt stdout in contract_miss_detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+    const firstBody = "still working without a terminal token";
+    const repromptBody = "done";
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            invocations += 1;
+            return {
+              kind: "ok",
+              stdout: invocations === 1 ? firstBody : repromptBody,
+              stderr: "",
+            };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("contract_miss");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toMatchObject({
+      kind: "contract_miss_detail",
+      responseText: repromptBody,
+    });
+    expect(detail && "responseText" in detail ? detail.responseText : "").not.toBe(firstBody);
+  });
+
+  test("contract_miss_detail truncates long invocation output like invalid_token_detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const longText = "a".repeat(600);
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "contract-miss-long-output",
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "ok", stdout: `${longText}\ndone`, stderr: "" }),
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    const responseText = detail && "responseText" in detail ? detail.responseText : undefined;
+    expect(responseText).toMatch(/^a+…$/);
+    expect(responseText?.length).toBeLessThanOrEqual(501);
+  });
+
   test("blocked with blocker text stops immediately with distinct outcome", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 

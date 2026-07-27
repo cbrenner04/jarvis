@@ -1613,6 +1613,224 @@ describe("executeWorkflow", () => {
     });
   });
 
+  test("shrink contract_miss appends contract_miss_detail on the hidden shrink run", async () => {
+    const branchName = "shrink-contract-miss-detail";
+    const shrinkStdout = "shrink miss diagnostic body";
+    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        rmSync(join(cwd, "proof.txt"), { force: true });
+        return { kind: "ok", stdout: `${shrinkStdout}\ndone`, stderr: "" };
+      }
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result.kind).toBe("contract_miss");
+      const implementRun = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement" });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement~shrink",
+      });
+      expect(implementRun).not.toBeNull();
+      expect(shrinkRun).not.toBeNull();
+      const implementRunId = implementRun?.id;
+      const shrinkRunId = shrinkRun?.id;
+      expect(implementRunId).toBeDefined();
+      expect(shrinkRunId).toBeDefined();
+      if (implementRunId === undefined || shrinkRunId === undefined) {
+        throw new Error("expected implement and shrink runs");
+      }
+
+      const implementDetail = logSink
+        .getEventsForRun(implementRunId)
+        .find((event) => event.kind === "contract_miss_detail");
+      expect(implementDetail).toBeUndefined();
+
+      const shrinkDetail = logSink.getEventsForRun(shrinkRunId).find((event) => event.kind === "contract_miss_detail");
+      expect(shrinkDetail).toMatchObject({
+        kind: "contract_miss_detail",
+        failedContractId: "artifact.exists",
+        responseText: `${shrinkStdout}\ndone`,
+      });
+    });
+  });
+
+  test("post-commit shrink contract_miss is resumable", async () => {
+    const branchName = "post-commit-shrink-contract-miss-resumable";
+    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        rmSync(join(cwd, "proof.txt"), { force: true });
+        return { kind: "ok", stdout: "done", stderr: "" };
+      }
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result).toMatchObject({ kind: "contract_miss", resumable: true });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.status).toBe("paused");
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({ loopOutcomeKind: "contract_miss", resumable: true });
+    });
+  });
+
+  test("resume after post-commit shrink contract_miss retries shrink without implement", async () => {
+    const branchName = "resume-post-commit-shrink-contract-miss";
+    const calls: string[] = [];
+    let shrinkAttempts = 0;
+    const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        calls.push("shrink");
+        shrinkAttempts += 1;
+        if (shrinkAttempts === 1) {
+          rmSync(join(cwd, "proof.txt"), { force: true });
+          return { kind: "ok", stdout: "done", stderr: "" };
+        }
+        writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      }
+      calls.push("implement");
+      writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(failed).toMatchObject({ kind: "contract_miss", resumable: true });
+
+      const resumed = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({ pushSha: "published", prNumber: 1, prUrl: "https://example.test/pr/1" }),
+        readyFinalizer: async () => {},
+      });
+      expect(resumed.kind).toBe("complete");
+      expect(calls).toEqual(["implement", "shrink", "shrink"]);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement~shrink" })?.status,
+      ).toBe("completed");
+      expect(execFileSync("git", ["show", "HEAD:proof.txt"], { cwd: harness.workspace, encoding: "utf8" })).toBe(
+        "implemented\n",
+      );
+    });
+  });
+
+  test("implement write-step contract_miss stays non-resumable", async () => {
+    const branchName = "implement-contract-miss-non-resumable";
+    const { step, workspace } = createImplementBodySummaryStep(branchName);
+    const subspecPath = join(IMPLEMENT_BODY_SPEC_PATH, "00-first.md");
+    writeFileSync(join(workspace, subspecPath), "# First\n\n## Acceptance criteria\n\n- [ ] ship it\n", "utf8");
+    step.expectedArtifactPath = subspecPath;
+    step.createBinding = doneBindingFactory;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+
+      expect(result).toMatchObject({ kind: "contract_miss", resumable: false });
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "implement~shrink" }),
+      ).toBeNull();
+    });
+  });
+
+  test("post-commit shrink blocked with blocker text stays terminal", async () => {
+    const branchName = "post-commit-shrink-blocked-terminal";
+    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) {
+        writeFileSync(join(cwd, "proof.txt"), "ok\n## Blocker\n\ngenuine shrink blocker\n", "utf8");
+        return { kind: "ok", stdout: "blocked", stderr: "" };
+      }
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result).toMatchObject({ kind: "blocked", resumable: false });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.status).toBe("blocked");
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({ loopOutcomeKind: "blocked", resumable: false });
+    });
+  });
+
+  test("post-commit shrink missing_blocker stays resumable", async () => {
+    const branchName = "post-commit-shrink-missing-blocker";
+    const { step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (shrink) return { kind: "ok", stdout: "blocked", stderr: "" };
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result).toMatchObject({ kind: "blocked", resumable: true });
+      const shrinkRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement~shrink",
+      });
+      expect(shrinkRun).not.toBeNull();
+      expect(shrinkRun?.status).toBe("paused");
+      const shrinkRunId = shrinkRun?.id;
+      expect(shrinkRunId).toBeDefined();
+      if (shrinkRunId === undefined) {
+        throw new Error("expected shrink run id");
+      }
+      const terminal = logSink
+        .getEventsForRun(shrinkRunId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({ resumable: true });
+    });
+  });
+
+  // The spec asked for this guard inversion to be simulated via an
+  // `invertPostCommitShrinkResumableGuardForTest` input field. That field was removed: it put a
+  // test-only branch on the production settle path. `isPostCommitShrinkResumableOutcome` is a pure
+  // exported predicate, so the inversion is a real source mutation — making its `contract_miss` arm
+  // return false turns `post-commit shrink contract_miss is resumable` RED, which is the same proof
+  // without the production branch.
+
   test("non-complete shrink outcome stops at the implement step without running later steps", async () => {
     const invoked: string[] = [];
     const step1 = createStep({
@@ -1641,10 +1859,14 @@ describe("executeWorkflow", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step1, step2], stateStore: store });
 
-      expect(result.kind).toBe("blocked");
+      expect(result).toMatchObject({ kind: "blocked", resumable: true });
       expect(result.stepIndex).toBe(0);
       expect(result.stepId).toBe("implement");
       expect(invoked).toEqual(["I1", "S1"]);
+      expect(
+        store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "implement~shrink" })
+          ?.status,
+      ).toBe("paused");
       expect(
         store.findRunByProjectBranch({ project: "demo", branch: "shrink-stops-workflow", stepId: "later" }),
       ).toBeNull();

@@ -197,7 +197,9 @@ function mapFromLoopFinished(
     case "blocked":
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
-      return op("contract_miss", "inspect_spec");
+      return allowResumableLogOutcomes && event.resumable
+        ? op("contract_miss", "resume", true)
+        : op("contract_miss", "inspect_spec");
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
     case "iteration_timeout":
@@ -215,7 +217,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   resumable_budget: "run jarvis run resume after the budget clears or raise the iteration budget",
   resumable_kill: "run jarvis run resume to continue from the killed checkpoint",
   agent_blocked: "inspect the spec, resolve the blocker, then re-run the spec",
-  contract_miss: "inspect the spec for contract misses, then re-run the spec",
+  contract_miss:
+    "read contract_miss_detail in jarvis run log; jarvis run resume when nextAction is resume, otherwise fix the spec and re-run",
   invalid_token: "run jarvis run resume after fixing the invalid blocked token",
   missing_blocker: "run jarvis run resume after the harness records blocker text",
   quota_exhausted: "wait for quota reset or switch agents, then re-dispatch the workflow",
@@ -285,6 +288,15 @@ export function composeRunOperatorError(
     return op("missing_blocker", "resume", true);
   }
 
+  const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
+  if (
+    lastAttempt?.outcomeKind === "contract_miss" &&
+    loopFinishedEvent?.loopOutcomeKind === "contract_miss" &&
+    loopFinishedEvent.resumable
+  ) {
+    return op("contract_miss", "resume", true);
+  }
+
   const resumable = RESUMABLE_TERMINALS[run.status];
   if (resumable) return resumable;
   const allowResumableLogOutcomes = run.status !== "failed" && run.status !== "blocked";
@@ -297,7 +309,6 @@ export function composeRunOperatorError(
   }
 
   if (run.status === "failed" || run.status === "blocked") {
-    const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
     const fromPrecedence = resolveFailedBlockedAttemptPrecedence(lastAttempt, loopFinishedEvent);
     if (fromPrecedence) return fromPrecedence;
   }

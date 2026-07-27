@@ -102,6 +102,21 @@ test("composeRunOperatorError returns agent_blocked and contract_miss from loop_
   );
 });
 
+test("post-commit shrink contract_miss composes to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("paused", [attempt("contract_miss")]),
+      loopFinished("contract_miss", { resumable: true }),
+    ),
+  ).toEqual(err("contract_miss", "resume", true));
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("contract_miss", { resumable: true }),
+    ),
+  ).toEqual(err("contract_miss", "resume", true));
+});
+
 test("composeRunOperatorError maps iteration_timeout as a failed terminal", () => {
   expect(
     composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout")),

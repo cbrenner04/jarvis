@@ -35,14 +35,14 @@ agent returned on a shrink miss (or any write-loop miss) without re-invoking.
 
 ## Acceptance criteria
 
-- [ ] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`)
+- [x] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`)
       asserts `contract_miss_detail` is assignable on `LogEvent` with
       `attemptId`, `failedContractId`, and `responseText`; it fails against the
       pre-fix code.
-- [ ] `write-loop.test.ts` `contract_miss appends contract_miss_detail to the observability log` drives a `contract_miss` boundary and asserts a `contract_miss_detail` event with `failedContractId` and `responseText` matching the failing invocation output; it fails against the pre-fix code.
-- [ ] `workflow-runner.test.ts` `shrink contract_miss appends contract_miss_detail on the hidden shrink run` completes implement then injects shrink `contract_miss`, asserting the detail event is on `implement~shrink`, not the implement row; it fails against the pre-fix code.
-- [ ] `write-loop.test.ts` `contract_miss_detail truncates long invocation output like invalid_token_detail` asserts truncation matches `INVALID_TOKEN_LOG_MAX_CHARS` ellipsis behavior; it fails against the pre-fix code.
-- [ ] `write-loop.test.ts` `complete, blocked, contract_miss, and budget-exhausted omit failure detail` stays green (`WriteLoopResult` / `failureKind` shape unchanged by this subspec; it does not assert absence of `contract_miss_detail`).
+- [x] `write-loop.test.ts` `contract_miss appends contract_miss_detail to the observability log` drives a `contract_miss` boundary and asserts a `contract_miss_detail` event with `failedContractId` and `responseText` matching the failing invocation output; it fails against the pre-fix code.
+- [x] `workflow-runner.test.ts` `shrink contract_miss appends contract_miss_detail on the hidden shrink run` completes implement then injects shrink `contract_miss`, asserting the detail event is on `implement~shrink`, not the implement row; it fails against the pre-fix code.
+- [x] `write-loop.test.ts` `contract_miss_detail truncates long invocation output like invalid_token_detail` asserts truncation matches `INVALID_TOKEN_LOG_MAX_CHARS` ellipsis behavior; it fails against the pre-fix code.
+- [x] `write-loop.test.ts` `complete, blocked, contract_miss, and budget-exhausted omit failure detail` stays green (`WriteLoopResult` / `failureKind` shape unchanged by this subspec; it does not assert absence of `contract_miss_detail`).
 
 ## Documentation updates
 

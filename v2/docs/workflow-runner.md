@@ -82,8 +82,19 @@ implement step and prevents later steps from running.
 
 A shrink `invocation_failure` with `failureKind: "error"` after that checkpoint
 is resumable. Resuming skips the completed implement write, re-runs shrink, and
-continues to publication when shrink completes. Other shrink failure kinds keep
-their normal classifications.
+continues to publication when shrink completes. A post-commit shrink
+`contract_miss` is resumable the same way: the `implement~shrink` row settles
+`paused` with a terminal `loop_finished` where `resumable: true`, resume skips
+implement, and shrink runs again before publication. The shrink write loop may
+already have emitted a non-resumable `loop_finished` for `contract_miss` or for
+text-less `blocked` (`missing_blocker`); workflow-runner settle then appends a
+second corrective `loop_finished` with `resumable: true` so list/wait operator
+error composes to `resume` instead of generic `resumable_pause`. Operator error
+and terminal selection use the chronologically last terminal log record on the
+row (`loop_finished` or `run_execution_failed`). Other shrink failure kinds keep
+their normal classifications. A shrink `contract_miss` appends
+`contract_miss_detail` on the `implement~shrink` run log (not the implement row)
+with truncated agent output for diagnosis.
 
 The `intent` preset is one `plan` write step with prompt `intent.prompt.split`,
 optionally followed by one light review step by default.

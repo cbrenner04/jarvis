@@ -140,6 +140,8 @@ export type ImplementReviewBehavior = "debate" | "light";
 export type ProjectPipelineConfig = {
   projectKey: string;
   pipeline: unknown;
+  /** Whether `pipeline` was present on the raw `projects.<key>` object. */
+  pipelineKeyPresent: boolean;
 };
 
 /** Reads the raw pipeline fragment without changing the project-registry projection. */
@@ -149,9 +151,11 @@ export function readProjectPipelineConfig(
 ): ProjectPipelineConfig {
   const projects = readMachineConfigDocument(configPath)?.projects;
   const project = isRecord(projects) ? projects[projectKey] : undefined;
+  const pipelineKeyPresent = isRecord(project) && "pipeline" in project;
   return {
     projectKey,
-    pipeline: isRecord(project) ? project.pipeline : undefined,
+    pipeline: pipelineKeyPresent ? project.pipeline : undefined,
+    pipelineKeyPresent,
   };
 }
 

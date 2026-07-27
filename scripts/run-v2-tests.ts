@@ -55,14 +55,32 @@ type Spawn = (command: string, args: string[], options: { timeout: number }) => 
 /** Bound on how long a post-kill "close" wait may run before settling with whatever was captured. */
 const POST_KILL_GRACE_MS = 500;
 
+function killSpawnProcessGroup(child: ReturnType<typeof nodeSpawn>, signal: NodeJS.Signals): void {
+  const pgid = child.pid;
+  if (pgid !== undefined) {
+    try {
+      process.kill(-pgid, signal);
+      return;
+    } catch {
+      // Fall back when the child is not a process-group leader.
+    }
+  }
+  child.kill(signal);
+}
+
 export function defaultSpawn(command: string, args: string[], options: { timeout: number }): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
-    const child = nodeSpawn(command, args);
+    const child = nodeSpawn(command, args, { detached: true });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     let settled = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const releaseCapturedStreams = () => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    };
 
     const settle = (outcome: SpawnOutcome) => {
       if (settled) {
@@ -78,8 +96,9 @@ export function defaultSpawn(command: string, args: string[], options: { timeout
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      killSpawnProcessGroup(child, "SIGKILL");
       graceTimer = setTimeout(() => {
+        releaseCapturedStreams();
         settle({ status: null, signal: "SIGKILL", stdout, stderr, timedOut });
       }, POST_KILL_GRACE_MS);
     }, options.timeout);

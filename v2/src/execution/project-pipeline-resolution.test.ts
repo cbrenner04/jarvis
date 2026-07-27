@@ -24,7 +24,7 @@ const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
 };
 
 function config(projectKey: string, pipeline: unknown): ProjectPipelineConfig {
-  return { projectKey, pipeline };
+  return { projectKey, pipeline, pipelineKeyPresent: true };
 }
 
 function writeConfig(value: unknown): string {
@@ -55,7 +55,11 @@ describe("readProjectPipelineConfig", () => {
       },
     });
 
-    expect(readProjectPipelineConfig("demo", path)).toEqual({ projectKey: "demo", pipeline });
+    expect(readProjectPipelineConfig("demo", path)).toEqual({
+      projectKey: "demo",
+      pipeline,
+      pipelineKeyPresent: true,
+    });
     expect(readProjectRegistry(path)).toEqual({
       demo: { root: "/repo", origin: "git@example.test:demo.git" },
     });
@@ -65,10 +69,12 @@ describe("readProjectPipelineConfig", () => {
     expect(readProjectPipelineConfig("demo", writeConfig({}))).toEqual({
       projectKey: "demo",
       pipeline: undefined,
+      pipelineKeyPresent: false,
     });
     expect(readProjectPipelineConfig("demo", writeConfig({ projects: { demo: "bad" } }))).toEqual({
       projectKey: "demo",
       pipeline: undefined,
+      pipelineKeyPresent: false,
     });
   });
 });

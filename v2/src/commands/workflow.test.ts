@@ -2173,6 +2173,42 @@ describe("implement preflight stale workspace reset", () => {
     expect(invalidEffects.agentInvocations).toBe(0);
   });
 
+  test("implement dispatch reaches durable admission when pipeline key is absent", async () => {
+    const effects = emptyPipelineAdmissionEffects();
+    const configPath = writeMachineConfig({
+      projects: { demo: { root: resetProjectRoot } },
+    });
+    const connected = connectedWorkflowHandlers(effects);
+    let code: number;
+    try {
+      code = await main(
+        pipelineAdmissionArgs(),
+        captureIo().io,
+        resetImplementDeps({
+          machineConfigPath: configPath,
+          workflowPresetBuilders: { implement: pipelineAdmissionBuilder(effects) },
+          subprocessRunner: staleResetSubprocessRunner(() => {
+            effects.staleResetWork += 1;
+            return undefined;
+          }),
+          connectIpcClient: async () => {
+            effects.daemonConnections += 1;
+            return connected.client;
+          },
+        }),
+      );
+      await connected.waitForCompletion();
+    } finally {
+      connected.close();
+    }
+
+    expect(code).toBe(0);
+    expect(effects.daemonConnections).toBe(1);
+    expect(effects.runRows).toBeGreaterThan(0);
+    expect(effects.materializations).toBeGreaterThan(0);
+    expect(effects.agentInvocations).toBeGreaterThan(0);
+  });
+
   test.each([
     [
       "parse",

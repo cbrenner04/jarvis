@@ -96,7 +96,9 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
-Each registered project must select a source-owned pipeline:
+Each registered project may optionally select a source-owned pipeline. When the
+`projects.<key>.pipeline` key is absent, implement admission proceeds with no pipeline
+selected. When the key is present, validation is strict:
 
 | Key | Type | Validation |
 | --- | --- | --- |

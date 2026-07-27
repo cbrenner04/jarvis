@@ -398,11 +398,9 @@ function admitProjectPipeline(
   if (agentModelConfig === undefined) {
     return { ok: false, error: "invalid-pipeline-definition: loaded workflow has no agent model config" };
   }
-  const resolution = resolveProjectPipeline(
-    readProjectPipelineConfig(match.key, configPath),
-    getPipelineDefinition,
-    agentModelConfig,
-  );
+  const pipelineConfig = readProjectPipelineConfig(match.key, configPath);
+  if (!pipelineConfig.pipelineKeyPresent) return built;
+  const resolution = resolveProjectPipeline(pipelineConfig, getPipelineDefinition, agentModelConfig);
   if (!resolution.ok) return { ok: false, error: formatProjectPipelineResolutionError(resolution) };
   return { ...built, pipelineDefinition: resolution.definition };
 }

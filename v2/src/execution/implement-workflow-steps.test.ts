@@ -145,7 +145,13 @@ async function buildRegisteredImplement(implement?: { reviewPasses?: number; rev
     implement,
   );
   return buildImplementWorkflowSteps(
-    { cwd: root, baseRef: "HEAD", specPath: "specs/index.md", configPath: machineConfigPath },
+    {
+      cwd: root,
+      baseRef: "HEAD",
+      specPath: "specs/index.md",
+      configPath: machineConfigPath,
+      projectRegistry: { registered: { root } },
+    },
     { loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }) },
   );
 }
@@ -175,6 +181,13 @@ describe("buildImplementWorkflowSteps", () => {
     });
     expect(step.specPath).toBe("index.md");
     expect(step.expectedArtifactPath).toBe("index.md");
+  });
+
+  test("omits pipelineDefinition when the registered project has no pipeline key", async () => {
+    const result = await buildRegisteredImplement();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pipelineDefinition).toBeUndefined();
   });
 
   test("reviewPasses 0 returns a one-step implement workflow with no review step", async () => {

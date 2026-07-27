@@ -42,7 +42,9 @@ one contiguous block, headed by a `--- <file> ---` line, as soon as that file se
 output captured before a kill, which is never dropped. Per-file timeout is classified from the
 timer that fired the kill, not inferred from `signal`/`status` on the result, so an
 externally-delivered `SIGKILL` within budget is reported as an ordinary failure rather than a
-timeout.
+timeout. The timeout arms a detached process-group kill (`process.kill(-pgid, SIGKILL)`), so
+descendants that inherited stdout/stderr cannot hold the aggregate runner open past the grace
+period.
 
 ### Bounded concurrency pool
 

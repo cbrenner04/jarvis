@@ -69,12 +69,6 @@ export type BuildImplementWorkflowStepsResult =
   | { ok: true; steps: AnyWorkflowStep[]; pipelineDefinition?: PipelineDefinition }
   | { ok: false; error: string };
 
-let invertPipelineAdmissionGuardForTest = false;
-
-export function setInvertPipelineAdmissionGuardForTest(value: boolean): void {
-  invertPipelineAdmissionGuardForTest = value;
-}
-
 function resolveImplementReviewPasses(reviewPasses: number): number | { error: string } {
   if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
     return { error: "implement: reviewPasses must be a non-negative integer" };
@@ -389,12 +383,8 @@ function admitProjectPipeline(
     getPipelineDefinition,
     agentModelConfig,
   );
-  if (resolution.ok === invertPipelineAdmissionGuardForTest) {
-    return resolution.ok
-      ? { ok: false, error: "pipeline admission guard inverted for test" }
-      : { ok: false, error: formatProjectPipelineResolutionError(resolution) };
-  }
-  return resolution.ok ? { ...built, pipelineDefinition: resolution.definition } : built;
+  if (!resolution.ok) return { ok: false, error: formatProjectPipelineResolutionError(resolution) };
+  return { ...built, pipelineDefinition: resolution.definition };
 }
 
 /** Build the implement preset workflow for cwd + run args. */

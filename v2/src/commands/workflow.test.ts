@@ -10,7 +10,6 @@ import { withExternalWorktree } from "../execution/external-worktree.ts";
 import {
   type BuildImplementWorkflowStepsInput,
   buildImplementWorkflowSteps,
-  setInvertPipelineAdmissionGuardForTest,
 } from "../execution/implement-workflow-steps.ts";
 import type { WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
@@ -1546,7 +1545,6 @@ describe("implement preflight stale workspace reset", () => {
   });
 
   afterEach(() => {
-    setInvertPipelineAdmissionGuardForTest(false);
     rmSync(resetTmp, { recursive: true, force: true });
   });
 
@@ -1751,32 +1749,6 @@ describe("implement preflight stale workspace reset", () => {
     expect(effects.runRows).toBe(0);
     expect(effects.materializations + effects.staleResetWork).toBe(0);
     expect(effects.agentInvocations).toBe(0);
-  });
-
-  test("inverting pipeline admission guard rejects a valid configured selection", async () => {
-    setInvertPipelineAdmissionGuardForTest(true);
-    const effects = emptyPipelineAdmissionEffects();
-    const configPath = writeMachineConfig({
-      projects: { demo: { root: resetProjectRoot, pipeline: { name: "fast" } } },
-    });
-    const cap = captureIo();
-
-    const code = await main(
-      pipelineAdmissionArgs(),
-      cap.io,
-      resetImplementDeps({
-        machineConfigPath: configPath,
-        workflowPresetBuilders: { implement: pipelineAdmissionBuilder(effects) },
-        connectIpcClient: async () => {
-          effects.daemonConnections += 1;
-          throw new Error("inverted guard must not contact daemon");
-        },
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toBe("pipeline admission guard inverted for test\n");
-    expect(effects.daemonConnections).toBe(0);
   });
 
   test("run workflow implement resets a stale worktree before daemon start", async () => {

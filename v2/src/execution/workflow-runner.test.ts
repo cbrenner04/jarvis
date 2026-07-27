@@ -6477,8 +6477,18 @@ describe("executeWorkflow review dispatch", () => {
             { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
           ],
         };
-        const base = { project: "demo", specRef: "main", worktreePath: workspace, branch: "review-mutation/settle-agrees" };
-        const writeRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement", workflowSnapshot: snapshot });
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/settle-agrees",
+        };
+        const writeRunId = store.createRun({
+          ...base,
+          specPath: "spec.md",
+          stepId: "implement",
+          workflowSnapshot: snapshot,
+        });
         store.setRunStatus(writeRunId, "completed");
         const writeAttemptId = store.recordAttemptStart(writeRunId);
         store.commitCompletionBoundary({ attemptId: writeAttemptId, runStatus: "completed", outcomeKind: "done" });
@@ -6646,7 +6656,10 @@ describe("executeWorkflow review dispatch", () => {
     };
   }
 
-  function survivingMutationTerminalRecord(runId: string, loopOutcomeKind: "surviving_mutation_failed" | "runtime_smoke_failed" = "surviving_mutation_failed") {
+  function survivingMutationTerminalRecord(
+    runId: string,
+    loopOutcomeKind: "surviving_mutation_failed" | "runtime_smoke_failed" = "surviving_mutation_failed",
+  ) {
     return {
       ts: new Date().toISOString(),
       seq: 1,
@@ -6774,7 +6787,10 @@ describe("executeWorkflow review dispatch", () => {
 
   test("rejects a completed write-step candidate from a different invocation sharing the same stepId (inverted: would wrongly cross-admit)", async () => {
     await withStateStore(async (store) => {
-      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-cross-invocation", "implement: cross-invocation");
+      const snapshot = reviewMutationWorkflowSnapshot(
+        "review-mutation-cross-invocation",
+        "implement: cross-invocation",
+      );
       const foreignSnapshot = { ...snapshot, invocationId: "review-mutation-cross-invocation-OTHER" };
       const base = {
         project: "demo",

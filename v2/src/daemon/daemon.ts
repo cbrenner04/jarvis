@@ -1383,9 +1383,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
 
     // Checked ahead of the generic terminal-resume gate below: these two admission predicates carry
-    // their own `status === "failed"` + row-shape checks, and some outcomes they themselves settle
-    // (e.g. `runtime_smoke_failed`) are not resumable under the generic operator-error mapping —
-    // deferring to that gate first would wrongly strand a row this code can actually resume.
+    // their own `status === "failed"` + row-shape checks, and the outcomes they admit
+    // (`surviving_mutation_failed`, `ready_gate_failed`, `completion_commit_failed`, populated-intent
+    // `landing_failed`) are not resumable under the generic operator-error mapping — deferring to
+    // that gate first would wrongly strand a row this code can actually resume.
     if (isIntentFinalizationResumable(run, store)) {
       return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
     }

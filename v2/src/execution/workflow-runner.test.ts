@@ -6413,33 +6413,150 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("admits populated-intent landing_failed even when the write sibling is not completed (unchanged from before the review-mutation tail)", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-write-not-completed-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch: "intent/write-not-completed",
+        workflowSnapshot: {
+          invocationId: "intent-write-not-completed",
+          creationTitle: "intent: write-not-completed",
+          steps: [
+            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
+            { stepId: "review", role: "", durable: true, behavior: "review" as const },
+          ],
+        },
+      };
+      // The write row is left `in-progress`, never marked `completed` — the prior, pre-review-
+      // mutation-tail resolver never required that, and this path must still not require it.
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      store.setRunStatus(reviewRunId, "failed");
+      const attemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveIntentFinalizationResumeContext(run, store);
+      expect(resolved).toMatchObject({ ok: true });
+    });
+  });
+
+  test("a settled review-mutation resume failure emits a loop_finished whose resumable field agrees with this resolver's own admission", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "review-mutation-settle-agrees-"));
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      await withStateStore(async (store) => {
+        const snapshot = {
+          invocationId: "review-mutation-settle-agrees",
+          creationTitle: "implement: settle-agrees",
+          steps: [
+            {
+              stepId: "implement",
+              role: "implement",
+              stepRules: "implement rules",
+              expectedArtifactPath: "artifact",
+              // No configured agents and no recorded `completionAgent` anywhere below: resolution
+              // can't attribute the publication commit, so resume must settle a visible
+              // `invocation_failure` — an outcome excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`.
+              agents: [] as string[],
+              agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+            },
+            { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
+          ],
+        };
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/settle-agrees",
+        };
+        const writeRunId = store.createRun({
+          ...base,
+          specPath: "spec.md",
+          stepId: "implement",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({ attemptId: writeAttemptId, runStatus: "completed", outcomeKind: "done" });
+
+        const reviewRunId = store.createRun({
+          ...base,
+          specPath: "spec.md",
+          stepId: "implement-review",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(reviewRunId, "failed");
+
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        const logSink = openLogSink(logsPath);
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, { logSink });
+        logSink.close();
+        expect(outcome).toMatchObject({ ok: false });
+
+        const settledRecords = openLogReader(logsPath).tail(reviewRunId);
+        const settledTerminal = findTerminalLogRecord(settledRecords);
+        if (settledTerminal?.event.kind !== "loop_finished") throw new Error("expected a settled loop_finished");
+        expect(settledTerminal.event.loopOutcomeKind).toBe("invocation_failure");
+        expect(settledTerminal.event.resumable).toBe(false);
+
+        // The same predicate this resolver would apply on a subsequent resume agrees: it refuses too.
+        const settledRun = store.loadRun(reviewRunId);
+        if (!settledRun) throw new Error("expected settled review run");
+        const reResolved = resolveReviewMutationResumeContext(settledRun, store, settledTerminal);
+        expect(reResolved).toMatchObject({ ok: false });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("resuming a review row's surviving_mutation_failed actually re-runs the ready finalizer (mutation reverification)", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "review-mutation-resume-reverify-"));
     const logsPath = join(workspace, "resume.jsonl");
     try {
       await withStateStore(async (store) => {
-        const base = {
-          project: "demo",
+        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-reverify", "implement: reverify");
+        const project = "demo";
+        const branch = "review-mutation/reverify";
+
+        // A completed `implement~link-1` row — the shape a linked-implement workflow's terminal
+        // pass actually persists, never a bare `implement` row. Its fields are the only ones the
+        // finalizer should honor.
+        const writeRunId = store.createRun({
+          project,
           specRef: "main",
           worktreePath: workspace,
-          branch: "review-mutation/reverify",
-          workflowSnapshot: {
-            invocationId: "review-mutation-reverify",
-            creationTitle: "implement: reverify",
-            steps: [
-              {
-                stepId: "implement",
-                role: "implement",
-                stepRules: "implement rules",
-                expectedArtifactPath: "artifact",
-                agents: ["codex"],
-                agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-              },
-              { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
-            ],
-          },
-        };
-        const writeRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement" });
+          branch,
+          specPath: "spec.md",
+          stepId: "implement~link-1",
+          workflowSnapshot: snapshot,
+        });
         store.setRunStatus(writeRunId, "completed");
         const writeAttemptId = store.recordAttemptStart(writeRunId);
         store.commitCompletionBoundary({
@@ -6449,8 +6566,25 @@ describe("executeWorkflow review dispatch", () => {
           completionAgent: "codex",
         });
 
-        const reviewRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement-review" });
-        store.setRunStatus(reviewRunId, "failed");
+        // The review row carries deliberately conflicting worktree/ref/agent fields of its own —
+        // reconstruction must source from the selected write-row sibling instead, never these.
+        const reviewRunId = store.createRun({
+          project,
+          specRef: "conflicting-base-ref",
+          worktreePath: join(workspace, "conflicting-review-worktree"),
+          branch,
+          specPath: "conflicting-spec.md",
+          stepId: "implement-review",
+          workflowSnapshot: snapshot,
+        });
+        const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+        store.commitCompletionBoundary({
+          attemptId: reviewAttemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior attempt" },
+          completionAgent: "conflicting-review-agent",
+        });
 
         const seedSink = openLogSink(logsPath);
         seedSink.append(reviewRunId, {
@@ -6469,7 +6603,10 @@ describe("executeWorkflow review dispatch", () => {
         const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
 
         const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
-        expect(resolved.ok).toBe(true);
+        expect(resolved).toMatchObject({
+          ok: true,
+          context: { worktreePath: workspace, baseRef: "main", specPath: "spec.md", completionAgent: "codex" },
+        });
 
         let finalizerCalls = 0;
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
@@ -6490,6 +6627,423 @@ describe("executeWorkflow review dispatch", () => {
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  });
+
+  function reviewMutationWorkflowSnapshot(
+    invocationId: string,
+    creationTitle: string,
+    reviewStep: { stepId: string; role: string; durable?: boolean; behavior: "review" } = {
+      stepId: "implement-review",
+      role: "",
+      durable: true,
+      behavior: "review",
+    },
+  ) {
+    return {
+      invocationId,
+      creationTitle,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "implement rules",
+          expectedArtifactPath: "artifact",
+          agents: ["codex"],
+          agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        },
+        reviewStep,
+      ],
+    };
+  }
+
+  function survivingMutationTerminalRecord(
+    runId: string,
+    loopOutcomeKind: "surviving_mutation_failed" | "runtime_smoke_failed" = "surviving_mutation_failed",
+  ) {
+    return {
+      ts: new Date().toISOString(),
+      seq: 1,
+      runId,
+      event: {
+        kind: "loop_finished" as const,
+        loopOutcomeKind,
+        iterationsConsumed: 0,
+        resumable: true,
+      },
+    };
+  }
+
+  function reviewMutationSiblingFixture(
+    store: ReturnType<typeof openStateStore>,
+    overrides: { writeStepId: string; writeStatus: "in-progress" | "completed" },
+  ) {
+    const snapshot = reviewMutationWorkflowSnapshot("review-mutation-guard", "implement: guard");
+    const base = { project: "demo", specRef: "main", worktreePath: "/fake/guard", branch: "review-mutation/guard" };
+    const writeRunId = store.createRun({
+      ...base,
+      specPath: "spec.md",
+      stepId: overrides.writeStepId,
+      workflowSnapshot: snapshot,
+    });
+    store.setRunStatus(writeRunId, overrides.writeStatus);
+    const reviewRunId = store.createRun({
+      ...base,
+      specPath: "spec.md",
+      stepId: "implement-review",
+      workflowSnapshot: snapshot,
+    });
+    store.setRunStatus(reviewRunId, "failed");
+    return { writeRunId, reviewRunId, run: store.loadRun(reviewRunId) };
+  }
+
+  test("rejects admission when the only write-step sibling is a linked pass that never completed", async () => {
+    await withStateStore(async (store) => {
+      const { run } = reviewMutationSiblingFixture(store, {
+        writeStepId: "implement~link-1",
+        writeStatus: "in-progress",
+      });
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("excludes a non-durable light implement-review row sharing the durable review stepId from admission", async () => {
+    await withStateStore(async (store) => {
+      // `durable: false` — the shape a light review step's snapshot entry actually carries
+      // (production always stamps an explicit boolean; never omits it): a light review sharing
+      // the review stepId is not a recovery target.
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-light", "implement: light", {
+        stepId: "implement-review",
+        role: "",
+        durable: false,
+        behavior: "review",
+      });
+      const base = { project: "demo", specRef: "main", worktreePath: "/fake/light", branch: "review-mutation/light" };
+      const writeRunId = store.createRun({
+        ...base,
+        specPath: "spec.md",
+        stepId: "implement",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(writeRunId, "completed");
+      const writeAttemptId = store.recordAttemptStart(writeRunId);
+      store.commitCompletionBoundary({
+        attemptId: writeAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      const reviewRunId = store.createRun({
+        ...base,
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("rejects re-admission of a runtime_smoke_failed row settled by this same resume tail (inverted: would wrongly re-admit)", async () => {
+    await withStateStore(async (store) => {
+      const { run } = reviewMutationSiblingFixture(store, { writeStepId: "implement", writeStatus: "completed" });
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(
+        run,
+        store,
+        survivingMutationTerminalRecord(run.id, "runtime_smoke_failed"),
+      );
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("rejects admission when no write-step sibling row exists at all", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-missing-sibling", "implement: missing");
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/fake/missing",
+        branch: "review-mutation/missing",
+      };
+      // No "implement" (or "implement~link-*") row is ever created — only the review row exists.
+      const reviewRunId = store.createRun({
+        ...base,
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("rejects a completed write-step candidate from a different invocation sharing the same stepId (inverted: would wrongly cross-admit)", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot(
+        "review-mutation-cross-invocation",
+        "implement: cross-invocation",
+      );
+      const foreignSnapshot = { ...snapshot, invocationId: "review-mutation-cross-invocation-OTHER" };
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/fake/cross-invocation",
+        branch: "review-mutation/cross-invocation",
+      };
+      // A completed "implement" row exists, but tagged with a different invocationId in its own
+      // snapshot — findRunsByInvocationId(reviewRun's invocationId) must not surface it.
+      const writeRunId = store.createRun({
+        ...base,
+        specPath: "spec.md",
+        stepId: "implement",
+        workflowSnapshot: foreignSnapshot,
+      });
+      store.setRunStatus(writeRunId, "completed");
+      const writeAttemptId = store.recordAttemptStart(writeRunId);
+      store.commitCompletionBoundary({
+        attemptId: writeAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      const reviewRunId = store.createRun({
+        ...base,
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("rejects a completed write-step candidate from a different project/branch sharing the invocation id (inverted: would wrongly cross-admit)", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-cross-branch", "implement: cross-branch");
+      // A completed "implement" row for the same invocationId, but a different branch — must not
+      // be treated as this review row's sibling.
+      const writeRunId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/fake/cross-branch-other",
+        branch: "review-mutation/cross-branch-OTHER",
+        specPath: "spec.md",
+        stepId: "implement",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(writeRunId, "completed");
+      const writeAttemptId = store.recordAttemptStart(writeRunId);
+      store.commitCompletionBoundary({
+        attemptId: writeAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      const reviewRunId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/fake/cross-branch",
+        branch: "review-mutation/cross-branch",
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const terminalRecord = {
+        ts: new Date().toISOString(),
+        seq: 1,
+        runId: run.id,
+        event: {
+          kind: "loop_finished" as const,
+          loopOutcomeKind: "surviving_mutation_failed" as const,
+          iterationsConsumed: 0,
+          resumable: true,
+        },
+      };
+      const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
+      expect(resolved).toMatchObject({ ok: false });
+    });
+  });
+
+  test("a rejected row is refused before any attempt is recorded or any committer/publisher/ready-finalizer dep is invoked", async () => {
+    await withStateStore(async (store) => {
+      // Write sibling never completed: admission must fail here, before `resumeReviewMutationFinalization`
+      // ever reaches its commit/mutation-reverify/ready-gate/publish tail.
+      const { run } = reviewMutationSiblingFixture(store, { writeStepId: "implement", writeStatus: "in-progress" });
+      if (!run) throw new Error("expected review run");
+      const attemptsBefore = run.attempts.length;
+
+      let committerCalled = false;
+      let publisherCalled = false;
+      let readyFinalizerCalled = false;
+      const outcome = await resumeReviewMutationFinalization(run, store, survivingMutationTerminalRecord(run.id), {
+        completionCommitter: async () => {
+          committerCalled = true;
+          throw new Error("committer must not be invoked on rejected admission");
+        },
+        completionPublisher: async () => {
+          publisherCalled = true;
+          throw new Error("publisher must not be invoked on rejected admission");
+        },
+        readyFinalizer: async () => {
+          readyFinalizerCalled = true;
+          throw new Error("ready finalizer must not be invoked on rejected admission");
+        },
+      });
+
+      expect(outcome).toMatchObject({ ok: false });
+      expect(committerCalled).toBe(false);
+      expect(publisherCalled).toBe(false);
+      expect(readyFinalizerCalled).toBe(false);
+      const settled = store.loadRun(run.id);
+      expect(settled?.attempts.length).toBe(attemptsBefore);
+    });
+  });
+
+  test("among multiple completed linked-write candidates, resolves the one with the latest completed-boundary timestamp", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-tie-break", "implement: tie-break");
+      const base = { project: "demo", specRef: "main", branch: "review-mutation/tie-break" };
+      const earlierRunId = store.createRun({
+        ...base,
+        worktreePath: "/fake/tie-break-earlier",
+        specPath: "spec-earlier.md",
+        stepId: "implement~link-1",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(earlierRunId, "completed");
+      const earlierAttemptId = store.recordAttemptStart(earlierRunId);
+      store.commitCompletionBoundary({
+        attemptId: earlierAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-earlier",
+      });
+
+      // Force a distinct millisecond boundary so the two completion timestamps differ without
+      // relying on a fixed sleep duration.
+      const boundary = Date.now();
+      while (Date.now() === boundary) {
+        /* busy-wait for the next millisecond */
+      }
+
+      const laterRunId = store.createRun({
+        ...base,
+        worktreePath: "/fake/tie-break-later",
+        specPath: "spec-later.md",
+        stepId: "implement~link-2",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(laterRunId, "completed");
+      const laterAttemptId = store.recordAttemptStart(laterRunId);
+      store.commitCompletionBoundary({
+        attemptId: laterAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-later",
+      });
+
+      const reviewRunId = store.createRun({
+        ...base,
+        worktreePath: "/fake/tie-break-review",
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      expect(resolved).toMatchObject({
+        ok: true,
+        context: { specPath: "spec-later.md", worktreePath: "/fake/tie-break-later", completionAgent: "codex-later" },
+      });
+    });
+  });
+
+  test("selects on attempt-completion order even when it contradicts row-creation order", async () => {
+    await withStateStore(async (store) => {
+      const snapshot = reviewMutationWorkflowSnapshot("review-mutation-out-of-order", "implement: out of order");
+      const base = { project: "demo", specRef: "main", branch: "review-mutation/out-of-order" };
+      // Created first, completed *last* — the winner by completion order, the loser by creation order.
+      const firstCreatedId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-first-created",
+        specPath: "spec-first-created.md",
+        stepId: "implement~link-1",
+        workflowSnapshot: snapshot,
+      });
+      const created = Date.now();
+      while (Date.now() === created) {
+        /* busy-wait so the two rows carry distinct creation timestamps */
+      }
+      const secondCreatedId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-second-created",
+        specPath: "spec-second-created.md",
+        stepId: "implement~link-2",
+        workflowSnapshot: snapshot,
+      });
+
+      store.setRunStatus(secondCreatedId, "completed");
+      const secondAttemptId = store.recordAttemptStart(secondCreatedId);
+      store.commitCompletionBoundary({
+        attemptId: secondAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-second-created",
+      });
+
+      // Force a distinct millisecond so the two completion timestamps differ.
+      const boundary = Date.now();
+      while (Date.now() === boundary) {
+        /* busy-wait for the next millisecond */
+      }
+
+      store.setRunStatus(firstCreatedId, "completed");
+      const firstAttemptId = store.recordAttemptStart(firstCreatedId);
+      store.commitCompletionBoundary({
+        attemptId: firstAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex-first-created",
+      });
+
+      const reviewRunId = store.createRun({
+        ...base,
+        worktreePath: "/fake/out-of-order-review",
+        specPath: "spec.md",
+        stepId: "implement-review",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(reviewRunId, "failed");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const resolved = resolveReviewMutationResumeContext(run, store, survivingMutationTerminalRecord(run.id));
+      // Attempt completion, not `createdAt`, decides: skipping uncompleted attempts must leave a real
+      // completion timestamp behind, or this falls back to creation order and picks the wrong row.
+      expect(resolved).toMatchObject({
+        ok: true,
+        context: {
+          specPath: "spec-first-created.md",
+          worktreePath: "/fake/out-of-order-first-created",
+          completionAgent: "codex-first-created",
+        },
+      });
+    });
   });
 
   test("aggregates missing critic and actuator bindings before durable state", async () => {

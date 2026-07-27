@@ -1052,33 +1052,52 @@ Operators add bullets here; delete when fixed.
   not themselves daemons. When a count matters (how many daemons are up, whether the fleet is idle),
   count distinct PIDs of the process you actually mean, and cross-check against
   `jarvis daemon status`.
-- **Surviving mutation failures are failed and resumable (2026-07-21):** a run ending
-  `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait` with
-  `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the
+- **Surviving mutation failures are failed and resumable (2026-07-21, sibling lookup fixed 2026-07-27):**
+  a run ending `loopOutcomeKind: "surviving_mutation_failed"` settles `failed` on `run list` / `run wait`
+  with `error.reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, and the
   surviving mutation text plus source file and line. `run resume` accepts that row. During the
   post-completion verification tail the durable row is `in-progress`, not `completed`. Ready-intent:
-  `surviving-mutation-failure-is-resumable-failed`. When the owning row is a durable review-behavior
-  step (`implement-review` or a durable `review-debate` last step) rather than the write step,
-  `run resume` hard-errors `resume_unsupported: step "<id>" is not an executable write step`.
-  **This entry previously claimed that was fixed. It is not (verified 2026-07-26).** Measured on run
-  `0c81e851`: the row settled `surviving_mutation_failed` with `resumable: true` in its
-  `loop_finished` record, `run list` projected `unsupported_resume_context` / `resumable: false` /
-  `nextAction: "stop"`, and `run resume` then refused on a third condition — step *kind*. Three
-  surfaces, three answers. Seed: `resume-refuses-the-review-row-it-advertises`. The workflow entry id
-  and a completed `~shrink` row also refuse for that scenario.
+  `surviving-mutation-failure-is-resumable-failed`.
 
-  **Worse, that combination has no jarvis-native recovery.** If the agent ticked every acceptance
-  criterion before the mutation failure, `jarvis run workflow implement` also exits `1` with
-  `implement.already_complete`, because preflight reads the spec tree and finds no unchecked work.
-  Resume refuses, re-run refuses. Recovery is manual: write the missing coverage in the run's
-  worktree, verify the mutation dies, commit, push, `gh pr ready`, merge. Done twice on 2026-07-26
-  (#2201, #2212). Seed: `ticked-criteria-plus-mutation-failure-is-unrecoverable`. **Commit first:** mutation
-  verification and body-summary derivation are diff-derived against the base ref; fix coverage in the
-  worktree and let `run resume` commit it (or `git commit` it yourself first) — an uncommitted fix
-  either gets committed by the resume tail or settles a named `completion_commit_failed` failure, it
-  is never silently re-verified against the stale diff. A resumed row that itself settles
-  `ready_gate_failed`, `completion_commit_failed`, or `runtime_smoke_failed` (not just a repeat
-  `surviving_mutation_failed`) is admitted by a further `run resume` on the same row.
+  **Eligible owning rows:** a failed durable `review-debate` row (including an implement workflow's
+  debate `implement-review`) or a failed durable landing-bearing `review` row. A non-durable light
+  `implement-review` sharing that step ID is never a recovery target. The workflow entry ID and a
+  completed hidden `~shrink` row always refuse — only the review-behavior row itself is eligible.
+
+  **Sibling resolution (fixed 2026-07-27):** the durable write step's completed row is resolved by
+  workflow `invocationId`, matching either the authored write stepId or a completed `<stepId>~link-N`
+  row — the shape a linked-implement workflow's terminal pass persists. Previously the lookup only
+  matched the bare authored stepId, so a linked-implement write step's review row lost its sibling and
+  was wrongly projected non-resumable. `run resume`, direct-row `run list`, and direct-row `run wait`
+  all route through the same admission resolver, so a stale pre-fix `loop_finished` record still
+  claiming `resumable: true` is projected `resumable: false` / `unsupported_resume_context` if current
+  reconstruction can't resolve the sibling — immutable log history is never rewritten, only re-read
+  through the current resolver. Conflicting fields recorded on the review row itself (worktree, base
+  ref, spec path, completion agent) never override the selected write row's own values.
+
+  **Admitted outcomes:** `surviving_mutation_failed`, plus the `completion_commit_failed` /
+  `ready_gate_failed` this same resume tail can itself settle. `runtime_smoke_failed` is excluded
+  (retrying this tail cannot change a runtime-smoke result), along with `landing_failed`,
+  `ready_flip_failed`, generic invocation failures, and completed rows.
+
+  **Prior state (fixed by the above):** run `0c81e851` measured the row settling
+  `surviving_mutation_failed` with `resumable: true` in its `loop_finished` record while `run list`
+  projected `unsupported_resume_context` and `run resume` refused on step *kind* — three surfaces,
+  three answers. Seed: `resume-refuses-the-review-row-it-advertises`.
+
+  **No jarvis-native recovery once acceptance criteria are already ticked still applies.** If the
+  agent ticked every acceptance criterion before the mutation failure, `jarvis run workflow implement`
+  also exits `1` with `implement.already_complete`, because preflight reads the spec tree and finds no
+  unchecked work. Resume admits the row (per above) but there is nothing left to re-run automatically
+  in that specific case; recovery is manual: write the missing coverage in the run's worktree, verify
+  the mutation dies, commit, push, `gh pr ready`, merge. Done twice on 2026-07-26 (#2201, #2212). Seed:
+  `ticked-criteria-plus-mutation-failure-is-unrecoverable`. **Commit first:** mutation verification and
+  body-summary derivation are diff-derived against the base ref; fix coverage in the worktree and let
+  `run resume` commit it (or `git commit` it yourself first) — an uncommitted fix either gets committed
+  by the resume tail or settles a named `completion_commit_failed` failure, it is never silently
+  re-verified against the stale diff. A resumed row that itself settles `ready_gate_failed` or
+  `completion_commit_failed` (not just a repeat `surviving_mutation_failed`) is admitted by a further
+  `run resume` on the same row; a `runtime_smoke_failed` settlement from this tail is not.
 - **Daemon and execution tests must use bounded condition polling, not sleep-as-wait (shipped 2026-07-19):** Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) are statically guarded by `scripts/guard-deterministic-daemon-tests.ts` (runs as part of `bun run check`). Forbidden: direct timer-backed waits like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(ms)`. Allowed: bounded condition polling with either a deadline (`Date.now() < deadline`) or signal bound (`!signal?.aborted`). Tests requiring irreducible real-clock timing must be in `.sandbox-unrunnable.test.ts` files. See [`v2/docs/test-writing.md` § Deterministic daemon and execution tests](./test-writing.md#deterministic-daemon-and-execution-tests).
 - **Test doubles must not call production behavior (shipped 2026-07-22):** Fixtures under `v2/src/testing/**` are statically guarded by `scripts/guard-test-double-production-calls.ts` (runs as part of `bun run check`). Test doubles that compute responses by calling production behavior violate the guard and must be refactored to use direct value returns or allowlisted entry points (state-store, daemon-lifecycle, CLI main). Type-only imports, unused constants, and calls to allowlisted builders are permitted. See [`v2/docs/test-writing.md` § Test doubles must not call production behavior](./test-writing.md#test-doubles-must-not-call-production-behavior).
 - **Reviewed plan lands its spec again (verified 2026-07-21):** the 2026-07-16 stranding

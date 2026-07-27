@@ -1223,6 +1223,10 @@ function createReviewMutationRuns(overrides: {
   invocationId: string;
   branch: string;
   reviewBehavior: "review" | "review-debate";
+  /** The durable write row's own stepId; defaults to the authored `"implement"` stepId. Pass e.g.
+   * `"implement~link-1"` to simulate the row a linked-implement workflow's terminal pass leaves. */
+  writeStepId?: string;
+  writeStatus?: "completed" | "in-progress";
 }): { writeRunId: string; reviewRunId: string; entryRunId: string } {
   const workflowSnapshot = {
     invocationId: overrides.invocationId,
@@ -1247,15 +1251,18 @@ function createReviewMutationRuns(overrides: {
     specPath: "/tmp/test-project/spec.md",
     workflowSnapshot,
   };
-  const writeRunId = stateStore.createRun({ ...base, stepId: "implement" });
-  stateStore.setRunStatus(writeRunId, "completed");
-  const writeAttemptId = stateStore.recordAttemptStart(writeRunId);
-  stateStore.commitCompletionBoundary({
-    attemptId: writeAttemptId,
-    runStatus: "completed",
-    outcomeKind: "done",
-    completionAgent: "codex",
-  });
+  const writeRunId = stateStore.createRun({ ...base, stepId: overrides.writeStepId ?? "implement" });
+  const writeStatus = overrides.writeStatus ?? "completed";
+  stateStore.setRunStatus(writeRunId, writeStatus);
+  if (writeStatus === "completed") {
+    const writeAttemptId = stateStore.recordAttemptStart(writeRunId);
+    stateStore.commitCompletionBoundary({
+      attemptId: writeAttemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent: "codex",
+    });
+  }
   const reviewRunId = stateStore.createRun({ ...base, stepId: "implement-review" });
   // The workflow entry row: carries the snapshot but no `stepId`, the id `start { steps }` returns.
   const entryRunId = stateStore.createRun(base);
@@ -1337,6 +1344,233 @@ test.each([
   }
 });
 
+test("resumes surviving_mutation_failed when the durable write sibling is a linked-implement `~link-N` row: list, wait, and resume agree", async () => {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: "review-mutation-linked",
+    branch: "review-mutation/linked",
+    reviewBehavior: "review-debate",
+    writeStepId: "implement~link-2",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-linked-logs", reviewRunId);
+  try {
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 11, prUrl: "https://example.test/pr/11" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+    expect(await waitResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    expect(starts).toHaveLength(0);
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("a completed write sibling that is also the workflow's step-0 entry row still supplies review-mutation-resume context", async () => {
+  // `createReviewMutationRuns`'s default (unlinked) write stepId is the authored step-0 write step —
+  // in production, `startWorkflowRun` resolves `entryRunId` from exactly that row (stepIndex === 0),
+  // so `writeRunId` here *is* the id an operator's `start { steps }` call would have returned.
+  // Selection must not special-case or refuse that row merely because it doubles as the entry id.
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: "review-mutation-write-is-entry",
+    branch: "review-mutation/write-is-entry",
+    reviewBehavior: "review",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-write-is-entry-logs", reviewRunId);
+  try {
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+    expect(await waitResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("a completion_commit_failed from this tail stays retryable: a subsequent resume restarts only commit/finalization/publication and succeeds", async () => {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: "review-mutation-repeat-retry",
+    branch: "review-mutation/repeat-retry",
+    reviewBehavior: "review",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-repeat-retry-logs", reviewRunId);
+  try {
+    // First resume: the committer throws, settling `completion_commit_failed` — the row must stay
+    // retryable, not stranded.
+    const failingHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => {
+          throw new Error("git push failed");
+        },
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 21, prUrl: "https://example.test/pr/21" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+    // The dispatch surfaces the settled failure as an RPC error, but the row itself settles a
+    // visible, retryable `completion_commit_failed` rather than stranding at `in-progress`.
+    const firstResponse = await resumeDirect(failingHandlers, reviewRunId);
+    expect(firstResponse.kind).toBe("error");
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("failed");
+
+    const afterFirstFailure = await listRow(failingHandlers, reviewRunId);
+    expect(afterFirstFailure.error?.reason).toBe("completion_commit_failed");
+    expect(afterFirstFailure.error?.nextAction).toBe("resume");
+    expect(await listResumable(failingHandlers, reviewRunId)).toBe(true);
+
+    // Second resume: a working committer — succeeds, still without re-invoking the write step's agent.
+    const succeedingHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 21, prUrl: "https://example.test/pr/21" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+    const secondResponse = await resumeDirect(succeedingHandlers, reviewRunId);
+    expect(secondResponse.kind).toBe("response");
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("a stale pre-fix resumable:true record projects unsupported_resume_context once the write sibling can't be resolved", async () => {
+  // No completed write-step row exists at all for this invocation — simulating a row whose
+  // durable write sibling never landed a completed run (e.g. it only ever recorded an
+  // in-progress `~link-N` attempt). The historical log record still says `resumable: true`,
+  // as it would have before this admission fix existed.
+  const { reviewRunId } = createReviewMutationRuns({
+    invocationId: "review-mutation-stale-resumable",
+    branch: "review-mutation/stale-resumable",
+    reviewBehavior: "review",
+    writeStepId: "implement~link-1",
+    writeStatus: "in-progress",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-stale-logs", reviewRunId);
+  try {
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+
+    const row = await listRow(localHandlers, reviewRunId);
+    expect(row.error?.reason).toBe("unsupported_resume_context");
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(false);
+    expect(await waitResumable(localHandlers, reviewRunId)).toBe(false);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).toBe("resume_unsupported");
+    }
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("closing and reopening the state store and log reader before list/wait/resume preserves admission results", async () => {
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: "review-mutation-reopen",
+    branch: "review-mutation/reopen",
+    reviewBehavior: "review-debate",
+    writeStepId: "implement~link-1",
+  });
+  failReviewRunAtSurvivingMutation(reviewRunId);
+  const logsPath = seedSurvivingMutationLogsPath("review-mutation-reopen-logs", reviewRunId);
+  try {
+    stateStore.close();
+    stateStore = openStateStore(dbPath);
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+    expect(await waitResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
 test("rejects resume_unsupported for a review-behavior row failed for a reason other than surviving mutation (predicate inversion)", async () => {
   const { reviewRunId } = createReviewMutationRuns({
     invocationId: "review-mutation-wrong-reason",
@@ -1399,6 +1633,10 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
     if (entryResponse.kind === "error") {
       expect(entryResponse.code).toBe("terminal_run");
     }
+    // Not a `workflowEntrySnapshot` match (its stepId is unset, unlike `steps[0].stepId`), so `wait`
+    // here would follow this row's own (never-written) log to a terminal record and hang forever —
+    // only `list`, which never blocks, is safe to assert against it.
+    expect(await listResumable(localHandlers, entryRunId)).not.toBe(true);
 
     const writeResponse = await resumeDirect(localHandlers, writeRunId);
     expect(writeResponse.kind).toBe("error");
@@ -1411,6 +1649,10 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
     if (shrinkResponse.kind === "error") {
       expect(shrinkResponse.code).toBe("terminal_run");
     }
+    // `resumable` is only stamped on non-success terminal statuses; this row is `completed`, so the
+    // field is simply absent rather than `false` — either way, never `true`.
+    expect(await listResumable(localHandlers, shrinkRunId)).not.toBe(true);
+    expect(await waitResumable(localHandlers, shrinkRunId)).not.toBe(true);
   } finally {
     rmSync(logsPath, { force: true });
   }

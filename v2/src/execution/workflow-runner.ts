@@ -20,7 +20,9 @@ import type {
   RunExecutionFailedEvent,
 } from "../persistence/log-stream.ts";
 import {
+  type Attempt,
   openStateStore,
+  type Run,
   type StateStore,
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
@@ -2156,6 +2158,65 @@ function findDurableWriteStepId(steps: readonly WorkflowSnapshotStep[]): string 
   return steps.find((step) => step.behavior === undefined)?.stepId;
 }
 
+/** Latest attempt completion timestamp on a row, or `undefined` when no attempt has completed. */
+function latestAttemptCompletedAt(run: { attempts: readonly Attempt[] }): number | undefined {
+  let latest: number | undefined;
+  for (const attempt of run.attempts) {
+    if (attempt.completedAt === null) continue;
+    if (latest === undefined || attempt.completedAt > latest) latest = attempt.completedAt;
+  }
+  return latest;
+}
+
+/** A row's stepId is the authored write step itself, or one of its linked-implement executions. */
+function isWriteSiblingStepId(candidateStepId: string | null | undefined, writeStepId: string): boolean {
+  return candidateStepId === writeStepId || (candidateStepId?.startsWith(`${writeStepId}~link-`) ?? false);
+}
+
+/**
+ * Resolves the durable write step's completed sibling row for a review-behavior row's finalization
+ * resume: an exact match on the authored write stepId, or a completed `<writeStepId>~link-N` row
+ * left by a linked-implement workflow's terminal pass. Candidates are scoped to the review row's own
+ * `(project, branch)` and to completed rows within the same workflow invocation; among ties, the
+ * candidate with the latest attempt-completion timestamp wins, with the row id as a stable
+ * tie-breaker. Returns `undefined` when no admissible candidate exists.
+ */
+function resolveDurableWriteSiblingRun(
+  run: { project: string; branch: string },
+  store: StateStore,
+  snapshot: WorkflowSnapshot,
+  writeStepId: string,
+): (Run & { attempts: Attempt[] }) | undefined {
+  const candidateIds = store
+    .findRunsByInvocationId(snapshot.invocationId)
+    .filter(
+      (candidate) =>
+        candidate.project === run.project &&
+        candidate.branch === run.branch &&
+        isWriteSiblingStepId(candidate.stepId, writeStepId),
+    )
+    .map((candidate) => candidate.id);
+
+  let selected: (Run & { attempts: Attempt[] }) | undefined;
+  let selectedCompletedAt = -Infinity;
+  for (const id of candidateIds) {
+    const candidate = store.loadRun(id);
+    if (!candidate || candidate.status !== "completed") continue;
+    // Some completed rows never recorded an attempt boundary (status set directly); `createdAt`
+    // is always present and keeps such a row eligible without pretending it has a real completion time.
+    const completedAt = latestAttemptCompletedAt(candidate) ?? candidate.createdAt;
+    if (
+      selected === undefined ||
+      completedAt > selectedCompletedAt ||
+      (completedAt === selectedCompletedAt && candidate.id > selected.id)
+    ) {
+      selected = candidate;
+      selectedCompletedAt = completedAt;
+    }
+  }
+  return selected;
+}
+
 /** Reconstructed head shared by every review-behavior-row resume resolver. */
 type ReviewRowHead = {
   snapshot: WorkflowSnapshot;
@@ -2169,7 +2230,9 @@ type ReviewRowHeadResolution = { ok: true; head: ReviewRowHead } | { ok: false; 
 /**
  * Shared admission head for review-behavior-row finalization resume: the row must be a failed
  * review/review-debate step, and its sibling durable write step's own row must exist — the only
- * row carrying the resolved `specPath` and a fallback completion agent.
+ * row carrying the resolved `specPath` and a fallback completion agent. Used by the populated-intent
+ * `landing_failed` path only; the review-mutation tail uses {@link resolveReviewMutationRowHead}
+ * instead, which applies stricter, tail-specific admission.
  */
 function resolveReviewRowHead(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
@@ -2186,6 +2249,40 @@ function resolveReviewRowHead(
   const writeRun = writeStepId
     ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
     : null;
+  if (!writeRun) return { ok: false, message: "durable write step row not found" };
+  const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
+  const completionAgent = reviewCompletionAgent(run) ?? reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
+  return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent } };
+}
+
+/**
+ * Admission head for the review-mutation resume tail only: the row must be a *durable*, failed
+ * review/review-debate step — a non-durable light review sharing that stepId is not a recovery
+ * target — and its completed durable write-step sibling row must be resolvable within the same
+ * workflow invocation (see {@link resolveDurableWriteSiblingRun}), which carries the resolved
+ * `specPath` and a fallback completion agent. Deliberately not shared with
+ * {@link resolveIntentFinalizationResumeContext}: that path's admission must stay on its
+ * pre-existing behavior.
+ */
+function resolveReviewMutationRowHead(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+): ReviewRowHeadResolution {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const step = snapshot?.steps.find((candidate) => candidate.stepId === stepId);
+  if (
+    !snapshot ||
+    !stepId ||
+    !step ||
+    (step.behavior !== "review" && step.behavior !== "review-debate") ||
+    step.durable === false
+  ) {
+    return { ok: false, message: "run is not a review-behavior step" };
+  }
+  if (run.status !== "failed") return { ok: false, message: "run is not in a failed state" };
+  const writeStepId = findDurableWriteStepId(snapshot.steps);
+  const writeRun = writeStepId ? resolveDurableWriteSiblingRun(run, store, snapshot, writeStepId) : undefined;
   if (!writeRun) return { ok: false, message: "durable write step row not found" };
   const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
   const completionAgent = reviewCompletionAgent(run) ?? reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
@@ -2488,15 +2585,16 @@ export async function resumePopulatedIntentPublication(
 
 /**
  * Terminal outcome kinds admitted for review-mutation finalization resume: `surviving_mutation_failed`
- * is the row's original failure, and the other three are outcomes this same resume path can itself
- * settle as resumable — admitting them is self-consistency, not scope creep, since only this path
- * (never a fresh review pass) ever writes them onto a review-behavior row.
+ * is the row's original failure, and `ready_gate_failed`/`completion_commit_failed` are the other
+ * outcomes this same resume path can itself settle as resumable — admitting them is
+ * self-consistency, not scope creep, since only this path (never a fresh review pass) ever writes
+ * them onto a review-behavior row. `runtime_smoke_failed` is excluded: retrying this tail cannot
+ * change a runtime-smoke outcome, so it never gets a second attempt.
  */
 const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
   "surviving_mutation_failed",
   "ready_gate_failed",
   "completion_commit_failed",
-  "runtime_smoke_failed",
 ]);
 
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
@@ -2529,24 +2627,31 @@ export function resolveReviewMutationResumeContext(
   store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
-  const head = resolveReviewRowHead(run, store);
+  const head = resolveReviewMutationRowHead(run, store);
   if (!head.ok) return head;
-  const { snapshot, writeStep, writeRun, completionAgent } = head.head;
+  const { snapshot, writeStep, writeRun } = head.head;
   if (
     terminalRecord?.event.kind !== "loop_finished" ||
     !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(terminalRecord.event.loopOutcomeKind)
   ) {
     return { ok: false, message: "run did not fail with a surviving mutation" };
   }
+  // Completion attribution follows the selected write row alone (its own completed boundary, then
+  // its configured agent) — the review row's own attempts never override it, so a conflicting
+  // completion agent recorded on the review row can't leak into publication attribution here.
+  const completionAgent = reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
 
   return {
     ok: true,
     context: {
       runId: run.id,
-      worktreePath: run.worktreePath,
+      // Sourced from the selected write-step sibling, not the review row: a review row's own
+      // `worktreePath`/`specRef` are informational only and must never override the row that
+      // actually committed the mutation being re-verified.
+      worktreePath: writeRun.worktreePath,
       project: run.project,
       branch: run.branch,
-      baseRef: run.specRef,
+      baseRef: writeRun.specRef,
       specPath: writeRun.specPath,
       invocationId: snapshot.invocationId,
       // `role: "plan"` alone is ambiguous: `plan`/`plan-reviewed` workflows share it with `intent`
@@ -2584,7 +2689,10 @@ function settleReviewMutationResumeFailure(
     kind: "loop_finished",
     loopOutcomeKind,
     iterationsConsumed: 0,
-    resumable: true,
+    // Reflects this resolver's own retryability (see the sibling emit site below), not a blanket
+    // "this tail can always be retried" — e.g. `invocation_failure` (no completion agent, thrown
+    // error) is never in the admitted set, so it must not claim resumable either.
+    resumable: REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind),
   });
   return { ok: false, message };
 }
@@ -2713,7 +2821,10 @@ async function runReviewMutationCommitAndPublish(
       kind: "loop_finished",
       loopOutcomeKind: failure.kind,
       iterationsConsumed: publication.iterationsConsumed,
-      resumable: !isFlip,
+      // Reflects this resolver's own retryability, not merely "not a ready-flip": `runtime_smoke_failed`
+      // is excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so retrying this tail can never
+      // change that outcome — the newly emitted record must say so rather than claim resumable.
+      resumable: !isFlip && REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failure.kind),
       ...survivingMutationLogFields(failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     });

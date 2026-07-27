@@ -645,9 +645,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("rejects implement when the project config record is missing", async () => {
-    const { root, machineProfile } = writeRegisteredImplementRepo(
-      "implement-workflow-steps-missing-project-record-",
-    );
+    const { root, machineProfile } = writeRegisteredImplementRepo("implement-workflow-steps-missing-project-record-");
     const configWithoutRecord = writeJson("config.json", { projects: { registered: "not-an-object" } });
     try {
       const result = await buildImplementWorkflowSteps(

@@ -2197,12 +2197,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("admits implement without pipelineDefinition when projects.demo omits pipeline", async () => {
     const effects = emptyPipelineAdmissionEffects();
-    const code = await runConnectedPipelineAdmission(
-      { demo: { root: resetProjectRoot } },
-      effects,
-      undefined,
-      true,
-    );
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot } }, effects, undefined, true);
     expectPipelineAdmissionSuccess(effects, code);
   });
 

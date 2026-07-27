@@ -964,9 +964,7 @@ describe("review-role timeout resolution", () => {
   async function startReviewIdleBudgetWorkflow(idleOutputTimeoutMs?: number): Promise<AnyWorkflowStep[]> {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = writeMachineConfig(
-      idleOutputTimeoutMs === undefined ? {} : { idleOutputTimeoutMs },
-    );
+    const configPath = writeMachineConfig(idleOutputTimeoutMs === undefined ? {} : { idleOutputTimeoutMs });
     const suffix = idleOutputTimeoutMs ?? "absent";
 
     const code = await withWorkflowUuids("start", "wait", () =>

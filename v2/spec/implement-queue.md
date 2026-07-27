@@ -1,41 +1,70 @@
 # v2 implement queue
 
-Authority: operator priorities in `.scratch/2026-07-27-next-v2-priorities.md` (rebuilt when the lane shifts). Counts below are the spec tree after cleanup on 2026-07-27.
+Authority: operator priorities. Rebuilt 2026-07-27 after the recovery batch shipped.
 
 ## Rule
 
-Reliability floor is done. The implement lane runs the **recovery batch** once, then **per-project pipelines** until that phase ships. P1 items are a parallel plan/intent lane — not a second reliability tier.
+Recovery batch is done. The implement lane runs **per-project pipelines** until that phase ships.
+Everything else is a parallel plan/intent lane.
 
-## P0 — recovery batch (serialize 1 → 2 → 3)
+## Recovery batch — shipped
 
-| Order | Seed | Notes |
+| # | Work | PR |
 | --- | --- | --- |
-| 1 | `ready-intents/write-loop-iteration-durability-floor.md` | Work loss; verification must observe a killed run |
-| 2 | `seeds/resume-refuses-the-review-row-it-advertises.md` | Three surfaces must agree on resumability |
-| 3 | `seeds/ticked-criteria-plus-mutation-failure-is-unrecoverable.md` | Depends on 2; needs a forward path without unticking criteria |
+| 1 | write-loop iteration durability floor | #2236 |
+| 2 | resume a durable review row through its mutation tail | #2233 |
+| 3 | implement repairs a ticked run with a surviving mutation | in flight |
 
-## P1 — parallel, not blocking pipelines
+Also shipped this session: review roles honor the configured idle budget (#2230), `run log` snapshots
+live runs (#2238), husk at managed path no longer strands re-dispatch (#2228).
 
-| Seed / ready-intent | Notes |
-| --- | --- |
-| `seeds/review-roles-ignore-the-configured-idle-budget.md` | Config lever silently ignored on review steps |
-| `seeds/run-log-blocks-on-live-runs.md` | `run log` unusable when needed most |
-| `ready-intents/husk-at-managed-path-does-not-strand-redispatch.md` | Husks observed again; cleanup cannot retire them |
+## Phase gate — per-project pipelines
 
-## Phase gate
+The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices are seeded individually
+(`seeds/pipeline-*.md`) and fanned out through `intent` → `plan` → `implement`.
 
-After the recovery batch, implement lane stays on [per-project pipelines](per-project-pipelines-brief.md) until merged `v2/src` satisfies the meta-index line. The brief is **not** plan input: its six slices are seeded individually (`seeds/pipeline-*.md`) and fanned out through `intent` → `plan` → `implement`, serialized 1 → 2 → {3, 4} → 5 → 6.
+| Slice | Work | State |
+| --- | --- | --- |
+| 1a | definitions, registry, admission validation | shipped #2240 |
+| 1b | project config selects a pipeline | in flight |
+| 2a | durable pipeline + stage records | in flight |
+| 2b | daemon-ordered stage execution | blocked on 2a |
+| 2c | restart reconciliation | blocked on 2a |
+| 3 | approve/reject + resume | seeded |
+| 4 | CLI start/list/wait/detach | seeded |
+| 5 | configured terminal actions | seeded |
+| 6 | one e2e integration proof | seeded |
+
+**Slot before 2b:** `seeds/pipeline-posture-table-rejects-a-realizable-cell.md`. #2240's validator
+rejects `intent` + `debate`, which the CLI supports. Inert only while nothing resolves a posture —
+2b is what starts resolving them, so this ships first or with it.
+
+Plan-lane dependency: each slice's plan blocks until its prerequisite slice is **implemented**, not
+merely planned. Observed twice (1b, 2b) — both agents correctly refused with a `## Blocker`.
 
 ## Ready-intents (queued)
 
 | File | Notes |
 | --- | --- |
-| `ready-intents/aggregate-timeout-reaps-the-test-process-group.md` | Unblocked since #2190; insert only if a hung descendant is observed |
+| `ready-intents/aggregate-timeout-reaps-the-test-process-group.md` | Insert only if a hung descendant is observed |
 | `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` | Low; prereqs satisfied |
 | `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Prereq to later review work only |
 
+## Seeds — reliability, filed this session
+
+| Seed | Notes |
+| --- | --- |
+| `seeds/gate-repair-edits-unrelated-tests-to-go-green.md` | Seen twice; one instance weakened a v1 test, one hit an intent workflow |
+| `seeds/terminal-settle-leaves-agent-and-lock-behind.md` | Mid-repair rows read `completed`; agent + lock outlived the settle |
+
 ## Seeds (deferred / low)
 
-See the fold table in `.scratch/2026-07-27-next-v2-priorities.md`. Notable: `daemon-child-output-test-races-process-startup` (mitigated #2208, race remains), `publication-tails-are-consolidated`, `materialization-base-drift-guard`, `cleanup-prunes-merged-dead-branches`, `implement-review-bounds-diff-payload`, `review-checkpoint-reuse-is-not-scoped-to-a-dispatch`, `set-agents-accepts-any-string-including-flags`, `reviewer-verification-command`, `surface-the-completion-commit-error-instead-of-swallowing-it`, `seeds/archival-refusal-names-why-owner-was-not-retired.md` (ship with next cleanup diagnostic touch).
+Notable: `daemon-child-output-test-races-process-startup` (mitigated #2208, race remains),
+`publication-tails-are-consolidated`, `materialization-base-drift-guard`,
+`cleanup-prunes-merged-dead-branches`, `implement-review-bounds-diff-payload`,
+`review-checkpoint-reuse-is-not-scoped-to-a-dispatch`, `set-agents-accepts-any-string-including-flags`,
+`reviewer-verification-command`, `surface-the-completion-commit-error-instead-of-swallowing-it`,
+`archival-refusal-names-why-owner-was-not-retired` (ship with next cleanup diagnostic touch).
 
-TUI presentation work is folded into [tui-overhaul-brief.md](tui-overhaul-brief.md); `seeds/tui-monitor-row-honesty.md` may land before the full TUI phase.
+TUI presentation work is folded into [tui-overhaul-brief.md](tui-overhaul-brief.md);
+`seeds/tui-monitor-row-honesty.md` may land before the full TUI phase.

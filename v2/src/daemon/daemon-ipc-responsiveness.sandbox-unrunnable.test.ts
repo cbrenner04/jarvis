@@ -3,7 +3,8 @@
 // a run-path git command, and completion-publication's gh call. Real sockets are
 // the seam under test, so this stays sandbox-unrunnable.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -38,7 +39,11 @@ type HoldCase = {
   };
 };
 
-/** Fake worktree with a `.git` marker so the loop's git-aware steps accept it. */
+/**
+ * Fake worktree backed by a real, committed git repo so the checkpoint path's real
+ * `git rev-parse HEAD` (write-loop's `commitSettledIteration`) succeeds instead of throwing
+ * before the seam under test is ever reached.
+ */
 function createWorktreeWithGit(jarvisRoot: string) {
   const base = createFakeWithExternalWorktree(jarvisRoot);
   return async <T>(
@@ -46,7 +51,12 @@ function createWorktreeWithGit(jarvisRoot: string) {
     run: (worktree: { path: string; reused: boolean }) => Promise<T> | T,
   ) =>
     base(args, async (worktree) => {
-      mkdirSync(join(worktree.path, ".git"), { recursive: true });
+      execFileSync("git", ["init", worktree.path], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktree.path, "README.md"), "seed\n", "utf8");
+      execFileSync("git", ["-C", worktree.path, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree.path, "commit", "-m", "seed"], { stdio: "pipe" });
       return run(worktree);
     });
 }

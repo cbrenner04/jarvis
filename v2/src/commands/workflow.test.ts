@@ -1421,22 +1421,23 @@ describe("implement preflight stale workspace reset", () => {
         client.send(frame);
         const request = frame as { id?: string; method?: string; params?: unknown };
         if (typeof request.id !== "string") return;
+        const requestId = request.id;
         const handler = typeof request.method === "string" ? handlers[request.method] : undefined;
         if (handler === undefined) {
-          client.push({ kind: "error", id: request.id, code: "unknown_method", message: "unknown method" });
+          client.push({ kind: "error", id: requestId, code: "unknown_method", message: "unknown method" });
           return;
         }
         void Promise.resolve(
           handler(
-            { kind: "request", id: request.id, method: request.method as string, params: request.params },
+            { kind: "request", id: requestId, method: request.method as string, params: request.params },
             new AbortController().signal,
           ),
         )
-          .then((response) => client.push({ ...response, id: request.id! }))
+          .then((response) => client.push({ ...response, id: requestId }))
           .catch((error: unknown) =>
             client.push({
               kind: "error",
-              id: request.id!,
+              id: requestId,
               code: "internal_error",
               message: error instanceof Error ? error.message : String(error),
             }),
@@ -1624,8 +1625,14 @@ describe("implement preflight stale workspace reset", () => {
     for (const workflow of ["implement", "plan"] as const) {
       for (const override of [false, true]) {
         const worktreePath = await materializeStaleWorktree();
-        const initialHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)).trim();
-        await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], resetProjectRoot);
+        const initialHead = (
+          await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", resetBranch], resetProjectRoot)
+        ).trim();
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
         mkdirSync(worktreePath, { recursive: true });
         const residue = join(worktreePath, "failed-materialization");
         writeFileSync(residue, "husk");
@@ -1636,8 +1643,10 @@ describe("implement preflight stale workspace reset", () => {
         let callbackHead: string | undefined;
         let materializedPath: string | undefined;
         const subprocessRunner = staleResetSubprocessRunner((cmd, args) => {
-          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") preflightTeardownCalls.push("worktree-remove");
-          if (cmd === "git" && args[0] === "worktree" && args[1] === "prune") preflightTeardownCalls.push("worktree-prune");
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+            preflightTeardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "prune")
+            preflightTeardownCalls.push("worktree-prune");
           if (cmd === "git" && args[0] === "branch" && args[1] === "-D") preflightTeardownCalls.push("branch-delete");
           if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
             preflightTeardownCalls.push("remote-branch-delete");
@@ -1663,7 +1672,9 @@ describe("implement preflight stale workspace reset", () => {
             try {
               if (callbackCount++ === 0) {
                 materializedPath = cwd;
-                callbackBranch = (await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], cwd)).trim();
+                callbackBranch = (
+                  await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], cwd)
+                ).trim();
                 callbackHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], cwd)).trim();
               }
             } finally {
@@ -1706,7 +1717,11 @@ describe("implement preflight stale workspace reset", () => {
         expect(materializedPath).toBe(worktreePath);
         expect(callbackBranch).toBe(resetBranch);
         expect(callbackHead).toBe(initialHead);
-        await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], resetProjectRoot);
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["worktree", "remove", "--force", worktreePath],
+          resetProjectRoot,
+        );
         await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", resetBranch], resetProjectRoot);
       }
     }
@@ -1715,7 +1730,11 @@ describe("implement preflight stale workspace reset", () => {
   test("incomplete re-dispatch leaves registered and inconclusive non-Git husks for materialization safeguards", async () => {
     for (const probe of ["registered", "inconclusive"] as const) {
       const worktreePath = await materializeStaleWorktree();
-      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], resetProjectRoot);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["worktree", "remove", "--force", worktreePath],
+        resetProjectRoot,
+      );
       mkdirSync(worktreePath, { recursive: true });
       const residue = join(worktreePath, `${probe}-residue`);
       writeFileSync(residue, "keep");

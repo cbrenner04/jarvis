@@ -4,7 +4,11 @@ import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { StateStore } from "../persistence/state-store.ts";

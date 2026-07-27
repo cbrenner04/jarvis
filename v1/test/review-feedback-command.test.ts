@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
@@ -139,6 +139,7 @@ describe("review-feedback command", () => {
   test("branch on origin with missing worktree creates it and runs review", async () => {
     const worktreePath = createGitWorktree("feature-branch");
     // Remove the worktree directory to simulate a missing worktree that needs to be created
+    renameSync(join(worktreePath, ".git"), join(worktreePath, "git-dir"));
     rmSync(worktreePath, { recursive: true, force: true });
     expect(existsSync(worktreePath)).toBe(false);
 

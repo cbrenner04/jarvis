@@ -538,16 +538,17 @@ function validateConfig(input: unknown, file: string): Config {
       const pipeline: ProjectPipeline = { name: pipelineNameRaw };
       const reviewOverridesRaw = pipelineObj.reviewOverrides;
       if (reviewOverridesRaw !== undefined) {
-        if (reviewOverridesRaw === null || typeof reviewOverridesRaw !== "object" || Array.isArray(reviewOverridesRaw)) {
+        if (
+          reviewOverridesRaw === null ||
+          typeof reviewOverridesRaw !== "object" ||
+          Array.isArray(reviewOverridesRaw)
+        ) {
           fail(file, `project ${JSON.stringify(name)} pipeline.reviewOverrides must be an object`);
         }
         const reviewOverrides: Record<string, string> = {};
         for (const [stageId, posture] of Object.entries(reviewOverridesRaw as Record<string, unknown>)) {
           if (typeof posture !== "string") {
-            fail(
-              file,
-              `project ${JSON.stringify(name)} pipeline.reviewOverrides.${stageId} must be a string`,
-            );
+            fail(file, `project ${JSON.stringify(name)} pipeline.reviewOverrides.${stageId} must be a string`);
           }
           reviewOverrides[stageId] = posture;
         }

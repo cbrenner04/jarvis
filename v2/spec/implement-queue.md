@@ -12,7 +12,7 @@ pipelines** (slices 3–6) until that phase ships. Reliability seeds are a paral
 | Seed | Why |
 | --- | --- |
 | `seeds/intent-review-boundary-drops-a-path-character.md` | A whole-output `trim()` shifts porcelain parsing by one character, so every git-enabled `intent` review reports a false boundary violation and lands nothing. Seven for seven on 2026-07-27. Workaround: `--review-passes 0`. |
-| `seeds/absent-pipeline-config-blocks-every-implement.md` | #2248 made an absent `projects.<key>.pipeline` refuse **every** implement dispatch. The lane only runs because that key was hand-added to `~/.jarvis/config.json`; it can be removed once this ships. |
+| `ready-intents/absent-pipeline-admits-implement.md` | #2248 made an absent `projects.<key>.pipeline` refuse **every** implement dispatch. The lane only runs because that key was hand-added to `~/.jarvis/config.json`; it can be removed once this ships. |
 
 ## Phase gate — per-project pipelines
 
@@ -31,13 +31,14 @@ The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices ar
 | 5 | configured terminal actions | seeded |
 | 6 | one e2e integration proof | seeded |
 
-**Slot before slice 3:** `seeds/intent-splits-by-surface.md` and
-`seeds/plan-splits-an-oversized-subspec.md`. Slices 3–6 are the next work through `intent` and
-`plan`, so split discipline pays there first.
+**Slot before slice 3** (split discipline pays there first): `ready-intents/intent-split-prompt-by-surface.md`,
+`ready-intents/intent-split-multi-surface-regression.md`, `ready-intents/plan-blocks-unmet-split-dependencies.md`,
+`ready-intents/plan-emits-one-subspec-per-module-boundary.md`,
+`ready-intents/plan-split-index-orders-by-dependency.md`, `ready-intents/plan-split-preserves-draft-scope.md`.
 
-**Slot before any work that resolves a posture:**
-`seeds/pipeline-posture-table-rejects-a-realizable-cell.md`. #2240's validator rejects `intent` +
-`debate`, which the CLI supports.
+**Slot before any work that resolves a posture:** `ready-intents/pipeline-intent-debate-posture-realizes.md`
+and `ready-intents/pipeline-posture-table-pins-cli-review-acceptance.md`. #2240's validator rejects
+`intent` + `debate`, which the CLI supports.
 
 Plan-lane dependency: each slice's plan blocks until its prerequisite slice is **implemented**, not
 merely planned. Observed twice (1b, 2b) — both agents correctly refused with a `## Blocker`.
@@ -46,9 +47,9 @@ merely planned. Observed twice (1b, 2b) — both agents correctly refused with a
 
 | Seed | Notes |
 | --- | --- |
-| `seeds/gate-repair-edits-unrelated-tests-to-go-green.md` | Seen twice; one weakened a v1 test, one hit an intent workflow and committed harness sidecars |
-| `seeds/terminal-settle-leaves-agent-and-lock-behind.md` | Mid-repair rows read `completed`; an agent and its worktree lock outlived the settle |
-| `seeds/cleanup-aborts-on-a-missing-keyed-socket.md` | A rebuilt executable moves the socket key; cleanup dies on a raw `ENOENT` and skips daemon-independent work |
+| `ready-intents/markdown-only-workflow-ready-repair-rejects-code-edits.md`, `ready-gate-red-in-untouched-files-is-out-of-scope.md`, `ready-gate-repair-cannot-extend-load-sensitive-files.md`, `ready-gate-repair-omits-jarvis-sidecars-from-commits.md`, `repair-commits-limited-to-run-diff-and-spec-tree.md` | Gate repair edits unrelated tests to go green; seen twice |
+| `seeds/terminal-settle-leaves-agent-and-lock-behind.md` | Mid-repair rows read `completed`; an agent and its worktree lock outlived the settle. Split lost to the boundary defect; re-run `intent` |
+| `ready-intents/cleanup-without-listening-daemon.md`, `cleanup-eligibility-uses-live-socket-discovery.md` | A rebuilt executable moves the socket key; cleanup dies on a raw `ENOENT` and skips daemon-independent work |
 
 ## Ready-intents (queued)
 

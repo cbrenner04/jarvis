@@ -237,6 +237,24 @@ export function workflowStartOwnershipKey(steps: AnyWorkflowStep[]): OwnershipKe
 }
 
 /**
+ * True when a workflow entry run's invocation is still live: its promise is tracked *and* at least
+ * one tracked row is a workflow row.
+ *
+ * A `write-loop` row must not satisfy this — it belongs to an unrelated ad-hoc run, and counting it
+ * would report a settled workflow entry as still running.
+ */
+export function workflowInvocationIsLive(
+  hasTrackedEntryPromise: boolean,
+  trackedRuns: Iterable<{ kind: string }>,
+): boolean {
+  if (!hasTrackedEntryPromise) return false;
+  for (const row of trackedRuns) {
+    if (row.kind === "workflow") return true;
+  }
+  return false;
+}
+
+/**
  * The daemon shuts down when a stop was explicitly requested, or when it is
  * retiring (superseded) and no run is still active. A retiring daemon with an
  * active run stays up until that run settles.
@@ -1132,8 +1150,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const reportedRunStatus = (run: Run, fullRun: LoadedRun | undefined): RunStatus => {
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     if (entrySnapshot === undefined) return run.status;
-    const workflowStillLive =
-      workflowPromisesByEntryRunId.has(run.id) && [...activeRuns.values()].some((row) => row.kind === "workflow");
+    const workflowStillLive = workflowInvocationIsLive(workflowPromisesByEntryRunId.has(run.id), activeRuns.values());
     return rollupWorkflowRunStatus({
       entryRun: run,
       workflowSnapshot: entrySnapshot,

@@ -32,6 +32,7 @@ non-terminal with no owner or silently discard its last known stage.
 - [ ] A pipeline owned by a still-live process is unchanged.
 - [ ] Completed and failed pipelines are unchanged.
 - [ ] The daemon does not accept new pipeline work until reconciliation completes or startup fails.
+- [ ] A regression case in `v2/src/daemon/daemon-reconciliation.test.ts` covers dead-owner settlement and live-owner preservation, fails before this change, and passes after it; inverting either ownership or terminal-status guard makes it fail.
 
 ## Documentation updates
 

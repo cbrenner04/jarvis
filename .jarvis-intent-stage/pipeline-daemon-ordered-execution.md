@@ -33,7 +33,7 @@ ordered, and failure-stopping after the admitting client disconnects.
 - [ ] Each stage workflow invocation ID resolves to the workflow run row created by that dispatch.
 - [ ] A failed stage records its failure detail, settles the pipeline non-successfully, and prevents every later dispatch; inverting the progression guard turns the test RED.
 - [ ] The pipeline records success only after every workflow stage succeeds.
-- [ ] After admission, disconnecting the requesting client does not stop later stage progression.
+- [ ] `v2/src/daemon/pipeline-execution.test.ts` disconnects the admitting client before stage one settles, proves later daemon-owned progression, fails before this change, and passes after it.
 
 ## Documentation updates
 

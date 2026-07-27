@@ -30,7 +30,7 @@ Pipeline admission needs its own durable lifecycle records before daemon executi
 - [ ] Admitting a validated definition creates one durable pipeline row and one stage row per definition stage in authored order.
 - [ ] A stage row reads back its stable stage ID, nullable workflow invocation ID, status, start/end timestamps, nullable artifact, and nullable failure detail.
 - [ ] Updating one stage lifecycle preserves its identity and the other stage rows.
-- [ ] Closing and reopening the state store preserves the pipeline, stage order, and all populated stage fields.
+- [ ] A regression case in `v2/src/persistence/state-store.test.ts` closes and reopens the store, proves the pipeline, stage order, and populated stage fields survive, fails before this change, and passes after it.
 
 ## Documentation updates
 

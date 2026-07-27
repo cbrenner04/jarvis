@@ -25,17 +25,17 @@ non-resumable before `resumeReviewMutationFinalization` can run.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts`'s `resuming a review row's surviving_mutation_failed actually re-runs the ready finalizer (mutation reverification)` uses a completed `implement~link-*` sibling plus conflicting review-shaped context fields; it fails against the baseline and passes only when write-row/snapshot precedence drives mutation re-verification.
-- [ ] Conflicting review-row base ref, spec path, worktree, completion-agent, and artifact-shape fields cannot affect the selected sibling's finalizer, committer, attribution, or publisher input; write-row and shared-snapshot precedence supplies each value.
-- [ ] A failed durable debate `implement-review` row and a failed durable landing-bearing `review` row with `surviving_mutation_failed` resume the same owning row through commit-if-dirty, mutation re-verification, ready gate, and publication; a non-durable light `implement-review` does not.
-- [ ] After a `completion_commit_failed`, `ready_gate_failed`, or repeated `surviving_mutation_failed` from that tail, the owning durable review row remains retryable and a subsequent resume restarts only the required commit/finalization/publication tail; `landing_failed`, `runtime_smoke_failed`, `ready_flip_failed`, generic invocation failure, and completed rows refuse it.
-- [ ] Each admitted review-tail resume records no write-row attempt and invokes no write-step or review agent.
-- [ ] For an admitted owning row, its terminal `loop_finished`, direct `list`, direct `wait`, and resume admission all report resumable. For each rejected owning row, all three projections report non-resumable / `unsupported_resume_context` and resume returns `resume_unsupported`, even when its immutable pre-fix terminal record says `resumable: true`.
-- [ ] Closing and reopening the state store and log reader before `list`, `wait`, and resume preserves the same positive and negative admission results without adding persisted fields.
-- [ ] Missing, incomplete, wrong-invocation, conflicting, or ambiguous write-sibling candidates reject before attempt creation and invoke neither committer, ready finalizer, publisher, nor agent; tests fail when each added or modified admission guard is inverted.
-- [ ] A completed linked write sibling can supply context when it is also the workflow entry row, but the workflow entry ID and a completed `~shrink` row report non-resumable from `list` and `wait` and refuse the review-owned recovery in `v2/src/daemon/daemon-resume.test.ts`.
-- [ ] `v2/src/daemon/daemon-resume.test.ts`'s `resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/workflow-runner.test.ts`'s `resuming a review row's surviving_mutation_failed actually re-runs the ready finalizer (mutation reverification)` uses a completed `implement~link-*` sibling plus conflicting review-shaped context fields; it fails against the baseline and passes only when write-row/snapshot precedence drives mutation re-verification.
+- [x] Conflicting review-row base ref, spec path, worktree, completion-agent, and artifact-shape fields cannot affect the selected sibling's finalizer, committer, attribution, or publisher input; write-row and shared-snapshot precedence supplies each value.
+- [x] A failed durable debate `implement-review` row and a failed durable landing-bearing `review` row with `surviving_mutation_failed` resume the same owning row through commit-if-dirty, mutation re-verification, ready gate, and publication; a non-durable light `implement-review` does not.
+- [x] After a `completion_commit_failed`, `ready_gate_failed`, or repeated `surviving_mutation_failed` from that tail, the owning durable review row remains retryable and a subsequent resume restarts only the required commit/finalization/publication tail; `landing_failed`, `runtime_smoke_failed`, `ready_flip_failed`, generic invocation failure, and completed rows refuse it.
+- [x] Each admitted review-tail resume records no write-row attempt and invokes no write-step or review agent.
+- [x] For an admitted owning row, its terminal `loop_finished`, direct `list`, direct `wait`, and resume admission all report resumable. For each rejected owning row, all three projections report non-resumable / `unsupported_resume_context` and resume returns `resume_unsupported`, even when its immutable pre-fix terminal record says `resumable: true`.
+- [x] Closing and reopening the state store and log reader before `list`, `wait`, and resume preserves the same positive and negative admission results without adding persisted fields.
+- [x] Missing, incomplete, wrong-invocation, conflicting, or ambiguous write-sibling candidates reject before attempt creation and invoke neither committer, ready finalizer, publisher, nor agent; tests fail when each added or modified admission guard is inverted.
+- [x] A completed linked write sibling can supply context when it is also the workflow entry row, but the workflow entry ID and a completed `~shrink` row report non-resumable from `list` and `wait` and refuse the review-owned recovery in `v2/src/daemon/daemon-resume.test.ts`.
+- [x] `v2/src/daemon/daemon-resume.test.ts`'s `resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication` stays green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

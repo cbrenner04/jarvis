@@ -1927,6 +1927,7 @@ async function tryActuatorOnlyReviewDebateRetry(
       cwd: step.cwd,
       ...(step.signal !== undefined ? { signal: step.signal } : {}),
       ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
+      ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
       ...telemetryFields,
       ...onRoleStart,
     },
@@ -3133,6 +3134,7 @@ async function runProfileReviewStep(
     maxCycles: reviewInput.maxCycles,
     // Without this the step's per-role bound is dropped and every role falls back to the default.
     ...(reviewInput.roleTimeoutMs !== undefined ? { roleTimeoutMs: reviewInput.roleTimeoutMs } : {}),
+    ...(reviewInput.idleOutputMs !== undefined ? { idleOutputMs: reviewInput.idleOutputMs } : {}),
     ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),

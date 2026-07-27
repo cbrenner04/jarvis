@@ -36,7 +36,10 @@ resumed step stays armed with the same budget; see
 Each `review` and `review-debate` step resolves `reviewRoleTimeoutMs` from
 `~/.jarvis/config.json` (default `1,800,000` ms) and stamps it on the step's
 `roleTimeoutMs`, bounding every critic/actuator/debate-role invocation within
-that step.
+that step. The same machine-wide `idleOutputTimeoutMs` governs their idle-output
+watchdog: a configured positive value is stamped as `idleOutputMs`, `0` is
+stamped to disable the watchdog, and an absent key leaves it unstamped so the
+review-role invocation uses its 90 s fallback.
 
 For a multi-step preset, resolution happens per step when the runner reaches
 it. The runner does not precompute one shared binding chain or reuse step
@@ -589,7 +592,8 @@ cycle with enforcement (for intent workflows).
 Each role invocation (`critic`, `actuator`, and every `review-debate` role) is
 armed with two bounds: a per-role wall-clock bound (`roleTimeoutMs`, resolved
 from `reviewRoleTimeoutMs` at prepare time, default `1,800,000` ms) and a per-role idle-output budget
-(`idleOutputMs`, defaulting to 90_000 ms). A wall-clock timeout on one binding
+(`idleOutputMs`: configured positive value when present, 90_000 ms when the
+config key was absent, or disabled when stamped as `0`). A wall-clock timeout on one binding
 escalates to the next binding in the flat rung/agent list instead of settling
 immediately, the same as quota; only the last binding's timeout classifies as
 `failureKind: "timeout"` with `role`/`agent`/`model`/`boundMs` attribution. The

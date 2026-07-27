@@ -757,6 +757,7 @@ resolution and the spec path. Explicit intent titles remain authoritative.
 ## v2 Additive: Configured review-role timeout
 
 - **v2 additive:** Review roles (critic/actuator and the debate roles) no longer inherit the write-loop `iterationTimeoutMs` default. `prepareWorkflowSteps` resolves machine config `reviewRoleTimeoutMs` (default `1800000` ms; positive number, else workflow launch fails naming the key) and stamps it as `roleTimeoutMs` on `review` and `review-debate` steps; `invokeReviewRole` falls back to the same default when a step omits it. Sources: `v2/src/config/machine-config-loader.ts`, `v2/src/commands/workflow.ts`, `v2/src/execution/review-role-invocation.ts`, `v2/docs/install-and-config.md`, `v2/docs/workflow-runner.md`.
+- **v2 additive:** Workflow write and review-role invocations share machine config `idleOutputTimeoutMs`. A configured positive value reaches every review role as `idleOutputMs`; an absent key leaves review steps unstamped so `invokeReviewRole` uses its 90 s fallback; and a stamped `0` reaches the invocation boundary and disables its idle-output watchdog. Sources: `v2/src/commands/workflow.ts`, `v2/src/execution/workflow-runner.ts`, `v2/src/execution/review-role-invocation.ts`, `v2/docs/install-and-config.md`, `v2/docs/workflow-runner.md`.
 
 ## v2 Additive: Actuator-only retry on review-debate re-dispatch
 

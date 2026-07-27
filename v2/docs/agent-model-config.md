@@ -258,6 +258,11 @@ not rung count, and is `N × bound` only when every rung times out with no
 in-segment quota advancement between them. The idle-output budget is likewise
 per segment, not per rung.
 
+One machine-wide `idleOutputTimeoutMs` policy governs workflow write invocations
+and every review role. A configured positive value arms both; an absent key uses
+the 90 s fallback for review roles, while `0` reaches review roles as disabled
+idle watchdog state.
+
 ## Load-time validation
 
 | Rule | On violation |

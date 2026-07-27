@@ -5,7 +5,11 @@ import { formatRpcError, request } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
-import { readReviewRoleTimeoutMs, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
+import {
+  readConfiguredIdleOutputTimeoutMs,
+  readReviewRoleTimeoutMs,
+  resolveWritePathIterationBounds,
+} from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import type {
   WorkflowPresetBuilder,
@@ -157,9 +161,11 @@ async function prepareWorkflowSteps(
     return { ok: false };
   }
   let bounds: ReturnType<typeof resolveWritePathIterationBounds>;
+  let configuredIdleOutputMs: number | undefined;
   let reviewRoleTimeoutMs: number;
   try {
     bounds = resolveWritePathIterationBounds(machineConfigPath);
+    configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath);
     reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath);
   } catch (error) {
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -169,7 +175,11 @@ async function prepareWorkflowSteps(
     step.behavior === "write"
       ? { ...step, ...bounds }
       : step.behavior === "review" || step.behavior === "review-debate"
-        ? { ...step, roleTimeoutMs: reviewRoleTimeoutMs }
+        ? {
+            ...step,
+            roleTimeoutMs: reviewRoleTimeoutMs,
+            ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }),
+          }
         : step,
   );
   return { ok: true, steps, built };

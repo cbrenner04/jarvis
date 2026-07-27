@@ -677,24 +677,17 @@ daemon automatically resumes every reconciled row with a resolvable workflow wri
 The original run ID, snapshot, worktree, and branch are retained; check `jarvis run log <run-id>`
 for its `run_recovery` outcome. A failed automatic admission becomes `failed` with an actionable
 log diagnostic, without blocking other recoveries. Worktrees and branches survive.
-Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
-and resume while the branch exists; only in-flight edits before that iteration's
-git commit may be lost.
-
-**Do not rely on in-flight iteration commits (corrected 2026-07-26).** This paragraph previously
-said a `publishCompletion: false` workflow write step "still commits each `progress` iteration
-in-flight, so a mid-run kill or crash leaves prior iterations' commits on the branch rather than an
-all-dirty worktree." **That guarantee does not engage on implement runs.** `write-loop.ts:396`
-commits only when the agent returns `result.kind === "progress"`; an agent that finishes its subspec
-returns `done`, so `commitProgressIteration` is never called. Five run rows on 2026-07-26 each
-consumed exactly one iteration, settled `outcomeKind: "done"`, and produced zero `iteration_commit`
-records. A run killed inside that single iteration loses **everything** — observed the same day:
-`idle_output_timeout` at 948s left 9 modified files and 0 commits, non-retryable. Seed:
-`write-iteration-commits-never-engage`. Cleanup: restore an accurate durability claim here when it
-ships. Uncommitted work from the killed step is left dirty in the worktree, and its token spend is
-lost. **Implement re-run reset**
-(`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
-the branch and unpushed commits; publication remains terminal-`complete` only.
+For git-backed main-loop write steps, every eligible settled checkpoint (not just
+`progress`) and each controlled abort/kill or watchdog loss is checkpointed after
+the cancelled invocation quiesces. This includes `publishCompletion: false` write
+steps. A clean attribution-less attempt retains its real outcome with a
+`no_file_changes` skip; dirty attribution-less work and git-inspection failures
+stay resumable as `iteration_commit_failed` rather than producing an unattributed
+commit. Kill acknowledgement only records the kill; wait for write-loop settlement
+before treating its edits as durable. Ready-gate repairs are excluded, as is abrupt
+daemon or process death before quiescence. **Implement re-run reset** (`resetStaleWorkspace` before a new
+`jarvis run workflow implement`) still drops the branch and unpushed commits;
+publication remains terminal-`complete` only.
 
 **This trap observed live on 2026-07-14:**
 

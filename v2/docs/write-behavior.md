@@ -145,11 +145,20 @@ run records `completion_commit_failed` (resumable) and names the uncommitted pat
 `completionCommitError`; a clean worktree still records `complete`. This guarantees a
 reported `complete` always implies a commit exists.
 
-**Per-iteration commits (`progress` only):** On every git-backed loop —
-including workflow write steps, whose `publishCompletion: false` gates only
-completion publication (push/PR/ready), not in-flight committing — each
-settled `progress` step runs the same completion committer seam after the
-step settles and before the SQLite `progress` boundary. A worktree with no
+**Main-loop iteration checkpoints:** On every git-backed main-loop write step —
+including workflow steps whose `publishCompletion: false` gates only completion
+publication (push/PR/ready), not checkpointing — the loop checkpoints every
+settled result before its SQLite boundary. A controlled abort/kill or wall/ceiling
+watchdog first aborts the invocation, waits for it to quiesce, then checkpoints
+its last-started binding before loop settlement; a watchdog checkpoint precedes
+the `iteration_timeout` boundary. The covered settled results are `progress`,
+`complete` (`done` and `no-work`), `blocked`, `contract_miss`, `invalid_token`,
+`missing_blocker`, `invocation_failure`, and `idle_output_timeout`. A quiesced
+`executeWrite` rejection is checkpointed before its `invocation_failure`
+boundary. A later abort cannot bypass the SQLite boundary of a result that has
+already settled. A kill acknowledgement only records the kill:
+the durability floor is reached when the write loop later settles, not when that
+acknowledgement returns. A worktree with no
 `.git` directory — typically `worktree.git: false` steps pointed at a
 non-repo staging dir — is skipped the same as before; the guard is on `.git`
 presence, not on the `git: false` flag itself. The committer no-ops when the isolated index
@@ -157,16 +166,28 @@ tree matches `HEAD^{tree}` (reprompt-only or advisory-only iterations with no
 materialized diff). Iteration commits use the step binding's `Jarvis-Agent`
 label, a `Spec:` line for the active subspec path (`expectedArtifactPath` when
 that file exists in the worktree, otherwise the run `specPath`), and a subject
-from binding metadata `title` when set, else the same creation-title fallback
-as terminal completion. A throwing committer or missing agent label stops the
-run `failed` with `iteration_commit_failed` (resumable); the loop does not
-advance to another iteration — this failure now reaches a path that was
-previously unreachable (the guard used to skip the call entirely), and resumes
-like any other write-loop failure. `iteration_timeout` and other terminal
-outcomes do not trigger per-iteration git commits. Push and PR publication
-remain on terminal `complete` only.
+from the settled or interrupted last-started binding's metadata `title` when
+set, else the creation-title fallback. `no_file_changes` requires successful
+git inspection proving a clean tree. When no binding started or no final binding
+exists, a clean tree retains its real settlement with that skip; dirty work is
+not attributed or committed and instead records resumable `iteration_commit_failed`.
+Git inspection errors also fail closed as `iteration_commit_failed`. A checkpoint failure before an
+unpersisted watchdog boundary is authoritative: it records resumable
+`iteration_commit_failed`, suppresses `iteration_timeout` and publication, and
+resume re-enters the write path. If a kill is already persisted, it remains
+authoritative; no boundary or publication follows, and the checkpoint error is
+kept in the run log. Push and PR publication remain terminal-`complete` only.
 
-Every `progress` iteration appends a distinct `iteration_commit` log event
+For an implement completion, changed-line coverage is calculated before the
+primary checkpoint, but the advisory invocation runs only after it. The loop
+then checkpoints any advisory edits before the terminal boundary. This prevents
+an advisory from observing uncheckpointed primary work.
+
+This floor excludes ready-gate repair iterations: their post-publication
+recommit behavior is unchanged. It also excludes abrupt daemon or process death,
+which can stop execution before a cancelled invocation quiesces.
+
+Every eligible checkpoint appends a distinct `iteration_commit` log event
 (`v2/src/persistence/log-stream.ts`), separate from the SQLite-only
 `boundary_committed` event that follows it — one is a git commit, the other a
 state-store boundary, and they must stay distinguishable. The event carries

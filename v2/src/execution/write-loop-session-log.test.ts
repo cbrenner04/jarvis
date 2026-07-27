@@ -78,7 +78,12 @@ function hangingBindings(): InvocationBinding[] {
     {
       id: "hang",
       metadata: { agent: "sim", model: "sim" },
-      invoke: () => new Promise<never>(() => undefined),
+      invoke: ({ signal }) =>
+        new Promise((resolve) => {
+          signal?.addEventListener("abort", () => resolve({ kind: "ok" as const, stdout: "progress", stderr: "" }), {
+            once: true,
+          });
+        }),
     },
   ];
 }

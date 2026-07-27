@@ -165,20 +165,26 @@ const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 
-/** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
+async function prepareCoverageAdvisory(worktreePath: string): Promise<string | null> {
+  try {
+    const report = await reportUncoveredChangedLines({ worktreePath, runBase: "HEAD" });
+    if (!report.reportText) return null;
+
+    const artifact = loadPromptRegistry().getById(COVERAGE_ADVISORY_PROMPT_ID);
+    return renderArtifactTemplate(artifact, { COVERAGE_REPORT: report.reportText });
+  } catch {
+    return null;
+  }
+}
+
+/** Deliver a prepared coverage advisory after the primary write checkpoint. */
 async function runCoverageAdvisory(
   worktreePath: string,
   bindings: readonly InvocationBinding[],
+  prompt: string,
   signal?: AbortSignal,
-): Promise<{ responseText: string } | null> {
+): Promise<{ responseText: string }> {
   try {
-    const report = await reportUncoveredChangedLines({ worktreePath, runBase: "HEAD" });
-    if (!report.reportText) {
-      return null;
-    }
-
-    const artifact = loadPromptRegistry().getById(COVERAGE_ADVISORY_PROMPT_ID);
-    const prompt = renderArtifactTemplate(artifact, { COVERAGE_REPORT: report.reportText });
 
     const invocation = await executeWithQuotaFallback({
       prompt,
@@ -190,8 +196,7 @@ async function runCoverageAdvisory(
     const responseText = invocation.final?.result?.kind === "ok" ? invocation.final.result.stdout.trim() : "";
     return { responseText };
   } catch {
-    // Coverage advisory is deliver-only; fail soft
-    return null;
+    return { responseText: "" };
   }
 }
 
@@ -359,21 +364,44 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       });
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
-      const settled = await awaitIteration(args, runId, attemptId, sessionLog);
-      if (settled.kind === "aborted") {
-        closeSessionLog(sessionLog, "abort");
-        return finishLoop(args, runId, "progress", iterationsConsumed + 1, true);
-      }
-      if (settled.kind === "timed_out") {
-        closeSessionLog(sessionLog, "timeout");
-        return finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
+      let interruptedBinding: InvocationBinding | undefined;
+      const settled = await awaitIteration(args, runId, attemptId, sessionLog, (binding) => {
+        interruptedBinding = binding;
+      });
+      if (settled.kind === "aborted" || settled.kind === "timed_out") {
+        const loss = settled.kind === "aborted" ? "abort" : "timeout";
+        closeSessionLog(sessionLog, loss);
+        const checkpoint = await checkpointControlledLoss(
+          args,
+          prepared,
+          store,
+          runId,
+          attemptId,
+          iterationsConsumed + 1,
+          worktreePath,
+          interruptedBinding,
+          loss,
+        );
+        if (checkpoint !== undefined) return checkpoint;
+        return loss === "abort"
+          ? finishLoop(args, runId, "progress", iterationsConsumed + 1, true)
+          : finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed + 1);
       }
       if (settled.kind === "threw") {
-        if (args.signal?.aborted) {
-          closeSessionLog(sessionLog, "abort");
-          return finishLoop(args, runId, "progress", iterationsConsumed, true);
-        }
         closeSessionLog(sessionLog, "error");
+        try {
+          const commitOutcome = await commitSettledIteration(args, prepared, store, runId, worktreePath, undefined);
+          appendIterationCommit(args, runId, attemptId, commitOutcome);
+        } catch (error) {
+          return iterationCommitFailed(
+            args,
+            store,
+            runId,
+            attemptId,
+            iterationsConsumed + 1,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
         return finishExecuteWriteThrow(args, store, runId, attemptId, iterationsConsumed + 1, settled.error);
       }
       closeSessionLog(sessionLog, "completed");
@@ -381,11 +409,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       iterationsConsumed += 1;
 
       const { result } = stepResult;
-
-      // Non-progress: abort before terminal boundary when the signal fired mid-step.
-      if (args.signal?.aborted && result.kind !== "progress") {
-        return finishLoop(args, runId, "progress", iterationsConsumed, true);
-      }
 
       if (result.reprompt !== undefined) {
         const responseText = result.reprompt.responseText;
@@ -404,10 +427,45 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
       }
 
-      if (result.kind === "progress") {
-        let commitOutcome: ProgressIterationCommitOutcome;
+      if (result.kind === "contract_miss") {
+        const reason = result.failureReason ?? result.failedContractId;
+        const targetSpecPath =
+          result.failedContractId === "spec.criteria-ticked"
+            ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
+            : resolveSpecPath(worktreePath, args.specPath);
+        appendBlockerToSpec(targetSpecPath, reason);
+      }
+
+      const coverageAdvisory =
+        result.kind === "complete" && args.promptId === "patch.prompt.body"
+          ? await prepareCoverageAdvisory(worktreePath)
+          : null;
+
+      let commitOutcome: IterationCommitOutcome;
+      try {
+        commitOutcome = await commitSettledIteration(args, prepared, store, runId, worktreePath, result);
+      } catch (error) {
+        return iterationCommitFailed(
+          args,
+          store,
+          runId,
+          attemptId,
+          iterationsConsumed,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+
+      appendIterationCommit(args, runId, attemptId, commitOutcome);
+
+      if (coverageAdvisory !== null) {
+        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, coverageAdvisory, args.signal);
+        args.logSink?.append(runId, {
+          kind: "coverage_advisory",
+          attemptId,
+          responseText: truncateLogText(advisoryResult.responseText),
+        });
         try {
-          commitOutcome = await commitProgressIteration(args, prepared, store, runId, worktreePath, result);
+          commitOutcome = await commitSettledIteration(args, prepared, store, runId, worktreePath, result);
         } catch (error) {
           return iterationCommitFailed(
             args,
@@ -418,15 +476,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             error instanceof Error ? error : new Error(String(error)),
           );
         }
+        appendIterationCommit(args, runId, attemptId, commitOutcome);
+      }
 
-        args.logSink?.append(runId, {
-          kind: "iteration_commit",
-          attemptId,
-          ...(commitOutcome.kind === "committed"
-            ? { commitSha: commitOutcome.commitSha }
-            : { skipReason: commitOutcome.skipReason }),
-        });
-
+      if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         args.logSink?.append(runId, {
           kind: "boundary_committed",
@@ -435,6 +488,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           runStatus: "in-progress",
         });
 
+        // A later abort may stop the loop, but the settled progress boundary is already durable.
         if (args.signal?.aborted) {
           return finishLoop(args, runId, "progress", iterationsConsumed, true);
         }
@@ -446,27 +500,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
 
         continue;
-      }
-
-      if (result.kind === "contract_miss") {
-        const reason = result.failureReason ?? result.failedContractId;
-        const targetSpecPath =
-          result.failedContractId === "spec.criteria-ticked"
-            ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : resolveSpecPath(worktreePath, args.specPath);
-        appendBlockerToSpec(targetSpecPath, reason);
-      }
-
-      // Run coverage advisory for completing implement writes before terminal boundary
-      if (result.kind === "complete" && args.promptId === "patch.prompt.body") {
-        const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal);
-        if (advisoryResult !== null) {
-          args.logSink?.append(runId, {
-            kind: "coverage_advisory",
-            attemptId,
-            responseText: truncateLogText(advisoryResult.responseText),
-          });
-        }
       }
 
       const terminal = terminalMapping(result);
@@ -697,9 +730,14 @@ function awaitIteration(
   runId: string,
   attemptId: string,
   sessionLog: SessionLog,
+  onBindingStarted?: (binding: InvocationBinding) => void,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
-  const abortExecution = () => executionController.abort();
+  let abortObserved = args.signal?.aborted === true;
+  const abortExecution = () => {
+    abortObserved = true;
+    executionController.abort();
+  };
   if (args.signal?.aborted) abortExecution();
   args.signal?.addEventListener("abort", abortExecution, { once: true });
 
@@ -735,11 +773,12 @@ function awaitIteration(
   });
 
   const execution = executeWrite({
-    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
+    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog, onBindingStarted),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
     (result): IterationSettlement => ({ kind: "settled", result }),
-    (error): IterationSettlement => ({ kind: "threw", error }),
+    (error): IterationSettlement =>
+      abortObserved ? { kind: resolveIterationSettlementKind("abort", invertPrecedence) } : { kind: "threw", error },
   );
   let removeAbort: (() => void) | undefined;
   const abort = new Promise<IterationSettlement>((resolve) => {
@@ -751,13 +790,44 @@ function awaitIteration(
     args.signal.addEventListener("abort", onAbort, { once: true });
     removeAbort = () => args.signal?.removeEventListener("abort", onAbort);
   });
-  return Promise.race([execution, watchdog, abort]).finally(() => {
-    watchdogSettled = true;
-    wallSchedule?.cancel();
-    if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
-    args.signal?.removeEventListener("abort", abortExecution);
-    removeAbort?.();
-  });
+  return Promise.race([execution, watchdog, abort])
+    .then(async (settled) => {
+      if (settled.kind !== "aborted" && settled.kind !== "timed_out") return settled;
+      await execution;
+      return settled;
+    })
+    .finally(() => {
+      watchdogSettled = true;
+      wallSchedule?.cancel();
+      if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
+      args.signal?.removeEventListener("abort", abortExecution);
+      removeAbort?.();
+    });
+}
+
+async function checkpointControlledLoss(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  worktreePath: string,
+  binding: InvocationBinding | undefined,
+  loss: "abort" | "timeout",
+): Promise<WriteLoopResult | undefined> {
+  try {
+    const commitOutcome = await commitSettledIteration(args, prepared, store, runId, worktreePath, undefined, binding);
+    appendIterationCommit(args, runId, attemptId, commitOutcome);
+  } catch (error) {
+    const checkpointError = error instanceof Error ? error : new Error(String(error));
+    if (loss === "abort" && store.loadRun(runId)?.status === "killed") {
+      args.logSink?.append(runId, { kind: "run_execution_failed", message: checkpointError.message });
+      return finishLoop(args, runId, "progress", iterationsConsumed, true);
+    }
+    return iterationCommitFailed(args, store, runId, attemptId, iterationsConsumed, checkpointError);
+  }
+  return undefined;
 }
 
 function finishIterationTimeout(
@@ -906,6 +976,7 @@ function buildWriteExecuteInput(
   attemptId: string,
   signal: AbortSignal,
   sessionLog: SessionLog,
+  onBindingStarted?: (binding: InvocationBinding) => void,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -928,7 +999,16 @@ function buildWriteExecuteInput(
     specPath: args.specPath,
     stepRules: args.stepRules,
     expectedArtifactPath: args.expectedArtifactPath,
-    bindings: args.bindings,
+    bindings:
+      onBindingStarted === undefined
+        ? args.bindings
+        : args.bindings.map((binding) => ({
+            ...binding,
+            invoke: (input) => {
+              onBindingStarted(binding);
+              return binding.invoke(input);
+            },
+          })),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),
@@ -1439,31 +1519,51 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
-export type ProgressIterationCommitOutcome =
+type IterationCommitOutcome =
   | { kind: "committed"; commitSha: string }
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" };
 
-async function commitProgressIteration(
+function appendIterationCommit(
+  args: WriteLoopInput,
+  runId: string,
+  attemptId: string,
+  outcome: IterationCommitOutcome,
+): void {
+  args.logSink?.append(runId, {
+    kind: "iteration_commit",
+    attemptId,
+    ...(outcome.kind === "committed" ? { commitSha: outcome.commitSha } : { skipReason: outcome.skipReason }),
+  });
+}
+
+/** Checkpoint a settled main-loop write iteration; ready-gate repair iterations use their own publication flow. */
+async function commitSettledIteration(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
   store: StateStore,
   runId: string,
   worktreePath: string,
-  result: Extract<StepRunResult, { kind: "progress" }>,
-): Promise<ProgressIterationCommitOutcome> {
+  result: StepRunResult | undefined,
+  interruptedBinding?: InvocationBinding,
+): Promise<IterationCommitOutcome> {
   if (!existsSync(join(worktreePath, ".git"))) {
     return { kind: "skipped", skipReason: "no_git" };
   }
-  const agent = result.invocation.final?.binding.metadata?.agent?.trim();
-  if (!agent) throw new Error("completion attribution is missing");
+  const headBefore = await getCurrentHeadAsync(worktreePath);
+  const dirtyBefore = await worktreeHasFileChanges(worktreePath);
+  const finalBinding = result?.invocation.final?.binding ?? interruptedBinding;
+  const agent = finalBinding?.metadata?.agent?.trim();
+  if (!agent) {
+    if (!dirtyBefore) return { kind: "skipped", skipReason: "no_file_changes" };
+    throw new Error("checkpoint attribution is missing for changed worktree");
+  }
   const artifactPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
   const specPath = existsSync(artifactPath) ? artifactPath : args.specPath;
-  const metadata = result.invocation.final?.binding.metadata as { title?: string } | undefined;
+  const metadata = finalBinding?.metadata as { title?: string } | undefined;
   const stepTitle = typeof metadata?.title === "string" ? metadata.title.trim() : "";
   const title = stepTitle
     ? stepTitle
     : resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
-  const headBefore = await getCurrentHeadAsync(worktreePath);
   const committed = await (args.completionCommitter ?? createCompletionCommitter())({
     worktreePath,
     baseRef: args.worktree.baseRef,
@@ -1472,9 +1572,14 @@ async function commitProgressIteration(
     title,
   });
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
-    return { kind: "skipped", skipReason: "no_file_changes" };
+    if (!(await worktreeHasFileChanges(worktreePath))) return { kind: "skipped", skipReason: "no_file_changes" };
+    throw new Error("iteration checkpoint left changed files uncommitted");
   }
   return { kind: "committed", commitSha: committed.commitSha };
+}
+
+async function worktreeHasFileChanges(worktreePath: string): Promise<boolean> {
+  return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath)).trim().length > 0;
 }
 
 function iterationCommitFailed(

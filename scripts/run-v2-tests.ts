@@ -55,9 +55,29 @@ type Spawn = (command: string, args: string[], options: { timeout: number }) => 
 /** Bound on how long a post-kill "close" wait may run before settling with whatever was captured. */
 const POST_KILL_GRACE_MS = 500;
 
+function killSpawnedTestTree(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (pid === undefined) {
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // already exited
+    }
+  }
+}
+
+function releaseSpawnPipeHandles(child: ReturnType<typeof nodeSpawn>): void {
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+}
+
 export function defaultSpawn(command: string, args: string[], options: { timeout: number }): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
-    const child = nodeSpawn(command, args);
+    const child = nodeSpawn(command, args, { detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -73,12 +93,13 @@ export function defaultSpawn(command: string, args: string[], options: { timeout
       if (graceTimer) {
         clearTimeout(graceTimer);
       }
+      releaseSpawnPipeHandles(child);
       resolve(outcome);
     };
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      killSpawnedTestTree(child.pid, "SIGKILL");
       graceTimer = setTimeout(() => {
         settle({ status: null, signal: "SIGKILL", stdout, stderr, timedOut });
       }, POST_KILL_GRACE_MS);

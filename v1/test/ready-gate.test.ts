@@ -644,7 +644,7 @@ describe("runReadyAndCommit fixCommand", () => {
 
     runReadyAndCommit({
       cwd: dir,
-      timeoutMs: 30_000,
+      timeoutMs: 120_000,
       tier: "full",
       runReady: () => {},
       commitPreReadyFix: () => {

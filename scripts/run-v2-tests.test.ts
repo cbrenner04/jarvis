@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import {
   aggregateExitCode,
   defaultConcurrency,
@@ -115,6 +117,21 @@ describe("defaultSpawn", () => {
     expect(outcome.status).not.toBe(0);
     expect(outcome.stderr).toContain("definitely-not-a-real-command-xyz");
   });
+
+  test("settles within a short bound when a detached descendant retains inherited pipes", () => {
+    const fixture = join(import.meta.dir, "fixtures/run-v2-tests-descendant-pipe.ts");
+    const start = Date.now();
+    const result = spawnSync("bun", [fixture], {
+      cwd: join(import.meta.dir, ".."),
+      timeout: 5_000,
+      encoding: "utf8",
+    });
+    const elapsed = Date.now() - start;
+
+    expect(result.signal).toBeNull();
+    expect(result.status).toBe(0);
+    expect(elapsed).toBeLessThan(4_000);
+  }, 10_000);
 });
 
 describe("runV2TestFiles", () => {

@@ -81,7 +81,9 @@ from admitting new files — files already in flight are still awaited and repor
 A timeout does not stop `agent` mode, which keeps admitting new files and reports every timed-out
 file by name; a timeout in any other mode stops admission the same as a plain failure. Each child's
 per-file timeout is armed independently at its own spawn, so a slow sibling never shortens another
-file's budget. Output blocks print in settle order, not roster order, once files can overlap.
+file's budget. A timeout kills the spawned test process group (not only the direct child PID) and,
+after a short grace window, releases captured stdout/stderr handles so a descendant retaining
+inherited pipes cannot hold the aggregate runner open. Output blocks print in settle order, not roster order, once files can overlap.
 
 ### Load-sensitive isolation
 

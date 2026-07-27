@@ -118,6 +118,10 @@ owning socket for log streams and `wait`. When no queried daemon lists the run,
 `log` and `wait` fall back to the invoking socket (same as before a digest
 rotation).
 
+`jarvis cleanup` uses the same socket query set for worktree eligibility: it
+consults every reachable daemon for live runs on `(project, branch)` and skips
+per-socket failures without aborting the command.
+
 ## Framing
 
 One connection carries length-prefixed UTF-8 JSON frames:

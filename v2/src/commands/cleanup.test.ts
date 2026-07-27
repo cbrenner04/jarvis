@@ -876,7 +876,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const code = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, daemonClient, store, io);
 
-    expect(code).toBe(0);
+    expect(code).toBe(1);
     expect(stdout).toContain("No eligible worktrees");
 
     // Verify worktree still exists

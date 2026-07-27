@@ -9,6 +9,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { captureIo, cliMain, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createPromptFunction, runCleanupCliCommand } from "./cleanup-cli.ts";
+import { setInvertCleanupAbsentSocketContinueForTest } from "./cleanup-daemon-client.ts";
 
 // Abandon-path deps: no worktrees exist, so a parsed `--abandon <name>` fails
 // name resolution ("No worktree found") — distinguishable from a usage error.
@@ -362,18 +363,105 @@ describe("cleanup command through main", () => {
     expect(cap.read().stderr).toContain("usage: jarvis cleanup");
   });
 
-  test("cleanup with daemon connection failure prints error and exits 1", async () => {
+  test("cleanup with no reachable daemon continues and names recovery on stderr", async () => {
     const cap = captureIo();
 
-    const code = await cliMain(["cleanup"], cap.io, {
+    const code = await cliMain(["cleanup", "-y"], cap.io, {
       readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
       jarvisRoot: cleanupJarvisRoot,
+      socketPath: "/nonexistent/daemon-aaaa.sock",
+      socketDiscovery: async () => [],
       connectIpcClient: async () => {
-        throw new Error("Daemon unreachable");
+        throw new Error("connect ENOENT /nonexistent/daemon-aaaa.sock");
       },
     });
 
+    const { stderr, stdout } = cap.read();
+    expect(code).toBe(0);
+    expect(stderr).toContain("No daemon is listening for this build");
+    expect(stderr).toContain("jarvis daemon start");
+    expect(stderr).not.toContain("daemon-aaaa.sock");
+    expect(stdout).toContain("No eligible worktrees");
+  });
+
+  test("cleanup with no daemon still reaps dead sockets and exits non-zero when merged worktrees are skipped", async () => {
+    const branch = "daemon-skip-branch";
+    await materializeMergedWorktree(branch);
+    const deadSocket = join(cleanupJarvisRoot, "daemon-dead000000000001.sock");
+    writeFileSync(deadSocket, "");
+    const cap = captureIo();
+
+    const code = await cliMain(["cleanup", "--dry-run"], cap.io, {
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
+      subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+      socketPath: "/nonexistent/daemon-aaaa.sock",
+      socketDiscovery: async () => [],
+      connectIpcClient: async () => {
+        throw new Error("connect ENOENT /nonexistent/daemon-aaaa.sock");
+      },
+    });
+
+    const { stderr, stdout } = cap.read();
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("Daemon unreachable");
+    expect(stderr).toContain("jarvis daemon start");
+    expect(stderr).not.toContain("daemon-aaaa.sock");
+    expect(stdout).toContain("dead daemon socket(s)");
+    expect(stdout).not.toContain("Retired:");
+  });
+
+  test("cleanup consults an older-digest live daemon discovered via socket discovery", async () => {
+    const branch = "older-digest-live";
+    const worktreePath = await materializeMergedWorktree(branch);
+    const INVOKING_SOCKET = "/tmp/jarvis/daemon-invoking.sock";
+    const OTHER_SOCKET = "/tmp/jarvis/daemon-older.sock";
+    const cap = captureIo();
+
+    const code = await withFixedUuid(LIST_REQUEST_ID, () =>
+      cliMain(["cleanup", "--dry-run"], cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        socketPath: INVOKING_SOCKET,
+        socketDiscovery: async () => [OTHER_SOCKET],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === INVOKING_SOCKET) throw new Error("connect ENOENT invoking");
+          return makeIpcClient([
+            {
+              kind: "response",
+              id: LIST_REQUEST_ID,
+              result: {
+                runs: [{ runId: "run-1", project: "project", branch, status: "running", isLive: true }],
+              },
+            },
+          ]);
+        },
+      }),
+    );
+
+    expect(code).toBe(0);
+    const stdout = cap.read().stdout;
+    expect(stdout).toContain("No eligible worktrees");
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], cleanupProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("guard inversion: absent-socket continue aborts on invoking-socket connect failure", async () => {
+    setInvertCleanupAbsentSocketContinueForTest(true);
+    try {
+      const cap = captureIo();
+      const code = await cliMain(["cleanup"], cap.io, {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        socketPath: "/nonexistent/daemon-aaaa.sock",
+        connectIpcClient: async () => {
+          throw new Error("connect ENOENT /nonexistent/daemon-aaaa.sock");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("connect ENOENT");
+    } finally {
+      setInvertCleanupAbsentSocketContinueForTest(false);
+    }
   });
 });

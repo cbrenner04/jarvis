@@ -8,6 +8,11 @@ import { CLEANUP_USAGE } from "../cli/usage.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createStaleResetDaemonClient, type DaemonClient, runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
+import {
+  connectCleanupDaemonClient,
+  formatCleanupAbsentDaemonMessage,
+  invertCleanupAbsentSocketContinueForTestEnabled,
+} from "./cleanup-daemon-client.ts";
 
 type PromptStdin = {
   isTTY?: boolean;
@@ -93,12 +98,20 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
   // preview reflects true eligibility (a fail-open `() => []` would show a
   // worktree as eligible that a live daemon run actually protects).
   let daemonClient: DaemonClient;
-  try {
-    const client = await deps.connectIpcClient(deps.socketPath);
-    daemonClient = createStaleResetDaemonClient(client);
-  } catch (error) {
-    io.stderr(formatConnectionError(error));
-    return 1;
+  if (invertCleanupAbsentSocketContinueForTestEnabled()) {
+    try {
+      const client = await deps.connectIpcClient(deps.socketPath);
+      daemonClient = createStaleResetDaemonClient(client);
+    } catch (error) {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+  } else {
+    const connected = await connectCleanupDaemonClient(deps);
+    daemonClient = connected.client;
+    if (!connected.hadReachableDaemon) {
+      io.stderr(formatCleanupAbsentDaemonMessage());
+    }
   }
 
   const options = dryRun

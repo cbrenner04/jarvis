@@ -853,6 +853,16 @@ skipped. If the run store is inaccessible (`listRuns()` throws), cleanup aborts 
 rather than skipping individual worktrees. Worktrees ineligible for this session remain untouched;
 the operator can retry `jarvis cleanup` later if issues are resolved.
 
+When no daemon answers on any queried socket, cleanup still runs daemon-independent work (dead-socket
+reaping and open-home stranded-spec archival). Stderr names the condition and `jarvis daemon start`;
+it does not print a bare keyed socket path. Exit status is `0` when nothing required daemon
+reachability and non-zero when one or more worktrees were skipped because the daemon was unreachable.
+
+Eligibility queries every live socket from `discoverLiveDaemonSockets` plus the invoking digest
+socket (the same query set as `jarvis run list`). A live run reported by any reachable daemon makes
+the worktree ineligible; per-socket connect or list failures are skipped without failing the whole
+command.
+
 Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
 is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;
 dead sockets are removed. All other probe results (connection succeeds, timeout, permission error,

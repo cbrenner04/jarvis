@@ -134,6 +134,10 @@ async function isValidGitWorktree(worktreePath: string, runner: AsyncSubprocessR
 
 export type EligibilityResult = { status: "eligible" } | { status: "ineligible"; reason: string };
 
+export function isDaemonUnreachableEligibilityReason(reason: string): boolean {
+  return reason.startsWith("Daemon unreachable:");
+}
+
 export type DaemonClient = ((project: string, branch: string) => Promise<{ isLive: boolean }[]>) & {
   checkWorkflowStartClaim?: (
     project: string,
@@ -451,6 +455,11 @@ function projectForWorktree(
   );
 }
 
+type EligibleWorktreeSearch = {
+  candidates: CleanupCandidate[];
+  daemonUnreachableSkips: number;
+};
+
 async function findEligibleWorktreeCandidates(
   discovered: readonly DiscoveredWorktree[],
   registry: Record<string, ProjectRegistryEntry>,
@@ -458,17 +467,25 @@ async function findEligibleWorktreeCandidates(
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
-): Promise<CleanupCandidate[]> {
+): Promise<EligibleWorktreeSearch> {
   const candidates: CleanupCandidate[] = [];
+  let daemonUnreachableSkips = 0;
   for (const worktree of discovered) {
     const project = projectForWorktree(worktree, registry, jarvisRoot);
     if (project === undefined || worktree.branch === undefined) continue;
 
     const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store);
-    if (eligibility.status === "eligible")
+    if (eligibility.status === "eligible") {
       candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
+    } else if (isDaemonUnreachableEligibilityReason(eligibility.reason)) {
+      daemonUnreachableSkips++;
+    }
   }
-  return candidates;
+  return { candidates, daemonUnreachableSkips };
+}
+
+function exitCodeWithDaemonUnreachableSkips(base: number, daemonUnreachableSkips: number): number {
+  return daemonUnreachableSkips > 0 ? (base === 0 ? 1 : base) : base;
 }
 
 function previewWorktreeCandidates(
@@ -495,17 +512,19 @@ async function recheckEligibleWorktrees(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void },
-): Promise<CleanupCandidate[]> {
+): Promise<{ stillEligible: CleanupCandidate[]; daemonUnreachableSkips: number }> {
   const stillEligible: CleanupCandidate[] = [];
+  let daemonUnreachableSkips = 0;
   for (const candidate of candidates) {
     const recheck = await checkEligibility(candidate.worktree, candidate.project, runner, daemonClient, store);
     if (recheck.status === "eligible") {
       stillEligible.push(candidate);
     } else {
       io.stdout(`Skipped (became ineligible): ${candidate.worktree.path} — ${recheck.reason}\n`);
+      if (isDaemonUnreachableEligibilityReason(recheck.reason)) daemonUnreachableSkips++;
     }
   }
-  return stillEligible;
+  return { stillEligible, daemonUnreachableSkips };
 }
 
 async function retireEligibleWorktrees(
@@ -611,7 +630,7 @@ export async function runCleanupCommand(
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
   const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-  const candidates = await findEligibleWorktreeCandidates(
+  const eligibleSearch = await findEligibleWorktreeCandidates(
     discovered,
     registry,
     jarvisRoot,
@@ -619,6 +638,8 @@ export async function runCleanupCommand(
     daemonClient,
     store,
   );
+  const candidates = eligibleSearch.candidates;
+  let daemonUnreachableSkips = eligibleSearch.daemonUnreachableSkips;
   const strandedArtifacts = discoverStrandedArtifacts(registry);
   const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
   const stranded = await inspectStrandedArtifacts(
@@ -635,7 +656,7 @@ export async function runCleanupCommand(
 
   if (hasNothingToClean(candidates, stranded, reaperResult)) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
-    return 0;
+    return exitCodeWithDaemonUnreachableSkips(0, daemonUnreachableSkips);
   }
 
   previewWorktreeCandidates(candidates, registry, store, io);
@@ -647,21 +668,22 @@ export async function runCleanupCommand(
 
   if (options.dryRun) {
     io.stdout("(dry-run: no changes made)\n");
-    return 0;
+    return exitCodeWithDaemonUnreachableSkips(0, daemonUnreachableSkips);
   }
 
   const confirmed = options.promptConfirm !== undefined ? await options.promptConfirm("Apply cleanup? [y/N] ") : false;
 
   if (!confirmed) {
     io.stdout("Cancelled.\n");
-    return 0;
+    return exitCodeWithDaemonUnreachableSkips(0, daemonUnreachableSkips);
   }
 
-  const stillEligible = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
-  const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
+  const rechecked = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
+  daemonUnreachableSkips += rechecked.daemonUnreachableSkips;
+  const result = await retireEligibleWorktrees(rechecked.stillEligible, registry, discovered, store, runner, io);
 
   const socketRemoval = removeDeadDaemonSockets(reaperResult.dead, io);
-  if (socketRemoval !== 0) return socketRemoval;
+  if (socketRemoval !== 0) return exitCodeWithDaemonUnreachableSkips(socketRemoval, daemonUnreachableSkips);
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     strandedArtifacts,
@@ -673,8 +695,9 @@ export async function runCleanupCommand(
     io,
   );
   await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
-  if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
-  return result;
+  if (rechecked.stillEligible.length === 0 && candidates.length > 0)
+    io.stdout("No worktrees remain eligible after re-check.\n");
+  return exitCodeWithDaemonUnreachableSkips(result, daemonUnreachableSkips);
 }
 
 /**

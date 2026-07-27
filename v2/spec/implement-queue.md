@@ -35,6 +35,10 @@ The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices ar
 | 5 | configured terminal actions | seeded |
 | 6 | one e2e integration proof | seeded |
 
+**Slot first (P0):** `seeds/absent-pipeline-config-blocks-every-implement.md`. #2248 made an absent
+`projects.<key>.pipeline` refuse every implement dispatch; the lane is only running because the key
+was hand-added to `~/.jarvis/config.json`.
+
 **Slot before slices 3–6:** `seeds/intent-splits-by-surface.md` and
 `seeds/plan-splits-an-oversized-subspec.md`. Slices 3–6 are the next work to go through `intent` and
 `plan`, so split discipline pays there first. Evidence: every subspec at this session's norm landed on

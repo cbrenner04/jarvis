@@ -1,0 +1,14 @@
+## Verdict — refinement required
+
+Three outcomes must be true before this lands.
+
+1. **A prior-`interrupted` stage must be proven untouched by settlement.**
+   `00` AC 3 asserts that every prior `succeeded`, `failed`, **or `interrupted`** stage is byte-for-byte identical across the sweep, but no fixture in `v2/src/persistence/state-store.test.ts` ever seeds a stage whose status is already `interrupted`. As a result, dropping `'interrupted'` from the store's non-active stage set (`state-store.ts:388`) — which would re-stamp a previously settled stage's `ended_at` — leaves every existing test green. That AC is currently unmet by its own terms. Required: a store-layer case that settles a dead-owner pipeline holding an already-`interrupted` stage alongside an active one and asserts the pre-existing `interrupted` stage row is unchanged in full (including `ended_at`), so the terminal-set classification is mutation-covered.
+
+2. **`v2/docs/daemon-host.md:46` misstates which stages are settled.**
+   It says an orphan's "non-terminal stages are marked `interrupted`," but `pending` is non-terminal and is deliberately left alone — the same sentence goes on to say undispatched stages are untouched, and the code only touches stages outside `pending`/`succeeded`/`failed`/`interrupted`. Required: the doc describes the actual predicate (active stages — neither `pending` nor already terminal), consistent with `state-store.md` and `00`'s decisions.
+
+3. **The sweep's "all orphans" claim needs a multi-orphan fixture.**
+   `01` AC 4 ("no pipeline is left non-terminal with a dead or absent owner once startup completes") and `00`'s single-transaction decision are universals, yet every fixture holds exactly one pipeline. Required: at least one case with two dead-owner pipelines (plus, ideally, a live-owner one in the same store) asserting both are settled and returned, so the sweep's per-row iteration and its selectivity are exercised together.
+
+Not required — reviewed and rejected as non-issues: the redundant `AND status = 'active'` guard inside the settlement `UPDATE` (a deliberate TOCTOU re-check across the `await` on the liveness probe, mirroring `beginRunReconciliation`); `Pipeline.ownerIdentity` being public (`00` AC 1 requires `loadPipeline` to read it back); discarding the settled IDs at `daemon.ts:1787` (explicitly deferred by `00` until a consumer exists); raw-SQL seeding of NULL owners and arbitrary stage statuses (`00` sanctions direct row seeding; the stamping path has its own test); the two layer-specific `seedPipeline` helpers; and the pre-existing gap for migrations `012`/`013` in `state-store.md`'s list, which this branch did not create and which is outside its Documentation updates.

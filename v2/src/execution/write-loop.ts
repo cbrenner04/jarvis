@@ -57,6 +57,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "ready_gate_failed",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "mutation_repair_exhausted",
   "runtime_smoke_failed",
   "landing_failed",
 ] as const;
@@ -168,6 +169,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
+export const MAX_MUTATION_REPAIR_ATTEMPTS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
@@ -1278,7 +1280,7 @@ export function appendRuntimeSmokeOutcome(
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
-type ReadyRepairIterationOutcome = "unsettled" | "blocked" | "continue";
+export type RepairIterationOutcome = "unsettled" | "blocked" | "continue";
 
 /** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
 async function runReadyRepairIteration(
@@ -1287,7 +1289,7 @@ async function runReadyRepairIteration(
   result: WriteLoopResult,
   gateError: ReadyGateError,
   iterationNumber: number,
-): Promise<ReadyRepairIterationOutcome> {
+): Promise<RepairIterationOutcome> {
   const attemptId = store.recordAttemptStart(result.runId);
   args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
   const clock = args.clock ?? (() => new Date());
@@ -1304,6 +1306,62 @@ async function runReadyRepairIteration(
       GATE_COMMAND: gateError.command,
       GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
       GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
+    },
+  };
+  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
+  if (settled.kind !== "settled") {
+    closeSessionLog(
+      sessionLog,
+      settled.kind === "timed_out" ? "timeout" : settled.kind === "aborted" ? "abort" : "error",
+    );
+    return "unsettled";
+  }
+  closeSessionLog(sessionLog, "completed");
+
+  const stepResult = settled.result.result;
+  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
+  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: boundary.runStatus,
+    outcomeKind: boundary.outcomeKind,
+  });
+  args.logSink?.append(result.runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: boundary.outcomeKind,
+    runStatus: boundary.runStatus,
+  });
+  return stepResult.kind === "blocked" ? "blocked" : "continue";
+}
+
+/** One bounded repair iteration for a mutation that survived finalization. */
+export async function runMutationRepairIteration(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  mutationError: SurvivingMutationError,
+  iterationNumber: number,
+): Promise<RepairIterationOutcome> {
+  const attemptId = store.recordAttemptStart(result.runId);
+  args.logSink?.append(result.runId, { kind: "iteration_started", attemptId });
+  const clock = args.clock ?? (() => new Date());
+  const sessionLog = openSessionLog(result.runId, formatSessionLogTimestamp(clock()), {
+    ...(args.sessionsDir !== undefined ? { sessionsDir: args.sessionsDir } : {}),
+    clock,
+  });
+  sessionLog.append("harness", `run=${result.runId} spec=${args.specPath} mutation-repair=${iterationNumber}`);
+
+  const repairArgs: WriteLoopInput = {
+    ...args,
+    promptId: "write.mutation-repair",
+    promptPlaceholders: {
+      SURVIVING_MUTATION: mutationError.mutation,
+      SOURCE_FILE: mutationError.sourceSiteFile,
+      SOURCE_LINE: String(mutationError.sourceSiteLine),
+      DUAL_CONSTRAINT_DETAIL: mutationError.dualConstraint
+        ? "The source is a timer callback in a determinism-guarded suite. Extract and test a pure predicate in both directions without a real-timer wait."
+        : "",
     },
   };
   const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);

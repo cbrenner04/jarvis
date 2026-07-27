@@ -210,6 +210,9 @@ export interface StateStore {
     stepId: string | null;
   }): (Run & { attempts: Attempt[] }) | null;
 
+  /** Review-mutation candidates for one worktree, newest first across all step IDs. */
+  findReviewMutationLineageRows(args: { project: string; branch: string }): Run[];
+
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
 
@@ -605,6 +608,16 @@ class StateStoreImpl implements StateStore {
 
     const row = this.db.prepare(query).get(...params) as { id: string } | null;
     return row === null ? null : this.loadRun(row.id);
+  }
+
+  findReviewMutationLineageRows(args: { project: string; branch: string }): Run[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE project = ? AND branch = ? ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(args.project, args.branch) as RunRow[]
+    ).map(mapRunRow);
   }
 
   findRunsByInvocationId(invocationId: string): Run[] {

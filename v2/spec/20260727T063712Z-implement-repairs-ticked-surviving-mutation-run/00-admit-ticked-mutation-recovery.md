@@ -112,39 +112,39 @@ without operator intervention.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow.test.ts` drives an all-ticked spec whose latest lineage row settled
+- [x] `v2/src/commands/workflow.test.ts` drives an all-ticked spec whose latest lineage row settled
       `surviving_mutation_failed` on a retained worktree/branch and proves `jarvis run workflow
       implement` advances it into the mutation-finalization tail instead of returning
       `implement.already_complete`; the test fails against the baseline.
-- [ ] The same test file proves a lineage row settled `ready_gate_failed` or `completion_commit_failed`
+- [x] The same test file proves a lineage row settled `ready_gate_failed` or `completion_commit_failed`
       is independently admitted the same way (one case per outcome kind).
-- [ ] A failed row from a different spec does not admit recovery: the command returns
+- [x] A failed row from a different spec does not admit recovery: the command returns
       `implement.already_complete` and exits non-zero, with no worktree claim and no daemon-side
       finalization dispatch.
-- [ ] A failed row with an outcome kind outside the admission set (e.g. `runtime_smoke_failed`) does
+- [x] A failed row with an outcome kind outside the admission set (e.g. `runtime_smoke_failed`) does
       not admit recovery: same refusal, same absence of side effects.
-- [ ] A matching row whose worktree no longer exists on disk, or whose branch no longer resolves in
+- [x] A matching row whose worktree no longer exists on disk, or whose branch no longer resolves in
       git, returns `implement.recovery_target_missing` (distinct from `implement.already_complete`)
       and performs no worktree claim, no finalization dispatch, no agent invocation.
-- [ ] A genuinely complete spec with no lineage row at all returns `implement.already_complete`
+- [x] A genuinely complete spec with no lineage row at all returns `implement.already_complete`
       before any worktree or agent side effect: no `implement.recover` admission, no stale-workspace
       reset, no workflow `start`, no agent invocation.
-- [ ] Recovery attempted against a branch whose worktree is claimed by another live run returns the
+- [x] Recovery attempted against a branch whose worktree is claimed by another live run returns the
       existing `worktree_claimed` refusal and performs no finalization dispatch.
-- [ ] Admitted recovery leaves every acceptance criterion ticked and records zero additional
+- [x] Admitted recovery leaves every acceptance criterion ticked and records zero additional
       `patch.prompt.body` write-step invocations.
-- [ ] When re-verification (against a worktree where the surviving mutation has already been fixed
+- [x] When re-verification (against a worktree where the surviving mutation has already been fixed
       directly in the test fixture) finds no surviving mutation, recovery runs the ready gate and
       publication and settles the workflow `completed`, and the command exits 0.
-- [ ] When re-verification still finds a surviving mutation, the owning row stays failed and
+- [x] When re-verification still finds a surviving mutation, the owning row stays failed and
       retryable and no criterion is unticked (subspec 01 adds the agent-bearing repair step in
       front of this outcome).
-- [ ] Existing `implement.already_complete` and preflight coverage in
+- [x] Existing `implement.already_complete` and preflight coverage in
       `v2/src/execution/implement-workflow-steps.test.ts` stays green.
-- [ ] Inverting the outcome-kind admission guard, the spec-match guard, and the worktree/branch
+- [x] Inverting the outcome-kind admission guard, the spec-match guard, and the worktree/branch
       retention guard each independently turns the corresponding negative case above RED, proving
       in each case that no finalizer, publisher, committer, or agent ran.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -1125,6 +1125,8 @@ When `loopOutcomeKind` is present it wins over `runStatus`:
 `iteration_commit_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume` (no `boundary_committed` on the failed iteration).
 `ready_gate_failed` carries `runStatus: failed` and `resumable: true` on stdout; exit `1` is retryable via `jarvis run resume`.
 `surviving_mutation_failed` carries `runStatus: failed`, `resumable: true`, and `error` with `reason: "surviving_mutation_failed"`, `retryable: true`, `nextAction: "resume"`, plus `survivingMutation` and source file/line; exit `1` is retryable via `jarvis run resume`.
+
+For implement-initiated recovery only, a surviving mutation runs `write.mutation-repair` in the retained worktree. Its placeholders are `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL`; it never invokes `patch.prompt.body`. `MAX_MUTATION_REPAIR_ATTEMPTS` is 3. Plain `jarvis run resume` has no repair binding and remains agent-free.
 `ready_flip_failed` carries `runStatus: completed` and `resumable: false` on stdout; exit `1` is terminal and non-resumable.
 
 When `loopOutcomeKind` is omitted:

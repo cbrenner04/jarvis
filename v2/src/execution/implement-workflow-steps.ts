@@ -99,30 +99,50 @@ async function isSpecAvailableInBaseRef(
 }
 
 /** Resolve the spec path and its owning project match from the registry, with existence checks. */
-function resolveImplementSpecAndProject(
-  input: BuildImplementWorkflowStepsInput,
-  deps: BuildImplementWorkflowStepsDeps,
-): { match: ProjectMatch; resolvedSpecPath: string } | { error: string } {
-  const requestedSpecPath = resolve(input.cwd, input.specPath);
+export type ImplementSpecIdentity = {
+  project: string;
+  projectRoot: string;
+  specPath: string;
+  absoluteSpecPath: string;
+};
+
+/** Resolve the canonical project and spec identity shared by implement preflight and recovery. */
+export function resolveImplementSpecIdentity(
+  cwd: string,
+  specPath: string,
+  projectRegistry: Record<string, { root: string; origin?: string }>,
+): ImplementSpecIdentity | { error: string } {
+  const requestedSpecPath = resolve(cwd, specPath);
   const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
   if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
-
-  const registry =
-    input.projectRegistry ??
-    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
   const lexicalMatch =
-    (deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, registry)))(requestedSpecPath) ??
-    findProjectMatch(resolvedSpecPath, registry);
+    findProjectMatch(requestedSpecPath, projectRegistry) ?? findProjectMatch(resolvedSpecPath, projectRegistry);
   if (lexicalMatch === undefined) {
     return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
   const root = resolveExistingImplementPath("Registered project root", lexicalMatch.root);
   if (typeof root === "object") return root;
-  const match = { ...lexicalMatch, root };
-  if (findProjectMatch(resolvedSpecPath, { [match.key]: { root: match.root } }) === undefined) {
+  if (findProjectMatch(resolvedSpecPath, { [lexicalMatch.key]: { root } }) === undefined) {
     return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
   }
-  return { match, resolvedSpecPath };
+  return {
+    project: lexicalMatch.key,
+    projectRoot: root,
+    specPath: relative(root, resolvedSpecPath),
+    absoluteSpecPath: resolvedSpecPath,
+  };
+}
+
+function resolveImplementSpecAndProject(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+): { match: ProjectMatch; resolvedSpecPath: string } | { error: string } {
+  const registry =
+    input.projectRegistry ??
+    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
+  const identity = resolveImplementSpecIdentity(input.cwd, input.specPath, registry);
+  if ("error" in identity) return identity;
+  return { match: { key: identity.project, root: identity.projectRoot }, resolvedSpecPath: identity.absoluteSpecPath };
 }
 
 function resolveImplementArtifact(
@@ -267,7 +287,7 @@ function specHasUncheckedAutomatedCriterion(content: string): boolean {
 const ALREADY_COMPLETE_ERROR =
   "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
 
-function validateSpecTreeCompletion(
+export function validateImplementSpecTreeCompletion(
   absoluteSpecPath: string,
   projectRoot: string,
   readSpecFile: (path: string) => string,
@@ -413,7 +433,7 @@ export async function buildImplementWorkflowSteps(
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
 
   if (deps.resolveActiveLinkedSubspec === undefined || deps.readSpecFile !== undefined) {
-    const completionError = validateSpecTreeCompletion(
+    const completionError = validateImplementSpecTreeCompletion(
       absoluteSpecPath,
       match.root,
       deps.readSpecFile ?? ((path) => readFileSync(path, "utf8")),

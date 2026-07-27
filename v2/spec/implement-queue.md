@@ -24,7 +24,7 @@ Reliability floor is done. The implement lane runs the **recovery batch** once, 
 
 ## Phase gate
 
-After the recovery batch, implement lane stays on [per-project pipelines](per-project-pipelines-brief.md) until merged `v2/src` satisfies the meta-index line.
+After the recovery batch, implement lane stays on [per-project pipelines](per-project-pipelines-brief.md) until merged `v2/src` satisfies the meta-index line. The brief is **not** plan input: its six slices are seeded individually (`seeds/pipeline-*.md`) and fanned out through `intent` → `plan` → `implement`, serialized 1 → 2 → {3, 4} → 5 → 6.
 
 ## Ready-intents (queued)
 

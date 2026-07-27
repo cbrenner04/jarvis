@@ -32,19 +32,19 @@ be executed or validated.
 
 ## Task checklist
 
-- [ ] Add `PipelineDefinition`, `PipelineStage`, `WorkflowPipelineStage`, `ApprovalPipelineStage` types (`workflow` and `review` typed `string`).
-- [ ] Add the registry with `full-review` and `fast`, plus total `getPipelineDefinition(name)`.
-- [ ] Unit tests over both stage kinds and both lookup outcomes.
-- [ ] Document pipeline definitions vs. workflow presets, and the `(workflow, review)` resolution table, in `v2/docs/workflow-runner.md`.
+- [x] Add `PipelineDefinition`, `PipelineStage`, `WorkflowPipelineStage`, `ApprovalPipelineStage` types (`workflow` and `review` typed `string`).
+- [x] Add the registry with `full-review` and `fast`, plus total `getPipelineDefinition(name)`.
+- [x] Unit tests over both stage kinds and both lookup outcomes.
+- [x] Document pipeline definitions vs. workflow presets, and the `(workflow, review)` resolution table, in `v2/docs/workflow-runner.md`.
 
 ## Acceptance criteria
 
-- [ ] A pipeline definition value can express a workflow stage (stage ID, workflow reference, review posture) and an approval stage (stage ID only); a new unit test constructs and reads back one of each kind. This is a types-and-registry subspec with no consumer yet — the test failing against pre-change code is a compile error (the module doesn't exist), not a behavioral failure, per the guidance's exemption for docs/types-only surfaces; no separate behavioral failing-test AC is required here.
-- [ ] `getPipelineDefinition` is total: a new test asserts a hit returns the named definition and a miss returns the `unknown-pipeline` error carrying the requested name, with no throw.
-- [ ] The registry exports `full-review` and `fast`, and a test asserts each stage's kind, workflow name, and posture in order.
-- [ ] Inverting the lookup guard (hit vs. miss) makes the corresponding test fail; the miss case's negative assertion (no definition returned alongside the error) fails too when inverted. No guard-inversion test is required for stage-kind narrowing — the discriminated union has no runtime guard to invert in a module with no consumer.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` documents pipeline definitions vs. workflow presets, the two stage kinds, the three review postures, and the `(workflow, review)` resolution table with its two unrealizable cells.
+- [x] A pipeline definition value can express a workflow stage (stage ID, workflow reference, review posture) and an approval stage (stage ID only); a new unit test constructs and reads back one of each kind. This is a types-and-registry subspec with no consumer yet — the test failing against pre-change code is a compile error (the module doesn't exist), not a behavioral failure, per the guidance's exemption for docs/types-only surfaces; no separate behavioral failing-test AC is required here.
+- [x] `getPipelineDefinition` is total: a new test asserts a hit returns the named definition and a miss returns the `unknown-pipeline` error carrying the requested name, with no throw.
+- [x] The registry exports `full-review` and `fast`, and a test asserts each stage's kind, workflow name, and posture in order.
+- [x] Inverting the lookup guard (hit vs. miss) makes the corresponding test fail; the miss case's negative assertion (no definition returned alongside the error) fails too when inverted. No guard-inversion test is required for stage-kind narrowing — the discriminated union has no runtime guard to invert in a module with no consumer.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/workflow-runner.md` documents pipeline definitions vs. workflow presets, the two stage kinds, the three review postures, and the `(workflow, review)` resolution table with its two unrealizable cells.
 
 ## Documentation updates
 

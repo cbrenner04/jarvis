@@ -298,6 +298,84 @@ Validation stays synchronous:
 - Unknown preset names throw and include the invalid name.
 - Wrong per-position array length for a preset throws before any workflow runs.
 
+## Pipeline definitions
+
+A pipeline definition (`v2/src/execution/pipeline-definition.ts`) composes named
+workflow presets and manual approvals into an ordered value; it does not author
+prompts or steps itself — that stays in `publication-workflow-steps.ts` and
+`implement-workflow-steps.ts`. A definition is a `name` and a list of stages,
+each one of two kinds:
+
+- `workflow`: `{ stageId, kind: "workflow", workflow, review }` — `workflow` names
+  a base workflow (`intent`, `plan`, `implement`), never a reviewed preset name.
+- `approval`: `{ stageId, kind: "approval" }` — a manual gate; carries no posture.
+
+`review` is one of three postures: `none`, `light`, `debate`. A `(workflow,
+review)` pair resolves to an executable preset or builder input:
+
+| workflow    | none              | light                                    | debate                       |
+| ----------- | ----------------- | ----------------------------------------- | ----------------------------- |
+| `intent`    | `intent` preset    | `intent-reviewed` preset                  | unrealizable                  |
+| `plan`      | `plan` preset      | `plan-reviewed-light` preset              | `plan-reviewed` preset        |
+| `implement` | unrealizable       | `implement` (`reviewBehavior: "light"`)   | `implement` (`reviewBehavior: "debate"`) |
+
+`intent` has only one reviewed preset, so `debate` has no cell to resolve to.
+`implement` has no unreviewed builder path, so `none` has no cell to resolve to.
+
+Admission validation (`validatePipelineDefinition` in `pipeline-definition.ts`) is a
+pure pre-admission check: it returns `{ ok: true }` or `{ ok: false, errors }` and
+never throws at run time. Callers pass a resolved `AgentModelConfig`; the validator
+does not load machine profiles itself.
+
+| code | field | When |
+| ---- | ----- | ---- |
+| `unknown-workflow` | `workflow` | `workflow` is not one of `BASE_WORKFLOW_NAMES` (`intent`, `plan`, `implement`). |
+| `invalid-review-posture` | `review` | `review` is not `none`, `light`, or `debate`. |
+| `unrealizable-review-posture` | `review` | Valid posture but no resolution for that workflow (the two unrealizable table cells). |
+| `missing-role-binding` | `review` | Realizable posture needs a review role with no key in the supplied config (see below). |
+| `duplicate-stage-id` | `stages` | Two or more stages share a `stageId` (`stageId` on the error is `null`). |
+| `empty-pipeline` | `stages` | Zero stages (`stageId` on the error is `null`). |
+
+Each error is `{ code, stageId, field, message }`; `message` names the values relevant
+to `code`. Multiple problems are returned in one pass.
+
+Review posture → roles required before admission (role sets only, matching
+`workflow-loader.ts` review / review-debate agent maps):
+
+| posture | required roles |
+| ------- | -------------- |
+| `none` | (none) |
+| `light` | `critic`, `actuator` |
+| `debate` | `adversary`, `advocate`, `adjudicator`, `actuator` |
+
+A role is **bound** for admission when at least one agent entry in the supplied
+`AgentModelConfig` has that role key present (key presence, not per-agent
+completeness). That rule is the validator's own pre-admission check; it is not
+equivalent to run-time role→model resolution. At dispatch, `resolveInvocationBindings`
+in `agent-model-config.ts` requires the role on **every** agent in the step's
+agent list for that role and throws if any entry is missing. Passing
+`validatePipelineDefinition` therefore does not guarantee run-time binding success
+for asymmetric or hand-built configs that satisfy key-presence but not per-agent
+completeness. `undefined` agent entries are tolerated in the admission scan; a
+config that binds nothing fails with `missing-role-binding`, not a scan error.
+
+`getPipelineDefinition(name)` is a total lookup returning
+`{ ok: true, definition }` on a hit or `{ ok: false, error: { code:
+"unknown-pipeline", name } }` on a miss; it never returns `undefined` or throws.
+The `unknown-pipeline` code exists for lookup totality only; no operator or CLI
+surface reports it yet (deferred until a pipeline-selecting entry point exists).
+
+Precedence between a pipeline stage's `review` posture and per-project implement
+review behavior from the machine-config loader is not decided here; nothing in this
+slice consumes stage posture at run time.
+
+The registry (`pipeline-registry.ts`) ships two definitions:
+
+- `full-review`: `intent(light) → approve → plan(debate) → approve → implement(debate)`
+- `fast`: `intent(none) → plan(none) → implement(light)`
+
+Both omit a terminal draft-PR/ready/merge stage, deferred to a later slice.
+
 ## Resume contract
 
 Resume replays the supplied `steps` array from the beginning on each

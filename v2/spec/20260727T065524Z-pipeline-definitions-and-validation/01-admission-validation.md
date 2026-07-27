@@ -32,25 +32,25 @@ offending stage.
 
 ## Task checklist
 
-- [ ] Add `validatePipelineDefinition`, `PipelineValidationError`, and `BASE_WORKFLOW_NAMES` (or equivalent name list).
-- [ ] One test per rejection case (`unknown-workflow`, `invalid-review-posture`, `unrealizable-review-posture`, `missing-role-binding`, `duplicate-stage-id`, `empty-pipeline`) asserting the message content specified per code above.
-- [ ] Test asserting every registered definition validates clean against a profile binding all review roles.
-- [ ] Test asserting a config binding no roles (empty `AgentModelConfig`, or an entry that is `undefined`) is rejected with `missing-role-binding` rather than throwing.
-- [ ] Document validation codes, the posture→role table, and the role-binding definition in `v2/docs/workflow-runner.md`.
+- [x] Add `validatePipelineDefinition`, `PipelineValidationError`, and `BASE_WORKFLOW_NAMES` (or equivalent name list).
+- [x] One test per rejection case (`unknown-workflow`, `invalid-review-posture`, `unrealizable-review-posture`, `missing-role-binding`, `duplicate-stage-id`, `empty-pipeline`) asserting the message content specified per code above.
+- [x] Test asserting every registered definition validates clean against a profile binding all review roles.
+- [x] Test asserting a config binding no roles (empty `AgentModelConfig`, or an entry that is `undefined`) is rejected with `missing-role-binding` rather than throwing.
+- [x] Document validation codes, the posture→role table, and the role-binding definition in `v2/docs/workflow-runner.md`.
 
 ## Acceptance criteria
 
-- [ ] A new test with a stage naming a workflow that is not in `BASE_WORKFLOW_NAMES` gets `unknown-workflow` and asserts the offending stage ID and the field `workflow` appear in the message; it fails against the pre-change code.
-- [ ] A new test with an out-of-union `review` value gets `invalid-review-posture` and asserts the stage ID and the field `review` appear in the message.
-- [ ] A new test with an `intent` stage under `debate` and a separate test with an `implement` stage under `none` (subspec 00's two unrealizable cells) each get `unrealizable-review-posture`, asserting the stage ID, the field `review`, the workflow name, and the posture appear in the message; the same stage under a realizable posture validates clean.
-- [ ] A new test with a `debate` stage against an `AgentModelConfig` missing an `adjudicator` role key gets `missing-role-binding` naming the stage ID, the field `review`, and the role; the same definition under `none` posture validates clean, proving the `none` guard suppresses the role-binding check rather than the config happening to satisfy it.
-- [ ] A new test with two stages sharing a `stageId` gets `duplicate-stage-id` with `stageId: null` and a message naming the duplicated ID; a definition with all-unique stage IDs validates clean on this check.
-- [ ] A new test with zero stages gets `empty-pipeline` with `stageId: null`; a definition with at least one stage validates clean on this check.
-- [ ] A test iterates the whole registry and asserts each definition validates clean against a profile binding all review roles.
-- [ ] A definition with multiple bad stages returns one error per bad stage, not just the first.
-- [ ] Inverting each added guard (unknown-workflow check, posture check, unrealizable-combination check, per-posture role-binding check, duplicate-ID check, empty-list check) makes at least one test fail; the `none`-posture case proves no role-binding error is emitted when the guard is meant to suppress it.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
-- [ ] `v2/docs/workflow-runner.md` documents the six validation codes, the posture→required-role table, the role-binding definition (key presence in `AgentModelConfig`, anchored to role→model resolution), and that validation is a pure pre-admission function, not a run-time throw.
+- [x] A new test with a stage naming a workflow that is not in `BASE_WORKFLOW_NAMES` gets `unknown-workflow` and asserts the offending stage ID and the field `workflow` appear in the message; it fails against the pre-change code.
+- [x] A new test with an out-of-union `review` value gets `invalid-review-posture` and asserts the stage ID and the field `review` appear in the message.
+- [x] A new test with an `intent` stage under `debate` and a separate test with an `implement` stage under `none` (subspec 00's two unrealizable cells) each get `unrealizable-review-posture`, asserting the stage ID, the field `review`, the workflow name, and the posture appear in the message; the same stage under a realizable posture validates clean.
+- [x] A new test with a `debate` stage against an `AgentModelConfig` missing an `adjudicator` role key gets `missing-role-binding` naming the stage ID, the field `review`, and the role; the same definition under `none` posture validates clean, proving the `none` guard suppresses the role-binding check rather than the config happening to satisfy it.
+- [x] A new test with two stages sharing a `stageId` gets `duplicate-stage-id` with `stageId: null` and a message naming the duplicated ID; a definition with all-unique stage IDs validates clean on this check.
+- [x] A new test with zero stages gets `empty-pipeline` with `stageId: null`; a definition with at least one stage validates clean on this check.
+- [x] A test iterates the whole registry and asserts each definition validates clean against a profile binding all review roles.
+- [x] A definition with multiple bad stages returns one error per bad stage, not just the first.
+- [x] Inverting each added guard (unknown-workflow check, posture check, unrealizable-combination check, per-posture role-binding check, duplicate-ID check, empty-list check) makes at least one test fail; the `none`-posture case proves no role-binding error is emitted when the guard is meant to suppress it.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/workflow-runner.md` documents the six validation codes, the posture→required-role table, the role-binding definition (key presence in `AgentModelConfig`, anchored to role→model resolution), and that validation is a pure pre-admission function, not a run-time throw.
 
 ## Documentation updates
 

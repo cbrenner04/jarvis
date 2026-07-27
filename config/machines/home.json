@@ -78,8 +78,8 @@
       "implement": {
         "rungs": [
           {
-            "adapterModel": "gpt-5.6-terra",
-            "priceKey": "gpt-5.6-terra"
+            "adapterModel": "gpt-5.6-sol",
+            "priceKey": "gpt-5.6-sol"
           }
         ]
       },

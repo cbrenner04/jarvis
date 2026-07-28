@@ -30,14 +30,14 @@ Pipeline admission rejects `intent` + `debate` as `unrealizable-review-posture`,
 
 ## Acceptance criteria
 
-- [ ] `pipeline-definition-validation.test.ts` renames `"intent under debate is unrealizable; light on the same stage validates clean"` to a title that matches realizable debate (e.g. debate and light both validate clean on the same stage); the test fails on baseline expecting `unrealizable-review-posture` for debate and passes after the guard is removed; re-adding the `intent`/`debate` unrealizable branch makes it fail again.
-- [ ] `pipeline-stage-resolve.test.ts` adds or updates coverage so fake builders prove `resolveIntentStage` passes `reviewBehavior: "debate"` and `reviewPasses: 1` into the intent preset builder; that test fails on baseline unmapped resolution and fails if debate `reviewBehavior` wiring is inverted.
-- [ ] `pipeline-stage-resolve.test.ts` adds a real `WORKFLOW_PRESET_BUILDERS` test (parallel to `"intent review none resolves through real preset builders without a review step"`) proving `intent` + `debate` resolves with at least one `review-debate` step; it fails on baseline and fails if debate behavior wiring is inverted.
-- [ ] `"a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw"` uses `implement` + `none` instead of `intent` + `debate` for the failure case.
-- [ ] `"implement under none is unrealizable; light on the same stage validates clean"` stays green.
-- [ ] `bun run typecheck` and scoped v2 tests for touched surfaces (`test:v2`, `test:integration:v2` when daemon paths change) pass.
-- [ ] `v2/docs/workflow-runner.md` and `v2/docs/daemon-host.md` agree: `intent` + `debate` realizable via bare `intent` with one debate pass; only `implement` + `none` unrealizable; mixed table notation per Decisions; dependent unrealizable-count and preset-alias prose matches the single unrealizable cell.
-- [ ] `v2/docs/v1-behaviors.md` records pipeline `intent` + `debate` realizability and resolution (preset `intent`, `reviewPasses: 1`, `reviewBehavior: debate`) with sources under `v2/src/execution/`.
+- [x] `pipeline-definition-validation.test.ts` renames `"intent under debate is unrealizable; light on the same stage validates clean"` to a title that matches realizable debate (e.g. debate and light both validate clean on the same stage); the test fails on baseline expecting `unrealizable-review-posture` for debate and passes after the guard is removed; re-adding the `intent`/`debate` unrealizable branch makes it fail again.
+- [x] `pipeline-stage-resolve.test.ts` adds or updates coverage so fake builders prove `resolveIntentStage` passes `reviewBehavior: "debate"` and `reviewPasses: 1` into the intent preset builder; that test fails on baseline unmapped resolution and fails if debate `reviewBehavior` wiring is inverted.
+- [x] `pipeline-stage-resolve.test.ts` adds a real `WORKFLOW_PRESET_BUILDERS` test (parallel to `"intent review none resolves through real preset builders without a review step"`) proving `intent` + `debate` resolves with at least one `review-debate` step; it fails on baseline and fails if debate behavior wiring is inverted.
+- [x] `"a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw"` uses `implement` + `none` instead of `intent` + `debate` for the failure case.
+- [x] `"implement under none is unrealizable; light on the same stage validates clean"` stays green.
+- [x] `bun run typecheck` and scoped v2 tests for touched surfaces (`test:v2`, `test:integration:v2` when daemon paths change) pass.
+- [x] `v2/docs/workflow-runner.md` and `v2/docs/daemon-host.md` agree: `intent` + `debate` realizable via bare `intent` with one debate pass; only `implement` + `none` unrealizable; mixed table notation per Decisions; dependent unrealizable-count and preset-alias prose matches the single unrealizable cell.
+- [x] `v2/docs/v1-behaviors.md` records pipeline `intent` + `debate` realizability and resolution (preset `intent`, `reviewPasses: 1`, `reviewBehavior: debate`) with sources under `v2/src/execution/`.
 
 ## Documentation updates
 

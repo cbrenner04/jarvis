@@ -57,17 +57,27 @@ function listFiles(root: string, dir: string = root, out: string[] = []): string
   return out;
 }
 
+function pathFromPorcelainLine(line: string): string | undefined {
+  if (line.endsWith("\r")) line = line.slice(0, -1);
+  if (line.length < 3) return undefined;
+  let path = line.slice(3);
+  const arrow = path.indexOf(" -> ");
+  if (arrow >= 0) path = path.slice(arrow + 4);
+  return path.length > 0 ? path : undefined;
+}
+
 async function gitStatusPaths(
   cwd: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Set<string>> {
   const current = new Set<string>();
-  const status = (await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd)).trim();
-  if (status.length > 0) {
-    status.split("\n").forEach((line) => {
-      const path = line.slice(3).trim();
-      if (path) current.add(path);
-    });
+  const raw = await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd);
+  if (raw.length === 0) return current;
+  const lines = raw.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  for (const line of lines) {
+    const path = pathFromPorcelainLine(line);
+    if (path !== undefined) current.add(path);
   }
   return current;
 }

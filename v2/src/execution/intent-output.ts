@@ -131,10 +131,13 @@ export async function landIntentWorkflowOutput(input: {
     .map((entry) => entry.name);
   const durablePrefix = `${relative(input.worktreePath, durableDir).replace(/\\/g, "/").replace(/\/$/, "")}/`;
   const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
+  const reviewVerdictPath = ".jarvis-intent-review-verdict.md";
+  const reviewOwnerPath = `${reviewVerdictPath}.owner`;
   const allPaths = await changedPaths(input.worktreePath, input.baseRef, runner);
   const rogue = allPaths.filter((path) => {
     if (path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/")) return false;
     if (path === ownershipRelPath) return false;
+    if (path === reviewVerdictPath || path === reviewOwnerPath) return false;
     if (path.startsWith(durablePrefix)) {
       const name = path.slice(durablePrefix.length);
       return !(stagedNames.includes(name) || ownedFiles.includes(name));

@@ -14,9 +14,7 @@
         "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "critic": {
-        "rungs": [
-          { "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }
-        ]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "advocate": {
         "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]

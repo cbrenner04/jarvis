@@ -219,6 +219,26 @@ describe("resolveStageWorkflowSteps", () => {
     expect(seenInput).toMatchObject({ reviewPasses: 1, reviewBehavior: "debate" });
   });
 
+  test("an intent stage with review none resolves zero review passes and no review behavior", async () => {
+    let seenInput: IntentWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      intent: async (input) => {
+        seenInput = input as unknown as IntentWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+
+    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
+
+    expect(result.ok).toBe(true);
+    expect(seenInput?.reviewPasses).toBe(0);
+    expect(seenInput?.reviewBehavior).toBeUndefined();
+  });
+
   test("a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw", async () => {
     const builders = fakeBuilders();
     const definition: PipelineDefinition = {

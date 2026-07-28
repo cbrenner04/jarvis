@@ -24,13 +24,13 @@ selection: admit the legacy implement workflow without `pipelineDefinition`. Pre
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` case `admits implement when the registered project omits pipeline` uses CLI-shaped `buildImplementWorkflowSteps` input with `projectRegistry` set (so `admitProjectPipeline` runs), matched project config record has no `pipeline` key, and asserts `ok: true` without `pipelineDefinition`; fails on current `main`.
-- [ ] `workflow.test.ts` regression (extend `"project pipeline selection gates implement before durable admission effects"` or add a sibling in that describe) drives `jarvis run workflow implement` with a pipeline-free `projects.demo` entry through durable admission (daemon connection, run rows, worktree materialization, agent invocation) and exit `0`; fails on current `main`.
-- [ ] `project-pipeline-resolution.test.ts` `"resolves the configured source-owned definition and reports a named registry miss without a default"` stays green.
-- [ ] `workflow.test.ts` valid-path `pipelineDefinition?.name` expectations in `"project pipeline selection gates implement before durable admission effects"` stay green.
-- [ ] `project-pipeline-resolution.test.ts` `rejects %s path-specifically before lookup` rows for `{}`, non-object, and bad `name`/`reviewOverrides` stay green.
-- [ ] `workflow.test.ts` `test.each` malformed-config stderr rows in `"pipeline %s failure precedes daemon and implement effects"` stay green.
-- [ ] Inverting the absent-key guard (treat missing `pipeline` as malformed again) turns `implement-workflow-steps.test.ts` `admits implement when the registered project omits pipeline` and the new or extended `workflow.test.ts` sibling in `"project pipeline selection gates implement before durable admission effects"` RED.
+- [x] `implement-workflow-steps.test.ts` case `admits implement when the registered project omits pipeline` uses CLI-shaped `buildImplementWorkflowSteps` input with `projectRegistry` set (so `admitProjectPipeline` runs), matched project config record has no `pipeline` key, and asserts `ok: true` without `pipelineDefinition`; fails on current `main`.
+- [x] `workflow.test.ts` regression (extend `"project pipeline selection gates implement before durable admission effects"` or add a sibling in that describe) drives `jarvis run workflow implement` with a pipeline-free `projects.demo` entry through durable admission (daemon connection, run rows, worktree materialization, agent invocation) and exit `0`; fails on current `main`.
+- [x] `project-pipeline-resolution.test.ts` `"resolves the configured source-owned definition and reports a named registry miss without a default"` stays green.
+- [x] `workflow.test.ts` valid-path `pipelineDefinition?.name` expectations in `"project pipeline selection gates implement before durable admission effects"` stay green.
+- [x] `project-pipeline-resolution.test.ts` `rejects %s path-specifically before lookup` rows for `{}`, non-object, and bad `name`/`reviewOverrides` stay green.
+- [x] `workflow.test.ts` `test.each` malformed-config stderr rows in `"pipeline %s failure precedes daemon and implement effects"` stay green.
+- [x] Inverting the absent-key guard (treat missing `pipeline` as malformed again) turns `implement-workflow-steps.test.ts` `admits implement when the registered project omits pipeline` and the new or extended `workflow.test.ts` sibling in `"project pipeline selection gates implement before durable admission effects"` RED.
 
 ## Documentation updates
 

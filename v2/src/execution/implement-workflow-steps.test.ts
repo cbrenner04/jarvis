@@ -644,6 +644,62 @@ describe("buildImplementWorkflowSteps", () => {
     }
   });
 
+  test("rejects implement when the project config record is missing", async () => {
+    const { root, machineProfile } = writeRegisteredImplementRepo("implement-workflow-steps-missing-project-record-");
+    const configWithoutRecord = writeJson("config.json", { projects: { registered: "not-an-object" } });
+    try {
+      const result = await buildImplementWorkflowSteps(
+        {
+          cwd: root,
+          branchName: "implement-run",
+          baseRef: "HEAD",
+          specPath: "specs/work.md",
+          artifactPath: "specs/work.md",
+          reviewPasses: 0,
+          configPath: configWithoutRecord,
+          projectRegistry: { registered: { root } },
+        },
+        {
+          loadWorkflowSteps: (steps) =>
+            loadWorkflowSteps(steps, { machineConfigPath: configWithoutRecord, machineProfile, machinesDir }),
+        },
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toContain("invalid-project-pipeline-config");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("admits implement when the registered project omits pipeline", async () => {
+    const { root, machineConfigPath, machineProfile } = writeRegisteredImplementRepo(
+      "implement-workflow-steps-no-pipeline-",
+    );
+    try {
+      const result = await buildImplementWorkflowSteps(
+        {
+          cwd: root,
+          branchName: "implement-run",
+          baseRef: "HEAD",
+          specPath: "specs/work.md",
+          artifactPath: "specs/work.md",
+          reviewPasses: 0,
+          configPath: machineConfigPath,
+          projectRegistry: { registered: { root } },
+        },
+        {
+          loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+        },
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.pipelineDefinition).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("returns an error result naming the unresolved cwd instead of throwing", async () => {
     const result = await buildImplementWorkflowSteps(INPUT, {
       resolveProjectMatch: () => undefined,

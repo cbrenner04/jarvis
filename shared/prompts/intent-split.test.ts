@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
-import { loadPromptRegistry } from "./registry.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_BASELINE_BODY_LENGTH,
@@ -8,6 +7,7 @@ import {
   INTENT_SPLIT_PROMPT_ID,
   INTENT_SPLIT_SURFACE_PIN,
 } from "./intent-split.ts";
+import { loadPromptRegistry } from "./registry.ts";
 
 const BASE_OPTS = {
   workdir: "/tmp/worktree",

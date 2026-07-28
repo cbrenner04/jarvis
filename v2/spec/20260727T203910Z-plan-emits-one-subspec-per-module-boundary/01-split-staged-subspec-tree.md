@@ -26,11 +26,11 @@ staged spec directory to one emitted subspec per boundary before validation or p
 - Implement `normalizePlanDraftSpecDir` split/renumber/`index.md` rewrite atop the shared classifier.
 - Add committed staged-tree fixtures (k=2 persistence+CLI, k=3 persistence+daemon+CLI) plus a
   ground-truth manifest of expected child AC checkbox text per fixture.
-- Add `v1/test/modes/plan/plan-draft-boundary-split.test.ts` driving the normalizer directly.
+- Add `shared/module-boundary-surfaces.test.ts` driving the normalizer directly.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/plan/plan-draft-boundary-split.test.ts` runs `normalizePlanDraftSpecDir` on the
+- [ ] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on the
       k=2 and k=3 fixtures and asserts emitted `NN-*.md` files match the committed ground-truth child
       AC checkbox text literally (no re-invocation of the classifier as the oracle); it fails against
       the pre-change emit-as-drafted path.

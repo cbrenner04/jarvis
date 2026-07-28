@@ -11,7 +11,7 @@ subspec sizing rules.
   classification contract from [00](./00-module-boundary-classifier.md) — rules out an unenumerated
   "same as intent split" reference.
 - `v2/docs/v1-behaviors.md` draft-validation order lists boundary normalization at the start of
-  `validateDraftOutput` (before structural per-subspec checks), matching [02](./02-v1-plan-draft-normalization-hook.md) —
+  `validatePlanDraftShape` (before structural per-subspec checks) —
   rules out leaving the v1 parity catalog stale after harness behavior changes.
 
 ## Tasks

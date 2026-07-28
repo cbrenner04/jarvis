@@ -14,16 +14,16 @@ renumbering, or extra files.
 ## Tasks
 
 - Cover a single-boundary staged fixture through `normalizePlanDraftSpecDir` in
-  `v1/test/modes/plan/plan-draft-boundary-split.test.ts`.
+  `shared/module-boundary-surfaces.test.ts`.
 - Confirm existing plan draft tests still exercise pass-through paths.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/plan/plan-draft-boundary-split.test.ts` asserts a single-boundary fixture
+- [ ] `shared/module-boundary-surfaces.test.ts` asserts a single-boundary fixture
       leaves subspec count, filenames, and file bytes unchanged after normalization; it fails if
       normalization splits or rewrites pass-through drafts.
-- [ ] `v1/test/modes/plan/spec-dir.test.ts` stays green.
-- [ ] `v1/test/plan-draft-hard-error-continue.test.ts` stays green.
+- [ ] `v2/src/execution/write.test.ts` plan-draft shape cases stay green.
+- [ ] `shared/spec-parser.test.ts` stays green.
 - [ ] `v2/src/execution/write.test.ts` plan-draft tests stay green.
 
 ## Documentation updates

@@ -26,6 +26,17 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
 
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
 
+async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate") {
+  const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
+  const context: PipelineContext = { cwd, configPath, seed: "ship feature" };
+  const definition: PipelineDefinition = {
+    name: "p",
+    stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review }],
+  };
+  return resolveStageWorkflowSteps(definition, 0, context, new Map(), { builders: WORKFLOW_PRESET_BUILDERS });
+}
+
 describe("resolveStageWorkflowSteps", () => {
   test("first workflow stage builds with PipelineContext.seed as the seed input", async () => {
     let seenInput: IntentWorkflowInput | undefined;
@@ -189,8 +200,14 @@ describe("resolveStageWorkflowSteps", () => {
     expect(seenInput?.specPath).toBe("spec/index.md");
   });
 
-  test("a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw", async () => {
-    const builders = fakeBuilders();
+  test("intent+debate maps to intent preset with debate reviewBehavior and one pass", async () => {
+    let seenInput: IntentWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      intent: async (input) => {
+        seenInput = input as unknown as IntentWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
     const definition: PipelineDefinition = {
       name: "p",
       stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "debate" }],
@@ -198,9 +215,42 @@ describe("resolveStageWorkflowSteps", () => {
 
     const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
 
+    expect(result.ok).toBe(true);
+    expect(seenInput).toMatchObject({ reviewPasses: 1, reviewBehavior: "debate" });
+  });
+
+  test("an intent stage with review none resolves zero review passes and no review behavior", async () => {
+    let seenInput: IntentWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      intent: async (input) => {
+        seenInput = input as unknown as IntentWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+
+    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
+
+    expect(result.ok).toBe(true);
+    expect(seenInput?.reviewPasses).toBe(0);
+    expect(seenInput?.reviewBehavior).toBeUndefined();
+  });
+
+  test("a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw", async () => {
+    const builders = fakeBuilders();
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
+    };
+
+    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
+
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toContain("intent");
+    expect(result.error).toContain("implement");
   });
 
   test("a builder call reporting failure returns a resolution failure, not a thrown error or a fallback preset", async () => {
@@ -231,18 +281,16 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.error).toContain("preceding workflow artifact");
   });
 
-  test("intent review none resolves through real preset builders without a review step", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
-    const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
-    const context: PipelineContext = { cwd, configPath, seed: "ship feature" };
-    const definition: PipelineDefinition = {
-      name: "p",
-      stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "none" }],
-    };
+  test("intent review debate resolves through real preset builders with a review-debate step", async () => {
+    const result = await resolveFirstIntentStageWithRealBuilders("debate");
 
-    const result = await resolveStageWorkflowSteps(definition, 0, context, new Map(), {
-      builders: WORKFLOW_PRESET_BUILDERS,
-    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.some((step) => step.behavior === "review-debate")).toBe(true);
+  });
+
+  test("intent review none resolves through real preset builders without a review step", async () => {
+    const result = await resolveFirstIntentStageWithRealBuilders("none");
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;

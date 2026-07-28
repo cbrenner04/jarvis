@@ -69,22 +69,13 @@ describe("validatePipelineDefinition", () => {
     expect(result.errors[0]?.message).toContain("review");
   });
 
-  test("intent under debate is unrealizable; light on the same stage validates clean", () => {
-    const debateResult = validatePipelineDefinition(
-      { name: "bad", stages: [workflowStage("intent-step", "intent", "debate")] },
-      { agentModelConfig: ALL_REVIEW_ROLES_CONFIG },
-    );
-    expectValidationFailure(debateResult);
-    expect(debateResult.errors[0]).toMatchObject({
-      code: "unrealizable-review-posture",
-      stageId: "intent-step",
-      field: "review",
-    });
-    const debateMessage = debateResult.errors[0]?.message ?? "";
-    expect(debateMessage).toContain("intent-step");
-    expect(debateMessage).toContain("review");
-    expect(debateMessage).toContain("intent");
-    expect(debateMessage).toContain("debate");
+  test("intent under debate and light on the same stage both validate clean", () => {
+    expect(
+      validatePipelineDefinition(
+        { name: "ok", stages: [workflowStage("intent-step", "intent", "debate")] },
+        { agentModelConfig: ALL_REVIEW_ROLES_CONFIG },
+      ).ok,
+    ).toBe(true);
 
     expect(
       validatePipelineDefinition(

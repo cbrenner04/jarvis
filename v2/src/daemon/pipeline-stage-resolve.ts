@@ -23,7 +23,7 @@ export type PipelineStageResolveDeps = {
 
 /** review posture -> preset name, for the two presets that consume a prior stage's artifact or the seed. */
 const WORKFLOW_POSTURE_PRESETS: Record<string, Partial<Record<string, CliWorkflowPresetName>>> = {
-  intent: { none: "intent", light: "intent-reviewed" },
+  intent: { none: "intent", light: "intent-reviewed", debate: "intent" },
   plan: { none: "plan", light: "plan-reviewed-light", debate: "plan-reviewed" },
 };
 
@@ -100,7 +100,7 @@ async function resolveIntentStage(
     cwd: context.cwd,
     seedText: context.seed,
     reviewPasses: stage.review === "none" ? 0 : FIXED_REVIEW_PASSES,
-    ...(stage.review === "light" ? { reviewBehavior: stage.review } : {}),
+    ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };

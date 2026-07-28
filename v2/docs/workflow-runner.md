@@ -315,12 +315,11 @@ review)` pair resolves to an executable preset or builder input:
 
 | workflow    | none              | light                                    | debate                       |
 | ----------- | ----------------- | ----------------------------------------- | ----------------------------- |
-| `intent`    | `intent` preset    | `intent-reviewed` preset                  | unrealizable                  |
+| `intent`    | `intent` preset    | `intent-reviewed` preset                  | `intent` preset (`reviewPasses: 1`, `reviewBehavior: "debate"`) |
 | `plan`      | `plan` preset      | `plan-reviewed-light` preset              | `plan-reviewed` preset        |
 | `implement` | unrealizable       | `implement` (`reviewBehavior: "light"`)   | `implement` (`reviewBehavior: "debate"`) |
 
-`intent` has only one reviewed preset, so `debate` has no cell to resolve to.
-`implement` has no unreviewed builder path, so `none` has no cell to resolve to.
+`implement` has no unreviewed builder path, so `none` is the sole unrealizable cell.
 
 Admission validation (`validatePipelineDefinition` in `pipeline-definition.ts`) is a
 pure pre-admission check: it returns `{ ok: true }` or `{ ok: false, errors }` and
@@ -331,7 +330,7 @@ does not load machine profiles itself.
 | ---- | ----- | ---- |
 | `unknown-workflow` | `workflow` | `workflow` is not one of `BASE_WORKFLOW_NAMES` (`intent`, `plan`, `implement`). |
 | `invalid-review-posture` | `review` | `review` is not `none`, `light`, or `debate`. |
-| `unrealizable-review-posture` | `review` | Valid posture but no resolution for that workflow (the two unrealizable table cells). |
+| `unrealizable-review-posture` | `review` | Valid posture but no resolution for that workflow (`implement` + `none` only). |
 | `missing-role-binding` | `review` | Realizable posture needs a review role with no key in the supplied config (see below). |
 | `duplicate-stage-id` | `stages` | Two or more stages share a `stageId` (`stageId` on the error is `null`). |
 | `empty-pipeline` | `stages` | Zero stages (`stageId` on the error is `null`). |

@@ -19,14 +19,15 @@ When every ready-gate repair attempt stays red, the implement run still settles 
 
 ## Acceptance criteria
 
-- [ ] A run whose gate returns non-zero on every repair attempt settles `failed` with `error.reason: "ready_gate_failed"`; a test drives an always-red gate through the repair budget and fails against the current `completed` settle.
-- [ ] That run publishes no draft→ready flip and its durable row reports `resumable: true` with `nextAction: "resume"`; `jarvis run resume` on it re-runs the gate without re-entering the write loop.
-- [ ] A gate that goes green on a repair attempt still completes exactly as today; existing coverage stays green.
-- [ ] Inverting the exhausted-red-gate guard turns the first acceptance test RED.
+- [ ] `workflow-runner.test.ts` `"caps ready gate repairs and settles as ready_gate_failed when exhausted"` (or a sibling test in that file) asserts the durable row settles `runStatus: "failed"` with `error.reason: "ready_gate_failed"` and `resumable: true`; it fails against the current `runStatus: "completed"` settle.
+- [ ] That run publishes no draft→ready flip; `run list`, `run wait`, and `composeRunOperatorError` / resume admission align on `runStatus: "failed"`, `resumable: true`, and `nextAction: "resume"`; `jarvis run resume` re-runs the gate without re-entering the write loop.
+- [ ] `write-loop.test.ts` `"repairs a red ready gate through a write iteration"` and `workflow-runner.test.ts` `"routes a red ready gate through bounded repair before settlement"` stay green.
+- [ ] Inverting the exhausted-red-gate guard turns `workflow-runner.test.ts` `"caps ready gate repairs and settles as ready_gate_failed when exhausted"` RED.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Gate trust — repair exhaustion settles `failed` and is resumable; delete any claim that a `completed` implement row implies a green gate.
+- `v2/docs/operator-runbook.md` § Gate trust — repair-budget exhaustion settles `failed` / `ready_gate_failed` / resumable; keep the claim that a genuinely `completed` implement row implies a green gate.
 - `v2/docs/write-behavior.md` — repair budget exhaustion settles `failed` with `ready_gate_failed`, not `completed`.
+- `v2/docs/v1-behaviors.md` — same operator-visible settle semantics.
 
 ## Prerequisites

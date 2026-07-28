@@ -102,6 +102,11 @@ describe("review-intent-enforcement", () => {
     expect(changed.has("old-name.md")).toBe(false);
   });
 
+  test("git-enabled: getChangedPaths keeps the last path when porcelain has no trailing newline", async () => {
+    const path = "no-trailing-newline.md";
+    expect((await changedPathsFromPorcelain(`?? ${path}`)).has(path)).toBe(true);
+  });
+
   test("git-enabled: getChangedPaths preserves trailing whitespace in porcelain path segment", async () => {
     const pathWithTrailingSpace = "weird-path.md ";
     expect((await changedPathsFromPorcelain(`?? ${pathWithTrailingSpace}\n`)).has(pathWithTrailingSpace)).toBe(true);

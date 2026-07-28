@@ -44,30 +44,30 @@ plan/implement run.
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split prompt pins surface fan-out rule`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split prompt pins surface fan-out rule`
       asserts `buildIntentSplitPrompt` output contains the pinned substring; it fails against the
       pre-change prompt; inverting the pinned substring turns this test RED.
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split prompt rejects symptom slice fan-out`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split prompt rejects symptom slice fan-out`
       asserts the `intent.prompt.split` artifact body (and built prompt) does not instruct
       independently observable behavior/slice-based splitting or retain dual fan-out rules; it
       fails against the pre-change prompt.
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split prompt requires single-surface unsplit`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split prompt requires single-surface unsplit`
       asserts output rules require exactly one ready-intent when the seed touches only one
       module-boundary surface, with a one-line unsplit rationale in the ready-intent body (not
       keyed to a single symptom spanning multiple surfaces); it fails against the pre-change prompt.
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split prompt wires prerequisite behaviors`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split prompt wires prerequisite behaviors`
       asserts output rules require dependency-ordered surfaces and earlier-surface behaviors in
       later intents' `## Prerequisites` without bullets that forbid prerequisites or ordering for
       cross-surface sequencing; it fails against the pre-change prompt.
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split artifact growth stays within budget`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split artifact growth stays within budget`
       asserts the registry artifact body for `intent.prompt.split` is at most the pre-change body
       length plus this subspec's max-delta constant; it fails against the pre-change artifact when
       the surface edit exceeds that budget.
-- [ ] `shared/prompts/intent-split.test.ts` test `intent split artifact has no examples or thresholds`
+- [x] `shared/prompts/intent-split.test.ts` test `intent split artifact has no examples or thresholds`
       asserts `prompts/intent/split.md` body contains no example blocks and no numeric split
       thresholds (symptom counts, file counts, line budgets); it fails against the pre-change
       artifact.
-- [ ] `prompts/intent/split.md` frontmatter `revision` is greater than the pre-change value when the
+- [x] `prompts/intent/split.md` frontmatter `revision` is greater than the pre-change value when the
       body changes.
 
 ## Documentation updates

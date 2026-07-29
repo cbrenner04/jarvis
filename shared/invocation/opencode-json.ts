@@ -73,7 +73,8 @@ function readStepFinish(frame: Record<string, unknown>): StepFinishTotals | null
  * summed **only** from clean `step_finish` frames (all of `part.tokens.input`,
  * `part.tokens.output`, `part.tokens.cache.read`, `part.tokens.cache.write`
  * numeric); `part.cost` is read inside that clean-token branch. `text` frames
- * supply display text, with raw stdout as an empty-found fallback.
+ * supply display text; raw stdout is a fallback only when the stream was not
+ * structurally recognized (no `step_finish` and no `text` frame).
  */
 export function parseOpencodeJsonOutput(stdout: string): OpencodeParseResult {
   const usage = {
@@ -120,6 +121,12 @@ export function parseOpencodeJsonOutput(stdout: string): OpencodeParseResult {
     }
   }
 
-  const displayText = textFrames.length > 0 ? textFrames.join("").trimEnd() : stdout;
+  // Fallback is keyed on structural recognition, not on whether the rendered
+  // text is non-empty: once the stream was recognized (a clean `step_finish` or
+  // any `text` frame), an empty render must surface as empty — a healthy
+  // `step_finish`-only success must never dump the raw NDJSON transcript.
+  // Reserve the raw-stdout fallback for genuinely unrecognized output.
+  const recognized = sawStepFinish || textFrames.length > 0;
+  const displayText = recognized ? textFrames.join("").trimEnd() : stdout;
   return { displayText, usage, cost_usd, sawStepFinish, sawAnyCostField };
 }

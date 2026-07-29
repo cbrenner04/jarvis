@@ -1003,11 +1003,71 @@ describe("createResolvedAgentBinding", () => {
       warnings: ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."],
     });
   });
+
+  test("opencode step_finish-only stream renders empty display text, not raw NDJSON", async () => {
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 10, output: 20, cache: { read: 3, write: 5 } }, cost: 0.04 },
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: stepFinish, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 5,
+      },
+      usage_source: "agent",
+      cost_usd: 0.04,
+      cost_source: "agent",
+    });
+  });
+
+  test("opencode step_finish without part.cost settles ok agent-usage no-price", async () => {
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 10, output: 20, cache: { read: 3, write: 5 } } },
+    });
+    const textFrame = JSON.stringify({ type: "text", part: { text: "done" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${textFrame}\n${stepFinish}`, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "done",
+      stderr: "",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 5,
+      },
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
+  });
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {
     const wired = [
       { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
       { agentId: "codex", adapterModel: "gpt-5", priceKey: "gpt-5" },
       { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "Composer 2.5" },
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
     ] as const;
 
     for (const args of wired) {

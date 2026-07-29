@@ -686,6 +686,9 @@ async function runOpencodeBinding(args: {
 }): Promise<InvocationResult> {
   const result = await runAgent(
     {
+      // `name`/`classifier` are `cursor`, not `opencode`, to satisfy the closed
+      // `claude | codex | cursor` spawn-config union without widening it;
+      // opencode intentionally reuses the cursor quota/model-config classifier.
       name: "cursor",
       binary: "opencode",
       cwd: args.cwd,

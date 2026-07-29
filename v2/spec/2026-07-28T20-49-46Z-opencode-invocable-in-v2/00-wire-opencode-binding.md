@@ -34,12 +34,12 @@ into token usage and cost.
 
 ## Acceptance criteria
 
-- [ ] A resolved `opencode` rung whose `--format json` stdout contains a clean `step_finish` (numeric `part.tokens.{input,output,cache.read,cache.write}` and numeric `part.cost`) settles as `kind: "ok"` with `usage_source: "agent"`, populated `usage`, and `cost_source: "agent"` carrying the summed cost — verified by a new spawn-mocked test in `shared/invocation/agents.test.ts` that fails against the pre-fix exit-127 binding and passes after.
-- [ ] A resolved `opencode` rung whose stream has no clean `step_finish` settles as `kind: "ok"` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning — verified by a new test that fails against pre-fix code and passes after.
-- [ ] The existing `shared/invocation/agents.test.ts` case asserting `opencode` returns `exitCode: 127` "not wired yet" is updated to expect a wired invocation, and no longer asserts the 127 terminal error.
-- [ ] Inverting the `agentId === "opencode"` wiring guard (routing opencode back to the unwired branch) makes the new opencode usage/cost test(s) fail — proving the wiring, not the fallthrough, produces the ok result.
-- [ ] `binding.id` for the opencode rung is `opencode/<adapterModel>/<priceKey>` and `binding.metadata` is `{ agent: "opencode", model: <adapterModel> }`, unchanged from the pre-fix identity — verified by the updated test.
-- [ ] `bun run typecheck` passes.
+- [x] A resolved `opencode` rung whose `--format json` stdout contains a clean `step_finish` (numeric `part.tokens.{input,output,cache.read,cache.write}` and numeric `part.cost`) settles as `kind: "ok"` with `usage_source: "agent"`, populated `usage`, and `cost_source: "agent"` carrying the summed cost — verified by a new spawn-mocked test in `shared/invocation/agents.test.ts` that fails against the pre-fix exit-127 binding and passes after.
+- [x] A resolved `opencode` rung whose stream has no clean `step_finish` settles as `kind: "ok"` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning — verified by a new test that fails against pre-fix code and passes after.
+- [x] The existing `shared/invocation/agents.test.ts` case asserting `opencode` returns `exitCode: 127` "not wired yet" is updated to expect a wired invocation, and no longer asserts the 127 terminal error.
+- [x] Inverting the `agentId === "opencode"` wiring guard (routing opencode back to the unwired branch) makes the new opencode usage/cost test(s) fail — proving the wiring, not the fallthrough, produces the ok result.
+- [x] `binding.id` for the opencode rung is `opencode/<adapterModel>/<priceKey>` and `binding.metadata` is `{ agent: "opencode", model: <adapterModel> }`, unchanged from the pre-fix identity — verified by the updated test.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

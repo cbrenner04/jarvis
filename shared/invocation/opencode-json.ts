@@ -18,6 +18,56 @@ function asFrame(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function parseFrame(trimmed: string): Record<string, unknown> | null {
+  let frame: Record<string, unknown> | null;
+  try {
+    frame = asFrame(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+  if (frame === null || typeof frame.type !== "string") {
+    return null;
+  }
+  return frame;
+}
+
+type StepFinishTotals = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number | null;
+};
+
+/** Extract clean numeric token totals from a `step_finish` frame, or null. */
+function readStepFinish(frame: Record<string, unknown>): StepFinishTotals | null {
+  const part = asFrame(frame.part);
+  const tokens = part === null ? null : asFrame(part.tokens);
+  const cache = tokens === null ? null : asFrame(tokens.cache);
+  if (part === null || tokens === null || cache === null) {
+    return null;
+  }
+  const input = tokens.input;
+  const output = tokens.output;
+  const cacheRead = cache.read;
+  const cacheWrite = cache.write;
+  if (
+    typeof input !== "number" ||
+    typeof output !== "number" ||
+    typeof cacheRead !== "number" ||
+    typeof cacheWrite !== "number"
+  ) {
+    return null;
+  }
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    cost: typeof part.cost === "number" ? part.cost : null,
+  };
+}
+
 /**
  * Parse an `opencode run --format json` NDJSON stream. Token and cost fields are
  * summed **only** from clean `step_finish` frames (all of `part.tokens.input`,
@@ -43,42 +93,23 @@ export function parseOpencodeJsonOutput(stdout: string): OpencodeParseResult {
       continue;
     }
 
-    let frame: Record<string, unknown> | null;
-    try {
-      frame = asFrame(JSON.parse(trimmed));
-    } catch {
-      continue;
-    }
-    if (frame === null || typeof frame.type !== "string") {
+    const frame = parseFrame(trimmed);
+    if (frame === null) {
       continue;
     }
 
     if (frame.type === "step_finish") {
-      const part = asFrame(frame.part);
-      const tokens = part === null ? null : asFrame(part.tokens);
-      const cache = tokens === null ? null : asFrame(tokens.cache);
-      if (part === null || tokens === null || cache === null) {
+      const totals = readStepFinish(frame);
+      if (totals === null) {
         continue;
       }
-      const input = tokens.input;
-      const output = tokens.output;
-      const cacheRead = cache.read;
-      const cacheWrite = cache.write;
-      if (
-        typeof input !== "number" ||
-        typeof output !== "number" ||
-        typeof cacheRead !== "number" ||
-        typeof cacheWrite !== "number"
-      ) {
-        continue;
-      }
-      usage.input_tokens += input;
-      usage.output_tokens += output;
-      usage.cache_read_input_tokens += cacheRead;
-      usage.cache_creation_input_tokens += cacheWrite;
+      usage.input_tokens += totals.input;
+      usage.output_tokens += totals.output;
+      usage.cache_read_input_tokens += totals.cacheRead;
+      usage.cache_creation_input_tokens += totals.cacheWrite;
       sawStepFinish = true;
-      if (typeof part.cost === "number") {
-        cost_usd += part.cost;
+      if (totals.cost !== null) {
+        cost_usd += totals.cost;
         sawAnyCostField = true;
       }
     } else if (frame.type === "text") {

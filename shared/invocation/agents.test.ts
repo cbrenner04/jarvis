@@ -969,7 +969,16 @@ describe("createResolvedAgentBinding", () => {
     expect(binding.id).toBe("opencode/gpt-5/gpt-5");
     expect(binding.metadata).toEqual({ agent: "opencode", model: "gpt-5" });
     expect(fake.calls[0]?.binary).toBe("opencode");
-    expect(fake.calls[0]?.argv).toEqual(["run", "--dir", "/repo", "--model", "gpt-5", "--format", "json", "implement it"]);
+    expect(fake.calls[0]?.argv).toEqual([
+      "run",
+      "--dir",
+      "/repo",
+      "--model",
+      "gpt-5",
+      "--format",
+      "json",
+      "implement it",
+    ]);
     expect(fake.calls[0]?.opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
     expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("");
   });

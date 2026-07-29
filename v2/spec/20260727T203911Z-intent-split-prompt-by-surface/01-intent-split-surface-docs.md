@@ -26,11 +26,11 @@ no durable v2 description of the intent split surface contract in `v2/docs/workf
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/spec-guidance.md` states authored intents are split by touched module-boundary
+- [x] `v1/docs/spec-guidance.md` states authored intents are split by touched module-boundary
       surface (not symptom) in the intent fan-out / sizing section.
-- [ ] `v2/docs/workflow-runner.md` documents the intent split contract: one ready-intent per touched
+- [x] `v2/docs/workflow-runner.md` documents the intent split contract: one ready-intent per touched
       surface in dependency order, with cross-surface prerequisite behaviors on later intents.
-- [ ] `v2/docs/v1-behaviors.md` records surface-based intent fan-out instead of behavior-symptom
+- [x] `v2/docs/v1-behaviors.md` records surface-based intent fan-out instead of behavior-symptom
       slicing only.
 
 ## Documentation updates

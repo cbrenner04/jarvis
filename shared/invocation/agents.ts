@@ -133,7 +133,7 @@ export function createResolvedAgentBinding(
   };
 }
 
-type AgentName = "claude" | "codex" | "cursor";
+type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type AgentRunOptions = {
   signal?: AbortSignal;
@@ -686,10 +686,7 @@ async function runOpencodeBinding(args: {
 }): Promise<InvocationResult> {
   const result = await runAgent(
     {
-      // `name`/`classifier` are `cursor`, not `opencode`, to satisfy the closed
-      // `claude | codex | cursor` spawn-config union without widening it;
-      // opencode intentionally reuses the cursor quota/model-config classifier.
-      name: "cursor",
+      name: "opencode",
       binary: "opencode",
       cwd: args.cwd,
       buildArgv: (promptText) => [
@@ -704,7 +701,7 @@ async function runOpencodeBinding(args: {
       ],
       stdio: ["ignore", "pipe", "pipe"],
       streamErrorPrefix: "opencode:",
-      classifier: "cursor",
+      classifier: "opencode",
       ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
     },
     args.prompt,
@@ -716,8 +713,11 @@ async function runOpencodeBinding(args: {
 // Patterns below are ported from v1's quota.ts.
 const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
 
-function guardedStatusPatterns(statusCodes: readonly number[]): RegExp[] {
-  const context = transportContextWords.join("|");
+function guardedStatusPatterns(
+  statusCodes: readonly number[],
+  contextWords: readonly string[] = transportContextWords,
+): RegExp[] {
+  const context = contextWords.join("|");
   return statusCodes.flatMap((statusCode) => [
     new RegExp(`(?:^|\\n)[^\\n]*(?:${context})[^\\n]*\\b${statusCode}\\b`, "i"),
     new RegExp(`(?:^|\\n)[^\\n]*\\b${statusCode}\\b[^\\n]*(?:${context})\\b`, "i"),
@@ -766,6 +766,16 @@ const modelConfigurationPatterns = [
   /\bLLM Provider NOT provided\b/i,
 ] as const;
 
+const opencodeQuotaPatterns = [
+  /\brate limit\b/i,
+  /\bquota exceeded\b/i,
+  /\binsufficient_quota\b/i,
+  ...guardedStatusPatterns([429]),
+  /\byou have exceeded your\b/i,
+] as const;
+
+const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i] as const;
+
 const codexCredentialAuthPatterns = [
   /\brefresh token was revoked\b/i,
   /\brefresh token revoked\b/i,
@@ -791,8 +801,18 @@ const transientPatterns = [
   ...guardedStatusPatterns([502, 503, 504, 529]),
 ] as const;
 
+const opencodeTransportPatterns = [
+  ...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"]),
+] as const;
+
 function quotaPatternsFor(name: AgentName) {
-  return name === "codex" ? codexQuotaPatterns : name === "cursor" ? cursorQuotaPatterns : claudeQuotaPatterns;
+  return name === "codex"
+    ? codexQuotaPatterns
+    : name === "cursor"
+      ? cursorQuotaPatterns
+      : name === "opencode"
+        ? opencodeQuotaPatterns
+        : claudeQuotaPatterns;
 }
 
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
@@ -805,12 +825,20 @@ function isCredentialAuthSignal(name: AgentName, exitCode: number, stderr: strin
   return codexCredentialAuthPatterns.some((pattern) => pattern.test(stderr));
 }
 
-function isModelConfigurationSignal(_name: AgentName, stderr: string): boolean {
-  return modelConfigurationPatterns.some((pattern) => pattern.test(stderr));
+function isModelConfigurationSignal(name: AgentName, stderr: string): boolean {
+  const patterns =
+    name === "opencode"
+      ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
+      : modelConfigurationPatterns;
+  return patterns.some((pattern) => pattern.test(stderr));
 }
 
-function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
-  return exitCode !== 0 && transientPatterns.some((pattern) => pattern.test(stderr));
+function isTransientSignal(name: AgentName, exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return false;
+  return (
+    (name === "opencode" && opencodeTransportPatterns.some((pattern) => pattern.test(stderr))) ||
+    transientPatterns.some((pattern) => pattern.test(stderr))
+  );
 }
 
 const cursorCliModels: Record<string, string> = {

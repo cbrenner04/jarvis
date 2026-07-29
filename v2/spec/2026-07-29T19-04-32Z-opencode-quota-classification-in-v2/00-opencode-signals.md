@@ -58,29 +58,29 @@ comment at agents.ts:689 explaining the cursor reuse is removed.
 
 ## Acceptance criteria
 
-- [ ] An opencode invocation (any exit code) whose diagnostics carry an
+- [x] An opencode invocation (any exit code) whose diagnostics carry an
       opencode quota message (e.g. `rate limit`, `quota exceeded`,
       `insufficient_quota`, guarded 429, `you have exceeded your`) classifies
       as `quota` and escalates off the rung. A new/updated test in
       `shared/invocation/agents.test.ts` asserts this and fails against the
       pre-fix code (which settles it as `error`).
-- [ ] An opencode invocation returning `no provider configured for` classifies
+- [x] An opencode invocation returning `no provider configured for` classifies
       as `model_config` (terminal). A new/updated test in
       `shared/invocation/agents.test.ts` asserts this and fails against the
       pre-fix code.
-- [ ] An opencode invocation exiting non-zero with a guarded HTTP 500
+- [x] An opencode invocation exiting non-zero with a guarded HTTP 500
       (including `UnknownError` context) classifies as transient and is retried
       by the bounded retry loop rather than settling as a hard failure. The
       transient path is reachable only via non-zero exit, so the fixture must
       exit non-zero. A new/updated test in `shared/invocation/agents.test.ts`
       asserts the retry loop re-spawns (spawn call count ≥ 2) and fails against
       the pre-fix code.
-- [ ] Inverting each added opencode guard — the `name === "opencode"` branch in
+- [x] Inverting each added opencode guard — the `name === "opencode"` branch in
       quota routing, in `isModelConfigurationSignal`, and in
       `isTransientSignal` — makes at least one test in
       `shared/invocation/agents.test.ts` fail — the negative case for each new
       classification proves the effect is absent when the guard is removed.
-- [ ] Existing claude/codex/cursor classification tests in
+- [x] Existing claude/codex/cursor classification tests in
       `shared/invocation/agents.test.ts` stay green (opencode routing does not
       alter other agents' behavior).
 

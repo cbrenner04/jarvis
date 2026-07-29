@@ -7641,7 +7641,7 @@ describe("executeWorkflow review dispatch", () => {
 
   test("completes reviewed-intent review when actuator edits a tracked file under staging", async () => {
     const stagingOne = join(".jarvis-intent-stage", "one.md");
-    const { harness, durableDir, stagingDir, verdictPath, writeStep, reviewStep } = twoFileIntentWorkflow(
+    const { harness, durableDir, verdictPath, writeStep, reviewStep } = twoFileIntentWorkflow(
       "intent-actuator-staging-edit",
       {
         criticStdout: "looks good",

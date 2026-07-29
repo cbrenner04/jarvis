@@ -26,20 +26,20 @@ into token usage and cost.
 
 ## Tasks
 
-- [ ] Add `shared/invocation/opencode-json.ts` parsing the `--format json` stream into `{ displayText, usage, cost_usd, sawStepFinish, sawAnyCostField }` (token and cost fields summed **only** from clean `step_finish` frames — `part.cost` read inside the clean-token branch, matching v1; `text` parts for display).
-- [ ] Add an `agentId === "opencode"` branch to `createResolvedAgentBinding` that spawns `opencode run --dir <cwd> --model <adapterModel> --format json <prompt>` via `runAgent` (stdio `["ignore","pipe","pipe"]`, `cursor` classifier) and finalizes the ok result using the new parser.
-- [ ] Update the `shared/invocation/agents.test.ts` case so an `opencode` rung is a wired binding (no longer exit 127), and add a spawn-mocked case asserting agent-sourced usage/cost from a `step_finish` stream and the no-`step_finish` unavailable case.
-- [ ] Update `v2/docs/shared-invocation.md` to describe the resolved `opencode` binding (argv, JSON parse, ok/quota/model_config/error settlement) alongside claude/codex/cursor, and narrow the "other resolved agents still return the terminal unwired error" sentence.
-- [ ] Add a `[v2 difference]` entry to `v2/docs/v1-behaviors.md` recording that v2's opencode binding reuses the `cursor` classifier, so opencode-specific quota strings and opencode server-side HTTP 500s settle as terminal `error` rather than `quota`/transient-retry as in v1.
+- [x] Add `shared/invocation/opencode-json.ts` parsing the `--format json` stream into `{ displayText, usage, cost_usd, sawStepFinish, sawAnyCostField }` (token and cost fields summed **only** from clean `step_finish` frames — `part.cost` read inside the clean-token branch, matching v1; `text` parts for display).
+- [x] Add an `agentId === "opencode"` branch to `createResolvedAgentBinding` that spawns `opencode run --dir <cwd> --model <adapterModel> --format json <prompt>` via `runAgent` (stdio `["ignore","pipe","pipe"]`, `cursor` classifier) and finalizes the ok result using the new parser.
+- [x] Update the `shared/invocation/agents.test.ts` case so an `opencode` rung is a wired binding (no longer exit 127), and add a spawn-mocked case asserting agent-sourced usage/cost from a `step_finish` stream and the no-`step_finish` unavailable case.
+- [x] Update `v2/docs/shared-invocation.md` to describe the resolved `opencode` binding (argv, JSON parse, ok/quota/model_config/error settlement) alongside claude/codex/cursor, and narrow the "other resolved agents still return the terminal unwired error" sentence.
+- [x] Add a `[v2 difference]` entry to `v2/docs/v1-behaviors.md` recording that v2's opencode binding reuses the `cursor` classifier, so opencode-specific quota strings and opencode server-side HTTP 500s settle as terminal `error` rather than `quota`/transient-retry as in v1.
 
 ## Acceptance criteria
 
-- [ ] A resolved `opencode` rung whose `--format json` stdout contains a clean `step_finish` (numeric `part.tokens.{input,output,cache.read,cache.write}` and numeric `part.cost`) settles as `kind: "ok"` with `usage_source: "agent"`, populated `usage`, and `cost_source: "agent"` carrying the summed cost — verified by a new spawn-mocked test in `shared/invocation/agents.test.ts` that fails against the pre-fix exit-127 binding and passes after.
-- [ ] A resolved `opencode` rung whose stream has no clean `step_finish` settles as `kind: "ok"` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning — verified by a new test that fails against pre-fix code and passes after.
-- [ ] The existing `shared/invocation/agents.test.ts` case asserting `opencode` returns `exitCode: 127` "not wired yet" is updated to expect a wired invocation, and no longer asserts the 127 terminal error.
-- [ ] Inverting the `agentId === "opencode"` wiring guard (routing opencode back to the unwired branch) makes the new opencode usage/cost test(s) fail — proving the wiring, not the fallthrough, produces the ok result.
-- [ ] `binding.id` for the opencode rung is `opencode/<adapterModel>/<priceKey>` and `binding.metadata` is `{ agent: "opencode", model: <adapterModel> }`, unchanged from the pre-fix identity — verified by the updated test.
-- [ ] `bun run typecheck` passes.
+- [x] A resolved `opencode` rung whose `--format json` stdout contains a clean `step_finish` (numeric `part.tokens.{input,output,cache.read,cache.write}` and numeric `part.cost`) settles as `kind: "ok"` with `usage_source: "agent"`, populated `usage`, and `cost_source: "agent"` carrying the summed cost — verified by a new spawn-mocked test in `shared/invocation/agents.test.ts` that fails against the pre-fix exit-127 binding and passes after.
+- [x] A resolved `opencode` rung whose stream has no clean `step_finish` settles as `kind: "ok"` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning — verified by a new test that fails against pre-fix code and passes after.
+- [x] The existing `shared/invocation/agents.test.ts` case asserting `opencode` returns `exitCode: 127` "not wired yet" is updated to expect a wired invocation, and no longer asserts the 127 terminal error.
+- [x] Inverting the `agentId === "opencode"` wiring guard (routing opencode back to the unwired branch) makes the new opencode usage/cost test(s) fail — proving the wiring, not the fallthrough, produces the ok result.
+- [x] `binding.id` for the opencode rung is `opencode/<adapterModel>/<priceKey>` and `binding.metadata` is `{ agent: "opencode", model: <adapterModel> }`, unchanged from the pre-fix identity — verified by the updated test.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

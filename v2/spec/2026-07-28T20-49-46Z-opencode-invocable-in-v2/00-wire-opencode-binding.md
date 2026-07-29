@@ -26,11 +26,11 @@ into token usage and cost.
 
 ## Tasks
 
-- [ ] Add `shared/invocation/opencode-json.ts` parsing the `--format json` stream into `{ displayText, usage, cost_usd, sawStepFinish, sawAnyCostField }` (token and cost fields summed **only** from clean `step_finish` frames — `part.cost` read inside the clean-token branch, matching v1; `text` parts for display).
-- [ ] Add an `agentId === "opencode"` branch to `createResolvedAgentBinding` that spawns `opencode run --dir <cwd> --model <adapterModel> --format json <prompt>` via `runAgent` (stdio `["ignore","pipe","pipe"]`, `cursor` classifier) and finalizes the ok result using the new parser.
-- [ ] Update the `shared/invocation/agents.test.ts` case so an `opencode` rung is a wired binding (no longer exit 127), and add a spawn-mocked case asserting agent-sourced usage/cost from a `step_finish` stream and the no-`step_finish` unavailable case.
-- [ ] Update `v2/docs/shared-invocation.md` to describe the resolved `opencode` binding (argv, JSON parse, ok/quota/model_config/error settlement) alongside claude/codex/cursor, and narrow the "other resolved agents still return the terminal unwired error" sentence.
-- [ ] Add a `[v2 difference]` entry to `v2/docs/v1-behaviors.md` recording that v2's opencode binding reuses the `cursor` classifier, so opencode-specific quota strings and opencode server-side HTTP 500s settle as terminal `error` rather than `quota`/transient-retry as in v1.
+- [x] Add `shared/invocation/opencode-json.ts` parsing the `--format json` stream into `{ displayText, usage, cost_usd, sawStepFinish, sawAnyCostField }` (token and cost fields summed **only** from clean `step_finish` frames — `part.cost` read inside the clean-token branch, matching v1; `text` parts for display).
+- [x] Add an `agentId === "opencode"` branch to `createResolvedAgentBinding` that spawns `opencode run --dir <cwd> --model <adapterModel> --format json <prompt>` via `runAgent` (stdio `["ignore","pipe","pipe"]`, `cursor` classifier) and finalizes the ok result using the new parser.
+- [x] Update the `shared/invocation/agents.test.ts` case so an `opencode` rung is a wired binding (no longer exit 127), and add a spawn-mocked case asserting agent-sourced usage/cost from a `step_finish` stream and the no-`step_finish` unavailable case.
+- [x] Update `v2/docs/shared-invocation.md` to describe the resolved `opencode` binding (argv, JSON parse, ok/quota/model_config/error settlement) alongside claude/codex/cursor, and narrow the "other resolved agents still return the terminal unwired error" sentence.
+- [x] Add a `[v2 difference]` entry to `v2/docs/v1-behaviors.md` recording that v2's opencode binding reuses the `cursor` classifier, so opencode-specific quota strings and opencode server-side HTTP 500s settle as terminal `error` rather than `quota`/transient-retry as in v1.
 
 ## Acceptance criteria
 

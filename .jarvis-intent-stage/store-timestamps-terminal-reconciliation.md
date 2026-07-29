@@ -18,6 +18,11 @@ successful iteration, not kill time).
   fix into the renderer.
 - Prefer surfacing state the store already holds over new persisted fields; add
   a field only where the finish time genuinely is not recorded.
+- Plan this finish-time seam serially: this intent (store) first, then
+  `list-row-step-honesty`, then `terminal-window-renders-finishless-rows`. The
+  two dependents declare this intent as a prerequisite, and the prereq gate
+  checks committed code — planning them before this lands appends a `## Blocker`
+  and exits non-zero.
 
 ## Prerequisites
 

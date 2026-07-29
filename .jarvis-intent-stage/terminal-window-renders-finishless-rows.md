@@ -18,11 +18,14 @@ find. Production policy is expressed through a test flag
   not dropped; rules out the fail-closed policy that hides killed, interrupted,
   and spawn-failed runs. The in-window fallback is the guard only for rows that
   genuinely have no finish time.
-- Delete both `setInvert*ForTest` exports; the window and cap criteria are proven
-  by mutating the guard itself, not a flag. Rules out keeping the flags because
-  the criteria are literally satisfiable by toggling them.
-- `blocked` ages out of the window after an hour; document where to find aged-out
-  blocked rows rather than special-casing them here.
+- Delete both `setInvert*ForTest` exports; the window and cap criteria are each
+  proven by inverting their own guard — the window guard for the finishless-row
+  criterion, the row-cap guard for the cap criterion — so deleting either guard
+  turns its test red. Rules out keeping the flags because the criteria are
+  literally satisfiable by toggling them.
+- `blocked` ages out of the window after an hour; document where to find
+  aged-out blocked rows in `v2/docs/operator-runbook.md` rather than
+  special-casing them here.
 
 ## Prerequisites
 

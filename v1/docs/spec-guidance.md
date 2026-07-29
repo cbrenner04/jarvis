@@ -151,6 +151,9 @@ runs one non-interactive intent-draft pass to shape the editable draft and
 propose `name:`, then continues with the normal plan pipeline.
 
 When a seed is too broad for one spec/PR, split it into authored intents first.
+Intents are split by touched module-boundary surface (persistence, daemon request
+handling, CLI admission, execution loop, comparable seams), not by symptom, one
+intent per surface in dependency order.
 Use these size boundaries:
 
 - A **subspec** is commit-sized: one atomic, independently testable change.
@@ -166,7 +169,7 @@ For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is
 the open authored-intent queue. Successful promotion consumes a file seed:
 committed mode deletes its worktree copy in the split commit, while no-commit
 mode deletes it only after every ready-intent is written. Failed promotions
-leave it queued. Fan-out writes reviewed, behavior-level intents to
+leave it queued. Fan-out writes reviewed, one-per-surface intents to
 `ready-intents/`; later `jarvis1 plan` runs consume those intents one at a
 time.
 

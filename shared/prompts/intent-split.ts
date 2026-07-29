@@ -6,6 +6,19 @@ import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclara
 
 export const INTENT_SPLIT_PROMPT_ID = "intent.prompt.split";
 
+/**
+ * Pinned substring asserting the module-boundary surface fan-out rule (one intent per surface,
+ * in dependency order); kept in sync with `prompts/intent/split.md`. Matched against
+ * whitespace-normalized text so hard-wrap reflows don't break the check.
+ */
+export const INTENT_SPLIT_SURFACE_PIN = "one terse behavior-level intent per surface, in dependency order";
+
+/** Pre-change (revision 1) `intent.prompt.split` artifact body length, for the growth budget. */
+export const INTENT_SPLIT_BASELINE_BODY_LENGTH = 1359;
+
+/** Max characters the artifact body may grow beyond `INTENT_SPLIT_BASELINE_BODY_LENGTH`. */
+export const INTENT_SPLIT_MAX_BODY_GROWTH = 200;
+
 export function buildIntentSplitPrompt(opts: {
   workdir: string;
   seedLabel: string;

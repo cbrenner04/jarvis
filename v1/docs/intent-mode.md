@@ -97,8 +97,11 @@ PR. Disallowed filenames (ordering prefixes, `index`, characters outside
 
 ## Split rule
 
-Split by independently observable behavior. Prefer vertical slices over
-umbrella bundles. If the seed is already one behavior, emit exactly one intent.
+Split by module-boundary surface, not by symptom: one ready-intent per surface
+the seed touches, in dependency order. A single-surface seed still emits
+exactly one intent. Full contract:
+[v2/docs/workflow-runner.md § Execution contract](../v2/docs/workflow-runner.md#execution-contract)
+("Intent split contract").
 
 Reviewability still lives at the spec/PR level: one spec per PR stays the rule.
 The lever is the *count* of specs, so intent mode changes how many future

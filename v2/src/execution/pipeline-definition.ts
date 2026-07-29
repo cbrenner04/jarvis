@@ -52,12 +52,6 @@ export interface PipelineDefinition {
   stages: PipelineStage[];
 }
 
-function isUnrealizableReview(workflow: string, review: string, workflowKnown: boolean): boolean {
-  return (
-    workflowKnown && ((workflow === "intent" && review === "debate") || (workflow === "implement" && review === "none"))
-  );
-}
-
 function collectDuplicateStageIdErrors(stages: PipelineStage[], errors: PipelineValidationError[]): void {
   const stageIdCounts = new Map<string, number>();
   for (const stage of stages) {
@@ -103,7 +97,7 @@ function validateWorkflowStage(
     return;
   }
 
-  if (isUnrealizableReview(workflow, review, workflowKnown)) {
+  if (workflowKnown && workflow === "implement" && review === "none") {
     errors.push({
       code: "unrealizable-review-posture",
       stageId,

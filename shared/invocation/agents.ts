@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
+import { parseOpencodeJsonOutput } from "./opencode-json.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -91,6 +92,25 @@ export function createResolvedAgentBinding(
       metadata,
       invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
         runCursorBinding({
+          prompt,
+          cwd,
+          adapterModel,
+          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        }),
+    };
+  }
+
+  if (agentId === "opencode") {
+    return {
+      id,
+      metadata,
+      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
+        runOpencodeBinding({
           prompt,
           cwd,
           adapterModel,
@@ -474,6 +494,36 @@ function finalizeCursorInvocationResult(result: InvocationResult): InvocationRes
   };
 }
 
+function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationResult {
+  if (result.kind !== "ok") {
+    return result;
+  }
+
+  const parsed = parseOpencodeJsonOutput(result.stdout);
+  const output: InvocationOk = {
+    kind: "ok",
+    stdout: parsed.displayText,
+    stderr: result.stderr,
+  };
+  if (parsed.sawStepFinish) {
+    output.usage = parsed.usage;
+    output.usage_source = "agent";
+    if (parsed.sawAnyCostField) {
+      output.cost_usd = parsed.cost_usd;
+      output.cost_source = "agent";
+    } else {
+      output.cost_usd = null;
+      output.cost_source = "no-price";
+    }
+    return output;
+  }
+  output.usage_source = "unavailable";
+  output.cost_usd = null;
+  output.cost_source = "no-usage";
+  output.warnings = ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."];
+  return output;
+}
+
 async function runClaudeBinding(args: {
   prompt: string;
   cwd: string;
@@ -621,6 +671,46 @@ async function runCursorBinding(args: {
     pickAgentRunOptions(args),
   );
   return finalizeCursorInvocationResult(result);
+}
+
+async function runOpencodeBinding(args: {
+  prompt: string;
+  cwd: string;
+  adapterModel: string;
+  signal?: AbortSignal;
+  idleOutputMs?: number;
+  onOutputProgress?: () => void;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  spawn?: SpawnFn;
+}): Promise<InvocationResult> {
+  const result = await runAgent(
+    {
+      // `name`/`classifier` are `cursor`, not `opencode`, to satisfy the closed
+      // `claude | codex | cursor` spawn-config union without widening it;
+      // opencode intentionally reuses the cursor quota/model-config classifier.
+      name: "cursor",
+      binary: "opencode",
+      cwd: args.cwd,
+      buildArgv: (promptText) => [
+        "run",
+        "--dir",
+        args.cwd,
+        "--model",
+        args.adapterModel,
+        "--format",
+        "json",
+        promptText,
+      ],
+      stdio: ["ignore", "pipe", "pipe"],
+      streamErrorPrefix: "opencode:",
+      classifier: "cursor",
+      ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
+    },
+    args.prompt,
+    pickAgentRunOptions(args),
+  );
+  return finalizeOpencodeInvocationResult(result);
 }
 
 // Patterns below are ported from v1's quota.ts.

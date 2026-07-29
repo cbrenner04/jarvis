@@ -2,30 +2,28 @@
   "models": {
     "opencode": {
       "plan": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "implement": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "shrink": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "critic": {
-        "rungs": [
-          { "adapterModel": "github-copilot/claude-sonnet-4.5", "priceKey": "github-copilot/claude-sonnet-4.5" }
-        ]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "github-copilot/claude-opus-4.8" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
       }
     }
   }

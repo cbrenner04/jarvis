@@ -58,7 +58,18 @@ Bindings:
   fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
   --output-format text --model <resolved-cli-model> --force --workspace <cwd>
   <prompt>`, ignore stdin, and settle into `ok | quota | model_config | error`
-  before fallback continues. Other resolved agents still return the terminal
+  before fallback continues. Resolved `opencode` bindings spawn `opencode run
+  --dir <cwd> --model <adapterModel> --format json <prompt>` (prompt last),
+  ignore stdin, reuse the `cursor` classifier, and parse the `--format json`
+  NDJSON stream: token and cost fields are summed only from clean `step_finish`
+  frames (`part.tokens.{input,output,cache.read,cache.write}` and `part.cost`),
+  with `text` `part.text` frames supplying display text (raw stdout fallback
+  when none). A stream with at least one clean `step_finish` settles `ok` with
+  `usage_source: "agent"` and `cost_source: "agent"` (or `no-price` when no
+  `part.cost` was numeric); a stream with none settles `ok` with `usage_source:
+  "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and a warning. It
+  settles into `ok | quota | model_config | error` before fallback continues.
+  Other resolved agents still return the terminal
   unwired `error`. Production
   `binding.id` records the resolved rung identity as
   `agentId/adapterModel/priceKey`, so attempts stay distinct even when two rungs

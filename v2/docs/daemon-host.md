@@ -761,19 +761,25 @@ pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission holds a
 `PipelineContext` in daemon memory for the pipeline loop's lifetime (not
 persisted): `{ cwd, configPath?, targetDir?, projectRegistry?, seed }`.
 
-Posture → preset (`v2/src/execution/pipeline-definition.ts`'s
-`validatePipelineDefinition`/`isUnrealizableReview` is the sole authority on
-which `(workflow, review)` pairs are realizable; this table only maps
-realizable pairs to builders and is never itself consulted for validity):
+Posture → preset (`validatePipelineDefinition` in
+`v2/src/execution/pipeline-definition.ts` is the sole admission authority on
+which `(workflow, review)` pairs are realizable; this table only maps realizable
+pairs to builders and is never consulted for validity):
 
 | workflow    | review   | preset                |
 | ----------- | -------- | --------------------- |
 | `intent`    | `none`   | `intent`              |
 | `intent`    | `light`  | `intent-reviewed`     |
+| `intent`    | `debate` | `intent` (`reviewPasses: 1`, `reviewBehavior: "debate"`) |
 | `plan`      | `none`   | `plan`                |
 | `plan`      | `light`  | `plan-reviewed-light` |
 | `plan`      | `debate` | `plan-reviewed`       |
 | `implement` | `light` or `debate` | the implement builder, with `reviewBehavior` set to the stage's own posture — never the project's configured implement review default |
+
+At admission, only `implement` + `none` is unrealizable
+(`unrealizable-review-posture`); `intent` + `debate` and every other table row
+is realizable. `implement` has no unreviewed builder path (same rule as
+[`workflow-runner.md`](./workflow-runner.md) pipeline posture matrix).
 
 Seed/artifact hand-off: the first workflow stage (by authored position) builds
 with `PipelineContext.seed` as the seed input. Every later workflow stage

@@ -31,6 +31,7 @@ v1 tests, scripts, and harness sidecars on PR #2243.
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — Markdown-only workflow repair prohibition.
+- `v2/docs/v1-behaviors.md` — parity entry for markdown-only repair restriction on intent/plan workflows.
 
 ## Prerequisites
 

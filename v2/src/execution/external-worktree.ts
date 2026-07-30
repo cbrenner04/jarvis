@@ -72,6 +72,12 @@ export function getExternalWorktreeLockPath(lockDir: string): string {
 }
 
 /** Lock, materialize/reuse the worktree, run the callback, always release. */
+let invertExternalWorktreeLockReleaseForTest = false;
+
+export function setInvertExternalWorktreeLockReleaseForTest(value: boolean): void {
+  invertExternalWorktreeLockReleaseForTest = value;
+}
+
 export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
@@ -92,10 +98,15 @@ export async function withExternalWorktree<T>(
   try {
     const worktree = await ensureExternalWorktree(args, runner, signal);
     throwIfAborted(signal);
+    if (invertExternalWorktreeLockReleaseForTest) {
+      releaseExternalWorktreeLock(lockRoot);
+    }
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
-    releaseExternalWorktreeLock(lockRoot);
+    if (!invertExternalWorktreeLockReleaseForTest) {
+      releaseExternalWorktreeLock(lockRoot);
+    }
   }
 }
 

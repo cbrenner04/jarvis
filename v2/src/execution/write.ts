@@ -132,6 +132,7 @@ export type WriteExecuteInput = {
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
 };
 
 type WriteExecuteResult = {
@@ -170,6 +171,7 @@ function runWriteStep(
       ? { onInvocationOutputProgress: write.onInvocationOutputProgress }
       : {}),
     ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
+    ...(write.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
   });
 }
 

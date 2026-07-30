@@ -47,6 +47,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
     cwd: string;
     signal?: AbortSignal;
     idleOutputMs?: number;
+    joinProcessOnIdleStall?: boolean;
     onOutputProgress?: () => void;
   }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
@@ -136,6 +137,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
@@ -163,6 +165,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
       ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     });
     if (result.kind === "ok") {

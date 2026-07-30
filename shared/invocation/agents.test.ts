@@ -10,7 +10,7 @@ import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./exec
 
 type FakeOutcome =
   | { kind: "settle"; code: number; stdout?: string; stderr?: string }
-  | { kind: "hang" }
+  | { kind: "hang"; closeOnKill?: boolean }
   | { kind: "throw"; error: Error };
 
 class FakeChild extends EventEmitter {
@@ -45,6 +45,9 @@ class FakeChild extends EventEmitter {
 
   kill(signal?: NodeJS.Signals | number) {
     this.killedWith.push(signal === undefined ? "SIGTERM" : String(signal));
+    if (this.outcome.kind === "hang" && this.outcome.closeOnKill === false) {
+      return true;
+    }
     queueMicrotask(() => {
       this.stdout.end();
       this.stderr.end();
@@ -285,6 +288,19 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
+  test("aborting a settled invocation does not signal its former child", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n' }]);
+    const controller = new AbortController();
+    const result = await createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo", signal: controller.signal });
+
+    expect(result.kind).toBe("ok");
+    controller.abort();
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
+  });
+
   test("idle output expiry kills a silent child and settles stall", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     let expiry: (() => void) | undefined;
@@ -305,6 +321,36 @@ describe("createResolvedAgentBinding", () => {
 
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("idle output expiry joins the child before settling stall", async () => {
+    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
+    let expiry: (() => void) | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          expiry = callback;
+          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: (() => {}) as typeof clearTimeout,
+      },
+    );
+    let invocationSettled = false;
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100, joinProcessOnIdleStall: true }).finally(() => {
+      invocationSettled = true;
+    });
+
+    expiry?.();
+    await Promise.resolve();
+    expect(invocationSettled).toBe(false);
+
+    const child = fake.calls[0]?.child;
+    child?.stdout.end();
+    child?.stderr.end();
+    child?.emit("close", null);
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
   });
 
   test("output clears the previous idle expiry", async () => {

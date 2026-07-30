@@ -14,13 +14,21 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
-import { withExternalWorktree } from "../execution/external-worktree.ts";
+import {
+  createRunControlHandlers,
+  settleKilledWorkflowOwnership,
+  setInvertWorkflowKillBeforeRepairQuiescenceForTest,
+  WorktreeOwnershipRegistry,
+} from "../daemon/daemon.ts";
+import {
+  setInvertExternalWorktreeLockReleaseForTest,
+  withExternalWorktree,
+} from "../execution/external-worktree.ts";
 import {
   type BuildImplementWorkflowStepsInput,
   buildImplementWorkflowSteps,
 } from "../execution/implement-workflow-steps.ts";
-import { SurvivingMutationError } from "../execution/ready-finalize.ts";
+import { ReadyGateError, SurvivingMutationError } from "../execution/ready-finalize.ts";
 import type { WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
@@ -1965,6 +1973,8 @@ describe("implement preflight stale workspace reset", () => {
 
   function connectedWorkflowHandlers(effects?: { runRows: number }) {
     const stateStore = openStateStore(join(resetTmp, `state-${crypto.randomUUID()}.sqlite`));
+    const logsPath = join(resetTmp, `logs-${crypto.randomUUID()}.jsonl`);
+    const registry = new WorktreeOwnershipRegistry();
     const createRun = stateStore.createRun.bind(stateStore);
     stateStore.createRun = (args) => {
       if (effects) effects.runRows += 1;
@@ -1976,13 +1986,18 @@ describe("implement preflight stale workspace reset", () => {
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      registry,
+      logsPath,
+      logReader: openLogReader(logsPath),
     });
+    const rpcHandlers = {
+      start: handlers.start,
+      list: handlers.list,
+      check_workflow_start_claim: handlers.check_workflow_start_claim,
+    };
     return {
-      client: workflowExecutionClient({
-        start: handlers.start,
-        list: handlers.list,
-        check_workflow_start_claim: handlers.check_workflow_start_claim,
-      }),
+      client: workflowExecutionClient(rpcHandlers),
+      connect: () => workflowExecutionClient(rpcHandlers),
       waitForCompletion: async () => {
         for (let attempt = 0; attempt < 400; attempt++) {
           if (!handlers.hasActiveRuns()) return;
@@ -1990,12 +2005,354 @@ describe("implement preflight stale workspace reset", () => {
         }
         throw new Error("workflow did not settle");
       },
+      handlers,
+      registry,
+      stateStore,
       close: () => {
         handlers.close();
         stateStore.close();
       },
     };
   }
+
+  test.each([
+    ["completed", "completed"],
+    ["failed", "failed"],
+    ["killed", "killed"],
+  ] as const)(
+    "terminal %s releases the managed lock and daemon claim before immediate same-key implement re-dispatch",
+    async (terminal, expectedStatus) => {
+      const connected = connectedWorkflowHandlers();
+      const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");
+      const key = { project: "demo", branch: resetBranch };
+      let invocationCount = 0;
+      let repairSignal: AbortSignal | undefined;
+      let repairReturned = false;
+      let gateCalls = 0;
+      let repairStartedResolve: (() => void) | undefined;
+      let releaseRepair: (() => void) | undefined;
+      let redispatchStartedResolve: (() => void) | undefined;
+      const repairStarted = new Promise<void>((resolve) => {
+        repairStartedResolve = resolve;
+      });
+      const repairQuiesced = new Promise<void>((resolve) => {
+        releaseRepair = resolve;
+      });
+      const redispatchStarted = new Promise<void>((resolve) => {
+        redispatchStartedResolve = resolve;
+      });
+
+      const firstStep = resetImplementSteps()[0];
+      if (firstStep?.behavior !== "write") throw new Error("expected implement write step");
+      firstStep.maxIterations = 2;
+      firstStep.suppressShrink = true;
+      firstStep.publishCompletion = true;
+      firstStep.completionCommitter = async () => ({ commitSha: "commit-1", filesChanged: 1 });
+      firstStep.completionPublisher = async () => ({});
+      firstStep.readyFinalizer = async () => {
+        gateCalls += 1;
+        if (terminal === "failed" || gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "red");
+      };
+      firstStep.createBinding = ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd, signal }) => {
+          invocationCount += 1;
+          if (invocationCount === 1) {
+            writeFileSync(join(cwd, "index.md"), "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          }
+          repairSignal = signal;
+          repairStartedResolve?.();
+          await repairQuiesced;
+          repairReturned = true;
+          if (terminal === "failed") return { kind: "error", exitCode: 1, stderr: "failed" } as const;
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+      });
+
+      const dispatch = async (step: AnyWorkflowStep, cap = captureIo()) => {
+        const code = await main(
+          [
+            "run",
+            "workflow",
+            "implement",
+            "--branch",
+            resetBranch,
+            "--base",
+            "HEAD",
+            "--spec",
+            "index.md",
+            "--reset-despite-dirty",
+            "--detach",
+          ],
+          cap.io,
+          resetImplementDeps({
+            workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: [step] }) },
+            connectIpcClient: async () => connected.connect(),
+            subprocessRunner: staleResetSubprocessRunner(),
+          }),
+        );
+        return { cap, code };
+      };
+
+      try {
+        const first = await dispatch(firstStep);
+        expect(first.code).toBe(0);
+        const runId = first.cap.read().stdout.trim();
+        expect(runId).not.toBe("");
+
+        if (terminal === "killed") {
+          await repairStarted;
+          expect(existsSync(lockPath)).toBe(true);
+          expect(connected.registry.isClaimed(key)).toBe(true);
+          expect(connected.stateStore.loadRun(runId)?.status).not.toBe(expectedStatus);
+
+          const killed = await connected.handlers.kill(
+            { kind: "request", id: "kill", method: "kill", params: { runId } },
+            new AbortController().signal,
+          );
+          expect(killed).toEqual({ kind: "response", result: { ok: true } });
+          expect(repairSignal?.aborted).toBe(true);
+          expect(connected.stateStore.loadRun(runId)?.status).not.toBe("killed");
+
+          await expect(withExternalWorktree(firstStep.worktree, () => undefined)).rejects.toThrow(
+            "worktree is in use",
+          );
+          const claimed = await connected.handlers.check_workflow_start_claim(
+            {
+              kind: "request",
+              id: "claim",
+              method: "check_workflow_start_claim",
+              params: key,
+            },
+            new AbortController().signal,
+          );
+          expect(claimed).toMatchObject({ kind: "error", code: "worktree_claimed" });
+          releaseRepair?.();
+        } else {
+          await repairStarted;
+          expect(existsSync(lockPath)).toBe(true);
+          expect(connected.registry.isClaimed(key)).toBe(true);
+          expect(connected.stateStore.loadRun(runId)?.status).not.toBe(expectedStatus);
+          await expect(withExternalWorktree(firstStep.worktree, () => undefined)).rejects.toThrow(
+            "worktree is in use",
+          );
+          const claimed = await connected.handlers.check_workflow_start_claim(
+            {
+              kind: "request",
+              id: "claim",
+              method: "check_workflow_start_claim",
+              params: key,
+            },
+            new AbortController().signal,
+          );
+          expect(claimed).toMatchObject({ kind: "error", code: "worktree_claimed" });
+          releaseRepair?.();
+        }
+
+        await connected.waitForCompletion();
+        expect(connected.stateStore.loadRun(runId)?.status).toBe(expectedStatus);
+        expect(repairReturned).toBe(true);
+        expect(existsSync(lockPath)).toBe(false);
+        expect(connected.registry.isClaimed(key)).toBe(false);
+
+        const secondStep = resetImplementSteps()[0];
+        if (secondStep?.behavior !== "write") throw new Error("expected implement write step");
+        secondStep.publishCompletion = false;
+        secondStep.expectedArtifactPath = "proof.md";
+        secondStep.createBinding = ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async () => {
+            redispatchStartedResolve?.();
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        });
+        const second = await dispatch(secondStep);
+        const secondOutput = second.cap.read();
+        expect({ code: second.code, output: secondOutput }).toMatchObject({ code: 0 });
+        expect(secondOutput.stderr).not.toContain("holds worktree lock");
+        expect(secondOutput.stderr).not.toContain("worktree_claimed");
+        await redispatchStarted;
+        await connected.waitForCompletion();
+      } finally {
+        releaseRepair?.();
+        connected.close();
+      }
+    },
+  );
+
+  test("inverting guarded kill before repair quiescence observes killed before repair returns", async () => {
+    setInvertWorkflowKillBeforeRepairQuiescenceForTest(true);
+    const connected = connectedWorkflowHandlers();
+    let repairStartedResolve: (() => void) | undefined;
+    let releaseRepair: (() => void) | undefined;
+    const repairStarted = new Promise<void>((resolve) => {
+      repairStartedResolve = resolve;
+    });
+    const repairQuiesced = new Promise<void>((resolve) => {
+      releaseRepair = resolve;
+    });
+    let invocationCount = 0;
+
+    const firstStep = resetImplementSteps()[0];
+    if (firstStep?.behavior !== "write") throw new Error("expected implement write step");
+    firstStep.maxIterations = 2;
+    firstStep.suppressShrink = true;
+    firstStep.publishCompletion = true;
+    firstStep.completionCommitter = async () => ({ commitSha: "commit-1", filesChanged: 1 });
+    firstStep.completionPublisher = async () => ({});
+    firstStep.readyFinalizer = async () => {
+      throw new ReadyGateError("bun run ready", 1, "red");
+    };
+    firstStep.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd, signal }) => {
+        invocationCount += 1;
+        if (invocationCount === 1) {
+          writeFileSync(join(cwd, "index.md"), "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }
+        repairStartedResolve?.();
+        await repairQuiesced;
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    try {
+      const cap = captureIo();
+      const code = await main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          "--reset-despite-dirty",
+          "--detach",
+        ],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: [firstStep] }) },
+          connectIpcClient: async () => connected.connect(),
+          subprocessRunner: staleResetSubprocessRunner(),
+        }),
+      );
+      expect(code).toBe(0);
+      const runId = cap.read().stdout.trim();
+      await repairStarted;
+      await connected.handlers.kill(
+        { kind: "request", id: "kill", method: "kill", params: { runId } },
+        new AbortController().signal,
+      );
+      expect(connected.stateStore.loadRun(runId)?.status).toBe("killed");
+      releaseRepair?.();
+      await connected.waitForCompletion();
+    } finally {
+      releaseRepair?.();
+      setInvertWorkflowKillBeforeRepairQuiescenceForTest(false);
+      connected.close();
+    }
+  });
+
+  test("inverting registry release before guarded kill commits kill after registry release", () => {
+    const steps: string[] = [];
+    settleKilledWorkflowOwnership({
+      killedRunIds: ["run-1"],
+      releaseRegistry: () => steps.push("release"),
+      commitGuardedKill: (runId) => steps.push(`kill:${runId}`),
+    });
+    expect(steps).toEqual(["kill:run-1", "release"]);
+
+    steps.length = 0;
+    settleKilledWorkflowOwnership({
+      killedRunIds: ["run-1"],
+      releaseRegistry: () => steps.push("release"),
+      commitGuardedKill: (runId) => steps.push(`kill:${runId}`),
+      invertRegistryReleaseBeforeKill: true,
+    });
+    expect(steps).toEqual(["release", "kill:run-1"]);
+  });
+
+  test("inverting physical-lock release during repair drops the lock before repair quiesces", async () => {
+    setInvertExternalWorktreeLockReleaseForTest(true);
+    const connected = connectedWorkflowHandlers();
+    const lockPath = join(resetJarvisRoot, "worktree-locks", "demo", resetBranch, ".jarvis.lock");
+    let repairStartedResolve: (() => void) | undefined;
+    let releaseRepair: (() => void) | undefined;
+    const repairStarted = new Promise<void>((resolve) => {
+      repairStartedResolve = resolve;
+    });
+    const repairQuiesced = new Promise<void>((resolve) => {
+      releaseRepair = resolve;
+    });
+    let invocationCount = 0;
+
+    const firstStep = resetImplementSteps()[0];
+    if (firstStep?.behavior !== "write") throw new Error("expected implement write step");
+    firstStep.maxIterations = 2;
+    firstStep.suppressShrink = true;
+    firstStep.publishCompletion = true;
+    firstStep.completionCommitter = async () => ({ commitSha: "commit-1", filesChanged: 1 });
+    firstStep.completionPublisher = async () => ({});
+    firstStep.readyFinalizer = async () => {
+      throw new ReadyGateError("bun run ready", 1, "red");
+    };
+    firstStep.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd }) => {
+        invocationCount += 1;
+        if (invocationCount === 1) {
+          writeFileSync(join(cwd, "index.md"), "# Index\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }
+        repairStartedResolve?.();
+        await repairQuiesced;
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    try {
+      const cap = captureIo();
+      const code = await main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          "--reset-despite-dirty",
+          "--detach",
+        ],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { implement: () => ({ ok: true as const, steps: [firstStep] }) },
+          connectIpcClient: async () => connected.connect(),
+          subprocessRunner: staleResetSubprocessRunner(),
+        }),
+      );
+      expect(code).toBe(0);
+      await repairStarted;
+      expect(existsSync(lockPath)).toBe(false);
+      releaseRepair?.();
+      await connected.waitForCompletion();
+    } finally {
+      releaseRepair?.();
+      setInvertExternalWorktreeLockReleaseForTest(false);
+      connected.close();
+    }
+  });
 
   beforeEach(async () => {
     resetTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-reset-"));

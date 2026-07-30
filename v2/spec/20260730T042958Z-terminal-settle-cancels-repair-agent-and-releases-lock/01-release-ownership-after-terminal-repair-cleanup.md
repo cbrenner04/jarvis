@@ -20,11 +20,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow.test.ts` adds a pre-fix-failing regression through the real daemon path that reaches `completed`, `failed`, and `killed` (including kill during repair); after each durable terminal observation, it launches `jarvis run workflow implement` on the same `(project, branch)` without awaiting the old workflow promise and observes positive dispatch (run creation or invocation start), not `holds worktree lock` or `worktree_claimed`.
-- [ ] The regression independently proves the physical `.jarvis.lock` and daemon registry claim have each been released through their owners only after repair process and invocation-promise quiescence; a second writer is not admitted earlier.
-- [ ] Inverting physical-lock release, registry-claim release, or daemon-kill ordering turns its corresponding same-key re-admission regression RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` record release of both ownership layers after repair stops for `completed`, `failed`, and `killed`, including kill during repair.
+- [x] `v2/src/commands/workflow.test.ts` adds a pre-fix-failing regression through the real daemon path that reaches `completed`, `failed`, and `killed` (including kill during repair); after each durable terminal observation, it launches `jarvis run workflow implement` on the same `(project, branch)` without awaiting the old workflow promise and observes positive dispatch (run creation or invocation start), not `holds worktree lock` or `worktree_claimed`.
+- [x] The regression independently proves the physical `.jarvis.lock` and daemon registry claim have each been released through their owners only after repair process and invocation-promise quiescence; a second writer is not admitted earlier.
+- [x] Inverting physical-lock release, registry-claim release, or daemon-kill ordering turns its corresponding same-key re-admission regression RED.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` record release of both ownership layers after repair stops for `completed`, `failed`, and `killed`, including kill during repair.
 
 ## Documentation updates
 

@@ -98,16 +98,12 @@ function sectionBullets(
   const blocks: SectionBulletBlock[] = [];
   for (let index = bounds.start + 1; index < bounds.end; index += 1) {
     const line = lines[index] ?? "";
-    const match = checkbox
-      ? line.match(/^\s*-\s\[[ xX]\]\s+(.+)$/u)
-      : line.match(/^\s*-\s+(?!\[[ xX]\]\s)(.+)$/u);
+    const match = checkbox ? line.match(/^\s*-\s\[[ xX]\]\s+(.+)$/u) : line.match(/^\s*-\s+(?!\[[ xX]\]\s)(.+)$/u);
     if (!match?.[1]) continue;
     const blockLines = [line];
     while (index + 1 < bounds.end) {
       const next = lines[index + 1] ?? "";
-      const isNewBullet = checkbox
-        ? /^\s*-\s\[[ xX]\]\s+/u.test(next)
-        : /^\s*-\s+(?!\[[ xX]\]\s)/u.test(next);
+      const isNewBullet = checkbox ? /^\s*-\s\[[ xX]\]\s+/u.test(next) : /^\s*-\s+(?!\[[ xX]\]\s)/u.test(next);
       if (isNewBullet) break;
       blockLines.push(next);
       index += 1;
@@ -203,10 +199,7 @@ function assertNoMultiSurfaceBullets(draft: DraftSubspec): void {
   }
 }
 
-function assertBulletsWithinBoundaries(
-  draft: DraftSubspec,
-  boundaries: readonly ModuleBoundarySurface[],
-): void {
+function assertBulletsWithinBoundaries(draft: DraftSubspec, boundaries: readonly ModuleBoundarySurface[]): void {
   const boundarySet = new Set(boundaries);
   for (const { checkbox, heading } of PARTITIONED_SECTIONS) {
     if (checkbox) continue;

@@ -6,8 +6,8 @@ import {
   MODULE_BOUNDARY_SURFACES,
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
-  splitResiduePattern,
   spansMultipleModuleBoundaries,
+  splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
 
 const PHRASE_FIXTURES = [

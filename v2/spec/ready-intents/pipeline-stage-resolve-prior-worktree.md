@@ -42,11 +42,11 @@ the artifact path shape is correct.
       succeeds using the plan entry run worktree and plan spec tree path without
       the plan PR on `main`; inverting the worktree-root guard makes that test
       fail.
-- [ ] `fast` (`intent(none) → plan(none) → implement(light)`) walks intent → plan
-      → implement resolution in an integration test using real
-      `resolveStageWorkflowSteps` and real worktree paths with dispatch/wait
-      faked only at the agent boundary; inverting the worktree-root guard makes
-      the test fail.
+- [ ] `pipeline-end-to-end.sandbox-unrunnable.test.ts` walks `fast`
+      (`intent(none) → plan(none) → implement(light)`) intent → plan → implement
+      resolution using real `resolveStageWorkflowSteps` and real worktree paths
+      with dispatch/wait faked only at the agent boundary; inverting the
+      worktree-root guard makes the test fail.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

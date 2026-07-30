@@ -48,14 +48,16 @@ collapse path is deleted.
       `invertWorkflowCollapseForTest` module variable, `buildWorkflowTableRows`
       has no test-flag branch, and no replacement production test hooks were
       added.
-- [ ] `tui-monitor-workflow-collapse.test.ts` — `inverted collapse shows every
+- [x] (Manual) `tui-monitor-workflow-collapse.test.ts` — `inverted collapse shows every
       constituent run as a top-level row` is removed; guard inversion is
       documented in a comment checkpoint on `collapsed table shows one top-level
       row for a multi-run workflow` naming bypass as disabling full collapse
       grouping (N top-level rendered monitor rows for N shared-invocation
       members) via mutation of the `seenInvocations` dedup +
       `workflow-collapsed` emit block in `buildWorkflowTableRows`; operator
-      verifies the pinning test turns red under that mutation. (Manual)
+      verifies the pinning test turns red under that mutation. Operator-verified
+      2026-07-30: mutating the `seenInvocations` dedup turned three cases in that
+      file red; restoring it returned 5 pass.
 - [ ] `tui-monitor-workflow-collapse.test.ts` — `collapsed table shows one
       top-level row for a multi-run workflow` stays green (rendered monitor
       text via `tableBodyLines`; behavior unchanged by the flag removal).

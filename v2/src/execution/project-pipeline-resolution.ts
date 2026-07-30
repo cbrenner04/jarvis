@@ -1,7 +1,9 @@
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import {
+  PIPELINE_TERMINAL_ACTIONS,
   type PipelineDefinition,
+  type PipelineTerminalAction,
   type PipelineValidationError,
   validatePipelineDefinition,
 } from "./pipeline-definition.ts";
@@ -27,8 +29,15 @@ export type ProjectPipelineResolutionResult =
 
 type ParsedProjectPipeline = {
   name: string;
+  terminalAction: PipelineTerminalAction;
   reviewOverrides: Array<[stageId: string, posture: string]>;
 };
+
+let invertTerminalActionConflictGuardForTest = false;
+
+export function setInvertTerminalActionConflictGuardForTest(value: boolean): void {
+  invertTerminalActionConflictGuardForTest = value;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -47,7 +56,7 @@ function parseProjectPipeline(
   }
 
   for (const key of Object.keys(config.pipeline)) {
-    if (key !== "name" && key !== "reviewOverrides") {
+    if (key !== "name" && key !== "terminalAction" && key !== "reviewOverrides") {
       const offendingKey = `${pipelineKey}.${key}`;
       return invalid(offendingKey, `${offendingKey} is not allowed`);
     }
@@ -56,6 +65,21 @@ function parseProjectPipeline(
   const nameKey = `${pipelineKey}.name`;
   if (typeof config.pipeline.name !== "string" || config.pipeline.name.length === 0) {
     return invalid(nameKey, `${nameKey} must be a non-empty string`);
+  }
+
+  const terminalActionKey = `${pipelineKey}.terminalAction`;
+  const rawTerminalAction = config.pipeline.terminalAction;
+  if (rawTerminalAction === undefined) {
+    return invalid(terminalActionKey, `${terminalActionKey} is required`);
+  }
+  if (typeof rawTerminalAction !== "string") {
+    return invalid(terminalActionKey, `${terminalActionKey} must be a string`);
+  }
+  if (rawTerminalAction.length === 0) {
+    return invalid(terminalActionKey, `${terminalActionKey} must be a non-empty string`);
+  }
+  if (!(PIPELINE_TERMINAL_ACTIONS as readonly string[]).includes(rawTerminalAction)) {
+    return invalid(terminalActionKey, `${terminalActionKey} has unknown value "${rawTerminalAction}"`);
   }
 
   const reviewOverridesKey = `${pipelineKey}.reviewOverrides`;
@@ -73,7 +97,14 @@ function parseProjectPipeline(
     reviewOverrides.push([stageId, posture]);
   }
 
-  return { ok: true, pipeline: { name: config.pipeline.name, reviewOverrides } };
+  return {
+    ok: true,
+    pipeline: {
+      name: config.pipeline.name,
+      terminalAction: rawTerminalAction as PipelineTerminalAction,
+      reviewOverrides,
+    },
+  };
 }
 
 function copyDefinition(definition: PipelineDefinition): PipelineDefinition {
@@ -105,6 +136,21 @@ export function resolveProjectPipeline(
       return invalid(overrideKey, `${overrideKey} cannot target an approval stage`);
     }
     stage.review = posture;
+  }
+
+  definition.terminalAction = parsed.pipeline.terminalAction;
+
+  const pipelineKey = `projects.${config.projectKey}.pipeline`;
+  const terminalActionKey = `${pipelineKey}.terminalAction`;
+  const nameKey = `${pipelineKey}.name`;
+  const lacksImplementStage = !definition.stages.some(
+    (stage) => stage.kind === "workflow" && stage.workflow === "implement",
+  );
+  if (invertTerminalActionConflictGuardForTest ? !lacksImplementStage : lacksImplementStage) {
+    return invalid(
+      terminalActionKey,
+      `${terminalActionKey} is incompatible with ${nameKey} when the composed pipeline has no implement workflow stage`,
+    );
   }
 
   const validation = validatePipelineDefinition(definition, { agentModelConfig });

@@ -25,9 +25,9 @@ and unknown or approval-incompatible choices fail before admission effects.
 
 ## Acceptance criteria
 
-- [ ] `project-pipeline-resolution.test.ts` — `resolves every terminal action into an isolated admitted definition` fails against the baseline, then confirms `leave-draft`, `ready`, and `merge` compose onto `fast` and `full-review` with `terminalAction` on independently owned admitted definitions (including `fast` + `merge`); mutating one resolved copy's `terminalAction` does not affect another.
-- [ ] `project-pipeline-resolution.test.ts` — `rejects unknown terminal actions and approval conflicts before admission` fails against the baseline, then confirms `invalid-project-pipeline-config` with named paths for missing, unknown, and malformed `terminalAction` values before registry lookup (lookup spy), and resolution failures perform no admission effects.
-- [ ] `project-pipeline-resolution.test.ts` — `rejects terminal-action approval conflicts` fails against the baseline with a fixture whose composed definition has no `implement` workflow stage, names `terminalAction` and `pipeline.name`, and turns RED when its conflict guard is inverted.
+- [x] `project-pipeline-resolution.test.ts` — `resolves every terminal action into an isolated admitted definition` fails against the baseline, then confirms `leave-draft`, `ready`, and `merge` compose onto `fast` and `full-review` with `terminalAction` on independently owned admitted definitions (including `fast` + `merge`); mutating one resolved copy's `terminalAction` does not affect another.
+- [x] `project-pipeline-resolution.test.ts` — `rejects unknown terminal actions and approval conflicts before admission` fails against the baseline, then confirms `invalid-project-pipeline-config` with named paths for missing, unknown, and malformed `terminalAction` values before registry lookup (lookup spy), and resolution failures perform no admission effects.
+- [x] `project-pipeline-resolution.test.ts` — `rejects terminal-action approval conflicts` fails against the baseline with a fixture whose composed definition has no `implement` workflow stage, names `terminalAction` and `pipeline.name`, and turns RED when its conflict guard is inverted.
 
 ## Documentation updates
 

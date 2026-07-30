@@ -22,6 +22,7 @@ import {
   continuePipeline,
   derivePipelineState,
   isPipelineContinuable,
+  isReopenedFailedContinuation,
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
@@ -920,6 +921,42 @@ describe("activation eligibility guards", () => {
     expect(approvalOutcomeBlocksActivation("approved")).toBe(false);
     expect(approvalOutcomePermitsActivation(pipelineWithGateStatus("awaiting"))).toBe(false);
     expect(approvalOutcomePermitsActivation(pipelineWithGateStatus("rejected"))).toBe(false);
+  });
+
+  test("a pending stage directly after an approved gate is not a reopened failed continuation", () => {
+    const gatedDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "gate", kind: "approval" },
+        { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const { store } = fakeStore(gatedDefinition, {}, { context: baseContext });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "pending" } });
+    const gated = store.loadPipeline(PIPELINE_ID);
+    if (!gated) throw new Error("expected pipeline");
+
+    // The prior authored stage is the approval gate, so this pending stage is approval-gated
+    // progression, not an in-place reopen.
+    expect(isReopenedFailedContinuation(gated)).toBe(false);
+
+    const ungatedDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const { store: ungatedStore } = fakeStore(ungatedDefinition, {}, { context: baseContext });
+    ungatedStore.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    ungatedStore.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "pending" } });
+    const ungated = ungatedStore.loadPipeline(PIPELINE_ID);
+    if (!ungated) throw new Error("expected pipeline");
+
+    expect(isReopenedFailedContinuation(ungated)).toBe(true);
   });
 
   test("inverting reopen activation eligibility guard fails reopened activation regression", () => {

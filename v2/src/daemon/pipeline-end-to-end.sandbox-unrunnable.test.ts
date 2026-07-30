@@ -1,20 +1,23 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { buildImplementWorkflowSteps } from "../execution/implement-workflow-steps.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
-import {
-  buildReviewedPlanWorkflowSteps,
-  type PlanWorkflowInput,
-} from "../execution/publication-workflow-steps.ts";
+import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
+import { buildReviewedPlanWorkflowSteps, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps } from "../execution/workflow-loader.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
-import { openStateStore, type Pipeline, type PipelineStageRecord, type StateStore } from "../persistence/state-store.ts";
+import {
+  openStateStore,
+  type Pipeline,
+  type PipelineStageRecord,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
@@ -27,8 +30,8 @@ const STAGE_IDS = ["intent", "approve-intent", "plan", "approve-plan", "implemen
 const INTENT_SPEC = "v2/spec/ready-intents/ship-feature.md";
 const PLAN_SPEC = "v2/spec/ship-feature/index.md";
 const TERMINAL_PR = { prNumber: 42, prUrl: "https://github.com/org/repo/pull/42" } as const;
-const FAST_SUBPROCESS_RUNNER = {
-  runAsync: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+const FAST_SUBPROCESS_RUNNER: AsyncSubprocessRunner = {
+  runAsync: async () => "",
 };
 
 let sandboxRepoRoot = "";
@@ -38,8 +41,10 @@ function loadStepsWithProfile(steps: Parameters<typeof loadWorkflowSteps>[0]) {
   return loadWorkflowSteps(steps, { machineProfile: "home", machinesDir: resolveStageMachinesDir });
 }
 
-function makeResolveStageBuilders() {
-  return {
+// `resolveStageWorkflowSteps` widens every preset input to `BuildImplementWorkflowStepsInput`
+// before dispatch, so the map's declared signature is looser than each builder's real input.
+function makeResolveStageBuilders(): typeof WORKFLOW_PRESET_BUILDERS {
+  const builders = {
     ...WORKFLOW_PRESET_BUILDERS,
     "plan-reviewed": (input: PlanWorkflowInput) =>
       buildReviewedPlanWorkflowSteps(input, {
@@ -64,6 +69,7 @@ function makeResolveStageBuilders() {
         },
       ),
   };
+  return builders as unknown as typeof WORKFLOW_PRESET_BUILDERS;
 }
 
 function productionResolveStage(
@@ -256,7 +262,7 @@ type Harness = {
 
 function createHarness(
   repoRoot: string,
-  jarvisRoot: string,
+  _jarvisRoot: string,
   configPath: string,
   fakeOptions: FakeInvocationOptions & { settlement?: ReturnType<typeof deferred<void>> } = {},
 ): Harness {
@@ -310,11 +316,15 @@ function readPipeline(store: StateStore, pipelineId: string): LoadedPipeline {
   return pipeline;
 }
 
-async function loadPipeline(store: StateStore, pipelineId: string): Promise<LoadedPipeline> {
+async function _loadPipeline(store: StateStore, pipelineId: string): Promise<LoadedPipeline> {
   return readPipeline(store, pipelineId);
 }
 
-async function expectVector(store: StateStore, pipelineId: string, expected: readonly string[]): Promise<LoadedPipeline> {
+async function expectVector(
+  store: StateStore,
+  pipelineId: string,
+  expected: readonly string[],
+): Promise<LoadedPipeline> {
   await waitFor(() => {
     const pipeline = store.loadPipeline(pipelineId);
     if (!pipeline) return false;
@@ -378,7 +388,10 @@ describe("pipeline end-to-end full-review", () => {
 
     let pipeline = await expectVector(store, pipelineId, ["pending", "pending", "pending", "pending", "pending"]);
 
-    await waitFor(() => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,awaiting,pending,pending,pending");
+    await waitFor(
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,awaiting,pending,pending,pending",
+    );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "awaiting", "pending", "pending", "pending"]);
     expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
@@ -393,13 +406,15 @@ describe("pipeline end-to-end full-review", () => {
     });
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,running,pending,pending",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,running,pending,pending",
     );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "running", "pending", "pending"]);
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,failed,skipped,skipped",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,failed,skipped,skipped",
     );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "failed", "skipped", "skipped"]);
@@ -416,13 +431,16 @@ describe("pipeline end-to-end full-review", () => {
     pipeline = await expectVector(store, pipelineId, ["succeeded", "approved", "pending", "pending", "pending"]);
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,running,pending,pending",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,running,pending,pending",
     );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "running", "pending", "pending"]);
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,succeeded,awaiting,pending",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") ===
+        "succeeded,approved,succeeded,awaiting,pending",
     );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "succeeded", "awaiting", "pending"]);
@@ -441,7 +459,9 @@ describe("pipeline end-to-end full-review", () => {
     });
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,succeeded,approved,running",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") ===
+        "succeeded,approved,succeeded,approved,running",
       10_000,
       `implement-running vector=${stageStatusVector(readPipeline(store, pipelineId)).join(",")} implement=${readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.status} detail=${JSON.stringify(readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.failureDetail)} counts=${JSON.stringify(harness.dispatchCounts)}`,
     );
@@ -449,7 +469,9 @@ describe("pipeline end-to-end full-review", () => {
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "succeeded", "approved", "running"]);
 
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,succeeded,approved,succeeded",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") ===
+        "succeeded,approved,succeeded,approved,succeeded",
     );
     pipeline = readPipeline(store, pipelineId);
     expect(stageStatusVector(pipeline)).toEqual(["succeeded", "approved", "succeeded", "approved", "succeeded"]);
@@ -496,13 +518,17 @@ describe("pipeline end-to-end full-review", () => {
     );
     const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
 
-    await waitFor(() => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,awaiting,pending,pending,pending");
+    await waitFor(
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,awaiting,pending,pending,pending",
+    );
     await handlers.pipeline_approve(
       requestFrame("approve-intent", "pipeline_approve", { pipelineId, stageId: "approve-intent" }),
       new AbortController().signal,
     );
     await waitFor(
-      () => stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,failed,skipped,skipped",
+      () =>
+        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,failed,skipped,skipped",
     );
 
     const resume = await handlers.pipeline_resume(

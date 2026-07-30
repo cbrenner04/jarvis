@@ -25,10 +25,7 @@ import {
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type {
-  TerminalPublicationInput,
-  TerminalPublicationResult,
-} from "../execution/terminal-publication.ts";
+import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,

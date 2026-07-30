@@ -1,5 +1,5 @@
 import type { ReviewProgress } from "../execution/workflow-runner.ts";
-import type { WorkflowSnapshot } from "../persistence/state-store.ts";
+import { type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
 import type { LoadedRun } from "./daemon.ts";
 
 export type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
@@ -29,6 +29,7 @@ export function workflowRowSnapshot(
   runsByWorkflowInvocation: ReadonlyMap<string, Map<string, LoadedRun>>,
   liveRunIds: ReadonlySet<string>,
   reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
+  entryRollupStatus: RunStatus,
 ): { invocationId: string; steps: WorkflowStepListSnapshot[] } | undefined {
   const snapshot = run.workflowSnapshot;
   if (snapshot === null || snapshot === undefined) return undefined;
@@ -43,8 +44,19 @@ export function workflowRowSnapshot(
         liveRunIds,
         snapshot.invocationId,
         reviewDebateProgressByInvocation,
+        entryRollupStatus,
       ),
     ),
+  };
+}
+
+function completedRollupStepWithoutRun(step: WorkflowSnapshot["steps"][number]): WorkflowStepListSnapshot {
+  return {
+    stepId: step.stepId,
+    role: step.role,
+    status: "completed",
+    attemptCount: 0,
+    terminalOutcome: "complete",
   };
 }
 
@@ -54,6 +66,7 @@ function workflowStepSnapshot(
   liveRunIds: ReadonlySet<string>,
   invocationId: string,
   reviewDebateProgressByInvocation: ReadonlyMap<string, Map<string, ReviewProgress>>,
+  entryRollupStatus: RunStatus,
 ): WorkflowStepListSnapshot {
   const progress = reviewDebateProgressByInvocation.get(invocationId)?.get(step.stepId);
   if (step.behavior === "review-debate" && run?.status === "in-progress" && progress?.status === "in_progress") {
@@ -65,8 +78,13 @@ function workflowStepSnapshot(
     };
   }
 
-  if (step.behavior === "review" || (step.behavior === "review-debate" && !step.durable)) {
-    if (!progress) {
+  const nonDurableReview =
+    step.behavior === "review" || (step.behavior === "review-debate" && !step.durable);
+  if (nonDurableReview) {
+    if (progress === undefined) {
+      if (entryRollupStatus === "completed") {
+        return completedRollupStepWithoutRun(step);
+      }
       return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
     }
     if (progress.status === "in_progress") {
@@ -76,12 +94,15 @@ function workflowStepSnapshot(
       stepId: step.stepId,
       role: progress.role,
       status: progress.status,
-      attemptCount: 0,
+      attemptCount: progress.attemptCount,
       terminalOutcome: progress.terminalOutcome,
     };
   }
 
   if (!run) {
+    if (entryRollupStatus === "completed") {
+      return completedRollupStepWithoutRun(step);
+    }
     return { stepId: step.stepId, role: step.role, status: "pending", attemptCount: 0 };
   }
 

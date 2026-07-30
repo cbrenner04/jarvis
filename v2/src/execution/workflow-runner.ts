@@ -232,6 +232,7 @@ export type ReviewProgress =
       status: "completed" | "stopped";
       role: ReviewDebateRole | ReviewCycleRole;
       terminalOutcome: "complete" | "invocation_failure";
+      attemptCount: number;
     };
 
 export type ReviewDebateProgress = ReviewProgress;
@@ -1762,9 +1763,15 @@ async function runReviewDebateStep(
     branch,
   });
 
+  let invocationCount = 0;
   const onRoleStart =
     onProgress !== undefined
-      ? { onRoleStart: (role: ReviewDebateRole) => onProgress(invocationId, stepId, { status: "in_progress", role }) }
+      ? {
+          onRoleStart: (role: ReviewDebateRole) => {
+            invocationCount += 1;
+            onProgress(invocationId, stepId, { status: "in_progress", role });
+          },
+        }
       : {};
 
   const profile = rehydrateReviewPromptProfile(serializedProfile);
@@ -1782,6 +1789,7 @@ async function runReviewDebateStep(
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,
+    attemptCount: Math.max(invocationCount, 1),
   });
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
@@ -1946,9 +1954,15 @@ async function tryActuatorOnlyReviewDebateRetry(
     branch: step.branch,
   });
 
+  let invocationCount = 0;
   const onRoleStart =
     onProgress !== undefined
-      ? { onRoleStart: () => onProgress(invocationId, step.stepId, { status: "in_progress", role: "actuator" }) }
+      ? {
+          onRoleStart: () => {
+            invocationCount += 1;
+            onProgress(invocationId, step.stepId, { status: "in_progress", role: "actuator" });
+          },
+        }
       : {};
 
   const execution = await invokeReviewRole(
@@ -1971,6 +1985,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     status: failureKind === null ? "completed" : "stopped",
     role: "actuator",
     terminalOutcome: failureKind === null ? "complete" : "invocation_failure",
+    attemptCount: Math.max(invocationCount, 1),
   });
 
   if (failureKind !== null) {
@@ -3262,12 +3277,14 @@ function buildReviewStepOnRoleStart(
   invocationId: string,
   stepId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
+  invocationCount: { value: number },
 ) {
   if (onProgress === undefined) {
     return {};
   }
   return {
     onRoleStart: (role: ReviewCycleRole) => {
+      invocationCount.value += 1;
       onProgress(invocationId, stepId, { status: "in_progress", role });
     },
   };
@@ -3561,6 +3578,7 @@ async function runProfileReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
+  const invocationCount = { value: 0 };
   const profile = rehydrateReviewPromptProfile(step.profile);
   const result = await executeReviewCycle({
     cwd: step.cwd,
@@ -3578,7 +3596,7 @@ async function runProfileReviewStep(
     ...(reviewInput.idleOutputMs !== undefined ? { idleOutputMs: reviewInput.idleOutputMs } : {}),
     ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
-    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress, invocationCount),
   });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
@@ -3588,6 +3606,7 @@ async function runProfileReviewStep(
     status: kind === "complete" ? "completed" : "stopped",
     role: terminalRole,
     terminalOutcome: kind,
+    attemptCount: Math.max(invocationCount.value, 1),
   });
 
   if (kind === "complete" && step.landing !== undefined && step.landing.kind !== "none") {
@@ -3630,6 +3649,7 @@ async function runStandardReviewStep(
     return workspaceFailureOutcome;
   }
 
+  const invocationCount = { value: 0 };
   const profile = rehydrateReviewPromptProfile(step.profile);
   const reviewCycleInput: ReviewCycleInput = {
     ...reviewInput,
@@ -3637,7 +3657,7 @@ async function runStandardReviewStep(
     ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
     bindings,
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
-    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress, invocationCount),
   };
 
   const { result, boundaryViolation: boundaryViolationMsg } = await runStandardReviewCycle(
@@ -3655,6 +3675,7 @@ async function runStandardReviewStep(
     status: result.kind === "complete" ? "completed" : "stopped",
     role: terminalRoleFromReviewCycles(result.cycles),
     terminalOutcome: result.kind,
+    attemptCount: Math.max(invocationCount.value, 1),
   });
 
   if (result.kind === "invocation_failure") {

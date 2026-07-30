@@ -667,13 +667,20 @@ function runListRowError(
   return composeRunOperatorError(run, terminalRecord);
 }
 
-function runListFinishedAtMs(reportedStatus: RunStatus, fullRun: LoadedRun | undefined): number | undefined {
-  if (!isTerminalRunStatus(reportedStatus) || fullRun === undefined) return undefined;
+export function runListTerminalFinishAtMs(
+  attempts: Array<{ completedAt: number | null }>,
+  reconciledAt: number | null | undefined,
+): number | undefined {
   let finishedAtMs: number | undefined;
-  for (const attempt of fullRun.attempts) {
+  for (const attempt of attempts) {
     if (attempt.completedAt === null) continue;
     if (finishedAtMs === undefined || attempt.completedAt > finishedAtMs) {
       finishedAtMs = attempt.completedAt;
+    }
+  }
+  if (reconciledAt != null) {
+    if (finishedAtMs === undefined || reconciledAt > finishedAtMs) {
+      finishedAtMs = reconciledAt;
     }
   }
   return finishedAtMs;
@@ -874,7 +881,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       steps = new Map<string, ReviewProgress>();
       reviewDebateProgressByInvocation.set(invocationId, steps);
     }
-    steps.set(stepId, progress);
+    if (progress.status === "in_progress") {
+      steps.set(stepId, progress);
+      return;
+    }
+    steps.set(stepId, { ...progress, attemptCount: Math.max(progress.attemptCount ?? 0, 1) });
+  };
+  const clearLiveReviewProgress = (invocationId: string): void => {
+    const steps = reviewDebateProgressByInvocation.get(invocationId);
+    if (steps === undefined) return;
+    for (const [stepId, progress] of steps) {
+      if (progress.status === "in_progress") steps.delete(stepId);
+    }
+    if (steps.size === 0) reviewDebateProgressByInvocation.delete(invocationId);
   };
   // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
@@ -1035,6 +1054,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
       let entryRunId: string | undefined;
+      let workflowInvocationId: string | undefined;
       let trackPromiseResolve: (() => void) | undefined;
       const trackPromise = new Promise<void>((res) => {
         trackPromiseResolve = () => res();
@@ -1060,6 +1080,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             activeRuns.set(runId, { kind: "workflow", runId, abortController });
             if (stepIndex === 0) {
               entryRunId = runId;
+              workflowInvocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
               workflowPromisesByEntryRunId.set(runId, trackPromise);
               resolve({ kind: "response", result: { runId } });
             }
@@ -1100,6 +1121,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             commitGuardedKill: (runId) => store.commitGuardedKill(runId),
             invertRegistryReleaseBeforeKill: invertWorkflowRegistryReleaseBeforeKillForTest,
           });
+          if (workflowInvocationId !== undefined) {
+            clearLiveReviewProgress(workflowInvocationId);
+          }
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
           }
@@ -1296,6 +1320,28 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     });
   };
 
+  const workflowEntryRollupStatus = (
+    fullRun: LoadedRun,
+    workflowRuns: Map<string, Map<string, LoadedRun>>,
+  ): RunStatus => {
+    const snapshot = fullRun.workflowSnapshot;
+    if (snapshot === null || snapshot === undefined) return fullRun.status;
+    const entryStepId = snapshot.steps[0]?.stepId;
+    if (entryStepId === undefined) return fullRun.status;
+    const entryFullRun = workflowRuns.get(snapshot.invocationId)?.get(entryStepId);
+    if (entryFullRun === undefined) return fullRun.status;
+    const workflowStillLive = workflowInvocationIsLive(
+      workflowPromisesByEntryRunId.has(entryFullRun.id),
+      activeRuns.values(),
+    );
+    return rollupWorkflowRunStatus({
+      entryRun: entryFullRun,
+      workflowSnapshot: snapshot,
+      siblingRuns: store.findRunsByInvocationId(snapshot.invocationId),
+      isLive: workflowStillLive,
+    });
+  };
+
   const buildRunListRow = (
     run: Run,
     fullRun: LoadedRun | undefined,
@@ -1323,7 +1369,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...entryOutcomeFields
     } = rowOutcome ?? { runStatus: reportedStatus };
 
-    const finishedAtMs = runListFinishedAtMs(reportedStatus, fullRun);
+    const finishedAtMs =
+      isTerminalRunStatus(reportedStatus) && fullRun !== undefined
+        ? runListTerminalFinishAtMs(fullRun.attempts, fullRun.reconciledAt)
+        : undefined;
 
     return {
       runId: run.id,
@@ -1336,7 +1385,15 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...runListReviewFields(snapshot),
       ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),
       ...(fullRun !== undefined && snapshot !== undefined
-        ? { workflow: workflowRowSnapshot(fullRun, workflowRuns, liveRunIds, reviewDebateProgressByInvocation) }
+        ? {
+            workflow: workflowRowSnapshot(
+              fullRun,
+              workflowRuns,
+              liveRunIds,
+              reviewDebateProgressByInvocation,
+              workflowEntryRollupStatus(fullRun, workflowRuns),
+            ),
+          }
         : {}),
       ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       ...runListPrEvidence(run),
@@ -1868,6 +1925,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }),
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
+    /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */
+    clearLiveReviewDebateProgress: clearLiveReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
     close: (): void => {
       for (const controller of waitAbortControllers) {
@@ -2184,6 +2243,7 @@ export async function startDaemonRuntime(
 
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
+    clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
     close: _closeRunControlHandlers,
     continueContinuablePipelines,
     setRetiring,

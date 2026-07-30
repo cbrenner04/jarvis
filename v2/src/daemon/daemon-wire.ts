@@ -43,7 +43,7 @@ export type DaemonListRunRow = {
   prNumber?: number;
   /** Confirmed PR URL when publication succeeded. */
   prUrl?: string;
-  /** Latest attempt `completed_at` for terminal statuses; drives TUI live terminal window. */
+  /** Latest finish timestamp for terminal statuses (max of attempt `completed_at` and `reconciledAt`); drives TUI live terminal window. */
   finishedAtMs?: number;
 };
 

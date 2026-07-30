@@ -13,10 +13,7 @@
             "- Persist completed runs in the state-store."
           ],
           "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."],
-          "documentationUpdates": [
-            "- None.",
-            "- Document state-store persistence in the operator runbook."
-          ]
+          "documentationUpdates": ["- None.", "- Document state-store persistence in the operator runbook."]
         },
         {
           "file": "01-cli.md",

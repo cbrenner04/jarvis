@@ -62,12 +62,21 @@ function sectionBulletLines(body: string, sectionHeading: string, checkbox: bool
   return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => bulletRe.test(line));
 }
 
-function survivingParentBullets(parentBody: string, sectionHeading: string, checkbox: boolean, parentSlug: string): string[] {
+function survivingParentBullets(
+  parentBody: string,
+  sectionHeading: string,
+  checkbox: boolean,
+  parentSlug: string,
+): string[] {
   const residue = splitResiduePattern(parentSlug);
   return sectionBulletLines(parentBody, sectionHeading, checkbox).filter((line) => !residue.test(line));
 }
 
-function assertFixturePreservation(dir: string, fixture: FixtureManifest["fixtures"][number], parentBody: string): void {
+function assertFixturePreservation(
+  dir: string,
+  fixture: FixtureManifest["fixtures"][number],
+  parentBody: string,
+): void {
   for (const [heading, checkbox, key] of PRESERVED_SECTIONS) {
     for (const child of fixture.expectedChildren) {
       expect(sectionBulletLines(readFileSync(join(dir, child.file), "utf8"), heading, checkbox)).toEqual(child[key]);
@@ -194,5 +203,4 @@ describe("module boundary surfaces", () => {
 
     expect(() => assertFixturePreservation(dir, fixture, parentBody)).toThrow();
   });
-
 });

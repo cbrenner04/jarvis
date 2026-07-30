@@ -102,7 +102,8 @@ function sectionBullets(body: string, sectionHeading: string, checkbox: boolean)
 }
 
 function acceptanceCriteria(body: string, file: string): SectionBullet[] {
-  if (!body.includes("## Acceptance criteria")) throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
+  if (!body.includes("## Acceptance criteria"))
+    throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
   return sectionBullets(body, "## Acceptance criteria", true);
 }
 

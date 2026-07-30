@@ -24,11 +24,12 @@ The daemon currently reports pipeline success when authored stages succeed. It n
 
 ## Acceptance criteria
 
-- [ ] Daemon-level tests drive leave-draft, ready, and merge pipelines end to end against a fake terminal publication surface; one test per action.
-- [ ] A terminal-action error settles `failed`, names the action and error, preserves the PR, and never reports the pipeline complete; inverting the settlement guard turns the test RED.
-- [ ] A merge pipeline over a red ready gate records failure and performs no merge.
+- [ ] `pipeline-execution.test.ts` — `settles each configured terminal action end to end` fails against the baseline, then drives leave-draft, ready, and merge pipelines once each against fake terminal publication.
+- [ ] `pipeline-execution.test.ts` — `fails a pipeline when its terminal action fails` fails against the baseline, then retains the action, error, and PR evidence without reporting completion; its settlement guard inversion turns RED.
+- [ ] `pipeline-execution.test.ts` — `does not merge a pipeline after a red ready gate` fails against the baseline, then records failure with zero merge calls.
 
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — terminal-action invocation and settlement in the daemon-owned pipeline state machine.
 - `v2/docs/workflow-runner.md` — terminal action after final workflow publication and required approval.
+- `v2/docs/v1-behaviors.md` — v2 daemon pipeline terminal-action settlement.

@@ -24,10 +24,11 @@ Publication can create and ready a PR, but no single execution surface can inten
 
 ## Acceptance criteria
 
-- [ ] Focused fake-publication tests exercise leave-draft, ready, and merge once each and assert their ordered calls.
-- [ ] A red ready gate causes zero merge calls, and inverting that guard turns the test RED.
-- [ ] Each mutation failure retains the PR and reports both the requested action and underlying error.
+- [ ] `terminal-publication.test.ts` — `executes each configured terminal action in order` fails against the baseline, then drives leave-draft, ready, and merge once each against fake publication.
+- [ ] `terminal-publication.test.ts` — `does not merge after a red ready gate` fails against the baseline, then confirms zero merge calls and turns RED when the gate guard is inverted.
+- [ ] `terminal-publication.test.ts` — `retains PR evidence on terminal mutation failure` fails against the baseline, then reports the requested action and underlying error without closing or deleting the PR.
 
 ## Documentation updates
 
 - `v2/docs/workflow-runner.md` — draft publication, terminal action ordering, shared ready gate, and failure preservation.
+- `v2/docs/v1-behaviors.md` — v2 terminal-publication behavior.

@@ -21,11 +21,12 @@ Project pipeline config selects stages and review posture but cannot state how t
 
 ## Acceptance criteria
 
-- [ ] Project-pipeline resolution accepts each terminal action and carries it in the independently owned admitted definition.
-- [ ] Unknown action values and approval-incompatible combinations return named pre-admission errors before any pipeline row, worktree, or agent invocation exists.
-- [ ] A regression fails when the conflict guard is inverted.
+- [ ] `project-pipeline-resolution.test.ts` — `resolves every terminal action into an isolated admitted definition` fails against the baseline, then confirms leave-draft, ready, and merge remain in independently owned admitted definitions.
+- [ ] `project-pipeline-resolution.test.ts` — `rejects unknown terminal actions and approval conflicts before admission` fails against the baseline, then confirms named errors precede any pipeline row, worktree, or agent invocation.
+- [ ] `project-pipeline-resolution.test.ts` — `rejects terminal-action approval conflicts` fails against the baseline and turns RED when its conflict guard is inverted.
 
 ## Documentation updates
 
 - `v2/docs/install-and-config.md` — terminal action values, validation, conflicts, and project example.
 - `v2/docs/workflow-runner.md` — the terminal action in the immutable pipeline definition and pre-admission validation boundary.
+- `v2/docs/v1-behaviors.md` — v2 pipeline-admission terminal-action behavior.

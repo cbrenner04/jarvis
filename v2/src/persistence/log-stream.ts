@@ -40,6 +40,10 @@ export type LoopFinishedEvent = {
   survivingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  /** Normalized ready-gate failure origin when finalization lineage is distinct from operator reason. */
+  readyGateOrigin?: "repair_budget_exhausted";
+  /** Count of non-timeout `ready_gate_repair` events on the same run when `readyGateOrigin` is set. */
+  readyGateRepairCount?: number;
 };
 
 export type RuntimeSmokeOutcomeEvent =

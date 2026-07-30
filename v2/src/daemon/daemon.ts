@@ -32,6 +32,7 @@ import {
   LinkedIndexReadError,
   REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS,
   type ReviewProgress,
+  resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
@@ -643,6 +644,7 @@ function resumeContextForRun(
   if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
   if (
     isReviewMutationResumable(run, store, terminalRecord) ||
+    resolveExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
     resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
   ) {
     return undefined;
@@ -1716,6 +1718,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     if (
       isReviewMutationResumable(run, store, terminalRecord) ||
+      resolveExhaustedRedResumeContext(run, store, terminalRecord).ok ||
       resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok
     ) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });

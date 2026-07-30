@@ -12,11 +12,12 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { type LogSink, truncateLogText } from "../persistence/log-stream.ts";
+import { type LogSink, type LoopFinishedEvent, truncateLogText } from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,
   type ReadyGateRepairFenceProvenance,
+  type Run,
   type RunStatus,
   type StateStore,
   type WorkflowSnapshot,
@@ -191,6 +192,9 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
+export { MAX_READY_GATE_REPAIRS };
+
+export type ReadyGateOrigin = "repair_budget_exhausted";
 export const MAX_MUTATION_REPAIR_ATTEMPTS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
@@ -511,7 +515,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-                : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+                : readyFailed(
+                    args,
+                    store,
+                    publishedResult,
+                    publication.failure.kind,
+                    publication.failure.error,
+                    publication.readyGateOrigin,
+                  );
             }
             store.setRunStatus(prepared.result.runId, "completed");
             if (
@@ -889,7 +900,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-              : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+              : readyFailed(
+                  args,
+                  store,
+                  publishedResult,
+                  publication.failure.kind,
+                  publication.failure.error,
+                  publication.readyGateOrigin,
+                );
           }
           store.setRunStatus(runId, "completed");
           if (
@@ -1693,6 +1711,7 @@ type ReadyRepairPublishResult = {
   failure?: CompletionPublishFailure;
   success?: CompletionPublishSuccess;
   iterationsConsumed: number;
+  readyGateOrigin?: ReadyGateOrigin;
 };
 
 function readyGateRepairProvenanceFailure(iterationsConsumed: number): ReadyRepairPublishResult {
@@ -1840,9 +1859,13 @@ export async function publishWithReadyRepair(
   if (frozenRepairAllowset === "corrupt") {
     return readyGateRepairProvenanceFailure(iterationsConsumed);
   }
+  let repairBudgetExhausted = false;
   while (isActiveReadyGateFailure(outcome)) {
     repairAttempt += 1;
-    if (repairAttempt > MAX_READY_GATE_REPAIRS) break;
+    if (repairAttempt > MAX_READY_GATE_REPAIRS) {
+      repairBudgetExhausted = true;
+      break;
+    }
     if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     if (frozenRepairAllowset === undefined) {
       const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, iterationsConsumed);
@@ -1880,9 +1903,20 @@ export async function publishWithReadyRepair(
       gateExitCode: outcome.error.exitCode,
     });
   }
+  let readyGateOrigin: ReadyGateOrigin | undefined;
+  if (repairBudgetExhausted && isActiveReadyGateFailure(outcome)) {
+    const checkpointResult: WriteLoopResult = {
+      ...result,
+      ...(outcome.prNumber !== undefined ? { prNumber: outcome.prNumber } : {}),
+      ...(outcome.prUrl !== undefined ? { prUrl: outcome.prUrl } : {}),
+    };
+    if (persistRetainedFinalizationCheckpoint(store, result.runId, checkpointResult)) {
+      readyGateOrigin = "repair_budget_exhausted";
+    }
+  }
   return outcome.kind === "success"
     ? { success: outcome, iterationsConsumed }
-    : { failure: outcome, iterationsConsumed };
+    : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
 }
 
 async function runPublisher(
@@ -2055,6 +2089,27 @@ function completionCommitFailed(
   };
 }
 
+export function persistRetainedFinalizationCheckpoint(
+  store: StateStore,
+  runId: string,
+  result: WriteLoopResult,
+): boolean {
+  const run = store.loadRun(runId);
+  if (!run) return false;
+  const doneAttempt = [...run.attempts].reverse().find((attempt) => attempt.outcomeKind === "done");
+  const completionAgent = doneAttempt?.completionAgent ?? result.completionAgent;
+  if (doneAttempt === undefined || completionAgent === undefined || completionAgent.length === 0) return false;
+  store.setRetainedFinalizationCheckpoint(runId, {
+    completionAttemptId: doneAttempt.id,
+    completionAgent,
+    ...(run.prNumber != null ? { prNumber: run.prNumber } : {}),
+    ...(run.prUrl != null ? { prUrl: run.prUrl } : {}),
+    ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
+    ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
+  });
+  return true;
+}
+
 function readyFailed(
   args: WriteLoopInput,
   store: StateStore,
@@ -2066,6 +2121,7 @@ function readyFailed(
     | "surviving_mutation_failed"
     | "runtime_smoke_failed",
   error?: Error,
+  readyGateOrigin?: ReadyGateOrigin,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const resumable =
@@ -2089,6 +2145,7 @@ function readyFailed(
     resumable,
     ...mutationFields,
     ...outOfScopeFields,
+    ...exhaustedRedTerminalLogFields(readyGateOrigin),
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
@@ -2225,4 +2282,38 @@ function iterationCommitFailed(
 
 function appendBlockerToSpec(specPath: string, reason: string): void {
   appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`, "utf8");
+}
+
+export function exhaustedRedTerminalLogFields(
+  readyGateOrigin?: ReadyGateOrigin,
+): Pick<LoopFinishedEvent, "readyGateOrigin" | "readyGateRepairCount"> {
+  return readyGateOrigin === "repair_budget_exhausted"
+    ? { readyGateOrigin, readyGateRepairCount: MAX_READY_GATE_REPAIRS }
+    : {};
+}
+
+/** Terminal `loop_finished` evidence for repair-budget exhaustion after the configured repair cap. */
+export function isExhaustedRedTerminalEvidence(
+  event:
+    | Pick<LoopFinishedEvent, "loopOutcomeKind" | "resumable" | "readyGateOrigin" | "readyGateRepairCount">
+    | undefined,
+): boolean {
+  return (
+    event?.loopOutcomeKind === "ready_gate_failed" &&
+    event.resumable === true &&
+    event.readyGateOrigin === "repair_budget_exhausted" &&
+    event.readyGateRepairCount === MAX_READY_GATE_REPAIRS
+  );
+}
+
+/** Whether `run` carries a same-run retained finalization checkpoint for gate-only resume. */
+export function hasRetainedFinalizationCheckpoint(
+  run: Run & { attempts: Array<{ id: string; outcomeKind?: string | null }> },
+): boolean {
+  if (run.retainedFinalizationCheckpointCorrupt === true) return false;
+  const checkpoint = run.retainedFinalizationCheckpoint;
+  if (checkpoint === undefined || checkpoint === null) return false;
+  return run.attempts.some(
+    (attempt) => attempt.id === checkpoint.completionAttemptId && attempt.outcomeKind === "done",
+  );
 }

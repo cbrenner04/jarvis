@@ -107,6 +107,14 @@ export type ReadyGateRepairFenceProvenance = {
   outcomeKind: "frozen" | "completion_commit_failed";
 };
 
+/** Publication tail checkpoint retained when repair-budget exhaustion demotes a completed write row. */
+export type RetainedFinalizationCheckpoint = {
+  completionAttemptId: string;
+  completionAgent: string;
+  prNumber?: number;
+  prUrl?: string;
+};
+
 /** A durable run record. */
 export type Run = {
   id: string;
@@ -128,6 +136,9 @@ export type Run = {
   readyGateRepairFence?: ReadyGateRepairFenceProvenance | null;
   /** True when a non-null fence column could not be parsed into a valid allowset. */
   readyGateRepairFenceCorrupt?: boolean;
+  retainedFinalizationCheckpoint?: RetainedFinalizationCheckpoint | null;
+  /** True when a non-null checkpoint column could not be parsed. */
+  retainedFinalizationCheckpointCorrupt?: boolean;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -316,6 +327,9 @@ export interface StateStore {
   /** Persist ready-gate repair fence provenance for restart-safe recovery. */
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void;
 
+  /** Persist the publication-tail checkpoint for gate-only finalization resume. */
+  setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -471,7 +485,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt,
-  ready_gate_repair_fence AS readyGateRepairFenceJson`;
+  ready_gate_repair_fence AS readyGateRepairFenceJson,
+  retained_finalization_checkpoint AS retainedFinalizationCheckpointJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -562,6 +577,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "017-run-ready-gate-repair-fence",
     up: "ALTER TABLE runs ADD COLUMN ready_gate_repair_fence TEXT",
+  },
+  {
+    id: "018-run-retained-finalization-checkpoint",
+    up: "ALTER TABLE runs ADD COLUMN retained_finalization_checkpoint TEXT",
   },
 ] as const;
 
@@ -678,10 +697,19 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
-type RunRow = Omit<Run, "workflowSnapshot" | "queuedInput" | "readyGateRepairFence" | "readyGateRepairFenceCorrupt"> & {
+type RunRow = Omit<
+  Run,
+  | "workflowSnapshot"
+  | "queuedInput"
+  | "readyGateRepairFence"
+  | "readyGateRepairFenceCorrupt"
+  | "retainedFinalizationCheckpoint"
+  | "retainedFinalizationCheckpointCorrupt"
+> & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
   readyGateRepairFenceJson: string | null;
+  retainedFinalizationCheckpointJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -698,15 +726,40 @@ function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepa
   }
 }
 
+function parseRetainedFinalizationCheckpoint(
+  json: string | null,
+): RetainedFinalizationCheckpoint | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as RetainedFinalizationCheckpoint;
+    if (typeof parsed.completionAttemptId !== "string" || typeof parsed.completionAgent !== "string") {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
+
 function mapRunRow(row: RunRow): Run {
-  const { workflowSnapshotJson, queuedInputJson, readyGateRepairFenceJson, ...run } = row;
+  const {
+    workflowSnapshotJson,
+    queuedInputJson,
+    readyGateRepairFenceJson,
+    retainedFinalizationCheckpointJson,
+    ...run
+  } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
+  const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
   return {
     ...run,
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
     queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
     readyGateRepairFence: parsedFence === "invalid" || parsedFence === null ? null : parsedFence,
     ...(parsedFence === "invalid" ? { readyGateRepairFenceCorrupt: true } : {}),
+    retainedFinalizationCheckpoint:
+      parsedCheckpoint === "invalid" || parsedCheckpoint === null ? null : parsedCheckpoint,
+    ...(parsedCheckpoint === "invalid" ? { retainedFinalizationCheckpointCorrupt: true } : {}),
   };
 }
 
@@ -809,6 +862,12 @@ class StateStoreImpl implements StateStore {
 
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void {
     this.db.prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?").run(JSON.stringify(fence), runId);
+  }
+
+  setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void {
+    this.db
+      .prepare("UPDATE runs SET retained_finalization_checkpoint = ? WHERE id = ?")
+      .run(JSON.stringify(checkpoint), runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

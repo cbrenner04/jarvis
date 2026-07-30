@@ -491,7 +491,14 @@ it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is th
 (see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
-consumes the iteration budget and republishes before the gate is rerun. A deadline-killed gate (exit code 124 or
+consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair
+attempt stays red, the run settles `failed` with `ready_gate_failed`, `resumable: true`, and terminal
+`loop_finished` evidence `readyGateOrigin: repair_budget_exhausted` plus `readyGateRepairCount: 3`.
+That row retains its publication checkpoint (completion attribution and draft-PR evidence) and admits
+`jarvis run resume` on a gate-only finalization tail — no write-agent re-entry and no additional
+`ready_gate_repair` events. Other `ready_gate_failed` rows (blocked repair, iteration-limit
+suppression, deadline timeout, or missing/mismatched checkpoint) keep their existing resume paths or
+refusals. A deadline-killed gate (exit code 124 or
 `ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair,
 logs `ready_gate_timeout`, and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate:
 the gate passed locally and timed out against either a per-step budget or the overall run ceiling (see
@@ -522,7 +529,8 @@ A v2 implement run reporting `runStatus: "completed"` implies (1) the active sub
 non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
 exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate
 is green, and (5) if the active subspec's acceptance criteria reference `bun run test:integration:v2`,
-that command exits zero. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
+that command exits zero. Rows that exhausted the repair budget instead remain `failed` /
+`ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
 blocking before any completion commit or PR publication. The completion boundary enforces (2):
 when the committer returns no new commit and the worktree is dirty, the run records

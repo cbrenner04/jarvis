@@ -81,6 +81,10 @@ source, script, or test edits even when the existing run-diff fence would allow 
       (implement workflows unchanged).
 - [ ] Inverting only the markdown-only fence makes all three intent surface-class rejection regressions
       red.
+- [ ] `v2/docs/write-behavior.md` documents the markdown-only repair prohibition (originating workflow
+      identity, frozen output roots, `.md` suffix, evaluation order, error prefix, failure boundary,
+      coexistence with the run-diff fence).
+- [ ] `v2/docs/v1-behaviors.md` carries the parity entry for the markdown-only repair restriction.
 
 ## Documentation updates
 

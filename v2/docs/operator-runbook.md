@@ -194,6 +194,31 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
 
+### Pipeline start
+
+Launch a registered project's configured pipeline when `projects.<name>.pipeline` is present in machine config (unlike `implement`, which treats `pipeline` as optional):
+
+```sh
+jarvis pipeline start <project> --seed-text "Ship feature"
+jarvis pipeline start <project> --seed path/to/seed.md
+jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return after admission; track via printed pipeline ID
+```
+
+**Detach vs attached:** `--detach` runs the same pre-admission validation and daemon `pipeline_start` path as the default attached launch. Detached stdout is the admitted pipeline ID only; exit **`0` means admitted**, not that the pipeline finished. Attached mode loops `pipeline_wait` through `awaiting-approval` boundaries until a terminal state, then prints `{kind:"terminal",state}` JSON.
+
+### Pipeline list and wait
+
+After a detached start, poll progress with list or block on boundaries with wait:
+
+```sh
+jarvis pipeline list                              # one JSON snapshot; does not follow live work
+jarvis pipeline wait <pipeline-id>                # block until terminal or awaiting-approval
+```
+
+`jarvis pipeline list` mirrors daemon `pipeline_list` in one stdout line (`pipelineId`, `name`, derived `state`, ordered stages with `stageId`/`status`/`workflowInvocationId`). The CLI issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
+
+`jarvis pipeline wait` prints one boundary JSON line per invocation. Exit **`0`** on `awaiting-approval` or terminal `succeeded`; non-zero on other terminal states. Re-run wait after approving a gate; attached start loops internally instead. Operator abort (SIGINT) during wait follows the same pattern as `jarvis run wait`: stderr connection detail, non-zero exit, no boundary JSON on stdout.
+
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved

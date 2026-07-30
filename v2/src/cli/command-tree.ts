@@ -1,6 +1,7 @@
 import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
+  PIPELINE_START_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   RUN_LOG_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
@@ -14,6 +15,10 @@ import {
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
+  PIPELINE_LIST_USAGE,
+  PIPELINE_START_USAGE,
+  PIPELINE_USAGE,
+  PIPELINE_WAIT_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
   RUN_USAGE,
@@ -173,6 +178,29 @@ export const commandTree: CommandNode = {
           name: "log",
           summary: "Stream run logs in interactive view.",
           usage: TUI_LOG_USAGE,
+        },
+      ],
+    },
+    {
+      name: "pipeline",
+      summary: "Manage daemon-backed pipelines.",
+      usage: PIPELINE_USAGE,
+      subcommands: [
+        {
+          name: "start",
+          summary: "Start a pipeline for a registered project.",
+          usage: PIPELINE_START_USAGE,
+          flags: PIPELINE_START_HELP_FLAGS,
+        },
+        {
+          name: "list",
+          summary: "Snapshot admitted pipelines and stage progress.",
+          usage: PIPELINE_LIST_USAGE,
+        },
+        {
+          name: "wait",
+          summary: "Block until a pipeline reaches a wait boundary.",
+          usage: PIPELINE_WAIT_USAGE,
         },
       ],
     },

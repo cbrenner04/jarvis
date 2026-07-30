@@ -117,3 +117,16 @@ export function resolveProjectPipeline(
 
   return { ok: true, definition };
 }
+
+export function formatProjectPipelineResolutionError(
+  resolution: Extract<ProjectPipelineResolutionResult, { ok: false }>,
+): string {
+  const { error } = resolution;
+  if (error.code === "invalid-project-pipeline-config") {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error.code === "unknown-pipeline") {
+    return `${error.code}: ${error.name}`;
+  }
+  return `${error.code}: ${error.errors.map((item) => item.message).join("; ")}`;
+}

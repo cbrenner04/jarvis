@@ -918,13 +918,29 @@ behavior — not caused by it).
 | `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?}` — only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
+## Pipeline CLI
+
+| Command | Input mapping | Output | Exit |
+| --- | --- | --- | --- |
+| `jarvis pipeline start <project> (--seed <path> \| --seed-text <text>) [--detach]` | Registered `<project>` name (not cwd-derived). Exactly one of `--seed` (relative file path from invocation cwd) or `--seed-text` (inline prose). Optional `--detach` (return after admission; see [pipeline launch modes](#pipeline-launch-modes)). Resolves `projects.<project>.pipeline` from machine config, loads agent model config, and runs `resolveProjectPipeline` before any daemon connection or durable admission | Attached (default): admitted pipeline ID line, then on terminal completion one minified JSON line `{kind:"terminal",state}`. Detached (`--detach`): admitted pipeline ID line only | Attached terminal: `0` on `succeeded`, `1` on other terminal states. Detached: `0` when admission succeeds; `1` on pre-admission failure or failed admission. Pre-admission failures (unregistered project, missing `pipeline` key, invalid project pipeline config, seed flag misuse, seed path errors, machine-config load errors) exit `1` with stderr detail and no pipeline ID on stdout |
+| `jarvis pipeline list` | None | One minified JSON line `{pipelines:[...]}` mirroring daemon `pipeline_list`: each pipeline has `pipelineId`, `name`, derived `state`, and ordered `stages` with `stageId`, `status`, and nullable `workflowInvocationId`; empty store prints `{pipelines:[]}` | `0` on success; `1` on connection or RPC failure. Issues one non-blocking `pipeline_list` RPC with no client-side polling — does not follow live transitions. End-to-end latency is bounded by the daemon snapshot contract (typically within **500ms** even when pipelines remain non-terminal; see `daemon-pipeline-observation.test.ts`), not by CLI-side waiting |
+| `jarvis pipeline wait <pipeline-id>` | Pipeline ID (required, non-empty; usage error before daemon connect when missing or whitespace-only) | One minified JSON line naming the boundary: `{kind:"terminal",state}` or `{kind:"awaiting-approval",stageId}` | `0` on `awaiting-approval` or terminal `succeeded`; `1` on other terminal states, connection/RPC failure, or operator abort (SIGINT closes IPC — stderr connection detail, no boundary JSON on stdout). Returns promptly when the pipeline is already at a boundary. `unknown_pipeline` and other daemon errors print `<code>: <message>` on stderr |
+
+**Pre-admission boundary:** project registry lookup, required `pipeline` key, agent model config load, seed resolution, and `resolveProjectPipeline` all run before `withConnectDispatch` connects or admits. Invalid configuration never creates durable pipeline rows.
+
+### Pipeline launch modes
+
+`jarvis pipeline start` admits through the same pre-admission validation whether or not the shell stays attached. **`--detach`** opts out of client-side `pipeline_wait` after admission: stdout is the admitted pipeline ID only and exit `0` means **admitted**, not pipeline finished. The default attached mode prints the same ID, then loops `pipeline_wait`: on `{ kind: "awaiting-approval", stageId }` it re-issues `pipeline_wait` without printing boundary JSON or exiting; it exits only on `{ kind: "terminal", state }`, printing one minified terminal JSON line and an exit code keyed to `state` (`succeeded` → `0`, other terminal states → `1`). Operator abort during attached start (SIGINT closes the IPC client during `pipeline_wait`) follows the same pattern as `jarvis run wait` / workflow attach: stderr connection detail, non-zero exit, no boundary JSON on stdout. Observe a detached pipeline via `jarvis pipeline list` (point-in-time snapshot) or `jarvis pipeline wait <pipeline-id>` (block until a boundary).
+
+**List vs wait:** `jarvis pipeline list` issues one `pipeline_list` RPC and prints the durable snapshot immediately — it does not block on live transitions or poll for completion. `jarvis pipeline wait <pipeline-id>` issues one blocking `pipeline_wait` per invocation and prints boundary JSON when the pipeline reaches terminal state or `awaiting-approval`. Unlike attached start, standalone wait exits `0` at an approval gate (stdout `{kind:"awaiting-approval",stageId}`) as well as on terminal `succeeded`.
+
 **Keyed-daemon auto-start:** mutating dispatch (`run start`, `run resume`,
-`run workflow`) starts the daemon at the invoking digest's socket/PID/log paths
+`run workflow`, `pipeline start`) starts the daemon at the invoking digest's socket/PID/log paths
 when the initial connect fails, then retries the connect under a bounded
 deadline; a lost start race (`DaemonAlreadyRunningError`) is treated as reuse,
 every other `startDaemon` error surfaces as a lifecycle error. Auto-start is
-silent on success. Read-only commands (`run list`, `run wait`, `tui`,
-`daemon status`) still report a missing daemon. The single-socket-per-digest model ensures multiple CLI instances on the same executable digest coexist on one daemon; differently-keyed daemons run independently and do not interfere.
+silent on success. Read-only commands (`run list`, `run wait`, `pipeline list`,
+`pipeline wait`, `tui`, `daemon status`) still report a missing daemon. The single-socket-per-digest model ensures multiple CLI instances on the same executable digest coexist on one daemon; differently-keyed daemons run independently and do not interfere.
 
 `jarvis run list` and `jarvis run wait` pass through daemon `error` fields
 verbatim when present (`reason`, `retryable`, `nextAction`); see

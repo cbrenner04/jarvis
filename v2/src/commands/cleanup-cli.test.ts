@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -362,18 +362,95 @@ describe("cleanup command through main", () => {
     expect(cap.read().stderr).toContain("usage: jarvis cleanup");
   });
 
+  test("continues cleanup when keyed socket has no listener", async () => {
+    const branch = "no-listener-merged";
+    const worktreePath = await materializeMergedWorktree(branch);
+    const stranded = join(cleanupProjectRoot, "v2", "spec", "stranded");
+    mkdirSync(stranded, { recursive: true });
+    writeFileSync(join(stranded, "index.md"), "# Stranded\n\n## Acceptance criteria\n\n- [x] done\n");
+    const deadSocket = join(cleanupJarvisRoot, "daemon-deadbeefdeadbeef.sock");
+    mkdirSync(dirname(deadSocket), { recursive: true });
+    writeFileSync(deadSocket, "");
+    const rawSocketError = `connect ENOENT ${deadSocket}`;
+    const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+
+    const code = await cliMain(
+      ["cleanup", "--yes"],
+      {
+        stdout: (text) => events.push({ stream: "stdout", text }),
+        stderr: (text) => events.push({ stream: "stderr", text }),
+      },
+      {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        socketPath: deadSocket,
+        connectIpcClient: async () => {
+          throw Object.assign(new Error(rawSocketError), { code: "ENOENT" });
+        },
+        promptConfirm: async () => {
+          throw new Error("--yes must not prompt");
+        },
+      },
+    );
+
+    const stdout = events
+      .filter((event) => event.stream === "stdout")
+      .map((event) => event.text)
+      .join("");
+    const stderr = events
+      .filter((event) => event.stream === "stderr")
+      .map((event) => event.text)
+      .join("");
+    expect(code).toBe(1);
+    expect(events[0]?.stream).toBe("stderr");
+    expect(stderr.trim().split("\n")).toHaveLength(1);
+    expect(stderr).toContain("No daemon is listening");
+    expect(stderr).toContain("jarvis daemon start");
+    expect(stderr).not.toContain(deadSocket);
+    expect(stderr).not.toContain("connect ENOENT");
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+    expect(stdout).toContain(`Skipped stranded artifact: ${stranded}`);
+    expect(stdout).not.toContain(rawSocketError);
+    expect(existsSync(deadSocket)).toBe(false);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("abandon refuses when keyed daemon absent", async () => {
+    const cap = captureIo();
+    const socketPath = join(cleanupJarvisRoot, "daemon-absent.sock");
+
+    const code = await cliMain(["cleanup", "--abandon", "some-workspace"], cap.io, {
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
+      socketPath,
+      connectIpcClient: async () => {
+        throw Object.assign(new Error(`connect ECONNREFUSED ${socketPath}`), { code: "ECONNREFUSED" });
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toBe("Cannot abandon: no daemon is listening; run `jarvis daemon start`\n");
+  });
+
   test("cleanup with daemon connection failure prints error and exits 1", async () => {
     const cap = captureIo();
+    const preservedSocket = join(cleanupJarvisRoot, "daemon-preserved.sock");
+    mkdirSync(dirname(preservedSocket), { recursive: true });
+    writeFileSync(preservedSocket, "");
 
     const code = await cliMain(["cleanup"], cap.io, {
       readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
       jarvisRoot: cleanupJarvisRoot,
       connectIpcClient: async () => {
-        throw new Error("Daemon unreachable");
+        throw Object.assign(new Error("connect EACCES /private/daemon.sock"), { code: "EACCES" });
       },
     });
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("Daemon unreachable");
+    expect(cap.read().stderr).toContain("connect EACCES");
+    expect(existsSync(preservedSocket)).toBe(true);
   });
 });

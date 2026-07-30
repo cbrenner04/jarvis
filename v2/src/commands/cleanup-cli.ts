@@ -7,7 +7,13 @@ import { formatConnectionError } from "../cli/ipc.ts";
 import { CLEANUP_USAGE } from "../cli/usage.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { createStaleResetDaemonClient, type DaemonClient, runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
+import {
+  createAbsentDaemonClient,
+  createStaleResetDaemonClient,
+  type DaemonClient,
+  runAbandonCommand,
+  runCleanupCommand,
+} from "./cleanup.ts";
 
 type PromptStdin = {
   isTTY?: boolean;
@@ -97,8 +103,19 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     const client = await deps.connectIpcClient(deps.socketPath);
     daemonClient = createStaleResetDaemonClient(client);
   } catch (error) {
-    io.stderr(formatConnectionError(error));
-    return 1;
+    if (isNoListenerError(error)) {
+      daemonClient = createAbsentDaemonClient();
+      if (abandonName !== undefined) {
+        io.stderr("Cannot abandon: no daemon is listening; run `jarvis daemon start`\n");
+        return 1;
+      }
+      io.stderr(
+        "No daemon is listening for this jarvis executable; continuing cleanup without daemon-backed worktree retirement. Run `jarvis daemon start`.\n",
+      );
+    } else {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
   }
 
   const options = dryRun
@@ -128,4 +145,9 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     store,
     io,
   );
+}
+
+function isNoListenerError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null | undefined)?.code;
+  return code === "ENOENT" || code === "ECONNREFUSED";
 }

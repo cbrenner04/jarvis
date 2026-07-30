@@ -9,11 +9,13 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
-import { connectIpcClient } from "../ipc/client.ts";
+import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
+import type { IpcFrame } from "../ipc/types.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
+  createAbsentDaemonClient,
   createStaleResetDaemonClient,
   type DaemonClient,
   type DiscoveredWorktree,
@@ -55,14 +57,18 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     return { source, readyIntent };
   }
 
-  async function materializeWorktree(branch: string, message: string): Promise<string> {
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", message], projectRoot);
+  async function createWorktree(branch: string): Promise<string> {
     await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
     const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
     mkdirSync(dirname(worktreePath), { recursive: true });
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
     return worktreePath;
+  }
+
+  async function materializeWorktree(branch: string, message: string): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", message], projectRoot);
+    return createWorktree(branch);
   }
 
   function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
@@ -842,6 +848,61 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("runCleanupCommand exits nonzero when the daemon becomes unreachable during recheck", async () => {
+    const branch = "recheck-daemon-unreachable";
+    const worktreePath = await createWorktree(branch);
+    let daemonCalls = 0;
+    const daemonClient: DaemonClient = async () => {
+      daemonCalls += 1;
+      if (daemonCalls === 1) return [];
+      throw new Error("probe transport lost");
+    };
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped (became ineligible): ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("runCleanupCommand treats a malformed daemon list response as unreachable", async () => {
+    const branch = "malformed-daemon-list";
+    const worktreePath = await createWorktree(branch);
+    let resolveFrame: ((frame: IpcFrame) => void) | undefined;
+    const client: IpcClient = {
+      send(frame): void {
+        resolveFrame?.({ kind: "response", id: (frame as { id: string }).id, result: { runs: "not-an-array" } });
+      },
+      nextFrame: () => new Promise((resolve) => (resolveFrame = resolve)),
+      close: () => {},
+    };
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      createStaleResetDaemonClient(client),
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+  });
+
   test("runCleanupCommand makes worktree ineligible when daemon client throws", async () => {
     const branch = "daemon-fail-branch";
     await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
@@ -853,7 +914,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const daemonClient: DaemonClient = async () => {
-      throw new Error("Daemon unreachable");
+      throw new Error("connect ENOENT /private/leaked-daemon.sock");
     };
     const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
 
@@ -876,12 +937,153 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
 
     const code = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, daemonClient, store, io);
 
-    expect(code).toBe(0);
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
+    expect(stdout).not.toContain("connect ENOENT");
+    expect(stdout).not.toContain("/private/leaked-daemon.sock");
     expect(stdout).toContain("No eligible worktrees");
 
     // Verify worktree still exists
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("daemon-unreachable skip exits nonzero when nothing else to clean", async () => {
+    const branch = "daemon-only-skip";
+    const worktreePath = await createWorktree(branch);
+    const runner = ghRunnerForPr("MERGED");
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => {
+        throw new Error("probe detail must not leak");
+      },
+      store,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).not.toContain("probe detail must not leak");
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("daemon-unreachable skips drive dry-run, decline, and apply exit", async () => {
+    const skippedBranch = "daemon-skip";
+    const eligibleBranch = "daemon-skip-peer";
+    for (const branch of [skippedBranch, eligibleBranch]) {
+      await createWorktree(branch);
+    }
+    const daemonClient: DaemonClient = async (_project, branch) => {
+      if (branch === skippedBranch) throw new Error("unreachable");
+      return [];
+    };
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    const registry = { project: { root: projectRoot } };
+    const io = { stdout: () => {}, stderr: () => {} };
+
+    expect(
+      await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), daemonClient, store, io),
+    ).toBe(1);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => false },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        daemonClient,
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        daemonClient,
+        store,
+        io,
+      ),
+    ).toBe(1);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", skippedBranch))).toBe(true);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", eligibleBranch))).toBe(false);
+  });
+
+  test("non-daemon ineligibility keeps cleanup exit zero", async () => {
+    const openBranch = "open-pr-skip";
+    const durableBranch = "durable-run-skip";
+    for (const branch of [openBranch, durableBranch]) {
+      await createWorktree(branch);
+    }
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view") {
+          return JSON.stringify(
+            args[2] === openBranch
+              ? { state: "OPEN", mergedAt: null }
+              : { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" },
+          );
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: durableBranch,
+          status: "in-progress",
+        },
+      ],
+    } as unknown as StateStore;
+    let daemonCalls = 0;
+
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => {
+        daemonCalls += 1;
+        return [];
+      },
+      store,
+      { stdout: () => {}, stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(daemonCalls).toBe(0);
+  });
+
+  test("listRuns failure aborts cleanup", async () => {
+    const branch = "store-failure";
+    await createWorktree(branch);
+    const store = {
+      listRuns: () => {
+        throw new Error("state store unavailable");
+      },
+    } as unknown as StateStore;
+
+    await expect(
+      runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: () => {}, stderr: () => {} },
+      ),
+    ).rejects.toThrow("state store unavailable");
   });
 
   test("runCleanupCommand with declined confirmation changes nothing", async () => {
@@ -2273,6 +2475,15 @@ describe("cleanup: dead daemon socket reaping", () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  test("createAbsentDaemonClient rejects list and claim probes with stable recovery text", async () => {
+    const client = createAbsentDaemonClient();
+
+    await expect(client("project", "branch")).rejects.toThrow("Daemon unreachable; run `jarvis daemon start`");
+    await expect(client.checkWorkflowStartClaim?.("project", "branch")).rejects.toThrow(
+      "Daemon unreachable; run `jarvis daemon start`",
+    );
   });
 
   socketTest("createStaleResetDaemonClient returns only runs matching both project and branch", async () => {

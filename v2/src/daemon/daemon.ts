@@ -55,16 +55,18 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import {
+  isOwnerAlive,
   type Attempt,
   isTerminalRunStatus,
   openStateStore,
+  type OwnerLivenessProbe,
   type Run,
   type RunStatus,
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
-import { runPipeline } from "./pipeline-execution.ts";
+import { recoverContinuablePipelines, runPipeline } from "./pipeline-execution.ts";
 import {
   bindPipelineWaitObserver,
   PIPELINE_WAIT_ABORTED,
@@ -117,6 +119,13 @@ type ActiveRun =
     };
 
 const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
+
+let invertAdmissionContextHandoffForTest = false;
+
+/** Test seam: omit `context` from `createPipeline` to exercise admission-context handoff. */
+export function setInvertAdmissionContextHandoffForTest(value: boolean): void {
+  invertAdmissionContextHandoffForTest = value;
+}
 
 /** Test seam: lookup a live run row for a specific handler instance. */
 export function activeRunForHandler(handlers: object, id: string): ActiveRun | undefined {
@@ -1739,7 +1748,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "invalid_params", message: "definition and context required" };
     }
     const { definition, context } = params;
-    const pipelineId = store.createPipeline({ definition });
+    const pipelineId = store.createPipeline(
+      invertAdmissionContextHandoffForTest ? { definition } : { definition, context },
+    );
+    const admitted = store.loadPipeline(pipelineId);
+    if (!admitted?.context) {
+      return {
+        kind: "error",
+        code: "admission_failed",
+        message: "pipeline context was not durably persisted",
+      };
+    }
     void runPipeline(pipelineId, {
       store,
       dispatch: pipelineDispatch,
@@ -1798,6 +1817,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_start: handlePipelineStartHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
+    continueContinuablePipelines: async () =>
+      recoverContinuablePipelines(store, {
+        store,
+        dispatch: pipelineDispatch,
+        wait: pipelineWait,
+        resolveStage,
+      }),
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
@@ -2064,7 +2090,6 @@ export async function startDaemonRuntime(
   let reconciledRunIds: string[];
   try {
     reconciledRunIds = await reconcileOrphanedRuns(store, reconciliationLogSink, logReaderInstance);
-    await store.reconcilePipelines();
   } finally {
     reconciliationLogSink.close();
   }
@@ -2118,6 +2143,7 @@ export async function startDaemonRuntime(
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     close: _closeRunControlHandlers,
+    continueContinuablePipelines,
     setRetiring,
     hasActiveRuns,
     isRetiring,
@@ -2167,6 +2193,8 @@ export async function startDaemonRuntime(
 
   const recoveryLogSink = createLogSink(logsPath);
   try {
+    await continueContinuablePipelines();
+    await store.reconcilePipelines();
     const recovery = await (startupDeps.recoverReconciledRuns ?? recoverReconciledRuns)(
       reconciledRunIds,
       store,

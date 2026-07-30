@@ -4,8 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
+  analyzeFailedPipelineReopenShape,
+  approvalBoundaryAllowsStatus,
+  approvalDecisionAllowsStatus,
+  isApprovalAuthoredStage,
+  reconciliationStableStageStatus,
+  reopenPredecessorAllowsStatus,
+  reopenSuffixAllowsStatus,
   isOwnerAlive,
   type OwnerLivenessProbe,
+  type PipelineContext,
   openStateStore,
   type Pipeline,
   type PipelineStageRecord,
@@ -24,6 +32,14 @@ const SAMPLE_PIPELINE_DEFINITION: PipelineDefinition = {
   ],
 };
 
+const SAMPLE_PIPELINE_CONTEXT: PipelineContext = {
+  cwd: "/repo",
+  configPath: "/repo/.jarvis/config.json",
+  targetDir: "v2/spec",
+  projectRegistry: { jarvis: { root: "/repo", origin: "git@github.com:cbrenner04/jarvis.git" } },
+  seed: "ship durable context",
+};
+
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
     project: "test-project",
@@ -39,6 +55,15 @@ function loadRunOrThrow(store: StateStore, runId: string): NonNullable<ReturnTyp
   const run = store.loadRun(runId);
   if (!run) throw new Error("Run should exist");
   return run;
+}
+
+function loadPipelineOrThrow(
+  store: StateStore,
+  pipelineId: string,
+): NonNullable<ReturnType<StateStore["loadPipeline"]>> {
+  const pipeline = store.loadPipeline(pipelineId);
+  if (!pipeline) throw new Error("Pipeline should exist");
+  return pipeline;
 }
 
 describe("StateStore", () => {
@@ -559,7 +584,7 @@ describe("pipelines", () => {
 
       const expectedPipelines = raw
         .prepare(
-          `SELECT id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition
+          `SELECT id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition, context
            FROM pipelines WHERE id IN (?, ?)`,
         )
         .all(activeId, interruptedId) as Array<{
@@ -569,6 +594,7 @@ describe("pipelines", () => {
         ownerIdentity: string | null;
         status: "active" | "interrupted";
         definition: string;
+        context: string | null;
       }>;
       const expectedStages = raw
         .prepare(
@@ -595,6 +621,7 @@ describe("pipelines", () => {
           {
             ...pipeline,
             definition: JSON.parse(pipeline.definition) as PipelineDefinition,
+            context: pipeline.context === null ? null : (JSON.parse(pipeline.context) as PipelineContext),
             stages: expectedStages
               .filter((stage) => stage.pipelineId === pipeline.id)
               .map((stage) => ({
@@ -628,6 +655,7 @@ describe("pipelines", () => {
     expect(pipeline.id).toBe(pipelineId);
     expect(pipeline.name).toBe("sample-pipeline");
     expect(pipeline.createdAt).toBeGreaterThan(0);
+    expect(pipeline.context).toBeNull();
     expect(pipeline.stages).toHaveLength(3);
     expect(pipeline.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
     for (const stage of pipeline.stages) {
@@ -640,6 +668,120 @@ describe("pipelines", () => {
       expect(stage.failureDetail).toBeNull();
     }
     expect(pipeline.stages.map((stage) => stage.position)).toEqual([0, 1, 2]);
+  });
+
+  test("retains the admitted context snapshot after the live source context is mutated, and round-trips across close and reopen", () => {
+    const context: PipelineContext = { ...SAMPLE_PIPELINE_CONTEXT };
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });
+
+    context.cwd = "/mutated";
+    context.seed = "mutated seed";
+    delete context.configPath;
+
+    const beforeClose = store.loadPipeline(pipelineId);
+    if (!beforeClose) throw new Error("Pipeline should exist");
+    expect(beforeClose.context).toEqual(SAMPLE_PIPELINE_CONTEXT);
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    const reopened = store.loadPipeline(pipelineId);
+    if (!reopened) throw new Error("Pipeline should exist");
+    expect(reopened.context).toEqual(SAMPLE_PIPELINE_CONTEXT);
+  });
+
+  test("a pre-context-migration database opens successfully and loads legacy pipeline context as absent", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-pipeline-context.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE pipelines (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          definition TEXT NOT NULL,
+          owner_identity TEXT,
+          status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE TABLE pipeline_stages (
+          id TEXT PRIMARY KEY,
+          pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+          stage_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          workflow_invocation_id TEXT,
+          started_at INTEGER,
+          ended_at INTEGER,
+          artifact TEXT,
+          failure_detail TEXT,
+          UNIQUE (pipeline_id, stage_id),
+          UNIQUE (pipeline_id, position)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+        "011-run-owner-identity",
+        "012-run-pr-evidence",
+        "013-pipelines-and-stages",
+        "014-pipeline-owner-identity-and-status",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const pipelineId = "legacy-pipeline";
+      raw
+        .prepare(
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
+        )
+        .run(pipelineId, "legacy-pipeline", Date.now(), "legacy-owner:1", JSON.stringify(SAMPLE_PIPELINE_DEFINITION));
+      raw
+        .prepare(
+          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+           VALUES (?, ?, 'plan', 0, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+        )
+        .run("legacy-stage", pipelineId);
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      const pipeline = migrated.loadPipeline(pipelineId);
+      if (!pipeline) throw new Error("Pipeline should exist");
+      expect(pipeline.context).toBeNull();
+      expect(pipeline.definition).toEqual(SAMPLE_PIPELINE_DEFINITION);
+
+      const verify = new Database(legacyDbPath);
+      const row = verify.prepare("SELECT context FROM pipelines WHERE id = ?").get(pipelineId) as {
+        context: string | null;
+      };
+      expect(row.context).toBeNull();
+      verify.close();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
+  });
+
+  test("legacy pipeline rows without stored context do not synthesize admission defaults on load", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET context = NULL WHERE id = ?").run(pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+    expect(pipeline.context).toBeNull();
+    expect(pipeline.context).not.toEqual(expect.objectContaining({ cwd: expect.any(String), seed: expect.any(String) }));
   });
 
   test("retains the admitted definition name and snapshot after the live source definition is mutated, and stamps owner/status at admission", () => {
@@ -903,6 +1045,139 @@ describe("pipelines", () => {
     expect(implement.failureDetail).toBeNull();
   });
 
+  function approvalStageRecord(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord {
+    const stage = pipeline.stages.find((row) => row.stageId === "gate");
+    if (!stage) throw new Error("approval stage should exist");
+    return stage;
+  }
+
+  test("closing and reopening preserves approval rows by durable id and authored stageId in awaiting, approved, and rejected states", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const admitted = store.loadPipeline(pipelineId);
+    if (!admitted) throw new Error("Pipeline should exist");
+    const approval = approvalStageRecord(admitted);
+    const durableId = approval.id;
+    const authoredStageId = approval.stageId;
+
+    for (const status of ["awaiting", "approved", "rejected"] as const) {
+      const raw = new Database(TEST_DB_PATH);
+      try {
+        raw.prepare("UPDATE pipeline_stages SET status = ? WHERE id = ?").run(status, durableId);
+      } finally {
+        raw.close();
+      }
+
+      store.close();
+      store = openStateStore(TEST_DB_PATH);
+      const reopened = store.loadPipeline(pipelineId);
+      if (!reopened) throw new Error("Pipeline should exist");
+      const row = reopened.stages.find((stage) => stage.id === durableId);
+      if (!row) throw new Error("approval row should exist");
+      expect(row.stageId).toBe(authoredStageId);
+      expect(row.status).toBe(status);
+    }
+  });
+
+  test("commitApprovalBoundary applies only to a matching pending approval row and refuses workflow, wrong, and non-pending rows without mutation", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const before = store.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+    const approval = approvalStageRecord(before);
+    const workflow = before.stages.find((stage) => stage.stageId === "plan");
+    if (!workflow) throw new Error("workflow stage should exist");
+
+    expect(store.commitApprovalBoundary({ stageRecordId: approval.id })).toEqual({
+      kind: "applied",
+      stageRecordId: approval.id,
+    });
+    expect(approvalStageRecord(loadPipelineOrThrow(store, pipelineId)).status).toBe("awaiting");
+
+    const afterBoundary = loadPipelineOrThrow(store, pipelineId);
+    expect(store.commitApprovalBoundary({ stageRecordId: approval.id })).toEqual({
+      kind: "refused",
+      stageRecordId: approval.id,
+      reason: "status_not_pending",
+    });
+    expect(store.commitApprovalBoundary({ stageRecordId: workflow.id })).toEqual({
+      kind: "refused",
+      stageRecordId: workflow.id,
+      reason: "not_approval_stage",
+    });
+    expect(store.commitApprovalBoundary({ stageRecordId: "missing-row" })).toEqual({
+      kind: "refused",
+      stageRecordId: "missing-row",
+      reason: "stage_not_found",
+    });
+    expect(store.loadPipeline(pipelineId)).toEqual(afterBoundary);
+  });
+
+  test("two store handles deciding one awaiting approval admit exactly one result and refuse duplicates without mutation", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+    expect(store.commitApprovalBoundary({ stageRecordId: approval.id })).toEqual({
+      kind: "applied",
+      stageRecordId: approval.id,
+    });
+
+    const storeA = openStateStore(TEST_DB_PATH);
+    const storeB = openStateStore(TEST_DB_PATH);
+    try {
+      const first = storeA.commitApprovalDecision({ stageRecordId: approval.id, decision: "approved" });
+      const second = storeB.commitApprovalDecision({ stageRecordId: approval.id, decision: "rejected" });
+      const outcomes = [first, second];
+      expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
+      const refused = outcomes.find((outcome) => outcome.kind === "refused");
+      expect(refused).toEqual({
+        kind: "refused",
+        stageRecordId: approval.id,
+        reason: "status_not_awaiting",
+      });
+
+      const afterDecision = loadPipelineOrThrow(store, pipelineId);
+      expect(store.commitApprovalDecision({ stageRecordId: approval.id, decision: "approved" })).toEqual({
+        kind: "refused",
+        stageRecordId: approval.id,
+        reason: "status_not_awaiting",
+      });
+      expect(store.commitApprovalDecision({ stageRecordId: approval.id, decision: "rejected" })).toEqual({
+        kind: "refused",
+        stageRecordId: approval.id,
+        reason: "status_not_awaiting",
+      });
+      expect(
+        store.commitApprovalDecision({
+          stageRecordId: approval.id,
+          decision: "bogus" as "approved",
+        }),
+      ).toEqual({
+        kind: "refused",
+        stageRecordId: approval.id,
+        reason: "invalid_decision",
+      });
+      expect(store.loadPipeline(pipelineId)).toEqual(afterDecision);
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
+  });
+
+  test("inverting pending-boundary guard fails approval boundary regression", () => {
+    expect(approvalBoundaryAllowsStatus("pending")).toBe(true);
+    expect(!approvalBoundaryAllowsStatus("pending")).toBe(false);
+  });
+
+  test("inverting approval-kind guard fails approval boundary regression", () => {
+    expect(isApprovalAuthoredStage("gate", SAMPLE_PIPELINE_DEFINITION)).toBe(true);
+    expect(isApprovalAuthoredStage("plan", SAMPLE_PIPELINE_DEFINITION)).toBe(false);
+    expect(!isApprovalAuthoredStage("gate", SAMPLE_PIPELINE_DEFINITION)).toBe(false);
+  });
+
+  test("inverting awaiting-decision guard fails approval decision regression", () => {
+    expect(approvalDecisionAllowsStatus("awaiting")).toBe(true);
+    expect(!approvalDecisionAllowsStatus("awaiting")).toBe(false);
+  });
+
   test("createPipeline stamps owner_identity and status='active'; loadPipeline reads both back across close and reopen", () => {
     const identity = "admitter:1234";
     store.close();
@@ -994,7 +1269,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(11);
+      expect(migrationCount.total).toBe(12);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -1054,6 +1329,53 @@ describe("pipeline reconciliation", () => {
     }
     return pipelineId;
   }
+
+  test("restart reconciliation leaves a failed stage and its following skipped rows unchanged", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "failed", "skipped", "skipped"]);
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+    const failedBefore = before.stages.find((stage) => stage.stageId === "stage-1");
+    const skippedBefore = before.stages.filter((stage) => stage.status === "skipped");
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    expect(after?.status).toBe("interrupted");
+    expect(after?.stages.find((stage) => stage.stageId === "stage-0")).toEqual(
+      before.stages.find((stage) => stage.stageId === "stage-0"),
+    );
+    expect(after?.stages.find((stage) => stage.stageId === "stage-1")).toEqual(failedBefore);
+    expect(after?.stages.filter((stage) => stage.status === "skipped")).toEqual(skippedBefore);
+    sweepStore.close();
+  });
+
+  test("inverting skipped-stability guard fails skipped-suffix reconciliation regression", () => {
+    expect(reconciliationStableStageStatus("skipped")).toBe(true);
+    expect(!reconciliationStableStageStatus("skipped")).toBe(false);
+  });
+
+  test("restart reconciliation leaves awaiting, approved, and rejected approval rows unchanged alongside succeeded and pending siblings", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, [
+      "succeeded",
+      "awaiting",
+      "pending",
+      "approved",
+      "rejected",
+    ]);
+    const before = seedStore.loadPipeline(pipelineId);
+    if (!before) throw new Error("Pipeline should exist");
+
+    const sweepStore = openSweepStore(async () => false);
+    const settled = await sweepStore.reconcilePipelines();
+
+    expect(settled).toEqual([pipelineId]);
+    const after = sweepStore.loadPipeline(pipelineId);
+    expect(after?.status).toBe("interrupted");
+    expect(after?.stages).toEqual(before.stages);
+    sweepStore.close();
+  });
 
   test("settles a dead-owner pipeline with a mid-stage active stage: pipeline and active stage interrupted, terminal stages untouched byte-for-byte, pending stages remain pending", async () => {
     const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "in-progress", "pending"]);
@@ -1159,6 +1481,20 @@ describe("pipeline reconciliation", () => {
     sweepStore.close();
   });
 
+  test("claimPipelineContinuation restores a reconciled interrupted pipeline to active", async () => {
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "pending"]);
+    const sweepStore = openSweepStore(async () => false);
+    await sweepStore.reconcilePipelines();
+    expect(sweepStore.loadPipeline(pipelineId)?.status).toBe("interrupted");
+
+    const claim = sweepStore.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: PRIOR_IDENTITY });
+    expect(claim).toEqual({ kind: "applied", pipelineId });
+    const after = sweepStore.loadPipeline(pipelineId);
+    expect(after?.status).toBe("active");
+    expect(after?.ownerIdentity).toBe(CURRENT_IDENTITY);
+    sweepStore.close();
+  });
+
   test("settling a dead-owner pipeline leaves an already-interrupted stage byte-for-byte unchanged, including its ended_at", async () => {
     const pipelineId = seedPipeline(PRIOR_IDENTITY, ["interrupted", "in-progress"]);
     const priorEndedAt = 12345;
@@ -1226,5 +1562,318 @@ describe("isOwnerAlive", () => {
 
   test("a dead pid is dead regardless of epoch readability", async () => {
     expect(await isOwnerAlive("999999999:1000", async () => 1000)).toBe(false);
+  });
+});
+
+describe("failed pipeline reopen", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  type StageSeed = {
+    status: string;
+    workflowInvocationId?: string | null;
+    startedAt?: number | null;
+    endedAt?: number | null;
+    artifact?: unknown;
+    failureDetail?: unknown;
+  };
+
+  function seedContinuationPipeline(stageSeeds: StageSeed[]): { pipelineId: string; stages: PipelineStageRecord[] } {
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: "reopen-pipeline",
+        stages: stageSeeds.map((_, index) => ({ stageId: `stage-${index}`, kind: "approval" })),
+      },
+    });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      stageSeeds.forEach((seed, index) => {
+        raw
+          .prepare(
+            `UPDATE pipeline_stages
+             SET status = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?
+             WHERE pipeline_id = ? AND stage_id = ?`,
+          )
+          .run(
+            seed.status,
+            seed.workflowInvocationId ?? null,
+            seed.startedAt ?? null,
+            seed.endedAt ?? null,
+            seed.artifact === undefined ? null : JSON.stringify(seed.artifact),
+            seed.failureDetail === undefined ? null : JSON.stringify(seed.failureDetail),
+            pipelineId,
+            `stage-${index}`,
+          );
+      });
+    } finally {
+      raw.close();
+    }
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    return { pipelineId, stages: pipeline.stages };
+  }
+
+  test("reopens a valid failed-plus-skipped-suffix pipeline in place and returns the failed row durable id", () => {
+    const { pipelineId, stages } = seedContinuationPipeline([
+      {
+        status: "succeeded",
+        workflowInvocationId: "wf-0",
+        startedAt: 10,
+        endedAt: 20,
+        artifact: { entryRunId: "run-0" },
+      },
+      {
+        status: "failed",
+        workflowInvocationId: "wf-1",
+        startedAt: 30,
+        endedAt: 40,
+        artifact: { entryRunId: "run-1" },
+        failureDetail: { code: "dispatch_refused", message: "boom" },
+      },
+      { status: "skipped", startedAt: 50, endedAt: 60, artifact: { note: "blocked" } },
+      { status: "skipped", failureDetail: { message: "never ran" } },
+    ]);
+    const failed = stages.find((stage) => stage.status === "failed");
+    if (!failed) throw new Error("failed stage should exist");
+    const before = loadPipelineOrThrow(store, pipelineId);
+
+    expect(store.reopenFailedPipeline({ pipelineId })).toEqual({
+      kind: "applied",
+      stageRecordId: failed.id,
+    });
+
+    const after = loadPipelineOrThrow(store, pipelineId);
+    const reopenedFailed = after.stages.find((stage) => stage.id === failed.id);
+    if (!reopenedFailed) throw new Error("failed row should exist");
+    expect(reopenedFailed.stageId).toBe(failed.stageId);
+    expect(reopenedFailed.status).toBe("pending");
+    expect(reopenedFailed.workflowInvocationId).toBeNull();
+    expect(reopenedFailed.startedAt).toBeNull();
+    expect(reopenedFailed.endedAt).toBeNull();
+    expect(reopenedFailed.artifact).toBeNull();
+    expect(reopenedFailed.failureDetail).toBeNull();
+
+    for (const stage of after.stages.filter((row) => row.status === "pending" && row.id !== failed.id)) {
+      expect(stage.workflowInvocationId).toBeNull();
+      expect(stage.startedAt).toBeNull();
+      expect(stage.endedAt).toBeNull();
+      expect(stage.artifact).toBeNull();
+      expect(stage.failureDetail).toBeNull();
+    }
+
+    const succeeded = after.stages.find((stage) => stage.stageId === "stage-0");
+    const succeededBefore = before.stages.find((stage) => stage.stageId === "stage-0");
+    if (!succeeded || !succeededBefore) throw new Error("succeeded stage should exist");
+    expect(succeeded).toEqual(succeededBefore);
+  });
+
+  test("closing and reopening the store, including after restart reconciliation, retains the continuation point before reopen", async () => {
+    const PRIOR_IDENTITY = "11111:1000000";
+    const CURRENT_IDENTITY = "22222:2000000";
+    const seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+    const pipelineId = seedStore.createPipeline({
+      definition: {
+        name: "reopen-after-reconcile",
+        stages: [
+          { stageId: "stage-0", kind: "approval" },
+          { stageId: "stage-1", kind: "approval" },
+          { stageId: "stage-2", kind: "approval" },
+        ],
+      },
+    });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET owner_identity = ? WHERE id = ?").run(PRIOR_IDENTITY, pipelineId);
+      for (const [stageId, status] of [
+        ["stage-0", "succeeded"],
+        ["stage-1", "failed"],
+        ["stage-2", "skipped"],
+      ] as const) {
+        raw
+          .prepare("UPDATE pipeline_stages SET status = ? WHERE pipeline_id = ? AND stage_id = ?")
+          .run(status, pipelineId, stageId);
+      }
+    } finally {
+      raw.close();
+    }
+    const beforeReconcile = seedStore.loadPipeline(pipelineId);
+    if (!beforeReconcile) throw new Error("Pipeline should exist");
+    const failedId = beforeReconcile.stages.find((stage) => stage.stageId === "stage-1")?.id;
+    if (!failedId) throw new Error("failed stage should exist");
+    seedStore.close();
+
+    const sweepStore = openStateStore(TEST_DB_PATH, {
+      currentIdentity: CURRENT_IDENTITY,
+      isOwnerAlive: async () => false,
+    });
+    await sweepStore.reconcilePipelines();
+    const afterReconcile = sweepStore.loadPipeline(pipelineId);
+    if (!afterReconcile) throw new Error("Pipeline should exist");
+    expect(afterReconcile.status).toBe("interrupted");
+    expect(afterReconcile.stages.find((stage) => stage.stageId === "stage-1")?.status).toBe("failed");
+    expect(afterReconcile.stages.find((stage) => stage.stageId === "stage-2")?.status).toBe("skipped");
+    sweepStore.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    expect(store.reopenFailedPipeline({ pipelineId })).toEqual({
+      kind: "applied",
+      stageRecordId: failedId,
+    });
+    expect(loadPipelineOrThrow(store, pipelineId).stages.find((stage) => stage.id === failedId)?.status).toBe(
+      "pending",
+    );
+  });
+
+  test("refuses no-failure, multiple-failure, malformed-suffix, and unknown pipelines without mutation", () => {
+    const noFailureId = seedContinuationPipeline([
+      { status: "succeeded" },
+      { status: "pending" },
+    ]).pipelineId;
+    const noFailureBefore = loadPipelineOrThrow(store, noFailureId);
+    expect(store.reopenFailedPipeline({ pipelineId: noFailureId })).toEqual({
+      kind: "refused",
+      pipelineId: noFailureId,
+      reason: "no_failed_stage",
+    });
+    expect(store.loadPipeline(noFailureId)).toEqual(noFailureBefore);
+
+    const multipleFailureId = seedContinuationPipeline([
+      { status: "failed" },
+      { status: "failed" },
+    ]).pipelineId;
+    const multipleFailureBefore = loadPipelineOrThrow(store, multipleFailureId);
+    expect(store.reopenFailedPipeline({ pipelineId: multipleFailureId })).toEqual({
+      kind: "refused",
+      pipelineId: multipleFailureId,
+      reason: "multiple_failed_stages",
+    });
+    expect(store.loadPipeline(multipleFailureId)).toEqual(multipleFailureBefore);
+
+    const malformedSuffixId = seedContinuationPipeline([
+      { status: "succeeded" },
+      { status: "failed" },
+      { status: "pending" },
+    ]).pipelineId;
+    const malformedSuffixBefore = loadPipelineOrThrow(store, malformedSuffixId);
+    expect(store.reopenFailedPipeline({ pipelineId: malformedSuffixId })).toEqual({
+      kind: "refused",
+      pipelineId: malformedSuffixId,
+      reason: "malformed_continuation",
+    });
+    expect(store.loadPipeline(malformedSuffixId)).toEqual(malformedSuffixBefore);
+
+    const malformedPredecessorId = seedContinuationPipeline([
+      { status: "pending" },
+      { status: "failed" },
+      { status: "skipped" },
+    ]).pipelineId;
+    const malformedPredecessorBefore = loadPipelineOrThrow(store, malformedPredecessorId);
+    expect(store.reopenFailedPipeline({ pipelineId: malformedPredecessorId })).toEqual({
+      kind: "refused",
+      pipelineId: malformedPredecessorId,
+      reason: "malformed_continuation",
+    });
+    expect(store.loadPipeline(malformedPredecessorId)).toEqual(malformedPredecessorBefore);
+
+    expect(store.reopenFailedPipeline({ pipelineId: "missing-pipeline" })).toEqual({
+      kind: "refused",
+      pipelineId: "missing-pipeline",
+      reason: "pipeline_not_found",
+    });
+  });
+
+  test("two store handles reopening one failed continuation admit exactly one result and refuse duplicates without mutation", () => {
+    const { pipelineId } = seedContinuationPipeline([
+      { status: "succeeded", workflowInvocationId: "wf-0", artifact: { entryRunId: "run-0" } },
+      { status: "failed", workflowInvocationId: "wf-1", failureDetail: { message: "failed" } },
+      { status: "skipped" },
+    ]);
+    const before = loadPipelineOrThrow(store, pipelineId);
+
+    const storeA = openStateStore(TEST_DB_PATH);
+    const storeB = openStateStore(TEST_DB_PATH);
+    try {
+      const first = storeA.reopenFailedPipeline({ pipelineId });
+      const second = storeB.reopenFailedPipeline({ pipelineId });
+      const outcomes = [first, second];
+      expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
+      const refused = outcomes.find((outcome) => outcome.kind === "refused");
+      expect(refused).toMatchObject({ kind: "refused", pipelineId });
+      if (!refused || refused.kind !== "refused") throw new Error("expected refused outcome");
+      expect(["reopen_lost", "no_failed_stage"]).toContain(refused.reason);
+
+      const afterFirst = loadPipelineOrThrow(store, pipelineId);
+      expect(store.reopenFailedPipeline({ pipelineId })).toEqual({
+        kind: "refused",
+        pipelineId,
+        reason: "no_failed_stage",
+      });
+      expect(store.loadPipeline(pipelineId)).toEqual(afterFirst);
+      expect(afterFirst.stages.find((stage) => stage.stageId === "stage-0")).toEqual(
+        before.stages.find((stage) => stage.stageId === "stage-0"),
+      );
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
+  });
+
+  test("inverting reopen shape guards fails targeted regressions", () => {
+    const failedStage: PipelineStageRecord = {
+      id: "failed-id",
+      pipelineId: "pipeline-id",
+      stageId: "stage-1",
+      position: 1,
+      status: "failed",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+    const suffixStage: PipelineStageRecord = {
+      id: "suffix-id",
+      pipelineId: "pipeline-id",
+      stageId: "stage-2",
+      position: 2,
+      status: "skipped",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+
+    expect(reopenPredecessorAllowsStatus("succeeded")).toBe(true);
+    expect(reopenPredecessorAllowsStatus("pending")).toBe(false);
+    expect(reopenSuffixAllowsStatus("skipped")).toBe(true);
+    expect(reopenSuffixAllowsStatus("pending")).toBe(false);
+    expect(analyzeFailedPipelineReopenShape([failedStage, suffixStage]).kind).toBe("valid");
+    expect(analyzeFailedPipelineReopenShape([{ ...failedStage, status: "pending" }, suffixStage])).toEqual({
+      kind: "invalid",
+      reason: "no_failed_stage",
+    });
+    expect(
+      analyzeFailedPipelineReopenShape([
+        failedStage,
+        { ...failedStage, id: "failed-2", stageId: "stage-3", position: 3 },
+      ]),
+    ).toEqual({
+      kind: "invalid",
+      reason: "multiple_failed_stages",
+    });
+    expect(analyzeFailedPipelineReopenShape([failedStage, { ...suffixStage, status: "pending" }])).toEqual({
+      kind: "invalid",
+      reason: "malformed_continuation",
+    });
   });
 });

@@ -51,6 +51,7 @@ export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcH
     hasActiveRuns: _hasActiveRuns,
     setRetiring: _setRetiring,
     isRetiring: _isRetiring,
+    continueContinuablePipelines: _continueContinuablePipelines,
     ...ipcHandlers
   } = handlers;
   return ipcHandlers;

@@ -21,17 +21,17 @@
 
 ## Acceptance criteria
 
-- [ ] After the admitting daemon process and store handle are gone, the production continuation path resolves and
+- [x] After the admitting daemon process and store handle are gone, the production continuation path resolves and
       dispatches an eligible later workflow stage from persisted context and predecessor artifact without
       caller-supplied admission input.
-- [ ] Before that dispatch, continuation establishes one live pipeline owner and a runnable pipeline state; a
+- [x] Before that dispatch, continuation establishes one live pipeline owner and a runnable pipeline state; a
       competing continuation is refused without changing stage rows or creating a second dispatch.
-- [ ] A new or updated `v2/src/daemon/pipeline-execution.test.ts` regression for restart-safe production
+- [x] A new or updated `v2/src/daemon/pipeline-execution.test.ts` regression for restart-safe production
       continuation fails against the pre-fix behavior.
-- [ ] Inverting the persisted-context load or continuation-claim guard makes its targeted regression fail; negative
+- [x] Inverting the persisted-context load or continuation-claim guard makes its targeted regression fail; negative
       cases prove missing client input and losing claims cannot dispatch a workflow.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document restart-safe continuation and its ownership
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document restart-safe continuation and its ownership
       semantics.
 
 ## Documentation updates

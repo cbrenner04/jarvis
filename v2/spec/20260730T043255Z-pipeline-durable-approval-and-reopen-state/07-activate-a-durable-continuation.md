@@ -22,17 +22,17 @@
 
 ## Acceptance criteria
 
-- [ ] After restart reconciliation, an awaiting or rejected approval is not activated, while an approved approval
+- [x] After restart reconciliation, an awaiting or rejected approval is not activated, while an approved approval
       activates exactly its eligible continuation under one live owner and runnable pipeline state.
-- [ ] After an applied reopen, daemon activation dispatches only the reopened failed stage, preserves succeeded
+- [x] After an applied reopen, daemon activation dispatches only the reopened failed stage, preserves succeeded
       predecessor evidence, and establishes ownership and runnable state without client reconstruction.
-- [ ] A duplicate, refused, or losing activation request changes no stage row and produces no additional dispatch.
-- [ ] New or updated `v2/src/daemon/pipeline-execution.test.ts` regressions for approved and reopened activation
+- [x] A duplicate, refused, or losing activation request changes no stage row and produces no additional dispatch.
+- [x] New or updated `v2/src/daemon/pipeline-execution.test.ts` regressions for approved and reopened activation
       after restart fail against the pre-fix daemon behavior.
-- [ ] Inverting the approval/reopen eligibility or activation-claim guard makes its targeted regression fail;
+- [x] Inverting the approval/reopen eligibility or activation-claim guard makes its targeted regression fail;
       negative cases prove awaiting, rejected, refused, and duplicate activation cannot dispatch.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document durable activation for approved and reopened
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document durable activation for approved and reopened
       pipelines.
 
 ## Documentation updates

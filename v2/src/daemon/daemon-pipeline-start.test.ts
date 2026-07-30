@@ -13,7 +13,7 @@ import {
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, setInvertAdmissionContextHandoffForTest } from "./daemon.ts";
 import { derivePipelineState } from "./pipeline-execution.ts";
 import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 
@@ -45,6 +45,32 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 
 function requestFrame(id: string, method: string, params?: unknown) {
   return { kind: "request" as const, id, method, params };
+}
+
+const ADMISSION_CONTEXT = {
+  cwd: "/fake",
+  seed: "seed text",
+  configPath: "/fake/.jarvis/config.json",
+};
+
+const SINGLE_STAGE_DEFINITION: PipelineDefinition = {
+  name: "context-admission",
+  stages: [{ stageId: "only", kind: "workflow", workflow: "intent", review: "none" }],
+};
+
+function createPipelineStartHandlers(
+  resolveStage: (
+    definition: PipelineDefinition,
+    stageIndex: number,
+  ) => Promise<PipelineStageResolutionResult>,
+) {
+  return createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage,
+  });
 }
 
 let stateStore: StateStore;
@@ -127,4 +153,38 @@ test("pipeline_start admits a pipeline, keeps running after the client disconnec
   if (!finalPipeline) throw new Error("expected pipeline to exist");
   expect(finalPipeline.stages.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
   expect(derivePipelineState(finalPipeline)).toBe("succeeded");
+});
+
+test("pipeline_start persists supplied context before returning pipelineId", async () => {
+  const handlers = createPipelineStartHandlers(async () => ({ ok: true, steps: [] }));
+
+  const response = await handlers.pipeline_start(
+    requestFrame("ctx", "pipeline_start", { definition: SINGLE_STAGE_DEFINITION, context: ADMISSION_CONTEXT }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const pipelineId = (response as { result: { pipelineId: string } }).result.pipelineId;
+
+  const admitted = stateStore.loadPipeline(pipelineId);
+  if (!admitted) throw new Error("expected pipeline to exist");
+  expect(admitted.context).toEqual(ADMISSION_CONTEXT);
+});
+
+test("inverting admission-context handoff fails persistence regression", async () => {
+  setInvertAdmissionContextHandoffForTest(true);
+  try {
+    const handlers = createPipelineStartHandlers(async () => ({ ok: true, steps: [] }));
+
+    const response = await handlers.pipeline_start(
+      requestFrame("ctx-inv", "pipeline_start", { definition: SINGLE_STAGE_DEFINITION, context: ADMISSION_CONTEXT }),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({
+      kind: "error",
+      code: "admission_failed",
+      message: "pipeline context was not durably persisted",
+    });
+  } finally {
+    setInvertAdmissionContextHandoffForTest(false);
+  }
 });

@@ -141,11 +141,22 @@ export type DaemonClient = ((project: string, branch: string) => Promise<{ isLiv
   ) => Promise<{ status: "free" } | { status: "claimed"; message: string }>;
 };
 
+export const DAEMON_UNREACHABLE_REASON = "Daemon unreachable; run `jarvis daemon start`";
+
+export function createAbsentDaemonClient(): DaemonClient {
+  const unreachable = async (): Promise<never> => {
+    throw new Error(DAEMON_UNREACHABLE_REASON);
+  };
+  const daemonClient = unreachable as DaemonClient;
+  daemonClient.checkWorkflowStartClaim = unreachable;
+  return daemonClient;
+}
+
 export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
   const listRuns = async (project: string, branch: string) => {
     const result = await request(client, "list");
     const list = parseListRuns(result);
-    if (list === undefined) return [];
+    if (list === undefined) throw new Error(DAEMON_UNREACHABLE_REASON);
     return list.runs.filter((r) => r.project === project && r.branch === branch).map((r) => ({ isLive: r.isLive }));
   };
   const daemonClient = listRuns as DaemonClient;
@@ -209,11 +220,8 @@ export async function checkEligibility(
     if (hasLiveRun) {
       return { status: "ineligible", reason: "Daemon reports live run" };
     }
-  } catch (err) {
-    return {
-      status: "ineligible",
-      reason: `Daemon unreachable: ${err instanceof Error ? err.message : String(err)}`,
-    };
+  } catch {
+    return { status: "ineligible", reason: DAEMON_UNREACHABLE_REASON };
   }
 
   return { status: "eligible" };
@@ -458,17 +466,21 @@ async function findEligibleWorktreeCandidates(
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
-): Promise<CleanupCandidate[]> {
+): Promise<{ candidates: CleanupCandidate[]; daemonUnreachable: DiscoveredWorktree[] }> {
   const candidates: CleanupCandidate[] = [];
+  const daemonUnreachable: DiscoveredWorktree[] = [];
   for (const worktree of discovered) {
     const project = projectForWorktree(worktree, registry, jarvisRoot);
     if (project === undefined || worktree.branch === undefined) continue;
 
     const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store);
-    if (eligibility.status === "eligible")
+    if (eligibility.status === "eligible") {
       candidates.push({ worktree: { ...worktree, branch: worktree.branch }, project });
+    } else if (eligibility.reason === DAEMON_UNREACHABLE_REASON) {
+      daemonUnreachable.push(worktree);
+    }
   }
-  return candidates;
+  return { candidates, daemonUnreachable };
 }
 
 function previewWorktreeCandidates(
@@ -495,17 +507,19 @@ async function recheckEligibleWorktrees(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void },
-): Promise<CleanupCandidate[]> {
+): Promise<{ candidates: CleanupCandidate[]; daemonUnreachable: boolean }> {
   const stillEligible: CleanupCandidate[] = [];
+  let daemonUnreachable = false;
   for (const candidate of candidates) {
     const recheck = await checkEligibility(candidate.worktree, candidate.project, runner, daemonClient, store);
     if (recheck.status === "eligible") {
       stillEligible.push(candidate);
     } else {
+      daemonUnreachable ||= recheck.reason === DAEMON_UNREACHABLE_REASON;
       io.stdout(`Skipped (became ineligible): ${candidate.worktree.path} — ${recheck.reason}\n`);
     }
   }
-  return stillEligible;
+  return { candidates: stillEligible, daemonUnreachable };
 }
 
 async function retireEligibleWorktrees(
@@ -611,7 +625,7 @@ export async function runCleanupCommand(
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
   const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-  const candidates = await findEligibleWorktreeCandidates(
+  const { candidates, daemonUnreachable } = await findEligibleWorktreeCandidates(
     discovered,
     registry,
     jarvisRoot,
@@ -619,6 +633,7 @@ export async function runCleanupCommand(
     daemonClient,
     store,
   );
+  const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
   const strandedArtifacts = discoverStrandedArtifacts(registry);
   const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
   const stranded = await inspectStrandedArtifacts(
@@ -632,10 +647,13 @@ export async function runCleanupCommand(
   );
 
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+  for (const worktree of daemonUnreachable) {
+    io.stdout(`Skipped merged worktree: ${worktree.path} — ${DAEMON_UNREACHABLE_REASON}\n`);
+  }
 
   if (hasNothingToClean(candidates, stranded, reaperResult)) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
-    return 0;
+    return daemonUnreachableExit;
   }
 
   previewWorktreeCandidates(candidates, registry, store, io);
@@ -647,17 +665,18 @@ export async function runCleanupCommand(
 
   if (options.dryRun) {
     io.stdout("(dry-run: no changes made)\n");
-    return 0;
+    return daemonUnreachableExit;
   }
 
   const confirmed = options.promptConfirm !== undefined ? await options.promptConfirm("Apply cleanup? [y/N] ") : false;
 
   if (!confirmed) {
     io.stdout("Cancelled.\n");
-    return 0;
+    return daemonUnreachableExit;
   }
 
-  const stillEligible = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
+  const recheck = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
+  const stillEligible = recheck.candidates;
   const result = await retireEligibleWorktrees(stillEligible, registry, discovered, store, runner, io);
 
   const socketRemoval = removeDeadDaemonSockets(reaperResult.dead, io);
@@ -674,7 +693,8 @@ export async function runCleanupCommand(
   );
   await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
   if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
-  return result;
+  if (result !== 0) return result;
+  return recheck.daemonUnreachable ? 1 : daemonUnreachableExit;
 }
 
 /**

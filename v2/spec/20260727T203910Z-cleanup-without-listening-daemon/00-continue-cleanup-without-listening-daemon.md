@@ -58,33 +58,33 @@ open-home stranded archival never run.
 
 ## Acceptance criteria
 
-- [ ] With no daemon listening on the invoking jarvis digest-keyed socket, bulk `jarvis cleanup`
+- [x] With no daemon listening on the invoking jarvis digest-keyed socket, bulk `jarvis cleanup`
   reaps dead sockets, scans stranded open-home specs, and lists merged worktrees skipped for
   daemon unreachability instead of aborting at connect; `continues cleanup when keyed socket has no
   listener` in `cleanup-cli.test.ts` fails against the pre-fix abort.
-- [ ] Stderr from the no-listener continue path names the missing-daemon condition and
+- [x] Stderr from the no-listener continue path names the missing-daemon condition and
   `jarvis daemon start`, is emitted once before reaper/stranded work, and does not print the bare
   keyed socket path or raw `connect ENOENT`.
-- [ ] Bulk preview stdout names each merged worktree skipped for daemon unreachability using stable
+- [x] Bulk preview stdout names each merged worktree skipped for daemon unreachability using stable
   text (no keyed socket path, no raw connect errno, no leaked probe `err.message`).
-- [ ] Exit status is 0 when no discovered merged worktree was skipped for daemon unreachability;
+- [x] Exit status is 0 when no discovered merged worktree was skipped for daemon unreachability;
   exit non-zero when at least one was, including dry-run, operator cancel/decline, and apply when
   reaper/stranded are empty and no eligible candidates remain (`daemon-unreachable skip exits
   nonzero when nothing else to clean` in `cleanup.test.ts` fails against pre-fix exit 0).
-- [ ] Skips for PR-not-merged, non-terminal runs, and other non-daemon ineligibility do not change
+- [x] Skips for PR-not-merged, non-terminal runs, and other non-daemon ineligibility do not change
   exit code from current behavior (`runCleanupCommand makes worktree ineligible when daemon client
   throws` is updated for daemon-skip exit semantics, not PR/run cases).
-- [ ] Non–no-listener keyed-socket connect failures (e.g. timeout, permission) still abort before
+- [x] Non–no-listener keyed-socket connect failures (e.g. timeout, permission) still abort before
   reaper/stranded phases with exit non-zero.
-- [ ] `jarvis cleanup --abandon <name>` with absent keyed listener refuses before destructive
+- [x] `jarvis cleanup --abandon <name>` with absent keyed listener refuses before destructive
   preview, stderr is stable daemon-unreachable text with recovery hint, exit non-zero (`abandon
   refuses when keyed daemon absent` in `cleanup-cli.test.ts` or `cleanup.test.ts`).
-- [ ] Inverting the no-listener connect-continue guard turns `continues cleanup when keyed socket
+- [x] Inverting the no-listener connect-continue guard turns `continues cleanup when keyed socket
   has no listener` RED.
-- [ ] When `listRuns()` throws, cleanup still aborts with that error rather than skipping
+- [x] When `listRuns()` throws, cleanup still aborts with that error rather than skipping
   worktrees; inverting that guard turns `listRuns failure aborts cleanup` in `cleanup.test.ts`
   RED.
-- [ ] Keyed-socket connect failure that is not no-listener: `cleanup with daemon connection
+- [x] Keyed-socket connect failure that is not no-listener: `cleanup with daemon connection
   failure prints error and exits 1` in `cleanup-cli.test.ts` stays green for fail-closed errors
   (replaced behavior for former blanket connect abort).
 

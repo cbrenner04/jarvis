@@ -35,6 +35,7 @@ import {
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
+  resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
@@ -600,7 +601,12 @@ function resumeContextForRun(
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
   if (!isResumeAdmitted(run, terminalRecord)) return undefined;
   if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
-  if (isReviewMutationResumable(run, store, terminalRecord)) return undefined;
+  if (
+    isReviewMutationResumable(run, store, terminalRecord) ||
+    resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
+  ) {
+    return undefined;
+  }
   return reconstructWriteResume(run);
 }
 
@@ -1577,7 +1583,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     // Checked ahead of the generic terminal-resume gate below: these two admission predicates carry
     // their own `status === "failed"` + row-shape checks, and the outcomes they admit
-    // (`surviving_mutation_failed`, `ready_gate_failed`, `completion_commit_failed`, populated-intent
+    // (`surviving_mutation_failed`, `ready_gate_failed`, `ready_gate_out_of_scope`,
+    // `completion_commit_failed`, populated-intent
     // `landing_failed`) are not resumable under the generic operator-error mapping — deferring to
     // that gate first would wrongly strand a row this code can actually resume.
     if (isIntentFinalizationResumable(run, store)) {
@@ -1586,7 +1593,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
 
-    if (isReviewMutationResumable(run, store, terminalRecord)) {
+    if (
+      isReviewMutationResumable(run, store, terminalRecord) ||
+      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok
+    ) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
     }
 

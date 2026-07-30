@@ -20,6 +20,7 @@ import type {
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   createRunControlHandlers,
@@ -41,7 +42,13 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
-import { ReadyFlipError, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import {
+  formatReadyGateOutOfScopeDetail,
+  ReadyFlipError,
+  ReadyGateError,
+  SurvivingMutationError,
+} from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
@@ -2627,6 +2634,173 @@ describe("executeWorkflow completion publication", () => {
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
     });
+  });
+
+  function createGateScopeWorkflowStep(
+    home: { jarvisRoot: string },
+    branchName: string,
+    baseRef: string,
+    overrides?: Partial<WriteWorkflowStep>,
+  ): WriteWorkflowStep {
+    roots.push(join(home.jarvisRoot, ".."));
+    return {
+      behavior: "write",
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName,
+        baseRef,
+        jarvisRoot: home.jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: "proof.txt",
+      agents: ["claude"],
+      agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+      createBinding: doneBindingFactory,
+      withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
+      stepId: "gate-scope",
+      role: "implement",
+      ...overrides,
+    };
+  }
+
+  test("settles an attributed untouched red gate as ready_gate_out_of_scope without repair", async () => {
+    const home = createJarvisHome();
+    const branchName = "workflow-gate-out-of-scope";
+    const { baseRef } = initGateScopeWorktree(home.jarvisRoot, branchName);
+    const logSink = new TestLogSink();
+    let inScopeGateCalls = 0;
+    const outsidePath = "v2/src/untouched.test.ts";
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
+
+    await withStateStore(async (store) => {
+      const outOfScope = await executeWorkflow({
+        steps: [createGateScopeWorkflowStep(home, branchName, baseRef)],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+        },
+      });
+      expect(outOfScope.kind).toBe("ready_gate_out_of_scope");
+      expect(outOfScope.resumable).toBe(true);
+      expect(outOfScope.readyGateOutsidePaths).toEqual([outsidePath]);
+      expect(outOfScope.readyGateOutOfScopeDetail).toBe(outOfScopeDetail);
+      expect(outOfScope.readyGateError).toBe(outOfScopeDetail);
+      expect(store.loadRun(outOfScope.runId)?.status).toBe("failed");
+      expect(logSink.getEventsForRun(outOfScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual(
+        [],
+      );
+      expect(logSink.getEventsForRun(outOfScope.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_out_of_scope",
+        resumable: true,
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: outOfScopeDetail,
+      });
+
+      const inScopeBranch = `${branchName}-in-scope`;
+      const { baseRef: inScopeBaseRef } = initGateScopeWorktree(home.jarvisRoot, inScopeBranch);
+      const inScope = await executeWorkflow({
+        steps: [
+          createGateScopeWorkflowStep(home, inScopeBranch, inScopeBaseRef, {
+            createBinding: createBindingFactory(async ({ cwd }) => {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" } as const;
+            }),
+          }),
+        ],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          inScopeGateCalls += 1;
+          if (inScopeGateCalls === 1) {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+          }
+        },
+      });
+      expect(inScope.kind).toBe("complete");
+      expect(inScopeGateCalls).toBe(2);
+      expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
+        { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+      ]);
+    });
+  });
+
+  test("persists ready_gate_out_of_scope evidence through durable logs and operator mirrors", async () => {
+    const home = createJarvisHome();
+    const branchName = "workflow-gate-out-of-scope-durable";
+    const { baseRef } = initGateScopeWorktree(home.jarvisRoot, branchName);
+    const outsidePath = "v2/src/untouched.test.ts";
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
+    const logsPath = join(home.jarvisRoot, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [createGateScopeWorkflowStep(home, branchName, baseRef)],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+        },
+      });
+      expect(result.kind).toBe("ready_gate_out_of_scope");
+      if (result.kind === "ready_gate_out_of_scope") {
+        expect(exitCodeForWriteResult(result.kind)).toBe(1);
+      }
+
+      const persisted = openLogReader(logsPath).tail(result.runId).at(-1);
+      expect(persisted).toBeDefined();
+      if (persisted === undefined) throw new Error("expected persisted loop_finished");
+      expect(persisted.event).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_out_of_scope",
+        resumable: true,
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: outOfScopeDetail,
+      });
+
+      const terminal = findTerminalLogRecord([persisted]);
+      const run = store.loadRun(result.runId);
+      const operatorError = composeRunOperatorError(run ?? { status: "failed" }, terminal);
+      expect(operatorError).toEqual({
+        reason: "ready_gate_out_of_scope",
+        retryable: true,
+        nextAction: "resume",
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: outOfScopeDetail,
+      });
+
+      const loopEvent = persisted.event;
+      if (loopEvent.kind !== "loop_finished") throw new Error("expected loop_finished");
+      const { readyGateOutsidePaths: _paths, readyGateOutOfScopeDetail: _detail, ...eventWithoutPaths } = loopEvent;
+      const withoutPaths = composeRunOperatorError(run ?? { status: "failed" }, {
+        ...persisted,
+        event: eventWithoutPaths,
+      });
+      expect(withoutPaths?.reason).toBe("ready_gate_out_of_scope");
+      expect(withoutPaths?.readyGateOutsidePaths).toBeUndefined();
+
+      const wrongKind = composeRunOperatorError(run ?? { status: "failed" }, {
+        ...persisted,
+        event: {
+          ...eventWithoutPaths,
+          loopOutcomeKind: "ready_gate_failed",
+        },
+      });
+      expect(wrongKind?.reason).toBe("ready_gate_failed");
+      expect(wrongKind?.readyGateOutsidePaths).toBeUndefined();
+    });
+
+    logSink.close();
   });
 
   test("skips repair when ready-flip failure occurs (non-ReadyGateError)", async () => {

@@ -379,6 +379,8 @@ then ready gate and draft→ready flip once.
 
 Publication terminal results and their `loop_finished` row retain the normalized failure detail. The ready gate remains outside this policy; `ReadyGateError` enters repair, while `already ready` and `not a draft` satisfy the ready flip before classification.
 
+Terminal ready-gate attribution uses the marker-prefixed failing-file records and ready-step completion boundaries documented in [`test-writing.md`](./test-writing.md). Classification is conservative: only the final failed ready step's final test attempt supplies attributable paths. Missing, malformed, stale-retry, later-non-test, partial, or mixed attribution stays `ready_gate_failed`. Each attributed path must be a nonempty normalized repo-relative path; absolute, escaping, malformed, or normalization-colliding records fail closed. The allowed set is the normalized union of the spec-tree files and all base-to-HEAD diff paths (including rename/copy/delete sides) plus untracked files, derived with NUL-safe git parsing; any unresolved diff, inventory, normalization, or spec-tree input also fails closed. When every validated failing path lies outside that set, the failure is a path-ownership heuristic only — `ready_gate_out_of_scope` with the normalized outside paths — not proof the run did or did not cause the red. Deadline-killed gates, successful gates, and `requiredIntegrationScope` failures are never eligible because they lack equally complete terminal file attribution.
+
 The captured snapshot is the retry identity: later operator edits are excluded.
 On continuation (`jarvis run resume`, daemon recovery, queue promotion), execution
 re-resolves agent/model bindings from the current machine profile while snapshot

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ScopedTests } from "./ci-test-scope.ts";
+import { READY_ATTEMPT_ENV } from "./run-v2-tests.ts";
 
 // 30 minutes — run ceiling (JARVIS_READY_TIMEOUT_MS), a backstop rather than the normal bound.
 // Sized so a flake-retry still arms a fresh full test budget on a *measured* run: aggregate
@@ -18,6 +19,7 @@ export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
 export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
 export const DEADLINE_KILL_MARKER = "ready: deadline exceeded after";
+export const READY_STEP_COMPLETION_MARKER = "JARVIS_READY_STEP_COMPLETED ";
 
 // Per-step budgets: sized to what each step does, armed fresh per step (not shrunk by prior
 // steps' consumption). See v2/docs/test-writing.md for the aggregate test-step measurement.
@@ -35,6 +37,24 @@ export const DEFAULT_STEP_BUDGET_MS = 2 * 60 * 1000; // fallback for unrecognize
 export type ReadyTier = "fast" | "full";
 export type ReadyCommand = { name: string; args: string[] };
 export type ArmedBound = "step" | "ceiling";
+
+export interface ReadyStepCompletion {
+  stepId: string;
+  attemptId: string;
+  command: string;
+  status: number;
+}
+
+export function readyStepCompletionRecord(completion: ReadyStepCompletion): string {
+  return `${READY_STEP_COMPLETION_MARKER}${JSON.stringify(completion)}\n`;
+}
+
+export function readyAttemptEnvironment(
+  attemptId: string | undefined,
+  inherited: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return attemptId === undefined ? inherited : { ...inherited, [READY_ATTEMPT_ENV]: attemptId };
+}
 
 const SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
   SIGINT: 130,
@@ -280,7 +300,13 @@ export function getReadyCommands(
   return commands;
 }
 
-export function runCommand(name: string, args: string[], armedMs: number, bound: ArmedBound): Promise<number> {
+export function runCommand(
+  name: string,
+  args: string[],
+  armedMs: number,
+  bound: ArmedBound,
+  attemptId?: string,
+): Promise<number> {
   return new Promise((resolve) => {
     // Heartbeat so a silent long step (e.g. `bun test` runs ~80s with no output
     // under bunfig `onlyFailures`) doesn't look like a hang.
@@ -294,6 +320,7 @@ export function runCommand(name: string, args: string[], armedMs: number, bound:
 
     const child = spawn(name, args, {
       detached: true,
+      env: readyAttemptEnvironment(attemptId),
       stdio: "inherit",
     });
 
@@ -406,15 +433,25 @@ export async function runReady(opts?: {
     return { armedMs: ceilingRemainingMs, bound: "ceiling" };
   };
 
-  for (const { name, args } of commands) {
+  for (const [stepIndex, { name, args }] of commands.entries()) {
+    const stepId = String(stepIndex + 1);
+    const command = `${name} ${args.join(" ")}`;
+    let attemptNumber = 1;
+    const runAttempt = async (armedMs: number, bound: ArmedBound): Promise<number> => {
+      const attemptId = `${stepId}.${attemptNumber}`;
+      attemptNumber += 1;
+      const code = await runCommandFn(name, args, armedMs, bound, attemptId);
+      process.stderr.write(readyStepCompletionRecord({ stepId, attemptId, command, status: code }));
+      return code;
+    };
     const { armedMs, bound } = armStep(args);
-    let code = await runCommandFn(name, args, armedMs, bound);
+    let code = await runAttempt(armedMs, bound);
 
     // Retry only the identical failed test step; a narrower command cannot clear it.
     if (code !== 0 && isTestStep(args) && isGenuineTestFailure(code)) {
       process.stderr.write(`ready: test step failed (code ${code}); retrying\n`);
       const retryArm = armStep(args);
-      code = await runCommandFn(name, args, retryArm.armedMs, retryArm.bound);
+      code = await runAttempt(retryArm.armedMs, retryArm.bound);
       if (code === 0) {
         process.stderr.write(`ready: test flake recovered (retry passed); continuing\n`);
       } else {

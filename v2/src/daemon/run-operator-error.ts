@@ -1,6 +1,6 @@
 import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import { survivingMutationLogFields } from "../execution/ready-finalize.ts";
+import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
 import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
@@ -26,6 +26,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "completion_commit_failed",
   "iteration_commit_failed",
   "ready_gate_failed",
+  "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
   "mutation_repair_exhausted",
@@ -50,6 +51,8 @@ export type RunOperatorError = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  readyGateOutsidePaths?: string[];
+  readyGateOutOfScopeDetail?: string;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -140,6 +143,7 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
   if (event === undefined || !event.resumable) return false;
   switch (event.loopOutcomeKind) {
     case "ready_gate_failed":
+    case "ready_gate_out_of_scope":
     case "surviving_mutation_failed":
     case "completion_commit_failed":
     case "iteration_commit_failed":
@@ -188,6 +192,11 @@ function mapFromLoopFinished(
       };
     case "ready_gate_failed":
       return op("ready_gate_failed", "resume", true);
+    case "ready_gate_out_of_scope":
+      return {
+        ...op("ready_gate_out_of_scope", "resume", true),
+        ...readyGateOutOfScopeLogFields(event),
+      };
     case "ready_flip_failed":
       return {
         ...op("ready_flip_failed", "stop", false),
@@ -240,6 +249,7 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   completion_commit_failed: "fix git/gh publication, then jarvis run resume",
   iteration_commit_failed: "fix git state, then jarvis run resume",
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
+  ready_gate_out_of_scope: "retry finalization with jarvis run resume; do not repair unrelated source files",
   ready_flip_failed:
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
   surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume (before repair exhaustion)",

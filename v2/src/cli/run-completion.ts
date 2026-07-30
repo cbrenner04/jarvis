@@ -22,6 +22,7 @@ export function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWr
     kind === "completion_commit_failed" ||
     kind === "iteration_commit_failed" ||
     kind === "ready_gate_failed" ||
+    kind === "ready_gate_out_of_scope" ||
     kind === "ready_flip_failed"
   ) {
     return 1;

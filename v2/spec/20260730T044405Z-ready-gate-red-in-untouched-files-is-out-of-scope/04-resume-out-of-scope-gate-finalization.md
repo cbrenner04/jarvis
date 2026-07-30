@@ -20,13 +20,13 @@ loop, in both ordinary and reconstructed workflow tails.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-resume.test.ts` adds pre-fix-failing coverage that
+- [x] `v2/src/daemon/daemon-resume.test.ts` adds pre-fix-failing coverage that
       `ready_gate_out_of_scope` is admitted for finalization retry and refuses repair re-entry;
       inverting admission turns that test RED.
-- [ ] Ordinary write-run and review/publication-tail reconstruction regressions prove resume invokes
+- [x] Ordinary write-run and review/publication-tail reconstruction regressions prove resume invokes
       neither an agent nor repair, completes normal finalization after a green retry, and settles
       `ready_gate_out_of_scope` again with preserved outside-path detail after repeated untouched red.
-- [ ] Inverting finalization-only resume routing or repeated-red evidence preservation turns its
+- [x] Inverting finalization-only resume routing or repeated-red evidence preservation turns its
       corresponding regression RED.
 
 ## Documentation updates

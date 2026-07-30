@@ -22,15 +22,15 @@ operator-facing status surface.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` adds a pre-fix-failing workflow regression that
+- [x] `v2/src/execution/workflow-runner.test.ts` adds a pre-fix-failing workflow regression that
       settles an attributed untouched red gate as failed and resumable, emits no `ready_gate_repair`,
       performs no repair-agent invocation, and retains detail that named paths are outside the
       touched set; one in-scope failing path retains today's bounded `ready_gate_failed` repair
       behavior.
-- [ ] Durable persistence/parsing and workflow-settlement tests prove the reason and named outside
+- [x] Durable persistence/parsing and workflow-settlement tests prove the reason and named outside
       paths survive reconstruction and the affected CLI exit/status mirrors expose the failed,
       resumable outcome; inverting either field propagation turns its test RED.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves `list`/`wait` projection names
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves `list`/`wait` projection names
       `ready_gate_out_of_scope`, preserves the outside paths, and gives retry-finalization recovery
       rather than repair guidance.
 

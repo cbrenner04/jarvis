@@ -26,11 +26,13 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
+  classifyReadyGateError,
   createReadyFinalizer,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
+  readyGateOutOfScopeLogFields,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
@@ -55,6 +57,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "completion_commit_failed",
   "iteration_commit_failed",
   "ready_gate_failed",
+  "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
   "mutation_repair_exhausted",
@@ -79,6 +82,8 @@ export type WriteLoopResult = {
   completionAgent?: string;
   completionCommitError?: string;
   readyGateError?: string;
+  readyGateOutsidePaths?: string[];
+  readyGateOutOfScopeDetail?: string;
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;
@@ -1239,6 +1244,7 @@ export type CompletionPublishFailure = {
   kind:
     | "completion_commit_failed"
     | "ready_gate_failed"
+    | "ready_gate_out_of_scope"
     | "ready_flip_failed"
     | "surviving_mutation_failed"
     | "runtime_smoke_failed";
@@ -1391,6 +1397,25 @@ export async function runMutationRepairIteration(
   return stepResult.kind === "blocked" ? "blocked" : "continue";
 }
 
+async function classifyReadyGatePublishFailure(
+  failure: CompletionPublishFailure,
+  input: CompletionPublishInput,
+): Promise<CompletionPublishFailure> {
+  if (failure.kind !== "ready_gate_failed" || !(failure.error instanceof ReadyGateError)) {
+    return failure;
+  }
+  const classified = await classifyReadyGateError(failure.error, {
+    worktreePath: input.worktreePath,
+    baseRef: input.baseRef,
+    specPath: input.specPath,
+  });
+  return {
+    ...failure,
+    kind: classified.gateFailureKind === "ready_gate_out_of_scope" ? "ready_gate_out_of_scope" : "ready_gate_failed",
+    error: classified,
+  };
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -1399,6 +1424,9 @@ export async function publishWithReadyRepair(
   input: CompletionPublishInput,
 ): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
   let outcome = await publishCompletionArtifacts(args, input);
+  if (outcome.kind !== "success") {
+    outcome = await classifyReadyGatePublishFailure(outcome, input);
+  }
   let repairAttempt = 0;
   while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut) {
     repairAttempt += 1;
@@ -1424,6 +1452,9 @@ export async function publishWithReadyRepair(
         forceDistinctCommit: true,
       });
       outcome = await publishCompletionArtifacts(args, input);
+      if (outcome.kind !== "success") {
+        outcome = await classifyReadyGatePublishFailure(outcome, input);
+      }
     } catch (error) {
       return {
         failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },
@@ -1527,7 +1558,12 @@ function buildFinalizationErrorResponse(
     };
   }
   return {
-    kind: err instanceof ReadyGateError ? "ready_gate_failed" : "ready_flip_failed",
+    kind:
+      err instanceof ReadyGateError
+        ? err.gateFailureKind === "ready_gate_out_of_scope"
+          ? "ready_gate_out_of_scope"
+          : "ready_gate_failed"
+        : "ready_flip_failed",
     error: err,
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
@@ -1611,19 +1647,28 @@ function readyFailed(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
-  kind: "ready_gate_failed" | "ready_flip_failed" | "surviving_mutation_failed" | "runtime_smoke_failed",
+  kind:
+    | "ready_gate_failed"
+    | "ready_gate_out_of_scope"
+    | "ready_flip_failed"
+    | "surviving_mutation_failed"
+    | "runtime_smoke_failed",
   error?: Error,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
-  const resumable = kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+  const resumable =
+    kind === "ready_gate_failed" || kind === "ready_gate_out_of_scope" || kind === "surviving_mutation_failed";
   const mutationFields = survivingMutationLogFields(error);
+  const outOfScopeFields = readyGateOutOfScopeLogFields(error);
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
   // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
   // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
   // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
   store.setRunStatus(
     result.runId,
-    kind === "surviving_mutation_failed" || kind === "ready_gate_failed" ? "failed" : "completed",
+    kind === "surviving_mutation_failed" || kind === "ready_gate_failed" || kind === "ready_gate_out_of_scope"
+      ? "failed"
+      : "completed",
   );
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
@@ -1631,6 +1676,7 @@ function readyFailed(
     iterationsConsumed: result.iterationsConsumed,
     resumable,
     ...mutationFields,
+    ...outOfScopeFields,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
@@ -1648,14 +1694,19 @@ function readyFailed(
     ...result,
     kind,
     resumable,
-    ...(kind === "ready_gate_failed"
-      ? { readyGateError: error?.message ?? "ready gate failed" }
-      : kind === "ready_flip_failed"
-        ? {
-            readyFlipError: error?.message ?? "ready flip failed",
-            ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
-          }
-        : {}),
+    ...(kind === "ready_gate_out_of_scope"
+      ? {
+          readyGateError: outOfScopeFields.readyGateOutOfScopeDetail ?? error?.message ?? "ready gate failed",
+          ...outOfScopeFields,
+        }
+      : kind === "ready_gate_failed"
+        ? { readyGateError: error?.message ?? "ready gate failed" }
+        : kind === "ready_flip_failed"
+          ? {
+              readyFlipError: error?.message ?? "ready flip failed",
+              ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
+            }
+          : {}),
     ...mutationFields,
     ...smokeDetails,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),

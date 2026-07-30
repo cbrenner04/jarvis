@@ -146,6 +146,7 @@ describe("run workflow dispatch", () => {
   test.each([
     "surviving_mutation_failed",
     "ready_gate_failed",
+    "ready_gate_out_of_scope",
     "completion_commit_failed",
   ])("run workflow implement admits a ticked %s lineage without rebuilding or starting a workflow", async (_outcomeKind) => {
     const cap = captureIo();
@@ -485,6 +486,7 @@ describe("ticked implement recovery", () => {
     outcomeKind:
       | "surviving_mutation_failed"
       | "ready_gate_failed"
+      | "ready_gate_out_of_scope"
       | "completion_commit_failed"
       | "runtime_smoke_failed"
       | "mutation_repair_exhausted";
@@ -600,6 +602,7 @@ describe("ticked implement recovery", () => {
   test.each([
     "surviving_mutation_failed",
     "ready_gate_failed",
+    "ready_gate_out_of_scope",
     "completion_commit_failed",
   ] as const)("admits a retained %s lineage and finalizes without a write-step invocation", async (outcomeKind) => {
     const fixture = createRecoveryFixture({ outcomeKind });

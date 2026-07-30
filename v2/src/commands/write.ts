@@ -70,6 +70,9 @@ export function writeStdoutJson(result: WriteLoopResult): string {
   if (result.commitSha !== undefined) payload.commitSha = result.commitSha;
   if (result.completionCommitError !== undefined) payload.completionCommitError = result.completionCommitError;
   if (result.readyGateError !== undefined) payload.readyGateError = result.readyGateError;
+  if (result.readyGateOutsidePaths !== undefined) payload.readyGateOutsidePaths = result.readyGateOutsidePaths;
+  if (result.readyGateOutOfScopeDetail !== undefined)
+    payload.readyGateOutOfScopeDetail = result.readyGateOutOfScopeDetail;
   if (result.readyFlipError !== undefined) payload.readyFlipError = result.readyFlipError;
   if (result.publicationFailure !== undefined) payload.publicationFailure = result.publicationFailure;
   return JSON.stringify(payload, null, 2);

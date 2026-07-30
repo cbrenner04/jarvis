@@ -17,15 +17,16 @@ Slice-level tests can stay green while pipeline definition, daemon progression, 
 - One `test:integration:v2` case drives a real multi-stage pipeline through the daemon with agent invocation faked only at its boundary — rules out shallow per-stage integration cases.
 - The case reads durable pipeline stage state after every boundary — rules out final-outcome-only proof that misses skipped stages.
 - The case fails one workflow stage, resumes at that stage, and proves completed stages were not dispatched again — rules out happy-path-only coverage and restart-from-zero.
-- The resumed pipeline crosses approval and reaches its configured terminal action — rules out treating resume or approval as the terminal proof.
+- The fixture is `full-review` (`intent → approve-intent → plan → approve-plan → implement`) with `ready` as its terminal action; `plan` fails once, then succeeds on resume — rules out an undefined composed path.
+- Its durable status sequence is `pending×5` at admission; `succeeded, awaiting, pending, pending, pending` after intent; `succeeded, approved, running, pending, pending` when plan dispatches; `succeeded, approved, failed, skipped, skipped` on failure; `succeeded, approved, running, pending, pending` on resume; `succeeded, approved, succeeded, awaiting, pending` after resumed plan; `succeeded, approved, succeeded, approved, running` when implement dispatches; and `succeeded×5` after the ready action — rules out unpinned stage progression.
 - `v2/docs/first-workflow-walkthrough.md` owns the pipeline walkthrough and `v2/docs/operator-runbook.md` links it — rules out duplicating operator steps in architecture docs.
-- Deferred to first consumer: exact stage-status sequence, fixture pipeline, and terminal action — pin from the merged prerequisite contracts when the integration test is planned.
+- The integration proof is `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts`, with agent invocation faked only at its boundary — rules out a fixture that bypasses daemon dispatch.
 
 ## Acceptance criteria
 
-- [ ] One `*.sandbox-unrunnable.test.ts` case drives definition resolution, daemon dispatch, ordered workflow and approval stages, failure, stage-scoped resume, and the configured terminal action with agent invocation faked at the boundary.
-- [ ] The case asserts durable stage rows after each transition and proves completed stages retain their invocation IDs across resume.
-- [ ] Removing any authored stage dispatch or allowing resume to redispatch a completed stage turns the case RED.
+- [ ] `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts` adds a `full-review` case that fails against the baseline, drives definition resolution through daemon dispatch, fails `plan` once, resumes it, approves both gates, and reaches the configured `ready` action with agent invocation faked only at the boundary.
+- [ ] The case observes the pinned durable status sequence at every boundary, including reset of skipped later stages on resume, and proves the successful `intent` stage retains its invocation ID while resumed `plan` receives a new one.
+- [ ] The named case turns RED if `intent`, `plan`, or `implement` is not dispatched, or if resume redispatches the completed `intent` stage.
 - [ ] `bun run test:integration:v2` exits zero.
 - [ ] `v2/docs/first-workflow-walkthrough.md` walks an operator through a configured pipeline, and `v2/docs/operator-runbook.md` marks pipelines usable and links that walkthrough.
 

@@ -36,16 +36,16 @@ duplicating them.
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on the k2 and k3
+- [x] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on the k2 and k3
       fixtures and asserts each emitted child's surviving `## Decisions` and `## Acceptance
       criteria` bullets match the committed `manifest.json` per-child expectations literally; the
       manifest union equals the surviving parent bullets exactly once; it fails when a bullet is
       dropped, duplicated, or placed on the wrong boundary, and fails against the pre-change
       emit-as-drafted/duplicated-body path.
-- [ ] The same test asserts each emitted child's surviving `## Documentation updates` bullets match
+- [x] The same test asserts each emitted child's surviving `## Documentation updates` bullets match
       the committed manifest per-child expectations literally; it fails against the pre-change path
       when documentation bullets are duplicated across children.
-- [ ] Inverting the partition/preservation guard inside `normalizePlanDraftSpecDir` turns the k2
+- [x] Inverting the partition/preservation guard inside `normalizePlanDraftSpecDir` turns the k2
       fixture RED for decisions, acceptance criteria, and documentation-updates preservation (both
       preservation ACs above).
 

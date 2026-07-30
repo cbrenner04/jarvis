@@ -8,11 +8,21 @@
       "expectedChildren": [
         {
           "file": "00-persistence.md",
-          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."]
+          "decisions": [
+            "- Keep this unrelated draft scope for callers.",
+            "- Persist completed runs in the state-store atomically."
+          ],
+          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."],
+          "documentationUpdates": [
+            "- Document state-store persistence guarantees in the operator runbook.",
+            "- None."
+          ]
         },
         {
           "file": "01-cli.md",
-          "acceptanceCriteria": ["- [ ] The CLI validates run flags before dispatch."]
+          "decisions": ["- Validate CLI flags before dispatch."],
+          "acceptanceCriteria": ["- [ ] The CLI validates run flags before dispatch."],
+          "documentationUpdates": ["- Document CLI flag validation in install-and-config."]
         }
       ]
     },
@@ -23,15 +33,27 @@
       "expectedChildren": [
         {
           "file": "00-persistence.md",
-          "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."]
+          "decisions": [
+            "- Keep unrelated milestone scope on the first emitted child.",
+            "- Retain published plan paths in SQLite storage."
+          ],
+          "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."],
+          "documentationUpdates": [
+            "- Document SQLite retention behavior in persistence docs.",
+            "- None."
+          ]
         },
         {
           "file": "01-daemon.md",
-          "acceptanceCriteria": ["- [ ] Daemon RPC rejects a malformed plan request."]
+          "decisions": ["- Reject malformed plan requests at the daemon RPC layer."],
+          "acceptanceCriteria": ["- [ ] Daemon RPC rejects a malformed plan request."],
+          "documentationUpdates": ["- Document daemon RPC validation in operator runbook."]
         },
         {
           "file": "02-cli.md",
-          "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."]
+          "decisions": ["- Expose published plan paths through CLI commands."],
+          "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."],
+          "documentationUpdates": ["- Document CLI plan-path output in install-and-config."]
         }
       ]
     },
@@ -42,14 +64,18 @@
       "expectedChildren": [
         {
           "file": "00-cli.md",
+          "decisions": ["- Keep CLI-first sequencing in this draft."],
           "acceptanceCriteria": [
             "- [ ] The CLI validates run flags before dispatch.",
             "- [ ] The behavior remains covered by a regression test."
-          ]
+          ],
+          "documentationUpdates": ["- None."]
         },
         {
           "file": "01-persistence.md",
-          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."]
+          "decisions": [],
+          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."],
+          "documentationUpdates": []
         }
       ]
     }

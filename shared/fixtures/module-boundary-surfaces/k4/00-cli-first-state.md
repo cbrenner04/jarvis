@@ -4,6 +4,10 @@ Deliver CLI dispatch backed by durable state.
 
 ## Decisions
 
+- Keep CLI-first sequencing in this draft.
+
+## Tasks
+
 - Implement CLI before persistence.
 
 ## Acceptance criteria

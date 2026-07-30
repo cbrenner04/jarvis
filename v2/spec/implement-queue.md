@@ -2,6 +2,21 @@
 
 Authority: operator priorities. Rebuilt 2026-07-30.
 
+## Start here next
+
+1. Unblock the two carried-over drafts — each is one mutation-killing test from done. #2337:
+   `v2/src/execution/ready-gate-repair-fence.ts:37` (drive a **directory** spec path to `descendants`
+   scope). #2334: `v2/src/daemon/daemon.ts:884` (terminal review progress coerces `attemptCount` to
+   ≥ 1; `in_progress` stored unchanged). Then `jarvis run resume` the failed row on each branch.
+2. Slice 5: plan + implement `ready-intents/execute-pipeline-terminal-publication.md`, then
+   `settle-pipeline-terminal-action.md`.
+3. Slice 6: plan `ready-intents/pipeline-end-to-end-integration-proof.md` once slice 5 is
+   **implemented**.
+4. Landing #2337 unblocks three queued gate-repair intents in one go.
+
+Highest-value seed to convert next: `out-of-scope-gate-classification-strands-caused-failures` — it
+stranded a run this session and will strand any run whose change breaks a test it did not edit.
+
 ## Rule
 
 Per-project pipelines (slices 3–6) stay ahead of everything else until the phase ships. Reliability
@@ -53,8 +68,10 @@ the stale frame snapshot in `v2/src/daemon/daemon.sandbox-unrunnable.test.ts` no
 `finishedAtMs` — but it settles `surviving_mutation_failed` at `v2/src/daemon/daemon.ts:884`
 (`progress.status === "in_progress"` in `reportReviewProgress`). Kill it by asserting a terminal
 review progress coerces `attemptCount` to ≥ 1 while an `in_progress` one is stored unchanged, then
-resume. `workflow-collapse-drops-test-flag` shipped
-(#2326). Chrome stays with the [TUI phase](tui-overhaul-brief.md):
+resume.
+
+`workflow-collapse-drops-test-flag` shipped (#2326). Chrome stays with the
+[TUI phase](tui-overhaul-brief.md):
 `ready-intents/terminal-window-renders-finishless-rows.md`,
 `expansion-driven-through-e-keybinding.md`.
 

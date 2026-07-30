@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -32,11 +31,11 @@ import {
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  parseGitNameStatusZ,
   type ReadyFinalizer,
-  type ReadyGateScopeInput,
   ReadyFlipError,
   ReadyGateError,
-  parseGitNameStatusZ,
+  type ReadyGateScopeInput,
   RuntimeSmokeFailedError,
   readyGateOutOfScopeLogFields,
   SurvivingMutationError,
@@ -262,23 +261,18 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
 
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
-const REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE =
-  "Ready-gate repair fence could not reconstruct persisted allowset";
+const REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE = "Ready-gate repair fence could not reconstruct persisted allowset";
 
-function shouldEnforceReadyGateRepairFence(worktreePath: string): boolean {
+async function shouldEnforceReadyGateRepairFence(worktreePath: string): Promise<boolean> {
   try {
-    execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], { stdio: "ignore" });
+    await runRepairFenceGit(worktreePath, ["rev-parse", "HEAD"]);
     return true;
   } catch {
     return false;
   }
 }
 
-async function runRepairFenceGit(
-  cwd: string,
-  args: readonly string[],
-  env?: Record<string, string>,
-): Promise<string> {
+async function runRepairFenceGit(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
   return realAsyncSubprocessRunner.runAsync("git", [...args], cwd, {
     ...(env !== undefined ? { env: { ...process.env, ...env } } : {}),
   });
@@ -406,10 +400,7 @@ function persistReadyGateRepairFence(
   });
 }
 
-function readyGateRepairFencePersisted(
-  store: StateStore,
-  runId: string,
-): ReadyGateRepairFenceProvenance | undefined {
+function readyGateRepairFencePersisted(store: StateStore, runId: string): ReadyGateRepairFenceProvenance | undefined {
   const run = store.loadRun(runId);
   if (run?.readyGateRepairFenceCorrupt === true) {
     return undefined;
@@ -435,11 +426,9 @@ export async function enforcePersistedReadyGateRepairFence(
   if (provenance === undefined || provenance === null) {
     return undefined;
   }
-  return (await validateReadyGateRepairCompletion(
-    scope,
-    new Set(provenance.allowedPaths),
-    options?.invertFence === true,
-  ))?.error;
+  return (
+    await validateReadyGateRepairCompletion(scope, new Set(provenance.allowedPaths), options?.invertFence === true)
+  )?.error;
 }
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
@@ -1558,6 +1547,7 @@ export function appendRuntimeSmokeOutcome(
 }
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
+type CompletionPublishOutcome = CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" });
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
 export type RepairIterationOutcome = "unsettled" | "blocked" | "continue";
@@ -1699,69 +1689,165 @@ async function classifyReadyGatePublishFailure(
   };
 }
 
+type ReadyRepairPublishResult = {
+  failure?: CompletionPublishFailure;
+  success?: CompletionPublishSuccess;
+  iterationsConsumed: number;
+};
+
+function readyGateRepairProvenanceFailure(iterationsConsumed: number): ReadyRepairPublishResult {
+  return {
+    failure: {
+      kind: "completion_commit_failed",
+      error: new Error(REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE),
+    },
+    iterationsConsumed,
+  };
+}
+
+function loadPersistedRepairAllowset(store: StateStore, runId: string): Set<string> | undefined | "corrupt" {
+  const persistedRun = store.loadRun(runId);
+  if (persistedRun?.readyGateRepairFenceCorrupt === true) {
+    return "corrupt";
+  }
+  const persistedFence = persistedRun?.readyGateRepairFence;
+  if (persistedFence === undefined || persistedFence === null) {
+    return undefined;
+  }
+  return new Set(persistedFence.allowedPaths);
+}
+
+function isActiveReadyGateFailure(
+  outcome: CompletionPublishOutcome,
+): outcome is CompletionPublishFailure & { kind: "ready_gate_failed"; error: ReadyGateError } {
+  return outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut;
+}
+
+async function initializeFrozenRepairAllowset(
+  store: StateStore,
+  runId: string,
+  input: CompletionPublishInput,
+  iterationsConsumed: number,
+): Promise<{ allowset: Set<string> } | { failure: ReadyRepairPublishResult }> {
+  if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
+    return { allowset: new Set() };
+  }
+  const derived = await deriveGateAllowedPaths(
+    {
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+    },
+    REPAIR_FENCE_ALLOWSET_SEAMS,
+  );
+  if (derived === undefined) {
+    return {
+      failure: {
+        failure: {
+          kind: "completion_commit_failed",
+          error: new Error("Ready-gate repair fence could not derive allowed paths"),
+        },
+        iterationsConsumed,
+      },
+    };
+  }
+  persistReadyGateRepairFence(store, runId, derived);
+  if (readyGateRepairFencePersisted(store, runId) === undefined) {
+    return { failure: readyGateRepairProvenanceFailure(iterationsConsumed) };
+  }
+  return { allowset: derived };
+}
+
+async function enforceRepairIterationFence(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  input: CompletionPublishInput,
+  frozenRepairAllowset: Set<string>,
+  iterationsConsumed: number,
+): Promise<ReadyRepairPublishResult | undefined> {
+  if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
+    return undefined;
+  }
+  const fenceResult = await validateReadyGateRepairCompletion(
+    {
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+    },
+    frozenRepairAllowset,
+    args.invertReadyGateRepairFenceForTest === true,
+  );
+  if (fenceResult === undefined) {
+    return undefined;
+  }
+  persistReadyGateRepairFence(store, runId, frozenRepairAllowset, fenceResult.offendingPath);
+  return {
+    failure: { kind: "completion_commit_failed", error: fenceResult.error },
+    iterationsConsumed,
+  };
+}
+
+async function commitRepairAndRepublish(
+  args: WriteLoopInput,
+  input: CompletionPublishInput,
+  result: WriteLoopResult,
+  iterationsConsumed: number,
+): Promise<
+  { kind: "success"; outcome: CompletionPublishOutcome } | { kind: "failure"; result: ReadyRepairPublishResult }
+> {
+  try {
+    await (args.completionCommitter ?? createCompletionCommitter())({
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+      agent: result.completionAgent ?? "",
+      title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+      forceDistinctCommit: true,
+    });
+    let outcome = await publishCompletionArtifacts(args, input);
+    if (outcome.kind !== "success") {
+      outcome = await classifyReadyGatePublishFailure(outcome, input);
+    }
+    return { kind: "success", outcome };
+  } catch (error) {
+    return {
+      kind: "failure",
+      result: {
+        failure: {
+          kind: "completion_commit_failed",
+          error: error instanceof Error ? error : new Error(String(error)),
+        },
+        iterationsConsumed,
+      },
+    };
+  }
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
   iterationsConsumed: number,
   input: CompletionPublishInput,
-): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
+): Promise<ReadyRepairPublishResult> {
   let outcome = await publishCompletionArtifacts(args, input);
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(outcome, input);
   }
   let repairAttempt = 0;
-  let frozenRepairAllowset: Set<string> | undefined;
-  const persistedRun = store.loadRun(result.runId);
-  if (persistedRun?.readyGateRepairFenceCorrupt === true) {
-    return {
-      failure: {
-        kind: "completion_commit_failed",
-        error: new Error("Ready-gate repair fence could not reconstruct persisted allowset"),
-      },
-      iterationsConsumed,
-    };
+  let frozenRepairAllowset = loadPersistedRepairAllowset(store, result.runId);
+  if (frozenRepairAllowset === "corrupt") {
+    return readyGateRepairProvenanceFailure(iterationsConsumed);
   }
-  const persistedFence = persistedRun?.readyGateRepairFence;
-  if (persistedFence !== undefined && persistedFence !== null) {
-    frozenRepairAllowset = new Set(persistedFence.allowedPaths);
-  }
-  while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut) {
+  while (isActiveReadyGateFailure(outcome)) {
     repairAttempt += 1;
     if (repairAttempt > MAX_READY_GATE_REPAIRS) break;
     if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     if (frozenRepairAllowset === undefined) {
-      if (!shouldEnforceReadyGateRepairFence(input.worktreePath)) {
-        frozenRepairAllowset = new Set();
-      } else {
-        frozenRepairAllowset = await deriveGateAllowedPaths(
-          {
-            worktreePath: input.worktreePath,
-            baseRef: input.baseRef,
-            specPath: input.specPath,
-          },
-          REPAIR_FENCE_ALLOWSET_SEAMS,
-        );
-        if (frozenRepairAllowset === undefined) {
-          return {
-            failure: {
-              kind: "completion_commit_failed",
-              error: new Error("Ready-gate repair fence could not derive allowed paths"),
-            },
-            iterationsConsumed,
-          };
-        }
-      }
-      persistReadyGateRepairFence(store, result.runId, frozenRepairAllowset);
-      if (readyGateRepairFencePersisted(store, result.runId) === undefined) {
-        return {
-          failure: {
-            kind: "completion_commit_failed",
-            error: new Error("Ready-gate repair fence could not reconstruct persisted allowset"),
-          },
-          iterationsConsumed,
-        };
-      }
+      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, iterationsConsumed);
+      if ("failure" in initialized) return initialized.failure;
+      frozenRepairAllowset = initialized.allowset;
     }
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
@@ -1773,48 +1859,20 @@ export async function publishWithReadyRepair(
     if (repairOutcome === "unsettled") return { failure: outcome, iterationsConsumed };
     iterationsConsumed += 1;
     if (repairOutcome === "blocked") return { failure: outcome, iterationsConsumed };
-    if (shouldEnforceReadyGateRepairFence(input.worktreePath)) {
-      const fenceResult = await validateReadyGateRepairCompletion(
-        {
-          worktreePath: input.worktreePath,
-          baseRef: input.baseRef,
-          specPath: input.specPath,
-        },
-        frozenRepairAllowset,
-        args.invertReadyGateRepairFenceForTest === true,
-      );
-      if (fenceResult !== undefined) {
-        persistReadyGateRepairFence(
-          store,
-          result.runId,
-          frozenRepairAllowset,
-          fenceResult.offendingPath,
-        );
-        return {
-          failure: { kind: "completion_commit_failed", error: fenceResult.error },
-          iterationsConsumed,
-        };
-      }
-    }
-    try {
-      await (args.completionCommitter ?? createCompletionCommitter())({
-        worktreePath: input.worktreePath,
-        baseRef: input.baseRef,
-        specPath: input.specPath,
-        agent: result.completionAgent ?? "",
-        title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
-        forceDistinctCommit: true,
-      });
-      outcome = await publishCompletionArtifacts(args, input);
-      if (outcome.kind !== "success") {
-        outcome = await classifyReadyGatePublishFailure(outcome, input);
-      }
-    } catch (error) {
-      return {
-        failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },
-        iterationsConsumed,
-      };
-    }
+
+    const fenceFailure = await enforceRepairIterationFence(
+      args,
+      store,
+      result.runId,
+      input,
+      frozenRepairAllowset,
+      iterationsConsumed,
+    );
+    if (fenceFailure !== undefined) return fenceFailure;
+
+    const republish = await commitRepairAndRepublish(args, input, result, iterationsConsumed);
+    if (republish.kind === "failure") return republish.result;
+    outcome = republish.outcome;
   }
   if (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && outcome.error.timedOut) {
     args.logSink?.append(result.runId, {

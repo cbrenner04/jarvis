@@ -1,13 +1,23 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
+import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
@@ -1771,7 +1781,10 @@ describe("write loop", () => {
     });
 
     describe("ready-gate repair fence", () => {
-      function initRepairFenceWorktree(jarvisRoot: string, branchName: string): { worktreePath: string; baseRef: string } {
+      function initRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string } {
         const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
         mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
         execFileSync("git", ["init", worktreePath], { stdio: "pipe" });

@@ -684,9 +684,7 @@ type RunRow = Omit<Run, "workflowSnapshot" | "queuedInput" | "readyGateRepairFen
   readyGateRepairFenceJson: string | null;
 };
 
-function parseReadyGateRepairFenceProvenance(
-  json: string | null,
-): ReadyGateRepairFenceProvenance | null | "invalid" {
+function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
   if (json === null) return null;
   try {
     const parsed = JSON.parse(json) as ReadyGateRepairFenceProvenance;

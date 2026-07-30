@@ -22,7 +22,6 @@ import {
   continuePipeline,
   derivePipelineState,
   isPipelineContinuable,
-  isReopenedFailedContinuation,
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
@@ -985,7 +984,7 @@ describe("pipeline approval decisions", () => {
   });
 
   test("pipeline_approve advances to the next workflow stage and pipeline_reject settles rejected", async () => {
-    const { store, stages } = fakeStore(APPROVAL_GATE_DEFINITION, {
+    const { store } = fakeStore(APPROVAL_GATE_DEFINITION, {
       "run-0": { specPath: "spec/s1.md" },
       "run-2": { specPath: "spec/s3.md" },
     });
@@ -996,7 +995,9 @@ describe("pipeline approval decisions", () => {
     expect(approveOutcome.kind).toBe("applied");
     await flushBackgroundRuns();
     expect(approveOrder).toEqual([0, 2]);
-    expect(derivePipelineState(store.loadPipeline(PIPELINE_ID)!)).toBe("succeeded");
+    const approvedPipeline = store.loadPipeline(PIPELINE_ID);
+    if (!approvedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(approvedPipeline)).toBe("succeeded");
 
     const rejectStore = fakeStore(APPROVAL_GATE_DEFINITION, { "run-0": { specPath: "spec/s1.md" } });
     const rejectOrder: number[] = [];
@@ -1007,7 +1008,9 @@ describe("pipeline approval decisions", () => {
     await flushBackgroundRuns();
     expect(rejectOrder).toEqual([0]);
     expect(rejectStore.stages().find((s) => s.stageId === "s3")?.status).toBe("pending");
-    expect(derivePipelineState(rejectStore.store.loadPipeline(PIPELINE_ID)!)).toBe("rejected");
+    const rejectedPipeline = rejectStore.store.loadPipeline(PIPELINE_ID);
+    if (!rejectedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(rejectedPipeline)).toBe("rejected");
   });
 
   test("refuses wrong stageId, non-approval target, non-awaiting row, and duplicate decisions without dispatch", async () => {
@@ -1094,7 +1097,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    expect(derivePipelineState(reopenedStore.loadPipeline(pipelineId)!)).toBe("awaiting-approval");
+    const rejectReopenedPipeline = reopenedStore.loadPipeline(pipelineId);
+    if (!rejectReopenedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(rejectReopenedPipeline)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const handlers = createRunControlHandlers({
@@ -1135,7 +1140,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    expect(derivePipelineState(reopenedStore.loadPipeline(pipelineId)!)).toBe("awaiting-approval");
+    const approveReopenedPipeline = reopenedStore.loadPipeline(pipelineId);
+    if (!approveReopenedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(approveReopenedPipeline)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const stage3Step: AnyWorkflowStep = createWriteStep("stage-3", "pipeline-branch", doneWithArtifactBindingFactory, {
@@ -1664,7 +1671,9 @@ describe("resumePipeline", () => {
     running.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "running" } });
 
     const pending = fakeStore(reopenDefinition, {}, { context: persistedContext });
-    expect(derivePipelineState(pending.store.loadPipeline(PIPELINE_ID)!)).toBe("pending");
+    const pendingPipeline = pending.store.loadPipeline(PIPELINE_ID);
+    if (!pendingPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pendingPipeline)).toBe("pending");
 
     const interrupted = fakeStore(reopenDefinition, {}, { context: persistedContext });
     interrupted.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "interrupted" } });

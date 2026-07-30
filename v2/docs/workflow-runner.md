@@ -324,8 +324,9 @@ Validation stays synchronous:
 A pipeline definition (`v2/src/execution/pipeline-definition.ts`) composes named
 workflow presets and manual approvals into an ordered value; it does not author
 prompts or steps itself — that stays in `publication-workflow-steps.ts` and
-`implement-workflow-steps.ts`. A definition is a `name` and a list of stages,
-each one of two kinds:
+`implement-workflow-steps.ts`. A definition is a `name`, an optional `terminalAction`
+on admitted definitions (supplied by project-pipeline resolution, omitted from
+source-registry rows), and a list of stages, each one of two kinds:
 
 - `workflow`: `{ stageId, kind: "workflow", workflow, review }` — `workflow` names
   a base workflow (`intent`, `plan`, `implement`), never a reviewed preset name.
@@ -526,11 +527,14 @@ key, the builder reads that fragment, resolves its source definition and overrid
 against the loaded agent model config, and carries the validated definition as admission
 evidence. When the key is absent, admission skips resolution and proceeds with legacy
 implement (no `pipelineDefinition`). Resolution preserves parse → source lookup →
-override-target → composed-definition validation precedence. A named resolution error
-stops the command before stale reset, daemon connection/start, durable run-row
-creation, external-worktree materialization, or agent invocation. This gate only
-validates implement admission when a pipeline is selected; dispatching the selected
-pipeline's stages is deferred to the pipeline execution consumer.
+override-target → terminal-action compose → terminal-action conflict check →
+composed-definition validation precedence. `terminalAction` is copied onto the owned
+admitted definition during resolution and is not read again from mutable project config
+at pipeline completion. A named resolution error stops the command before stale reset,
+daemon connection/start, durable run-row creation, external-worktree materialization,
+or agent invocation. This gate only validates implement admission when a pipeline is
+selected; dispatching the selected pipeline's stages is deferred to the pipeline
+execution consumer.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract

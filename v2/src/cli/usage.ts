@@ -21,5 +21,8 @@ export const PIPELINE_START_USAGE =
   "usage: jarvis pipeline start <project> (--seed <path> | --seed-text <text>) [--detach]\n";
 export const PIPELINE_LIST_USAGE = "usage: jarvis pipeline list\n";
 export const PIPELINE_WAIT_USAGE = "usage: jarvis pipeline wait <pipeline-id>\n";
-export const PIPELINE_USAGE = "usage: jarvis pipeline <start|list|wait> [args]\n";
+export const PIPELINE_APPROVE_USAGE = "usage: jarvis pipeline approve <pipeline-id> <stage-id>\n";
+export const PIPELINE_REJECT_USAGE = "usage: jarvis pipeline reject <pipeline-id> <stage-id>\n";
+export const PIPELINE_RESUME_USAGE = "usage: jarvis pipeline resume <pipeline-id>\n";
+export const PIPELINE_USAGE = "usage: jarvis pipeline <start|list|wait|approve|reject|resume> [args]\n";
 export const HELP_USAGE = "usage: jarvis help\n";

@@ -1,0 +1,6 @@
+Reviewing the implementation against the spec and weighing the advocate's defenses.
+**No required outcomes.**
+
+Completed subspec acceptance criteria are satisfied: approve/reject/resume RPC wiring, envelope parsing, usage guards before connect, help coverage, cli.test dispatch entries, detached-admission semantics in `write-behavior.md`, and operator-runbook guidance (stage-ID discovery, approve vs reject, resume vs `run resume`, duplicate/stale refusals). Daemon-owned behavior stays pinned by preservation ACs on existing daemon tests.
+
+Remaining review items are optional polish outside the subspec doc tasks and existing pipeline-family patterns: padded-ID forwarding (same as `pipeline wait`), no keyed-daemon auto-start (same as list/wait, documented in `write-behavior.md`), partial guard-inversion test coverage, missing per-command RpcError matrix tests, wait vs mutation refusal vocabulary split (daemon contract), stale general auto-start bullet in `v1-behaviors.md` line 36 (predates this patch), and unchecked `intent.md` ACs (harness lifecycle, not implementation gaps). None block closing this patch.

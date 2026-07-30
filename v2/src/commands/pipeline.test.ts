@@ -2,7 +2,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PIPELINE_APPROVE_USAGE, PIPELINE_LIST_USAGE, PIPELINE_REJECT_USAGE, PIPELINE_RESUME_USAGE, PIPELINE_START_USAGE, PIPELINE_USAGE, PIPELINE_WAIT_USAGE } from "../cli/usage.ts";
+import {
+  PIPELINE_APPROVE_USAGE,
+  PIPELINE_LIST_USAGE,
+  PIPELINE_REJECT_USAGE,
+  PIPELINE_RESUME_USAGE,
+  PIPELINE_START_USAGE,
+  PIPELINE_USAGE,
+  PIPELINE_WAIT_USAGE,
+} from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type CliRepoFixture,
@@ -15,8 +23,8 @@ import {
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {
-  setInvertDetachClientWaitGuardForTest,
   setInvertAppliedRefusedGuardForTest,
+  setInvertDetachClientWaitGuardForTest,
   setInvertListNonFollowGuardForTest,
   setInvertPreAdmissionResolutionGuardForTest,
   setInvertResumedRefusedGuardForTest,
@@ -761,22 +769,22 @@ describe("pipeline approve and reject", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: usage });
   });
 
-  test.each(["approve", "reject"] as const)(
-    "pipeline %s prints invalid daemon response for malformed envelope",
-    async (subcommand) => {
-      const cap = captureIo();
+  test.each([
+    "approve",
+    "reject",
+  ] as const)("pipeline %s prints invalid daemon response for malformed envelope", async (subcommand) => {
+    const cap = captureIo();
 
-      const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}-bad`], () =>
-        main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
-          ...pipelineDeps(undefined),
-          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}-bad`, { kind: "unknown" })]),
-        }),
-      );
+    const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}-bad`], () =>
+      main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}-bad`, { kind: "unknown" })]),
+      }),
+    );
 
-      expect(code).toBe(1);
-      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
-    },
-  );
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
 
   test("inverting the applied-vs-refused guard reports applied decisions as failure", async () => {
     setInvertAppliedRefusedGuardForTest(true);
@@ -820,9 +828,7 @@ describe("pipeline resume", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "", stderr: "" });
-    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
-      expect.objectContaining({ params: { pipelineId } }),
-    ]);
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([expect.objectContaining({ params: { pipelineId } })]);
   });
 
   test.each([

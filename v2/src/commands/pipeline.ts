@@ -95,10 +95,7 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
   return Array.isArray(pipelines) ? { pipelines } : undefined;
 }
 
-type PipelineMutationOutcome =
-  | { kind: "applied" }
-  | { kind: "resumed" }
-  | { kind: "refused"; reason: string };
+type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
 
 function parsePipelineMutationOutcome(
   value: unknown,

@@ -72,7 +72,7 @@ async function executeBuiltDraftStep(
         capturedPrompt = prompt;
         const specDir = join(cwd, draftStep.specPath);
         mkdirSync(specDir, { recursive: true });
-        writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+        writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
         const subspecPath = join(specDir, "00-first.md");
         writeFileSync(subspecPath, draftedSubspec, "utf8");
         writtenSubspec = readFileSync(subspecPath, "utf8");

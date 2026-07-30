@@ -122,7 +122,11 @@ describe("plan draft boundary normalization", () => {
       const specDir = layout === "fresh" ? join(repoDir, "spec", "draft") : join(repoDir, "durable-output");
       mkdirSync(specDir, { recursive: true });
       writeFileSync(join(specDir, "intent.md"), "---\nname: draft\n---\n", "utf8");
-      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - Runtime surfaces](./00-runtime-surfaces.md)\n", "utf8");
+      writeFileSync(
+        join(specDir, "index.md"),
+        "# Index\n\n- [ ] [00 - Runtime surfaces](./00-runtime-surfaces.md)\n",
+        "utf8",
+      );
       writeFileSync(
         join(specDir, "00-runtime-surfaces.md"),
         "# Draft\n\n## Acceptance criteria\n\n- [ ] The state-store persists the draft.\n- [ ] The CLI prints the draft.\n",

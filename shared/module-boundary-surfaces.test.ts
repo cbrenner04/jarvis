@@ -121,7 +121,9 @@ describe("module boundary surfaces", () => {
       );
       for (const phrase of forbidden) expect(durableText).not.toContain(phrase);
       if (fixture.name === "k2") {
-        expect(readFileSync(join(dir, "00-persistence.md"), "utf8")).toContain("Keep this unrelated draft scope for callers.");
+        expect(readFileSync(join(dir, "00-persistence.md"), "utf8")).toContain(
+          "Keep this unrelated draft scope for callers.",
+        );
       }
     });
   }
@@ -131,7 +133,8 @@ describe("module boundary surfaces", () => {
     if (!fixture) throw new Error("k2 fixture is missing");
     const dir = stagedFixture(fixture.name);
     const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    const multiSurface = "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
+    const multiSurface =
+      "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
     const source = readFileSync(sourcePath, "utf8").replace(
       "- [ ] The state-store persists completed runs atomically.",
       multiSurface,

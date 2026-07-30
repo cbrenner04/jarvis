@@ -13,7 +13,12 @@ const SURFACES: Record<ModuleBoundarySurface, { patterns: readonly RegExp[]; tit
   daemon: { patterns: [/\bdaemon\b/i, /\b(?:ipc|rpc)\b/i, /\bsocket\b/i], title: "Daemon" },
   cli: { patterns: [/\bcli\b/i, /\bcommand[- ]line\b/i, /\bsubcommands?\b/i, /\bflags?\b/i], title: "CLI" },
   "execution-loop": {
-    patterns: [/\bexecution[- ]loop\b/i, /\bwrite[- ]loop\b/i, /\battempt[- ]loop\b/i, /\b(?:step|workflow)[- ]runner\b/i],
+    patterns: [
+      /\bexecution[- ]loop\b/i,
+      /\bwrite[- ]loop\b/i,
+      /\battempt[- ]loop\b/i,
+      /\b(?:step|workflow)[- ]runner\b/i,
+    ],
     title: "Execution loop",
   },
 };
@@ -200,7 +205,7 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
   }
 
   const rewrittenIndex = [...replacements.entries()].reduce(
-    (body, [sourceFile, outputs]) => removeSplitResidue(body, sourceFile.slice(3, -3)),
+    (body, [sourceFile]) => removeSplitResidue(body, sourceFile.slice(3, -3)),
     rewriteIndex(indexBody, replacements),
   );
   for (const [sourceFile, outputs] of replacements) {

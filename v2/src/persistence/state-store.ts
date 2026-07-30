@@ -726,9 +726,7 @@ function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepa
   }
 }
 
-function parseRetainedFinalizationCheckpoint(
-  json: string | null,
-): RetainedFinalizationCheckpoint | null | "invalid" {
+function parseRetainedFinalizationCheckpoint(json: string | null): RetainedFinalizationCheckpoint | null | "invalid" {
   if (json === null) return null;
   try {
     const parsed = JSON.parse(json) as RetainedFinalizationCheckpoint;

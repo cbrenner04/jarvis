@@ -3171,6 +3171,104 @@ async function runMutationRepairAttempt(
   };
 }
 
+function reviewMutationExhaustedTerminalFields(
+  store: StateStore,
+  runId: string,
+  readyGateOrigin: "repair_budget_exhausted" | undefined,
+): Pick<LoopFinishedEvent, "readyGateOrigin" | "readyGateRepairCount"> {
+  if (readyGateOrigin !== undefined) {
+    return exhaustedRedTerminalLogFields(readyGateOrigin);
+  }
+  const runRow = store.loadRun(runId);
+  return runRow !== null && hasRetainedFinalizationCheckpoint(runRow)
+    ? exhaustedRedTerminalLogFields("repair_budget_exhausted")
+    : {};
+}
+
+function reviewMutationPublicationResumable(
+  failureKind: WriteLoopOutcomeKind,
+  isFlip: boolean,
+  exhaustedFields: Pick<LoopFinishedEvent, "readyGateOrigin" | "readyGateRepairCount">,
+): boolean {
+  return (
+    !isFlip &&
+    (REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failureKind) ||
+      (failureKind === "ready_gate_failed" && exhaustedFields.readyGateOrigin !== undefined))
+  );
+}
+
+async function settleFailedReviewMutationPublication(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  publication: Awaited<ReturnType<typeof publishWithReadyRepair>>,
+  deps: ReviewMutationResumeDeps,
+  body: { bodySummary: string | undefined; specTemplate: boolean },
+): Promise<ReviewMutationResumeOutcome> {
+  const failure = publication.failure;
+  if (failure === undefined) return { ok: false, message: "publication failed without a failure payload" };
+  if (
+    failure.kind === "surviving_mutation_failed" &&
+    failure.error instanceof SurvivingMutationError &&
+    deps.mutationRepair
+  ) {
+    return await runMutationRepairContinuation(context, store, attemptId, failure.error, deps, body);
+  }
+  const isFlip = failure.kind === "ready_flip_failed";
+  const message = failure.error?.message ?? failure.kind;
+  const publicationFailure = publicationFailureFor(failure.error);
+  appendRuntimeSmokeOutcome(deps.logSink, context.runId, failure.runtimeSmokeOutcome);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: isFlip ? "completed" : "failed",
+    outcomeKind: isFlip ? "done" : "invocation_failure",
+    ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
+    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+  });
+  const exhaustedFields = reviewMutationExhaustedTerminalFields(store, context.runId, publication.readyGateOrigin);
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: failure.kind,
+    iterationsConsumed: publication.iterationsConsumed,
+    // Reflects this resolver's own retryability, not merely "not a ready-flip": `runtime_smoke_failed`
+    // is excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so retrying this tail can never
+    // change that outcome — the newly emitted record must say so rather than claim resumable.
+    resumable: reviewMutationPublicationResumable(failure.kind, isFlip, exhaustedFields),
+    ...survivingMutationLogFields(failure.error),
+    ...readyGateOutOfScopeLogFields(failure.error),
+    ...exhaustedFields,
+    ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+  });
+  return { ok: false, message };
+}
+
+function settleSuccessfulReviewMutationPublication(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  publication: Awaited<ReturnType<typeof publishWithReadyRepair>>,
+  deps: ReviewMutationResumeDeps,
+): ReviewMutationResumeOutcome {
+  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+  });
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "complete",
+    iterationsConsumed: publication.iterationsConsumed,
+    resumable: false,
+  });
+  return {
+    ok: true,
+    ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
+    ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
+  };
+}
+
 /**
  * Commit any uncommitted worktree changes and run the shared mutation-reverification / ready-gate /
  * publication tail.
@@ -3237,72 +3335,13 @@ async function runReviewMutationCommitAndPublish(
   );
 
   if (publication.failure !== undefined) {
-    const failure = publication.failure;
-    if (
-      failure.kind === "surviving_mutation_failed" &&
-      failure.error instanceof SurvivingMutationError &&
-      deps.mutationRepair
-    ) {
-      return await runMutationRepairContinuation(context, store, attemptId, failure.error, deps, {
-        bodySummary,
-        specTemplate,
-      });
-    }
-    const isFlip = failure.kind === "ready_flip_failed";
-    const message = failure.error?.message ?? failure.kind;
-    const publicationFailure = publicationFailureFor(failure.error);
-    appendRuntimeSmokeOutcome(deps.logSink, context.runId, failure.runtimeSmokeOutcome);
-    store.commitCompletionBoundary({
-      attemptId,
-      runStatus: isFlip ? "completed" : "failed",
-      outcomeKind: isFlip ? "done" : "invocation_failure",
-      ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
-      ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
+    return settleFailedReviewMutationPublication(context, store, attemptId, publication, deps, {
+      bodySummary,
+      specTemplate,
     });
-    const runRow = store.loadRun(context.runId);
-    const exhaustedFields =
-      publication.readyGateOrigin !== undefined
-        ? exhaustedRedTerminalLogFields(publication.readyGateOrigin)
-        : runRow !== null && hasRetainedFinalizationCheckpoint(runRow)
-          ? exhaustedRedTerminalLogFields("repair_budget_exhausted")
-          : {};
-    deps.logSink?.append(context.runId, {
-      kind: "loop_finished",
-      loopOutcomeKind: failure.kind,
-      iterationsConsumed: publication.iterationsConsumed,
-      // Reflects this resolver's own retryability, not merely "not a ready-flip": `runtime_smoke_failed`
-      // is excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so retrying this tail can never
-      // change that outcome — the newly emitted record must say so rather than claim resumable.
-      resumable:
-        !isFlip &&
-        (REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failure.kind) ||
-          (failure.kind === "ready_gate_failed" && exhaustedFields.readyGateOrigin !== undefined)),
-      ...survivingMutationLogFields(failure.error),
-      ...readyGateOutOfScopeLogFields(failure.error),
-      ...exhaustedFields,
-      ...(publicationFailure !== undefined ? { publicationFailure } : {}),
-    });
-    return { ok: false, message };
   }
 
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  store.commitCompletionBoundary({
-    attemptId,
-    runStatus: "completed",
-    outcomeKind: "done",
-    ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
-  });
-  deps.logSink?.append(context.runId, {
-    kind: "loop_finished",
-    loopOutcomeKind: "complete",
-    iterationsConsumed: publication.iterationsConsumed,
-    resumable: false,
-  });
-  return {
-    ok: true,
-    ...(publication.success?.prNumber !== undefined ? { prNumber: publication.success.prNumber } : {}),
-    ...(publication.success?.prUrl !== undefined ? { prUrl: publication.success.prUrl } : {}),
-  };
+  return settleSuccessfulReviewMutationPublication(context, store, attemptId, publication, deps);
 }
 
 async function replayMutationFinalization(

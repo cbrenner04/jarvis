@@ -192,6 +192,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
+
 export { MAX_READY_GATE_REPAIRS };
 
 export type ReadyGateOrigin = "repair_budget_exhausted";
@@ -1843,6 +1844,116 @@ async function commitRepairAndRepublish(
   }
 }
 
+type ReadyGateRepairLoopResult =
+  | { kind: "done"; outcome: CompletionPublishOutcome; iterationsConsumed: number; repairBudgetExhausted: boolean }
+  | { kind: "early"; result: ReadyRepairPublishResult };
+
+async function runReadyGateRepairLoop(
+  args: WriteLoopInput,
+  store: StateStore,
+  result: WriteLoopResult,
+  input: CompletionPublishInput,
+  outcome: CompletionPublishOutcome,
+  iterationsConsumed: number,
+  frozenRepairAllowset: Set<string> | undefined,
+): Promise<ReadyGateRepairLoopResult> {
+  let currentOutcome = outcome;
+  let currentIterations = iterationsConsumed;
+  let allowset = frozenRepairAllowset;
+  let repairAttempt = 0;
+  let repairBudgetExhausted = false;
+
+  while (isActiveReadyGateFailure(currentOutcome)) {
+    repairAttempt += 1;
+    if (repairAttempt > MAX_READY_GATE_REPAIRS) {
+      repairBudgetExhausted = true;
+      break;
+    }
+    if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
+    if (allowset === undefined) {
+      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, currentIterations);
+      if ("failure" in initialized) return { kind: "early", result: initialized.failure };
+      allowset = initialized.allowset;
+    }
+    args.logSink?.append(result.runId, {
+      kind: "ready_gate_repair",
+      attempt: repairAttempt,
+      gateExitCode: currentOutcome.error.exitCode,
+    });
+
+    const repairOutcome = await runReadyRepairIteration(
+      args,
+      store,
+      result,
+      currentOutcome.error,
+      currentIterations + 1,
+    );
+    if (repairOutcome === "unsettled") {
+      return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
+    }
+    currentIterations += 1;
+    if (repairOutcome === "blocked") {
+      return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
+    }
+
+    const fenceFailure = await enforceRepairIterationFence(
+      args,
+      store,
+      result.runId,
+      input,
+      allowset,
+      currentIterations,
+    );
+    if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
+
+    const republish = await commitRepairAndRepublish(args, input, result, currentIterations);
+    if (republish.kind === "failure") return { kind: "early", result: republish.result };
+    currentOutcome = republish.outcome;
+  }
+
+  return {
+    kind: "done",
+    outcome: currentOutcome,
+    iterationsConsumed: currentIterations,
+    repairBudgetExhausted,
+  };
+}
+
+function appendReadyGateTimeoutLog(args: WriteLoopInput, runId: string, outcome: CompletionPublishOutcome): void {
+  if (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && outcome.error.timedOut) {
+    args.logSink?.append(runId, {
+      kind: "ready_gate_timeout",
+      gateExitCode: outcome.error.exitCode,
+    });
+  }
+}
+
+function resolveExhaustedReadyGateOrigin(
+  store: StateStore,
+  runId: string,
+  result: WriteLoopResult,
+  outcome: CompletionPublishOutcome,
+  repairBudgetExhausted: boolean,
+): ReadyGateOrigin | undefined {
+  if (!repairBudgetExhausted || !isActiveReadyGateFailure(outcome)) return undefined;
+  const checkpointResult: WriteLoopResult = {
+    ...result,
+    ...(outcome.prNumber !== undefined ? { prNumber: outcome.prNumber } : {}),
+    ...(outcome.prUrl !== undefined ? { prUrl: outcome.prUrl } : {}),
+  };
+  return persistRetainedFinalizationCheckpoint(store, runId, checkpointResult) ? "repair_budget_exhausted" : undefined;
+}
+
+function buildReadyRepairPublishResult(
+  outcome: CompletionPublishOutcome,
+  iterationsConsumed: number,
+  readyGateOrigin?: ReadyGateOrigin,
+): ReadyRepairPublishResult {
+  return outcome.kind === "success"
+    ? { success: outcome, iterationsConsumed }
+    : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -1854,69 +1965,29 @@ export async function publishWithReadyRepair(
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(outcome, input);
   }
-  let repairAttempt = 0;
-  let frozenRepairAllowset = loadPersistedRepairAllowset(store, result.runId);
+  const frozenRepairAllowset = loadPersistedRepairAllowset(store, result.runId);
   if (frozenRepairAllowset === "corrupt") {
     return readyGateRepairProvenanceFailure(iterationsConsumed);
   }
-  let repairBudgetExhausted = false;
-  while (isActiveReadyGateFailure(outcome)) {
-    repairAttempt += 1;
-    if (repairAttempt > MAX_READY_GATE_REPAIRS) {
-      repairBudgetExhausted = true;
-      break;
-    }
-    if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
-    if (frozenRepairAllowset === undefined) {
-      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, iterationsConsumed);
-      if ("failure" in initialized) return initialized.failure;
-      frozenRepairAllowset = initialized.allowset;
-    }
-    args.logSink?.append(result.runId, {
-      kind: "ready_gate_repair",
-      attempt: repairAttempt,
-      gateExitCode: outcome.error.exitCode,
-    });
-
-    const repairOutcome = await runReadyRepairIteration(args, store, result, outcome.error, iterationsConsumed + 1);
-    if (repairOutcome === "unsettled") return { failure: outcome, iterationsConsumed };
-    iterationsConsumed += 1;
-    if (repairOutcome === "blocked") return { failure: outcome, iterationsConsumed };
-
-    const fenceFailure = await enforceRepairIterationFence(
-      args,
-      store,
-      result.runId,
-      input,
-      frozenRepairAllowset,
-      iterationsConsumed,
-    );
-    if (fenceFailure !== undefined) return fenceFailure;
-
-    const republish = await commitRepairAndRepublish(args, input, result, iterationsConsumed);
-    if (republish.kind === "failure") return republish.result;
-    outcome = republish.outcome;
-  }
-  if (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && outcome.error.timedOut) {
-    args.logSink?.append(result.runId, {
-      kind: "ready_gate_timeout",
-      gateExitCode: outcome.error.exitCode,
-    });
-  }
-  let readyGateOrigin: ReadyGateOrigin | undefined;
-  if (repairBudgetExhausted && isActiveReadyGateFailure(outcome)) {
-    const checkpointResult: WriteLoopResult = {
-      ...result,
-      ...(outcome.prNumber !== undefined ? { prNumber: outcome.prNumber } : {}),
-      ...(outcome.prUrl !== undefined ? { prUrl: outcome.prUrl } : {}),
-    };
-    if (persistRetainedFinalizationCheckpoint(store, result.runId, checkpointResult)) {
-      readyGateOrigin = "repair_budget_exhausted";
-    }
-  }
-  return outcome.kind === "success"
-    ? { success: outcome, iterationsConsumed }
-    : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
+  const loopResult = await runReadyGateRepairLoop(
+    args,
+    store,
+    result,
+    input,
+    outcome,
+    iterationsConsumed,
+    frozenRepairAllowset,
+  );
+  if (loopResult.kind === "early") return loopResult.result;
+  appendReadyGateTimeoutLog(args, result.runId, loopResult.outcome);
+  const readyGateOrigin = resolveExhaustedReadyGateOrigin(
+    store,
+    result.runId,
+    result,
+    loopResult.outcome,
+    loopResult.repairBudgetExhausted,
+  );
+  return buildReadyRepairPublishResult(loopResult.outcome, loopResult.iterationsConsumed, readyGateOrigin);
 }
 
 async function runPublisher(

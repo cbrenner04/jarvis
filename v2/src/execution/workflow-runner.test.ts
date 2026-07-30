@@ -2644,9 +2644,11 @@ describe("executeWorkflow completion publication", () => {
         readyGateOrigin: "repair_budget_exhausted",
         readyGateRepairCount: 3,
       });
+      expect(run).not.toBeNull();
+      if (!run) return;
       const terminalRecord = events.at(-1);
       if (terminalRecord?.kind === "loop_finished") {
-        const operatorError = composeRunOperatorError(run!, {
+        const operatorError = composeRunOperatorError(run, {
           runId: result.runId,
           seq: 1,
           ts: "",

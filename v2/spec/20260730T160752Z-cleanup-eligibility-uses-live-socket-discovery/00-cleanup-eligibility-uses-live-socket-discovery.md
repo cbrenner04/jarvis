@@ -20,26 +20,26 @@ Bulk `jarvis cleanup` builds its `DaemonClient` from a single connect to the inv
 
 ## Tasks
 
-- [ ] Add a bulk cleanup multi-socket `DaemonClient` factory (list across discovered sockets ∪ invoking socket; union `isLive` matches for `(project, branch)`).
-- [ ] Wire `cleanup-cli.ts` bulk path to build that client via `deps.socketDiscovery` and `deps.connectIpcClient`; gate the no-listener recovery stderr on an empty answering set.
-- [ ] Add `older-digest live daemon makes merged worktree ineligible` in `v2/src/commands/cleanup.test.ts` with injectable socket discovery/connect fakes and production guard-inversion hooks.
-- [ ] Add `one dead socket in query set does not blank eligibility when another reports live run` in `v2/src/commands/cleanup.test.ts` (or extend the older-digest test) with a skip-on-failure guard hook.
-- [ ] Add `discovered older-digest daemon suppresses no-listener stderr and blocks live run` in `v2/src/commands/cleanup-cli.test.ts`; adapt `continues cleanup when keyed socket has no listener` so it covers true no-listener (empty discovery, no answering socket) only.
-- [ ] Update documentation listed below.
+- [x] Add a bulk cleanup multi-socket `DaemonClient` factory (list across discovered sockets ∪ invoking socket; union `isLive` matches for `(project, branch)`).
+- [x] Wire `cleanup-cli.ts` bulk path to build that client via `deps.socketDiscovery` and `deps.connectIpcClient`; gate the no-listener recovery stderr on an empty answering set.
+- [x] Add `older-digest live daemon makes merged worktree ineligible` in `v2/src/commands/cleanup.test.ts` with injectable socket discovery/connect fakes and production guard-inversion hooks.
+- [x] Add `one dead socket in query set does not blank eligibility when another reports live run` in `v2/src/commands/cleanup.test.ts` (or extend the older-digest test) with a skip-on-failure guard hook.
+- [x] Add `discovered older-digest daemon suppresses no-listener stderr and blocks live run` in `v2/src/commands/cleanup-cli.test.ts`; adapt `continues cleanup when keyed socket has no listener` so it covers true no-listener (empty discovery, no answering socket) only.
+- [x] Update documentation listed below.
 
 ## Acceptance criteria
 
-- [ ] With only a live daemon on an older digest key, bulk `jarvis cleanup` honors a live run it reports; `older-digest live daemon makes merged worktree ineligible` in `v2/src/commands/cleanup.test.ts` fails against the pre-fix single-socket client.
-- [ ] When the invoking digest socket has no listener but a discovered older-digest socket answers, bulk cleanup does not emit the no-listener continue stderr and a live run on that socket blocks the worktree; `discovered older-digest daemon suppresses no-listener stderr and blocks live run` in `v2/src/commands/cleanup-cli.test.ts` fails against the pre-fix CLI path.
-- [ ] One dead socket in the query set does not blank eligibility when another socket reports a live run for the same `(project, branch)`; `one dead socket in query set does not blank eligibility when another reports live run` in `v2/src/commands/cleanup.test.ts` fails against the pre-fix path.
-- [ ] `cleanup-cli.test.ts` `continues cleanup when keyed socket has no listener` stays green for true no-listener (no discovery hit, no answering socket).
-- [ ] `cleanup.test.ts` `runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window` stays green.
-- [ ] `cleanup.test.ts` `runCleanupCommand exits nonzero when the daemon becomes unreachable during recheck` stays green.
-- [ ] `cleanup.test.ts` `runCleanupCommand treats a malformed daemon list response as unreachable` stays green.
-- [ ] `cleanup.test.ts` `runCleanupCommand makes worktree ineligible when daemon client throws` stays green.
-- [ ] `cleanup.test.ts` `head-only daemon-unreachable skip exits nonzero for dry-run and apply` stays green.
-- [ ] Inverting `setInvertCleanupSocketDiscoveryForTest` (or equivalent socket-union guard) turns `older-digest live daemon makes merged worktree ineligible` RED; inverting `setInvertCleanupSocketSkipOnFailureForTest` (or equivalent skip-on-failure guard) turns `one dead socket in query set does not blank eligibility when another reports live run` RED.
-- [ ] `v2/docs/operator-runbook.md` § Cleanup: eligibility gate no longer documents the interim cross-digest gap; multi-socket eligibility discovery is documented.
+- [x] With only a live daemon on an older digest key, bulk `jarvis cleanup` honors a live run it reports; `older-digest live daemon makes merged worktree ineligible` in `v2/src/commands/cleanup.test.ts` fails against the pre-fix single-socket client.
+- [x] When the invoking digest socket has no listener but a discovered older-digest socket answers, bulk cleanup does not emit the no-listener continue stderr and a live run on that socket blocks the worktree; `discovered older-digest daemon suppresses no-listener stderr and blocks live run` in `v2/src/commands/cleanup-cli.test.ts` fails against the pre-fix CLI path.
+- [x] One dead socket in the query set does not blank eligibility when another socket reports a live run for the same `(project, branch)`; `one dead socket in query set does not blank eligibility when another reports live run` in `v2/src/commands/cleanup.test.ts` fails against the pre-fix path.
+- [x] `cleanup-cli.test.ts` `continues cleanup when keyed socket has no listener` stays green for true no-listener (no discovery hit, no answering socket).
+- [x] `cleanup.test.ts` `runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window` stays green.
+- [x] `cleanup.test.ts` `runCleanupCommand exits nonzero when the daemon becomes unreachable during recheck` stays green.
+- [x] `cleanup.test.ts` `runCleanupCommand treats a malformed daemon list response as unreachable` stays green.
+- [x] `cleanup.test.ts` `runCleanupCommand makes worktree ineligible when daemon client throws` stays green.
+- [x] `cleanup.test.ts` `head-only daemon-unreachable skip exits nonzero for dry-run and apply` stays green.
+- [x] Inverting `setInvertCleanupSocketDiscoveryForTest` (or equivalent socket-union guard) turns `older-digest live daemon makes merged worktree ineligible` RED; inverting `setInvertCleanupSocketSkipOnFailureForTest` (or equivalent skip-on-failure guard) turns `one dead socket in query set does not blank eligibility when another reports live run` RED.
+- [x] `v2/docs/operator-runbook.md` § Cleanup: eligibility gate no longer documents the interim cross-digest gap; multi-socket eligibility discovery is documented.
 
 ## Documentation updates
 

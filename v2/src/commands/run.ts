@@ -6,9 +6,10 @@ import { formatRpcError, parseStreamPayload, request, withRunClient } from "../c
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { RUN_LIST_USAGE, RUN_LOG_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
-import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { parseListRuns, parseStartResult } from "../daemon/daemon-wire.ts";
+import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
+import { queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { isRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
@@ -215,53 +216,6 @@ let invertRunOwnerResolutionForTest = false;
 
 export function setInvertRunOwnerResolutionForTest(value: boolean): void {
   invertRunOwnerResolutionForTest = value;
-}
-
-async function queryDaemonListsFromSockets(
-  deps: CliDeps,
-  listParams: ListRpcParams | undefined,
-): Promise<{ listResults: Array<[string, DaemonListResult | undefined]>; firstError: unknown }> {
-  const discovered = await (deps.socketDiscovery ?? (async () => []))();
-  const socketPaths = [...new Set([...discovered, deps.socketPath])].sort();
-
-  const listResults: Array<[string, DaemonListResult | undefined]> = [];
-  let firstError: unknown;
-  const fail = (socketPath: string, error: unknown) => {
-    listResults.push([socketPath, undefined]);
-    firstError ??= error;
-  };
-
-  for (const socketPath of socketPaths) {
-    try {
-      const client = await deps.connectIpcClient(socketPath);
-      try {
-        let result: unknown;
-        try {
-          result = await request(client, "list", listParams);
-        } catch (error) {
-          if (error instanceof RpcError) {
-            fail(socketPath, error);
-            continue;
-          }
-          throw error;
-        }
-
-        const list = parseListRuns(result);
-        if (list === undefined) {
-          fail(socketPath, new Error("invalid daemon response"));
-          continue;
-        }
-
-        listResults.push([socketPath, list]);
-      } finally {
-        client.close();
-      }
-    } catch (error) {
-      fail(socketPath, error);
-    }
-  }
-
-  return { listResults, firstError };
 }
 
 async function resolveRunOwnerSocket(runId: string, deps: CliDeps): Promise<string> {

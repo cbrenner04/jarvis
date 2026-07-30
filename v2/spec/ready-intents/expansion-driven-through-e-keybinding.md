@@ -1,4 +1,6 @@
+---
 name: expansion-driven-through-e-keybinding
+---
 
 # Expansion is driven through the real e-keybinding control path
 

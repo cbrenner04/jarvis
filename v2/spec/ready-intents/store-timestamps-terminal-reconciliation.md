@@ -1,4 +1,6 @@
+---
 name: store-timestamps-terminal-reconciliation
+---
 
 # Reconciliation stamps a finish time on killed/interrupted runs
 
@@ -25,4 +27,3 @@ successful iteration, not kill time).
   and exits non-zero.
 
 ## Prerequisites
-

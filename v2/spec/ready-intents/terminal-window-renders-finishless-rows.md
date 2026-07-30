@@ -1,4 +1,6 @@
+---
 name: terminal-window-renders-finishless-rows
+---
 
 # The live window renders terminal rows with no finish time
 

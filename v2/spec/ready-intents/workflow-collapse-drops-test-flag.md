@@ -1,4 +1,6 @@
+---
 name: workflow-collapse-drops-test-flag
+---
 
 # Workflow collapse guard proven without a production test flag
 
@@ -17,4 +19,3 @@ flag, so the test stays green even if the collapse guard were deleted.
   it. Production must contain no test-only mutable state.
 
 ## Prerequisites
-

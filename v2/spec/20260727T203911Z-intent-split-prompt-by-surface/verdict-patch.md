@@ -1,0 +1,17 @@
+# Verdict — required outcomes
+
+**1. `v1/docs/intent-mode.md` "## Split rule" contradicts the shipped prompt.** That section still reads "Split by independently observable behavior. Prefer vertical slices over umbrella bundles. If the seed is already one behavior, emit exactly one intent." — the exact text deleted from `prompts/intent/split.md`. A durable operator doc must not teach a rule the harness no longer follows. Rewrite that section to match the surface contract (one intent per touched module-boundary surface, dependency ordered; single-surface seeds emit one intent). Keep it minimal — a pointer plus a sentence or two; do not duplicate the full contract that now lives in `v2/docs/workflow-runner.md`.
+
+**2. The prompt lost the advisory semantics of `## Prerequisites`.** The removed bullet ("declared for the operator to honor; do not try to enforce execution order") carried two meanings: prerequisites are advisory, and the splitter must not attempt to enforce execution order. Only the *contradiction* with dependency-ordered surfaces needed removing. The prompt must again make clear that prerequisites are declared for the operator/plan runs to honor, while still requiring earlier-surface behaviors on later intents in dependency order. Keep the existing guard meaningful — it should reject the old contradicting wording, not any statement of advisory semantics.
+
+**3. Whitespace-brittle test assertion.** The single-surface guard matches a substring spanning the prompt's hard wrap (`"state in\n  one line…"`). A reflow, a `markdownlint --fix`, or one added word upstream turns it red with zero semantic change. Assertions against the artifact body must be robust to line-wrapping (normalize whitespace before matching, or match wrap-safe fragments).
+
+**4. Pin constant is too weak alone.** `"module-boundary surfaces"` is a bare noun phrase that survives a negated or reversed rule. Extend the pinned substring so it carries the load-bearing semantics (one intent per surface, in dependency order) — the inversion AC should be falsifiable on meaning, not vocabulary. (Same whitespace-robustness requirement as #3.)
+
+**5. Assert the built prompt, not only the artifact body.** The subspec AC says the negative fan-out checks cover "the artifact body (and built prompt)"; the tests check only `artifact.body`. Run the same negative assertions against `buildIntentSplitPrompt` output so assembly-layer regressions are caught.
+
+**6. Honest AC record for the no-examples guard.** The pre-change artifact contained no example blocks or numeric thresholds, so `intent split artifact has no examples or thresholds` cannot fail against it — the ticked AC claiming pre-change failure is over-claimed. Keep the test (it is a valid forward regression fence) and correct the spec's claim so the record matches reality.
+
+**Budget constraint:** the artifact body is ~1471 chars against a 1559 ceiling. Fit the restored advisory line within that headroom by tightening existing prose; do not raise `INTENT_SPLIT_MAX_BODY_GROWTH` to absorb the addition.
+
+**Not upheld:** `spec-guidance.md` retaining "an intent is behavior-sized" (sizing and fan-out axis are distinct dimensions; the prompt itself still says "behavior-level intent per surface"). Location of the pin/budget constants (the subspec permitted "export or colocate"). Registry load placement and `describe` grouping — cosmetic, optional.

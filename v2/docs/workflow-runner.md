@@ -188,6 +188,14 @@ resumable invocation. The seed mapping is fingerprinted so a distinct seed
 cannot attach to an existing slug. Divergent remote state fails without reset,
 force-push, suffixing, or publication.
 
+**Intent split contract:** the split prompt emits one ready-intent per
+module-boundary surface the seed touches (persistence, daemon request
+handling, CLI admission, execution loop, comparable seams), in dependency
+order, not one intent per symptom. A seed touching only one surface still
+emits exactly one intent. Later intents list earlier-surface behaviors in
+their `## Prerequisites` section so plan runs consuming them one at a time see
+the cross-surface dependency.
+
 **CLI usage:** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 
 The intent builder omits review only when `reviewPasses` is explicitly zero

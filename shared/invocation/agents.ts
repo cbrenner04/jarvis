@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
+import { parseOpencodeJsonOutput } from "./opencode-json.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -104,6 +105,25 @@ export function createResolvedAgentBinding(
     };
   }
 
+  if (agentId === "opencode") {
+    return {
+      id,
+      metadata,
+      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
+        runOpencodeBinding({
+          prompt,
+          cwd,
+          adapterModel,
+          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        }),
+    };
+  }
+
   return {
     ...createUnwiredBinding(
       id,
@@ -113,7 +133,7 @@ export function createResolvedAgentBinding(
   };
 }
 
-type AgentName = "claude" | "codex" | "cursor";
+type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type AgentRunOptions = {
   signal?: AbortSignal;
@@ -474,6 +494,36 @@ function finalizeCursorInvocationResult(result: InvocationResult): InvocationRes
   };
 }
 
+function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationResult {
+  if (result.kind !== "ok") {
+    return result;
+  }
+
+  const parsed = parseOpencodeJsonOutput(result.stdout);
+  const output: InvocationOk = {
+    kind: "ok",
+    stdout: parsed.displayText,
+    stderr: result.stderr,
+  };
+  if (parsed.sawStepFinish) {
+    output.usage = parsed.usage;
+    output.usage_source = "agent";
+    if (parsed.sawAnyCostField) {
+      output.cost_usd = parsed.cost_usd;
+      output.cost_source = "agent";
+    } else {
+      output.cost_usd = null;
+      output.cost_source = "no-price";
+    }
+    return output;
+  }
+  output.usage_source = "unavailable";
+  output.cost_usd = null;
+  output.cost_source = "no-usage";
+  output.warnings = ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."];
+  return output;
+}
+
 async function runClaudeBinding(args: {
   prompt: string;
   cwd: string;
@@ -623,11 +673,51 @@ async function runCursorBinding(args: {
   return finalizeCursorInvocationResult(result);
 }
 
+async function runOpencodeBinding(args: {
+  prompt: string;
+  cwd: string;
+  adapterModel: string;
+  signal?: AbortSignal;
+  idleOutputMs?: number;
+  onOutputProgress?: () => void;
+  setTimeout?: typeof setTimeout;
+  clearTimeout?: typeof clearTimeout;
+  spawn?: SpawnFn;
+}): Promise<InvocationResult> {
+  const result = await runAgent(
+    {
+      name: "opencode",
+      binary: "opencode",
+      cwd: args.cwd,
+      buildArgv: (promptText) => [
+        "run",
+        "--dir",
+        args.cwd,
+        "--model",
+        args.adapterModel,
+        "--format",
+        "json",
+        promptText,
+      ],
+      stdio: ["ignore", "pipe", "pipe"],
+      streamErrorPrefix: "opencode:",
+      classifier: "opencode",
+      ...(args.spawn !== undefined ? { spawn: args.spawn } : {}),
+    },
+    args.prompt,
+    pickAgentRunOptions(args),
+  );
+  return finalizeOpencodeInvocationResult(result);
+}
+
 // Patterns below are ported from v1's quota.ts.
 const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
 
-function guardedStatusPatterns(statusCodes: readonly number[]): RegExp[] {
-  const context = transportContextWords.join("|");
+function guardedStatusPatterns(
+  statusCodes: readonly number[],
+  contextWords: readonly string[] = transportContextWords,
+): RegExp[] {
+  const context = contextWords.join("|");
   return statusCodes.flatMap((statusCode) => [
     new RegExp(`(?:^|\\n)[^\\n]*(?:${context})[^\\n]*\\b${statusCode}\\b`, "i"),
     new RegExp(`(?:^|\\n)[^\\n]*\\b${statusCode}\\b[^\\n]*(?:${context})\\b`, "i"),
@@ -676,6 +766,16 @@ const modelConfigurationPatterns = [
   /\bLLM Provider NOT provided\b/i,
 ] as const;
 
+const opencodeQuotaPatterns = [
+  /\brate limit\b/i,
+  /\bquota exceeded\b/i,
+  /\binsufficient_quota\b/i,
+  ...guardedStatusPatterns([429]),
+  /\byou have exceeded your\b/i,
+] as const;
+
+const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i] as const;
+
 const codexCredentialAuthPatterns = [
   /\brefresh token was revoked\b/i,
   /\brefresh token revoked\b/i,
@@ -701,8 +801,18 @@ const transientPatterns = [
   ...guardedStatusPatterns([502, 503, 504, 529]),
 ] as const;
 
+const opencodeTransportPatterns = [
+  ...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"]),
+] as const;
+
 function quotaPatternsFor(name: AgentName) {
-  return name === "codex" ? codexQuotaPatterns : name === "cursor" ? cursorQuotaPatterns : claudeQuotaPatterns;
+  return name === "codex"
+    ? codexQuotaPatterns
+    : name === "cursor"
+      ? cursorQuotaPatterns
+      : name === "opencode"
+        ? opencodeQuotaPatterns
+        : claudeQuotaPatterns;
 }
 
 function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
@@ -715,12 +825,20 @@ function isCredentialAuthSignal(name: AgentName, exitCode: number, stderr: strin
   return codexCredentialAuthPatterns.some((pattern) => pattern.test(stderr));
 }
 
-function isModelConfigurationSignal(_name: AgentName, stderr: string): boolean {
-  return modelConfigurationPatterns.some((pattern) => pattern.test(stderr));
+function isModelConfigurationSignal(name: AgentName, stderr: string): boolean {
+  const patterns =
+    name === "opencode"
+      ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
+      : modelConfigurationPatterns;
+  return patterns.some((pattern) => pattern.test(stderr));
 }
 
-function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
-  return exitCode !== 0 && transientPatterns.some((pattern) => pattern.test(stderr));
+function isTransientSignal(name: AgentName, exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return false;
+  return (
+    (name === "opencode" && opencodeTransportPatterns.some((pattern) => pattern.test(stderr))) ||
+    transientPatterns.some((pattern) => pattern.test(stderr))
+  );
 }
 
 const cursorCliModels: Record<string, string> = {

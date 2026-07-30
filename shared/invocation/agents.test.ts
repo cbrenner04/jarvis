@@ -938,26 +938,195 @@ describe("createResolvedAgentBinding", () => {
     expect(genericResult.final?.result.kind).toBe("error");
   });
 
-  test("unrecognized resolved agents keep unwired terminal error metadata", async () => {
-    const binding = createResolvedAgentBinding({
-      agentId: "opencode",
-      adapterModel: "gpt-5",
-      priceKey: "gpt-5",
+  test("opencode binding invokes the CLI shape with dir, model, and ignored stdin", async () => {
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 10, output: 20, cache: { read: 3, write: 5 } }, cost: 0.04 },
     });
+    const textFrame = JSON.stringify({ type: "text", part: { text: "implementation complete\n" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${textFrame}\n${stepFinish}`, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
 
-    await expect(binding.invoke({ prompt: "p", cwd: "/repo" })).resolves.toEqual({
-      kind: "error",
-      exitCode: 127,
-      stderr: "agent 'opencode' model 'gpt-5' price 'gpt-5' invocation is not wired yet",
+    const result = await binding.invoke({ prompt: "implement it", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "implementation complete",
+      stderr: "",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 5,
+      },
+      usage_source: "agent",
+      cost_usd: 0.04,
+      cost_source: "agent",
     });
     expect(binding.id).toBe("opencode/gpt-5/gpt-5");
     expect(binding.metadata).toEqual({ agent: "opencode", model: "gpt-5" });
+    expect(fake.calls[0]?.binary).toBe("opencode");
+    expect(fake.calls[0]?.argv).toEqual([
+      "run",
+      "--dir",
+      "/repo",
+      "--model",
+      "gpt-5",
+      "--format",
+      "json",
+      "implement it",
+    ]);
+    expect(fake.calls[0]?.opts.stdio).toEqual(["ignore", "pipe", "pipe"]);
+    expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("");
   });
+
+  test("opencode binding with no step_finish settles ok unavailable with warning", async () => {
+    const textOnly = JSON.stringify({ type: "text", part: { text: "done" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: textOnly, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "done",
+      stderr: "",
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: ["opencode: no step_finish events in --format json stream; usage recorded as unavailable."],
+    });
+  });
+
+  test("opencode step_finish-only stream renders empty display text, not raw NDJSON", async () => {
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 10, output: 20, cache: { read: 3, write: 5 } }, cost: 0.04 },
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: stepFinish, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 5,
+      },
+      usage_source: "agent",
+      cost_usd: 0.04,
+      cost_source: "agent",
+    });
+  });
+
+  test("opencode step_finish without part.cost settles ok agent-usage no-price", async () => {
+    const stepFinish = JSON.stringify({
+      type: "step_finish",
+      part: { tokens: { input: 10, output: 20, cache: { read: 3, write: 5 } } },
+    });
+    const textFrame = JSON.stringify({ type: "text", part: { text: "done" } });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${textFrame}\n${stepFinish}`, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "done",
+      stderr: "",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_input_tokens: 3,
+        cache_creation_input_tokens: 5,
+      },
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
+  });
+  test("opencode binding classifies quota, model config, and transient via its own classifier", async () => {
+    const rateLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "rate limit reached" }]);
+    const quotaExceeded = fakeSpawn([{ kind: "settle", code: 1, stderr: "quota exceeded" }]);
+    const insufficient = fakeSpawn([{ kind: "settle", code: 1, stderr: "insufficient_quota" }]);
+    const guarded429 = fakeSpawn([{ kind: "settle", code: 1, stderr: "http status 429" }]);
+    const exceeded = fakeSpawn([{ kind: "settle", code: 1, stderr: "you have exceeded your plan" }]);
+    const modelConfig = fakeSpawn([{ kind: "settle", code: 1, stderr: "no provider configured for gpt-5" }]);
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: rateLimit.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "rate limit reached" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: quotaExceeded.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "quota exceeded" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: insufficient.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "insufficient_quota" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: guarded429.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "http status 429" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: exceeded.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: "you have exceeded your plan" });
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+        { spawn: modelConfig.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "model_config", stderr: "no provider configured for gpt-5" });
+  });
+
+  test("opencode guarded HTTP 500 (UnknownError) is transient and retried", async () => {
+    const fake = fakeSpawn([
+      { kind: "settle", code: 1, stderr: "UnknownError: http status 500" },
+      { kind: "settle", code: 0, stdout: "done", stderr: "" },
+    ]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(fake.calls.length).toBeGreaterThanOrEqual(2);
+    expect(result.kind).toBe("ok");
+  });
+
   test("wired bindings forward output progress notifications from stdout and stderr", async () => {
     const wired = [
       { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
       { agentId: "codex", adapterModel: "gpt-5", priceKey: "gpt-5" },
       { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "Composer 2.5" },
+      { agentId: "opencode", adapterModel: "gpt-5", priceKey: "gpt-5" },
     ] as const;
 
     for (const args of wired) {

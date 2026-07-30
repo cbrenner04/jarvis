@@ -51,8 +51,12 @@ stay open in `v2/spec/seeds/tui-cannot-distinguish-a-workflows-runs.md` and are 
       rendered output; after terminal rollup it shows the workflow terminal status in rendered
       output.
 - [x] Coverage asserts rendered monitor text, not only view-model state.
-- [x] Tests fail when collapse is disabled or inverted: every constituent run must appear as its
-      own top-level row in rendered output under inversion.
+- [x] Collapse inversion proof is operator-only: mutating `seenInvocations` dedup +
+      `workflow-collapsed` emit in `buildWorkflowTableRows` turns the pinning test
+      `collapsed table shows one top-level row for a multi-run workflow` red (bypass =
+      one top-level rendered row per selectable shared-invocation member). No dedicated
+      invert `test()` or production test hook —
+      [20260730T071756Z-workflow-collapse-drops-test-flag](../../20260730T071756Z-workflow-collapse-drops-test-flag/).
 - [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

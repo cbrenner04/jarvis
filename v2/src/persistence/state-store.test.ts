@@ -11,6 +11,8 @@ import {
   isOwnerAlive,
   type OwnerLivenessProbe,
   openStateStore,
+  orphanSettlementReconciledAt,
+  orphanSettlementShouldStampAttempt,
   type Pipeline,
   type PipelineContext,
   type PipelineStageRecord,
@@ -1271,7 +1273,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(12);
+      expect(migrationCount.total).toBe(13);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -1293,6 +1295,7 @@ describe("pipelines", () => {
 describe("pipeline reconciliation", () => {
   const PRIOR_IDENTITY = "11111:1000000";
   const CURRENT_IDENTITY = "22222:2000000";
+  const STALE_COMPLETED_AT = 1_700_000_000_000;
 
   let seedStore: StateStore;
 
@@ -1309,6 +1312,164 @@ describe("pipeline reconciliation", () => {
   function openSweepStore(isOwnerAliveProbe: OwnerLivenessProbe): StateStore {
     return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
   }
+
+  function seedOrphanRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
+    return seedRun(seedStore, { branch: `branch-${crypto.randomUUID()}`, ...overrides });
+  }
+
+  function setAttemptCompletedAt(attemptId: string, completedAt: number): void {
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE attempts SET completed_at = ? WHERE id = ?").run(completedAt, attemptId);
+    raw.close();
+  }
+
+  test("beginRunReconciliation stamps reconciliation finish time on orphaned runs", async () => {
+    const sweepStore = openSweepStore(async () => false);
+
+    const inProgressRunId = seedOrphanRun();
+    const inProgressAttemptId = seedStore.recordAttemptStart(inProgressRunId);
+
+    const noAttemptRunId = seedOrphanRun();
+
+    const completedOnlyRunId = seedOrphanRun();
+    const completedAttemptId = seedStore.recordAttemptStart(completedOnlyRunId);
+    seedStore.commitCompletionBoundary({
+      attemptId: completedAttemptId,
+      runStatus: "in-progress",
+      outcomeKind: "progress",
+    });
+    setAttemptCompletedAt(completedAttemptId, STALE_COMPLETED_AT);
+
+    const priorAndOpenRunId = seedOrphanRun();
+    const priorAttemptId = seedStore.recordAttemptStart(priorAndOpenRunId);
+    seedStore.commitCompletionBoundary({
+      attemptId: priorAttemptId,
+      runStatus: "in-progress",
+      outcomeKind: "progress",
+    });
+    const openAttemptId = seedStore.recordAttemptStart(priorAndOpenRunId);
+    setAttemptCompletedAt(priorAttemptId, STALE_COMPLETED_AT);
+
+    const reviewDebateRunId = seedOrphanRun({
+      stepId: "review-debate",
+      workflowSnapshot: {
+        invocationId: "inv-review-debate",
+        steps: [{ stepId: "review-debate", role: "review", behavior: "review-debate" }],
+      },
+    });
+    const reviewDebateAttemptId = seedStore.recordAttemptStart(reviewDebateRunId);
+
+    const idempotentRunId = seedOrphanRun();
+
+    const alreadyKilledRunId = seedOrphanRun({ status: "killed" });
+    const rawKilled = new Database(TEST_DB_PATH);
+    rawKilled.prepare("UPDATE runs SET reconciled_at = ? WHERE id = ?").run(1_600_000_000_000, alreadyKilledRunId);
+    rawKilled.close();
+
+    await sweepStore.beginRunReconciliation();
+
+    const inProgressRun = loadRunOrThrow(sweepStore, inProgressRunId);
+    expect(inProgressRun.status).toBe("killed");
+    expect(inProgressRun.reconciledAt).toBeNull();
+    expect(inProgressRun.attemptCount).toBe(0);
+    expect(inProgressRun.attempts).toHaveLength(1);
+    expect(inProgressRun.attempts[0]?.id).toBe(inProgressAttemptId);
+    expect(inProgressRun.attempts[0]?.status).toBe("in-progress");
+    expect(inProgressRun.attempts[0]?.outcomeKind).toBeNull();
+    expect(inProgressRun.attempts[0]?.completedAt).not.toBeNull();
+
+    const noAttemptRun = loadRunOrThrow(sweepStore, noAttemptRunId);
+    expect(noAttemptRun.status).toBe("killed");
+    expect(noAttemptRun.reconciledAt).not.toBeNull();
+    expect(noAttemptRun.attempts).toHaveLength(0);
+    expect(sweepStore.listRuns().find((run) => run.id === noAttemptRunId)?.reconciledAt).toBe(
+      noAttemptRun.reconciledAt,
+    );
+
+    const completedOnlyRun = loadRunOrThrow(sweepStore, completedOnlyRunId);
+    expect(completedOnlyRun.reconciledAt).not.toBeNull();
+    expect(completedOnlyRun.reconciledAt).toBeGreaterThan(STALE_COMPLETED_AT);
+    expect(completedOnlyRun.attempts[0]?.completedAt).toBe(STALE_COMPLETED_AT);
+
+    const priorAndOpenRun = loadRunOrThrow(sweepStore, priorAndOpenRunId);
+    expect(priorAndOpenRun.reconciledAt).toBeNull();
+    const openAttempt = priorAndOpenRun.attempts.find((attempt) => attempt.id === openAttemptId);
+    expect(openAttempt?.completedAt).not.toBeNull();
+    expect(openAttempt?.completedAt).toBeGreaterThan(STALE_COMPLETED_AT);
+
+    const reviewDebateRun = loadRunOrThrow(sweepStore, reviewDebateRunId);
+    expect(reviewDebateRun.status).toBe("interrupted");
+    expect(reviewDebateRun.reconciledAt).toBeNull();
+    expect(reviewDebateRun.attempts[0]?.id).toBe(reviewDebateAttemptId);
+    expect(reviewDebateRun.attempts[0]?.status).toBe("in-progress");
+    expect(reviewDebateRun.attempts[0]?.completedAt).not.toBeNull();
+
+    const afterFirst = loadRunOrThrow(sweepStore, idempotentRunId);
+    await sweepStore.beginRunReconciliation();
+    expect(loadRunOrThrow(sweepStore, idempotentRunId).reconciledAt).toBe(afterFirst.reconciledAt);
+
+    expect(loadRunOrThrow(sweepStore, alreadyKilledRunId).reconciledAt).toBe(1_600_000_000_000);
+
+    sweepStore.close();
+  });
+
+  // Inverting `orphanSettlementReconciledAt` to always return `finishAt` turns the first assertion
+  // RED; inverting `orphanSettlementShouldStampAttempt` to ignore `runUpdateApplied` turns the
+  // second RED — same guard-inversion proof without a production test hook.
+  test("orphan settlement reconciled_at guard inversion", () => {
+    expect(orphanSettlementReconciledAt("attempt-1", 1_700_000_000_000)).toBeNull();
+    expect(orphanSettlementReconciledAt(undefined, 1_700_000_000_000)).toBe(1_700_000_000_000);
+  });
+
+  test("orphan settlement attempt stamp guard inversion", () => {
+    expect(orphanSettlementShouldStampAttempt(true, "attempt-1")).toBe(true);
+    expect(orphanSettlementShouldStampAttempt(false, "attempt-1")).toBe(false);
+    expect(orphanSettlementShouldStampAttempt(true, undefined)).toBe(false);
+  });
+
+  test("beginRunReconciliation does not stamp attempt when guarded run update does not apply", async () => {
+    const runId = seedOrphanRun();
+    const attemptId = seedStore.recordAttemptStart(runId);
+
+    let resolveProbe!: () => void;
+    const probeBlocked = new Promise<void>((resolve) => {
+      resolveProbe = resolve;
+    });
+
+    const sweepStore = openSweepStore(async () => {
+      await probeBlocked;
+      return false;
+    });
+
+    const reconciliation = sweepStore.beginRunReconciliation();
+
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET status = 'killed' WHERE id = ?").run(runId);
+    raw.close();
+
+    resolveProbe();
+    await reconciliation;
+
+    const run = loadRunOrThrow(sweepStore, runId);
+    expect(run.status).toBe("killed");
+    expect(run.attempts[0]?.id).toBe(attemptId);
+    expect(run.attempts[0]?.completedAt).toBeNull();
+
+    sweepStore.close();
+  });
+
+  test("orphan settlement reconciled_at fallback does not fabricate attempt rows", async () => {
+    const sweepStore = openSweepStore(async () => false);
+    const runId = seedOrphanRun();
+
+    await sweepStore.beginRunReconciliation();
+
+    const run = loadRunOrThrow(sweepStore, runId);
+    expect(run.attempts).toHaveLength(0);
+    expect(run.reconciledAt).not.toBeNull();
+
+    sweepStore.close();
+  });
 
   /** Admit a pipeline via `seedStore` (owner = PRIOR_IDENTITY), then overwrite owner and per-stage statuses directly. */
   function seedPipeline(ownerIdentity: string | null, stageStatuses: string[]): string {

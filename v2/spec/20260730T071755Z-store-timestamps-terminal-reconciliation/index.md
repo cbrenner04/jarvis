@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Persistence](./00-persistence.md)
+- [x] [00 - Persistence](./00-persistence.md)

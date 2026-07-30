@@ -117,6 +117,7 @@ export type Run = {
   queuedInput?: WriteLoopInput | null;
   prNumber?: number | null;
   prUrl?: string | null;
+  reconciledAt?: number | null;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -456,7 +457,7 @@ const SCHEMA = `
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
-  pr_number AS prNumber, pr_url AS prUrl`;
+  pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -540,9 +541,26 @@ const SCHEMA_MIGRATIONS = [
     id: "015-pipeline-context",
     up: "ALTER TABLE pipelines ADD COLUMN context TEXT",
   },
+  {
+    id: "016-run-reconciled-at",
+    up: "ALTER TABLE runs ADD COLUMN reconciled_at INTEGER",
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
+
+/** Run-column finish timestamp when no in-progress attempt carries reconciliation time. */
+export function orphanSettlementReconciledAt(inProgressAttemptId: string | undefined, finishAt: number): number | null {
+  return inProgressAttemptId === undefined ? finishAt : null;
+}
+
+/** Whether settlement should stamp attempt `completed_at` after a guarded run update. */
+export function orphanSettlementShouldStampAttempt(
+  runUpdateApplied: boolean,
+  inProgressAttemptId: string | undefined,
+): inProgressAttemptId is string {
+  return runUpdateApplied && inProgressAttemptId !== undefined;
+}
 
 /** Stage statuses restart reconciliation leaves untouched; anything else is active. */
 const RECONCILIATION_STABLE_STAGE_STATUSES: ReadonlySet<string> = new Set([
@@ -1150,11 +1168,24 @@ class StateStoreImpl implements StateStore {
         const isReviewDebate = snapshot?.steps.some(
           (step) => step.stepId === candidate.stepId && step.behavior === "review-debate",
         );
-        this.db
+        const terminalStatus = isReviewDebate ? "interrupted" : "killed";
+        const finishAt = Date.now();
+        const inProgressAttemptId = (
+          this.db
+            .prepare(
+              "SELECT id FROM attempts WHERE run_id = ? AND status = 'in-progress' ORDER BY attempt_number DESC LIMIT 1",
+            )
+            .get(candidate.id) as { id: string } | null
+        )?.id;
+        const runUpdate = this.db
           .prepare(
-            `UPDATE runs SET status = ?, reconciliation_pending = 1 WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
+            `UPDATE runs SET status = ?, reconciliation_pending = 1, reconciled_at = ? WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
           )
-          .run(isReviewDebate ? "interrupted" : "killed", candidate.id);
+          .run(terminalStatus, orphanSettlementReconciledAt(inProgressAttemptId, finishAt), candidate.id);
+        if (runUpdate.changes === 0) continue;
+        if (orphanSettlementShouldStampAttempt(true, inProgressAttemptId)) {
+          this.db.prepare("UPDATE attempts SET completed_at = ? WHERE id = ?").run(finishAt, inProgressAttemptId);
+        }
       }
       return (
         this.db

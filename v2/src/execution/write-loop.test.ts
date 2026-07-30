@@ -1950,6 +1950,10 @@ describe("write loop", () => {
         unlinkSync(join(root, "link-target.txt"));
         symlinkSync("tracked.txt", join(root, "link-target.txt"));
         writeFileSync(join(root, "libs/mod/README.md"), "submodule changed\n", "utf8");
+        execFileSync("git", ["-C", join(root, "libs/mod"), "config", "user.email", "test@example.com"], {
+          stdio: "pipe",
+        });
+        execFileSync("git", ["-C", join(root, "libs/mod"), "config", "user.name", "Test User"], { stdio: "pipe" });
         execFileSync("git", ["-C", join(root, "libs/mod"), "add", "README.md"], { stdio: "pipe" });
         execFileSync("git", ["-C", join(root, "libs/mod"), "commit", "-m", "submodule change"], { stdio: "pipe" });
         execFileSync("git", ["-C", root, "add", "libs/mod"], { stdio: "pipe" });

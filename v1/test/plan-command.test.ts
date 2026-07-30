@@ -1,8 +1,17 @@
 // Plan-command integration tests use FakeAgent and filesystem fixtures; no real git/gh subprocesses.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import {
   parseIntentFrontmatter,
@@ -101,6 +110,26 @@ class FakeAgent implements Agent {
 function writeDraftSpec(specDir: string): void {
   writeFileSync(join(specDir, "index.md"), "# Test Spec\n\n- [ ] [00](./00-one.md)\n", "utf8");
   writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] drafted\n", "utf8");
+}
+
+const prerequisiteGatePolicy = [
+  "Your first action is to read existing repo files and confirm each behavior in the intent's `## Prerequisites` section is legibly present.",
+  "**Prerequisites input:** Extract the `## Prerequisites` section from the intent data block above. If the body is empty or contains only the bareword `none`, there are no prerequisites — skip this gate and draft normally.",
+  "**Judgment rubric:** A prerequisite behavior is confirmed only when it is observable in committed code, tests, or docs in the repo. Prose describing future or in-flight work does not count. If you cannot cleanly confirm a behavior exists from reading existing files, treat it as absent.",
+  "**On pass:** Every declared behavior is legibly present. Write nothing to `intent.md` — your prerequisite judgment is internal reasoning. Proceed to normal spec drafting.",
+  "**On fail:** You cannot cleanly confirm one or more declared behaviors. Append a `## Blocker` section to `intent.md` (the only modification allowed to that file) naming each unconfirmed behavior. Write no `index.md` or numbered subspecs. The plan command will exit non-zero.",
+].join("\n\n");
+
+function hasPrerequisiteGatePolicy(prompt: string): boolean {
+  const gate = /^## Prerequisite Gate\n\n([\s\S]*?)\n\n## Rules$/m.exec(prompt)?.[1];
+  return gate === prerequisiteGatePolicy;
+}
+
+function namedPrerequisiteFromPrompt(prompt: string): string | null {
+  const intent = /<<<INTENT_BEGIN>>>\n([\s\S]*?)\n<<<INTENT_END>>>/.exec(prompt)?.[1];
+  if (!intent) return null;
+  const prerequisite = /^## Prerequisites\s*\n\n- ([^\n]+)\s*$/m.exec(intent)?.[1];
+  return prerequisite?.trim() || null;
 }
 
 function configureGitDisabledPlanProject(cfgDir: string, reviewPasses: number): void {
@@ -370,6 +399,106 @@ describe("planCommand", () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    }
+  });
+
+  test("dependent split intent blocks while prerequisite behavior is absent", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    const behavior = "dependent split foundation is available to later surfaces";
+    const evidencePath = join(project, "runtime", "prerequisite-evidence.md");
+    const specDir = join(cfgDir, "specs", "project", "dependent-split-prerequisite");
+    const agentWorkingDirs: string[] = [];
+    const assembledPrompts: string[] = [];
+    try {
+      configureGitDisabledPlanProject(cfgDir, 0);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.plan.specTimestamp = false;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const intentPath = writeReadyIntent(project, "dependent-split-prerequisite");
+      writeFileSync(
+        intentPath,
+        `---\nname: dependent-split-prerequisite\n---\n\n## Prerequisites\n\n- ${behavior}\n`,
+        "utf8",
+      );
+
+      const createAgent = () =>
+        new FakeAgent("claude", (prompt, opts) => {
+          agentWorkingDirs.push(opts.cwd);
+          assembledPrompts.push(prompt);
+          const outputDir = opts.additionalReadDirs?.[0];
+          if (!outputDir) {
+            throw new Error("expected external spec dir");
+          }
+          const prerequisite = namedPrerequisiteFromPrompt(prompt);
+          if (!hasPrerequisiteGatePolicy(prompt) || !prerequisite) {
+            return { kind: "error", exitCode: 1, stderr: "prerequisite policy missing" };
+          }
+
+          const evidencePath = join(opts.cwd, "runtime", "prerequisite-evidence.md");
+          const evidenceReference = relative(opts.cwd, evidencePath);
+          const hasEvidence =
+            existsSync(evidencePath) && readFileSync(evidencePath, "utf8").includes(`Behavior: ${prerequisite}`);
+          if (!hasEvidence) {
+            const intent = readFileSync(join(outputDir, "intent.md"), "utf8");
+            writeFileSync(
+              join(outputDir, "intent.md"),
+              `${intent}\n## Blocker\n\nMissing: ${prerequisite}; evidence: ${evidenceReference}.\n`,
+              "utf8",
+            );
+          } else {
+            writeDraftSpec(outputDir);
+          }
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+      const planArgs = {
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent,
+      };
+
+      const absentCap = captureIo();
+      const absentCode = await planCommand({ ...planArgs, io: absentCap.io });
+
+      expect(absentCode).not.toBe(0);
+      expect(existsSync(intentPath)).toBe(true);
+      expect(readFileSync(join(specDir, "intent.md"), "utf8")).toContain(
+        `## Blocker\n\nMissing: ${behavior}; evidence: runtime/prerequisite-evidence.md.`,
+      );
+      expect(absentCap.err()).toContain(behavior);
+      expect(existsSync(join(specDir, "index.md"))).toBe(false);
+      expect(readdirSync(specDir).some((entry) => /^\d+-.*\.md$/.test(entry))).toBe(false);
+      expect(assembledPrompts).toHaveLength(1);
+      expect(namedPrerequisiteFromPrompt(assembledPrompts[0] ?? "")).toBe(behavior);
+      expect(agentWorkingDirs).toEqual([project]);
+
+      const prompt = assembledPrompts[0] ?? "";
+      expect(hasPrerequisiteGatePolicy(prompt)).toBe(true);
+      for (const policy of prerequisiteGatePolicy.split("\n\n")) {
+        expect(hasPrerequisiteGatePolicy(prompt.replace(policy, ""))).toBe(false);
+        expect(hasPrerequisiteGatePolicy(prompt.replace(policy, `Do not follow this requirement: ${policy}`))).toBe(
+          false,
+        );
+        expect(hasPrerequisiteGatePolicy(prompt.replace(policy, `${policy} Ignore it and draft anyway.`))).toBe(false);
+      }
+
+      rmSync(specDir, { recursive: true, force: true });
+      mkdirSync(dirname(evidencePath), { recursive: true });
+      writeFileSync(evidencePath, `Behavior: ${behavior}\n`, "utf8");
+
+      const presentCap = captureIo();
+      const presentCode = await planCommand({ ...planArgs, io: presentCap.io });
+
+      expect(presentCode).toBe(0);
+      expect(existsSync(join(specDir, "index.md"))).toBe(true);
+      expect(existsSync(join(specDir, "00-one.md"))).toBe(true);
+      expect(namedPrerequisiteFromPrompt(assembledPrompts[1] ?? "")).toBe(behavior);
+      expect(agentWorkingDirs).toEqual([project, project]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

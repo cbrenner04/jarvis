@@ -234,8 +234,12 @@ The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`,
 Before validation and publication, plan draft emission treats acceptance criteria as
 the oversize signal. If one drafted subspec's criteria own multiple module
 boundaries, Jarvis splits it into one emitted subspec per boundary rather than
-publishing it whole. Criteria-free prose does not trigger a split. The canonical
-surface list and classifier contract are in
+publishing it whole. Criteria-free prose does not trigger a split. Emitted split
+subspecs are listed in draft-declared dependency order for implement consumption;
+`index.md` checklist link order matches that emitted `NN-*.md` sequence. When the
+draft declares no cross-boundary ordering signal, siblings stay in
+`MODULE_BOUNDARY_SURFACES` array order. The canonical surface list and classifier
+contract are in
 [`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts).
 
 Plan-drafted acceptance criteria follow the [both-direction guard contract](../../v1/docs/spec-guidance.md#failing-test-requirement-for-runtime-behavior-subspecs).

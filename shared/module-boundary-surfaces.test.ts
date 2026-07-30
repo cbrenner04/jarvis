@@ -6,6 +6,7 @@ import {
   MODULE_BOUNDARY_SURFACES,
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
+  orderModuleBoundariesForSplit,
   spansMultipleModuleBoundaries,
 } from "./module-boundary-surfaces.ts";
 
@@ -43,6 +44,16 @@ function checkboxLines(body: string): string[] {
   const heading = lines.indexOf("## Acceptance criteria");
   const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
   return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => /^\s*-\s\[[ xX]\]\s+/u.test(line));
+}
+
+function indexChecklistFiles(indexBody: string): string[] {
+  return indexBody
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .flatMap((line) => {
+      const match = line.match(/^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)$/u);
+      return match?.[1] && /^\d{2}-.*\.md$/u.test(match[1]) ? [match[1]] : [];
+    });
 }
 
 afterEach(() => {
@@ -105,7 +116,9 @@ describe("module boundary surfaces", () => {
       const emittedFiles = readdirSync(dir)
         .filter((file) => /^\d{2}-.*\.md$/u.test(file))
         .sort();
-      expect(emittedFiles).toEqual(fixture.expectedChildren.map((child) => child.file));
+      const expectedFiles = fixture.expectedChildren.map((child) => child.file);
+      expect(emittedFiles).toEqual(expectedFiles);
+      expect(indexChecklistFiles(readFileSync(join(dir, "index.md"), "utf8"))).toEqual(expectedFiles);
       for (const child of fixture.expectedChildren) {
         expect(checkboxLines(readFileSync(join(dir, child.file), "utf8"))).toEqual(child.acceptanceCriteria);
       }
@@ -127,6 +140,58 @@ describe("module boundary surfaces", () => {
       }
     });
   }
+
+  test("inverting draft dependency order guard fails k4", () => {
+    const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k4");
+    if (!fixture) throw new Error("k4 fixture is missing");
+    const dir = stagedFixture("k4");
+
+    normalizePlanDraftSpecDir(dir);
+
+    const emittedFiles = readdirSync(dir)
+      .filter((file) => /^\d{2}-.*\.md$/u.test(file))
+      .sort();
+    expect(emittedFiles).toEqual(fixture.expectedChildren.map((child) => child.file));
+    expect(emittedFiles[0]).toBe("00-cli.md");
+    const cliBody = readFileSync(join(dir, "00-cli.md"), "utf8");
+    expect(cliBody).toContain("The behavior remains covered by a regression test.");
+    expect(readFileSync(join(dir, "01-persistence.md"), "utf8")).not.toContain(
+      "The behavior remains covered by a regression test.",
+    );
+  });
+
+  test("orders prerequisite requires/depends-on bullets with prerequisite surface first", () => {
+    const body = [
+      "## Prerequisites",
+      "",
+      "- The CLI depends on persistence.",
+      "",
+      "## Acceptance criteria",
+      "",
+      "- [ ] The state-store persists completed runs atomically.",
+      "- [ ] The CLI validates run flags before dispatch.",
+    ].join("\n");
+    const boundaries = moduleBoundariesForAcceptanceCriteria([
+      "The state-store persists completed runs atomically.",
+      "The CLI validates run flags before dispatch.",
+    ]);
+    expect(orderModuleBoundariesForSplit(body, boundaries)).toEqual(["persistence", "cli"]);
+  });
+
+  test("hard-errors contradictory draft dependency edges", () => {
+    const k4Draft = readFileSync(join(FIXTURE_ROOT, "k4", "00-cli-first-state.md"), "utf8");
+    const body = k4Draft.replace(
+      "- Implement CLI before persistence.",
+      "- Implement CLI before persistence.\n- Implement persistence before CLI.",
+    );
+    const boundaries = moduleBoundariesForAcceptanceCriteria([
+      "The state-store persists completed runs atomically.",
+      "The CLI validates run flags before dispatch.",
+    ]);
+    expect(() => orderModuleBoundariesForSplit(body, boundaries)).toThrow(
+      "contradictory module-boundary dependency order",
+    );
+  });
 
   test("hard-errors before dropping a multi-surface acceptance criterion", () => {
     const fixture = MANIFEST.fixtures[0];

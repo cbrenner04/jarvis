@@ -36,6 +36,155 @@ export function spansMultipleModuleBoundaries(acceptanceCriteria: readonly strin
   return moduleBoundariesForAcceptanceCriteria(acceptanceCriteria).length > 1;
 }
 
+type DependencyEdge = readonly [ModuleBoundarySurface, ModuleBoundarySurface];
+
+const BEFORE_EDGE_PATTERN = /\b(?:lands\s+)?(?:implement\s+)?before\b/i;
+
+function pairwiseEdges(
+  left: readonly ModuleBoundarySurface[],
+  right: readonly ModuleBoundarySurface[],
+): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  for (const before of left) for (const after of right) if (before !== after) edges.push([before, after]);
+  return edges;
+}
+
+function sequentialEdges(surfaces: readonly ModuleBoundarySurface[]): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  for (let index = 1; index < surfaces.length; index += 1) {
+    const before = surfaces[index - 1];
+    const after = surfaces[index];
+    if (before !== undefined && after !== undefined && before !== after) edges.push([before, after]);
+  }
+  return edges;
+}
+
+function sectionText(body: string, heading: string): string {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.indexOf(heading);
+  if (start === -1) return "";
+  const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line ?? ""));
+  return lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
+}
+
+function parseBeforeEdges(text: string): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  for (const segment of text.split(/\n+/u)) {
+    const match = BEFORE_EDGE_PATTERN.exec(segment);
+    if (!match) continue;
+    edges.push(
+      ...pairwiseEdges(
+        classifyModuleBoundaryText(segment.slice(0, match.index)),
+        classifyModuleBoundaryText(segment.slice(match.index + match[0].length)),
+      ),
+    );
+  }
+  return edges;
+}
+
+function parseNumberedListEdges(text: string): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  const numberedItems: ModuleBoundarySurface[][] = [];
+  for (const line of text.split(/\n+/u)) {
+    const itemMatch = line.match(/^\s*\d+[.)]\s+(.+)$/u);
+    if (!itemMatch?.[1]) continue;
+    const surfaces = classifyModuleBoundaryText(itemMatch[1]);
+    if (surfaces.length > 0) numberedItems.push(surfaces);
+  }
+  for (let index = 0; index < numberedItems.length - 1; index += 1) {
+    edges.push(...pairwiseEdges(numberedItems[index] ?? [], numberedItems[index + 1] ?? []));
+  }
+  const inlineMatches = [...text.matchAll(/\d+[.)]\s*([^.\d\n]+?)(?=\s*\d+[.)]|$)/gu)];
+  if (inlineMatches.length >= 2) {
+    edges.push(...sequentialEdges(inlineMatches.flatMap((match) => classifyModuleBoundaryText(match[1] ?? ""))));
+  }
+  return edges;
+}
+
+function parsePrerequisiteEdges(text: string): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  const requiresPattern = /\b(?:requires?|depends?\s+on)\b/i;
+  for (const line of text.split(/\n+/u)) {
+    const bullet = line.match(/^\s*-\s+(.+)$/u);
+    if (!bullet?.[1]) continue;
+    if (BEFORE_EDGE_PATTERN.test(bullet[1])) {
+      edges.push(...parseBeforeEdges(bullet[1]));
+      continue;
+    }
+    const match = requiresPattern.exec(bullet[1]);
+    if (!match) continue;
+    const dependents = classifyModuleBoundaryText(bullet[1].slice(0, match.index));
+    const prerequisites = classifyModuleBoundaryText(bullet[1].slice(match.index + match[0].length));
+    if (dependents.length === 0 || prerequisites.length === 0) continue;
+    edges.push(...pairwiseEdges(prerequisites, dependents));
+  }
+  return edges;
+}
+
+/** Topological sort of split boundaries; cycles and contradictory explicit edges hard-error. */
+export function orderModuleBoundariesForSplit(
+  draftBody: string,
+  boundaries: readonly ModuleBoundarySurface[],
+): ModuleBoundarySurface[] {
+  if (boundaries.length < 2) return [...boundaries];
+  const canonicalOrder = MODULE_BOUNDARY_SURFACES.filter((surface) => boundaries.includes(surface));
+  const primaryText = [sectionText(draftBody, "## Decisions"), sectionText(draftBody, "## Tasks")].join("\n");
+  const prerequisiteText = sectionText(draftBody, "## Prerequisites");
+  const primary = [...parseBeforeEdges(primaryText), ...parseNumberedListEdges(primaryText)];
+  const secondary = [
+    ...parseBeforeEdges(prerequisiteText),
+    ...parseNumberedListEdges(prerequisiteText),
+    ...parsePrerequisiteEdges(prerequisiteText),
+  ];
+  const boundarySet = new Set(boundaries);
+  const inScope = (edge: DependencyEdge) => boundarySet.has(edge[0]) && boundarySet.has(edge[1]) && edge[0] !== edge[1];
+  const scopedPrimary = primary.filter(inScope);
+  const scopedSecondary = secondary.filter(inScope);
+  let edges = scopedSecondary;
+  if (scopedPrimary.length > 0) {
+    edges = [...scopedPrimary];
+    const reversePrimary = new Set(scopedPrimary.map(([before, after]) => `${after}->${before}`));
+    for (const [before, after] of scopedSecondary) {
+      if (!reversePrimary.has(`${before}->${after}`)) edges.push([before, after]);
+    }
+  }
+  if (edges.length === 0) return canonicalOrder;
+
+  const byCanonicalOrder = (left: ModuleBoundarySurface, right: ModuleBoundarySurface) =>
+    MODULE_BOUNDARY_SURFACES.indexOf(left) - MODULE_BOUNDARY_SURFACES.indexOf(right);
+
+  const inDegree = new Map<ModuleBoundarySurface, number>(canonicalOrder.map((surface) => [surface, 0]));
+  const adjacency = new Map<ModuleBoundarySurface, Set<ModuleBoundarySurface>>(
+    canonicalOrder.map((surface) => [surface, new Set<ModuleBoundarySurface>()]),
+  );
+  for (const [before, after] of edges) {
+    const next = adjacency.get(before);
+    if (next?.has(after)) continue;
+    next?.add(after);
+    inDegree.set(after, (inDegree.get(after) ?? 0) + 1);
+  }
+
+  const ready = canonicalOrder.filter((surface) => (inDegree.get(surface) ?? 0) === 0).sort(byCanonicalOrder);
+  const ordered: ModuleBoundarySurface[] = [];
+  while (ready.length > 0) {
+    const next = ready.shift();
+    if (next === undefined) break;
+    ordered.push(next);
+    for (const after of adjacency.get(next) ?? []) {
+      const degree = (inDegree.get(after) ?? 0) - 1;
+      inDegree.set(after, degree);
+      if (degree === 0) {
+        ready.push(after);
+        ready.sort(byCanonicalOrder);
+      }
+    }
+  }
+  if (ordered.length !== canonicalOrder.length) {
+    throw new Error("Plan draft declares contradictory module-boundary dependency order");
+  }
+  return ordered;
+}
+
 type AcceptanceCriterionBlock = {
   lines: string[];
   text: string;
@@ -175,7 +324,10 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
   let emittedIndex = 0;
   const replacements = new Map<string, EmittedSubspec[]>();
   for (const draft of drafts) {
-    const boundaries = moduleBoundariesForAcceptanceCriteria(draft.criteria.map((criterion) => criterion.text));
+    const boundaries = orderModuleBoundariesForSplit(
+      draft.body,
+      moduleBoundariesForAcceptanceCriteria(draft.criteria.map((criterion) => criterion.text)),
+    );
     if (boundaries.length < 2) {
       const file = `${emittedIndex.toString().padStart(2, "0")}-${draft.file.slice(3)}`;
       replacements.set(draft.file, [{ body: draft.body, file }]);

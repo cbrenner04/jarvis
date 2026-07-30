@@ -62,20 +62,20 @@ stated implement-before edge.
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on fixture `k4`
+- [x] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on fixture `k4`
       and asserts emitted `NN-*.md` file order and parsed `index.md` checklist link order match
       `expectedChildren` array order in the manifest; it fails against the pre-change path that
       orders split children by `MODULE_BOUNDARY_SURFACES` array order when the draft declares the
       opposite.
-- [ ] Fixture `k4` asserts zero-surface acceptance criteria land on the dependency-first emitted
+- [x] Fixture `k4` asserts zero-surface acceptance criteria land on the dependency-first emitted
       sibling, not the canonical-first surface child.
-- [ ] Inverting the dependency-order enforcement guard inside `normalizePlanDraftSpecDir` turns the
+- [x] Inverting the dependency-order enforcement guard inside `normalizePlanDraftSpecDir` turns the
       fixture `k4` test RED.
-- [ ] k2 and k3 manifest fixture tests stay green (no-signal siblings remain in
+- [x] k2 and k3 manifest fixture tests stay green (no-signal siblings remain in
       `MODULE_BOUNDARY_SURFACES` order).
-- [ ] `v2/docs/workflow-runner.md` states that emitted split subspecs are listed in dependency
+- [x] `v2/docs/workflow-runner.md` states that emitted split subspecs are listed in dependency
       order for implement consumption and that `index.md` link order matches that sequence.
-- [ ] `v2/docs/v1-behaviors.md` draft-validation boundary-split bullet records that split siblings
+- [x] `v2/docs/v1-behaviors.md` draft-validation boundary-split bullet records that split siblings
       are emitted in draft-declared dependency order, not an order that inverts stated
       implement-before edges.
 

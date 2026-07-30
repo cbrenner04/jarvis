@@ -2695,7 +2695,7 @@ export function resolveReviewMutationResumeContext(
  */
 export function resolveWriteOutOfScopeResumeContext(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
-  store: StateStore,
+  _store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
   const snapshot = run.workflowSnapshot;

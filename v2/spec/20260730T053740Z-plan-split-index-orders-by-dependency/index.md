@@ -7,4 +7,4 @@ dependency-first sibling emission and first-child semantics for zero-surface acc
 the preservation tree extends verbatim non-AC distribution without reversing dependency-first
 first-child assignment.
 
-- [ ] [00 - Order split children by draft dependency](./00-order-split-children-by-draft-dependency.md)
+- [x] [00 - Order split children by draft dependency](./00-order-split-children-by-draft-dependency.md)

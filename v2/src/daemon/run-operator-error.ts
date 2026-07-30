@@ -1,6 +1,6 @@
 import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import { survivingMutationLogFields, readyGateOutOfScopeLogFields } from "../execution/ready-finalize.ts";
+import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
 import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 

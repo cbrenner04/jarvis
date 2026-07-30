@@ -13,12 +13,12 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
-import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
   runPublicationWithRetry,
 } from "./publication-retry.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import type { SmokePass, VerificationResult } from "./runtime-smoke-verifier.ts";
 
 export type ReadyFinalizeInput = {
@@ -213,10 +213,7 @@ function parseNulDelimitedPaths(output: string): string[] | undefined {
   if (!output.endsWith("\0")) {
     return undefined;
   }
-  return output
-    .slice(0, -1)
-    .split("\0")
-    .filter(Boolean);
+  return output.slice(0, -1).split("\0").filter(Boolean);
 }
 
 /** Parse NUL-delimited `git diff --name-status -z` output into changed paths. */
@@ -341,11 +338,7 @@ export async function deriveGateAllowedPaths(
     untrackedOutput =
       seams?.gitUntracked !== undefined
         ? await seams.gitUntracked(scope.worktreePath)
-        : await runner.runAsync(
-            "git",
-            ["ls-files", "--others", "--exclude-standard", "-z"],
-            scope.worktreePath,
-          );
+        : await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], scope.worktreePath);
   } catch {
     return undefined;
   }

@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
 import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import { ReadyGateError, formatReadyGateOutOfScopeDetail } from "../execution/ready-finalize.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -652,7 +652,9 @@ test("resume admits ready_gate_out_of_scope for finalization retry and refuses r
     expect(response.kind).toBe("response");
     expect(fakeExecutor.pendingCount()).toBe(0);
     expect(starts).toHaveLength(0);
-    const events = openLogReader(logsPath).tail(runId).map((record) => record.event);
+    const events = openLogReader(logsPath)
+      .tail(runId)
+      .map((record) => record.event);
     expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
   } finally {
     rmSync(logsPath, { force: true });
@@ -1428,7 +1430,9 @@ test("resumes an ordinary write row's ready_gate_out_of_scope: green retry compl
     expect(finalizerCalls).toBe(1);
     expect(stateStore.loadRun(runId)?.status).toBe("completed");
 
-    const events = openLogReader(logsPath).tail(runId).map((record) => record.event);
+    const events = openLogReader(logsPath)
+      .tail(runId)
+      .map((record) => record.event);
     expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
     expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
   } finally {
@@ -1469,7 +1473,9 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
     expect(starts).toHaveLength(0);
     expect(stateStore.loadRun(runId)?.status).toBe("failed");
 
-    const events = openLogReader(logsPath).tail(runId).map((record) => record.event);
+    const events = openLogReader(logsPath)
+      .tail(runId)
+      .map((record) => record.event);
     expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
     const settled = events.at(-1);
     expect(settled).toMatchObject({
@@ -1498,55 +1504,54 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
 test.each([
   "review",
   "review-debate",
-] as const)(
-  "resumes a %s row's ready_gate_out_of_scope: finalization completes without re-invoking the implement write step",
-  async (reviewBehavior) => {
-    const outsidePath = "v2/src/untouched.test.ts";
-    const { writeRunId, reviewRunId } = createReviewMutationRuns({
-      invocationId: `review-out-of-scope-${reviewBehavior}`,
-      branch: `review-out-of-scope/${reviewBehavior}`,
-      reviewBehavior,
-    });
-    stateStore.setRunStatus(reviewRunId, "failed");
-    const logsPath = seedOutOfScopeLogsPath(`review-out-of-scope-logs-${reviewBehavior}`, reviewRunId, outsidePath);
-    try {
-      let finalizerCalls = 0;
-      const localHandlers = createRunControlHandlers({
-        stateStore,
-        logReader: openLogReader(logsPath),
-        logsPath,
-        writeLoopExecutor: fakeExecutor.executor,
-        failureReporter: () => {},
-        hasMemoryHeadroom: () => true,
-        settleDelayMs: 0,
-        intentFinalizationResumeDeps: {
-          completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
-          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
-          readyFinalizer: async () => {
-            finalizerCalls += 1;
-            return undefined;
-          },
+] as const)("resumes a %s row's ready_gate_out_of_scope: finalization completes without re-invoking the implement write step", async (reviewBehavior) => {
+  const outsidePath = "v2/src/untouched.test.ts";
+  const { writeRunId, reviewRunId } = createReviewMutationRuns({
+    invocationId: `review-out-of-scope-${reviewBehavior}`,
+    branch: `review-out-of-scope/${reviewBehavior}`,
+    reviewBehavior,
+  });
+  stateStore.setRunStatus(reviewRunId, "failed");
+  const logsPath = seedOutOfScopeLogsPath(`review-out-of-scope-logs-${reviewBehavior}`, reviewRunId, outsidePath);
+  try {
+    let finalizerCalls = 0;
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
+        readyFinalizer: async () => {
+          finalizerCalls += 1;
+          return undefined;
         },
-      });
+      },
+    });
 
-      const response = await resumeDirect(localHandlers, reviewRunId);
-      expect(response.kind).toBe("response");
-      expect(fakeExecutor.pendingCount()).toBe(0);
-      expect(starts).toHaveLength(0);
-      expect(finalizerCalls).toBe(1);
-      expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
+    expect(finalizerCalls).toBe(1);
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
 
-      const writeRecords = openLogReader(logsPath).tail(writeRunId);
-      expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
+    const writeRecords = openLogReader(logsPath).tail(writeRunId);
+    expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
 
-      const reviewEvents = openLogReader(logsPath).tail(reviewRunId).map((record) => record.event);
-      expect(reviewEvents.some((event) => event.kind === "ready_gate_repair")).toBe(false);
-      expect(reviewEvents.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
-    } finally {
-      rmSync(logsPath, { force: true });
-    }
-  },
-);
+    const reviewEvents = openLogReader(logsPath)
+      .tail(reviewRunId)
+      .map((record) => record.event);
+    expect(reviewEvents.some((event) => event.kind === "ready_gate_repair")).toBe(false);
+    expect(reviewEvents.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
 
 test("repeated untouched red on a review row settles ready_gate_out_of_scope with preserved outside-path detail", async () => {
   const outsidePath = "v2/src/other-untouched.test.ts";
@@ -1584,7 +1589,9 @@ test("repeated untouched red on a review row settles ready_gate_out_of_scope wit
     expect(starts).toHaveLength(0);
     expect(stateStore.loadRun(reviewRunId)?.status).toBe("failed");
 
-    const events = openLogReader(logsPath).tail(reviewRunId).map((record) => record.event);
+    const events = openLogReader(logsPath)
+      .tail(reviewRunId)
+      .map((record) => record.event);
     expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
     expect(events.at(-1)).toMatchObject({
       kind: "loop_finished",

@@ -20,13 +20,13 @@ import type {
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
 } from "../daemon/daemon.ts";
-import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -43,7 +43,12 @@ import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
 import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
-import { ReadyFlipError, ReadyGateError, SurvivingMutationError, formatReadyGateOutOfScopeDetail } from "./ready-finalize.ts";
+import {
+  formatReadyGateOutOfScopeDetail,
+  ReadyFlipError,
+  ReadyGateError,
+  SurvivingMutationError,
+} from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";

@@ -14,8 +14,8 @@ import {
   deriveGateAllowedPaths,
   parseGitNameStatusZ,
   ReadyGateError,
-  selectTerminalFailingPaths,
   SurvivingMutationError,
+  selectTerminalFailingPaths,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
@@ -357,19 +357,13 @@ describe("ready gate untouched-path classification", () => {
     expect(parseGitNameStatusZ("M\0v2/src/changed.ts\0")).toEqual(["v2/src/changed.ts"]);
     expect(parseGitNameStatusZ("M\0broken")).toBeUndefined();
 
-    expect(
-      classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed),
-    ).toEqual({
+    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed)).toEqual({
       kind: "ready_gate_out_of_scope",
       outsidePaths: ["v2/src/untouched.test.ts"],
     });
-    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed).kind).not.toBe(
-      "ready_gate_failed",
-    );
+    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed).kind).not.toBe("ready_gate_failed");
     expect(classifyReadyGateFailure(error, undefined, allowed).kind).toBe("ready_gate_failed");
-    expect(
-      classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed).kind,
-    ).toBe("ready_gate_failed");
+    expect(classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed).kind).toBe("ready_gate_failed");
   });
 });
 

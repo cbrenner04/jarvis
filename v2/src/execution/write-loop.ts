@@ -31,8 +31,8 @@ import {
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
-  readyGateOutOfScopeLogFields,
   RuntimeSmokeFailedError,
+  readyGateOutOfScopeLogFields,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
@@ -1702,11 +1702,11 @@ function readyFailed(
       : kind === "ready_gate_failed"
         ? { readyGateError: error?.message ?? "ready gate failed" }
         : kind === "ready_flip_failed"
-        ? {
-            readyFlipError: error?.message ?? "ready flip failed",
-            ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
-          }
-        : {}),
+          ? {
+              readyFlipError: error?.message ?? "ready flip failed",
+              ...(result.prNumber !== undefined ? { readyFlipPrNumber: result.prNumber } : {}),
+            }
+          : {}),
     ...mutationFields,
     ...smokeDetails,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),

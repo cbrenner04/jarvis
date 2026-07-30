@@ -12,8 +12,8 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isPostBoundaryStateStoreLockTimeout,
-  resolveFailedBlockedAttemptPrecedence,
   RUN_OPERATOR_ERROR_RECOVERY,
+  resolveFailedBlockedAttemptPrecedence,
 } from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -285,11 +285,16 @@ test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths an
     readyGateOutsidePaths: [outsidePath],
     readyGateOutOfScopeDetail: detail,
   });
-  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), loopFinishedEvent("ready_gate_out_of_scope", {
-    resumable: true,
-    readyGateOutsidePaths: [outsidePath],
-    readyGateOutOfScopeDetail: detail,
-  }))).toEqual({
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("ready_gate_out_of_scope", {
+        resumable: true,
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: detail,
+      }),
+    ),
+  ).toEqual({
     reason: "ready_gate_out_of_scope",
     retryable: true,
     nextAction: "resume",

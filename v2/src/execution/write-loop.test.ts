@@ -1389,9 +1389,9 @@ describe("write loop", () => {
         expect(result.kind).toBe("ready_gate_out_of_scope");
         expect(invocations).toBe(1);
         expect(logSink.getEventsForRun(result.runId).some((event) => event.kind === "ready_gate_repair")).toBe(false);
-        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started")).toHaveLength(
-          1,
-        );
+        expect(
+          logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started"),
+        ).toHaveLength(1);
       });
     });
 

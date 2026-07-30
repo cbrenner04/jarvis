@@ -215,10 +215,7 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
   }
 }
 
-export function isAuthoredStageSatisfied(
-  stage: PipelineStage,
-  record: PipelineStageRecord | undefined,
-): boolean {
+export function isAuthoredStageSatisfied(stage: PipelineStage, record: PipelineStageRecord | undefined): boolean {
   if (record === undefined) return false;
   if (stage.kind === "workflow") return record.status === "succeeded";
   return record.status === "approved";

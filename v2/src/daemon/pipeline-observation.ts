@@ -17,10 +17,7 @@ export class PipelineWaitAbortedError extends Error {
   }
 }
 
-export type PipelineTerminalState = Extract<
-  PipelineDerivedState,
-  "succeeded" | "failed" | "rejected" | "interrupted"
->;
+export type PipelineTerminalState = Extract<PipelineDerivedState, "succeeded" | "failed" | "rejected" | "interrupted">;
 
 export type PipelineBoundaryResult =
   | { kind: "terminal"; state: PipelineTerminalState }

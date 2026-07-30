@@ -6,7 +6,12 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { openStateStore, type Pipeline, type PipelineStageRecord, type StateStore } from "../persistence/state-store.ts";
+import {
+  openStateStore,
+  type Pipeline,
+  type PipelineStageRecord,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createBindingFactory,
@@ -205,11 +210,7 @@ test("pipeline_list distinguishes all derived states and classifies only termina
       state: "rejected",
     },
     {
-      pipeline: pipelineWithStages(
-        WORKFLOW_ONLY,
-        { s1: { status: "interrupted" } },
-        { status: "active" },
-      ),
+      pipeline: pipelineWithStages(WORKFLOW_ONLY, { s1: { status: "interrupted" } }, { status: "active" }),
       state: "interrupted",
     },
     {
@@ -256,11 +257,7 @@ test("pipeline_list preserves authored stage order from durable position, not in
 
   const pipeline = stateStore.loadPipeline(pipelineId);
   if (!pipeline) throw new Error("expected pipeline");
-  expect(projectPipelineSnapshot(pipeline).stages.map((stage) => stage.stageId)).toEqual([
-    "implement",
-    "gate",
-    "plan",
-  ]);
+  expect(projectPipelineSnapshot(pipeline).stages.map((stage) => stage.stageId)).toEqual(["implement", "gate", "plan"]);
 });
 
 test("derivePipelineState walks durable position order, not definition array index", () => {
@@ -327,8 +324,9 @@ test("live pipeline_list completes within its bound while a pipeline remains non
   expect(Date.now() - startedAt).toBeLessThan(500);
   expect(listResponse.kind).toBe("response");
 
-  const snapshot = (listResponse as { result: { pipelines: Array<{ pipelineId: string; state: string }> } }).result
-    .pipelines.find((pipeline) => pipeline.pipelineId === pipelineId);
+  const snapshot = (
+    listResponse as { result: { pipelines: Array<{ pipelineId: string; state: string }> } }
+  ).result.pipelines.find((pipeline) => pipeline.pipelineId === pipelineId);
   expect(snapshot?.state).toBe("running");
 
   stage1.settle();
@@ -361,14 +359,19 @@ test("live snapshot non-follow guard: a running pipeline is not reported as succ
 });
 
 test("recovered interruption resumes normal derivation when pipeline row is active and no stage reads interrupted", () => {
-  expect(
-    derivePipelineState(pipelineWithStages(SINGLE_WORKFLOW("recovered"), { s1: { status: "succeeded" } })),
-  ).toBe("succeeded");
+  expect(derivePipelineState(pipelineWithStages(SINGLE_WORKFLOW("recovered"), { s1: { status: "succeeded" } }))).toBe(
+    "succeeded",
+  );
 });
 
 test("pipeline_wait returns terminal and awaiting-approval boundaries for durable row seeds", async () => {
   const h = handlers();
-  const terminalCases: Array<{ definition: PipelineDefinition; statuses: Record<string, Partial<PipelineStageRecord>>; state: PipelineDerivedState; overrides?: Partial<Pipeline> }> = [
+  const terminalCases: Array<{
+    definition: PipelineDefinition;
+    statuses: Record<string, Partial<PipelineStageRecord>>;
+    state: PipelineDerivedState;
+    overrides?: Partial<Pipeline>;
+  }> = [
     {
       definition: WORKFLOW_ONLY,
       statuses: { s1: { status: "succeeded" }, s2: { status: "succeeded" } },
@@ -470,7 +473,10 @@ test("live pipeline_wait remains pending through pending and running then resolv
     settled = true;
   });
 
-  await waitFor(() => derivePipelineState(stateStore.loadPipeline(pipelineId)!) === "pending");
+  await waitFor(() => {
+    const pipeline = stateStore.loadPipeline(pipelineId);
+    return pipeline !== null && derivePipelineState(pipeline) === "pending";
+  });
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(settled).toBe(false);
 
@@ -478,7 +484,9 @@ test("live pipeline_wait remains pending through pending and running then resolv
     () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s1")?.status === "running",
   );
   expect(settled).toBe(false);
-  expect(derivePipelineState(stateStore.loadPipeline(pipelineId)!)).toBe("running");
+  const runningPipeline = stateStore.loadPipeline(pipelineId);
+  if (!runningPipeline) throw new Error("expected pipeline");
+  expect(derivePipelineState(runningPipeline)).toBe("running");
 
   stage1.settle();
   const response = await pendingWait;
@@ -540,9 +548,7 @@ test("pipeline_wait propagates non-abort failures without masking as aborted", a
   });
 
   const h = handlers({ stateStore: vanishingStore });
-  await expect(pipelineWaitDirect(h, "w-vanish", pipelineId)).rejects.toThrow(
-    `Pipeline ${pipelineId} not found`,
-  );
+  await expect(pipelineWaitDirect(h, "w-vanish", pipelineId)).rejects.toThrow(`Pipeline ${pipelineId} not found`);
 });
 
 test("waitForPipelineBoundary propagates store errors other than abort", async () => {
@@ -557,9 +563,9 @@ test("waitForPipelineBoundary propagates store errors other than abort", async (
   } as unknown as StateStore;
   const observer = new PipelineWaitObserver();
 
-  await expect(
-    waitForPipelineBoundary(store, pipeline.id, new AbortController().signal, observer, 10),
-  ).rejects.toThrow(`Pipeline ${pipeline.id} not found`);
+  await expect(waitForPipelineBoundary(store, pipeline.id, new AbortController().signal, observer, 10)).rejects.toThrow(
+    `Pipeline ${pipeline.id} not found`,
+  );
 });
 
 test("awaiting-approval boundary names the first unsatisfied approval stage in position order", () => {

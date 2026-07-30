@@ -68,8 +68,8 @@ import {
   bindPipelineWaitObserver,
   PIPELINE_WAIT_ABORTED,
   PipelineWaitAbortedError,
-  projectPipelineSnapshot,
   PipelineWaitObserver,
+  projectPipelineSnapshot,
   waitForPipelineBoundary,
 } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";

@@ -2500,7 +2500,7 @@ describe("implement preflight stale workspace reset", () => {
   test("project pipeline selection gates implement before durable admission effects", async () => {
     const validEffects = emptyPipelineAdmissionEffects();
     const validCode = await runConnectedPipelineAdmission(
-      { demo: { root: resetProjectRoot, pipeline: { name: "fast" } } },
+      { demo: { root: resetProjectRoot, pipeline: { name: "fast", terminalAction: "leave-draft" } } },
       validEffects,
       "fast",
     );
@@ -2511,7 +2511,7 @@ describe("implement preflight stale workspace reset", () => {
       projects: {
         demo: {
           root: resetProjectRoot,
-          pipeline: { name: "fast", reviewOverrides: { implement: "none" } },
+          pipeline: { name: "fast", terminalAction: "leave-draft", reviewOverrides: { implement: "none" } },
         },
       },
     });
@@ -2554,18 +2554,18 @@ describe("implement preflight stale workspace reset", () => {
   test.each([
     [
       "parse",
-      { name: "missing", reviewOverrides: [] },
+      { name: "missing", terminalAction: "leave-draft", reviewOverrides: [] },
       "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides must be an object\n",
     ],
-    ["lookup", { name: "missing", reviewOverrides: { absent: "none" } }, "unknown-pipeline: missing\n"],
+    ["lookup", { name: "missing", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } }, "unknown-pipeline: missing\n"],
     [
       "override target",
-      { name: "fast", reviewOverrides: { absent: "none" } },
+      { name: "fast", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } },
       "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides.absent must name an existing workflow stage\n",
     ],
     [
       "validation",
-      { name: "fast", reviewOverrides: { implement: "none" } },
+      { name: "fast", terminalAction: "leave-draft", reviewOverrides: { implement: "none" } },
       'invalid-pipeline-definition: stage "implement": workflow "implement" has no realization for review posture "none"\n',
     ],
   ])("pipeline %s failure precedes daemon and implement effects", async (_phase, pipeline, stderr) => {

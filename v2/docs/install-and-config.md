@@ -96,20 +96,29 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
-Each registered project may select a source-owned pipeline (optional; absence means legacy implement with no `pipelineDefinition`):
+Each registered project may select a source-owned pipeline (optional; absence admits legacy
+implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
 
 | Key | Type | Validation |
 | --- | --- | --- |
-| `projects.<key>.pipeline` | object | Optional; when absent, implement admission skips pipeline resolution |
+| `projects.<key>.pipeline` | object | Optional; when present, `jarvis pipeline start` and implement admission share project-pipeline resolution |
 | `projects.<key>.pipeline.name` | non-empty string | Required when `pipeline` is present; must name a source-registry pipeline |
+| `projects.<key>.pipeline.terminalAction` | `"leave-draft"`, `"ready"`, or `"merge"` | Required when `pipeline` is present; names how the pipeline leaves the final PR |
 | `projects.<key>.pipeline.reviewOverrides` | object of stage ID → string | Optional; each key must name a workflow stage, not an approval stage |
 
-When the `pipeline` key is present, the object accepts only `name` and `reviewOverrides`. Missing or malformed
-pipeline fields, non-string override values, forbidden keys, unknown stage IDs, and
-approval-stage targets fail with `invalid-project-pipeline-config` naming the full
-offending config path. An unknown name fails with `unknown-pipeline`; a selected or
-overridden definition rejected by the definition validator fails with
-`invalid-pipeline-definition`. Selection is strict and has no default pipeline.
+When the `pipeline` key is present, `jarvis pipeline start` and implement admission both
+resolve it through the same project-pipeline boundary. The object accepts only `name`,
+`terminalAction`, and `reviewOverrides`. Missing or malformed pipeline fields, unknown `terminalAction` values,
+non-string override values, forbidden keys, unknown stage IDs, approval-stage override
+targets, and terminal actions on pipelines with no `implement` workflow stage fail with
+`invalid-project-pipeline-config` naming the full offending config path. An unknown name
+fails with `unknown-pipeline`; a selected or overridden definition rejected by the
+definition validator fails with `invalid-pipeline-definition`. Selection is strict and has
+no default pipeline.
+
+`terminalAction` is copied onto the admitted pipeline definition at resolution and is not
+stored on source-registry rows. Hand-edited configs must add `terminalAction` when
+`pipeline` is present; there is no migration machinery.
 
 `reviewOverrides` keys are pipeline `stageId` values, not workflow names. They change
 only the selected definition's copied workflow stage. They do not compose with or
@@ -126,6 +135,7 @@ Complete project example:
       "origin": "git@github.com:me/jarvis.git",
       "pipeline": {
         "name": "full-review",
+        "terminalAction": "ready",
         "reviewOverrides": {
           "plan": "light",
           "implement": "debate"

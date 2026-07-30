@@ -147,7 +147,7 @@ describe("pipeline start", () => {
   test("prints admitted pipeline ID on valid start", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-start", "pipe-wait"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
@@ -218,7 +218,7 @@ describe("pipeline start", () => {
 
   test("refuses an unregistered project before daemon connect", async () => {
     const cap = captureIo();
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await main(["pipeline", "start", "missing", "--seed-text", "Ship feature"], cap.io, {
       ...noDaemonDeps(pipelineDeps(configPath)),
@@ -230,7 +230,7 @@ describe("pipeline start", () => {
   });
 
   test("prints usage when seed flags are missing or combined", async () => {
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     const deps = noDaemonDeps(pipelineDeps(configPath));
 
     const missingCap = captureIo();
@@ -247,7 +247,7 @@ describe("pipeline start", () => {
   test("--detach exits 0 after admission without pipeline_wait", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-detach"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
@@ -265,7 +265,7 @@ describe("pipeline start", () => {
   test("attached start waits through awaiting-approval to terminal JSON and exit code", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-att", "pipe-w1", "pipe-w2"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
@@ -292,7 +292,7 @@ describe("pipeline start", () => {
   test("failed daemon admission exits non-zero with stderr detail and no pipeline ID on stdout", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-fail"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
@@ -330,7 +330,7 @@ describe("pipeline start", () => {
     setInvertDetachClientWaitGuardForTest(true);
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-det-guard", "pipe-det-w"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
@@ -353,7 +353,7 @@ describe("pipeline start", () => {
   test("operator abort during attached start reports stderr detail without boundary JSON", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-abort", "pipe-abort-w"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
@@ -375,7 +375,7 @@ describe("pipeline start", () => {
     const seedPath = join(seedDir, "seed.md");
     writeFileSync(seedPath, "From file", "utf8");
 
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     const code = await withFixedUuid([SESSION_UUID, "pipe-seed", "pipe-seed-w"], () =>
       main(["pipeline", "start", "demo", "--seed", "seed.md"], cap.io, {
         ...pipelineDeps(configPath),
@@ -398,7 +398,7 @@ describe("pipeline start", () => {
   ] as const)("rejects --seed %p before daemon connect", async (seedArg, stderrPrefix) => {
     const cap = captureIo();
     const seedDir = mkdtempSync(join(tmpdir(), "jarvis-pipeline-seed-"));
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     let contacted = false;
 
     const code = await main(["pipeline", "start", "demo", "--seed", seedArg], cap.io, {
@@ -422,7 +422,7 @@ describe("pipeline start", () => {
     const seedPath = join(seedDir, "locked.md");
     writeFileSync(seedPath, "locked", "utf8");
     chmodSync(seedPath, 0o000);
-    const configPath = pipelineMachineConfig("demo", { name: "fast" }, fx.repoRoot);
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     let contacted = false;
 
     try {

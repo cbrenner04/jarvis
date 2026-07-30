@@ -600,6 +600,39 @@ test("list retains frozen review snapshot when early-stop entry rollup survives 
   expect(row?.workflow?.steps.find((step) => step.stepId === "step-3")?.status).toBe("pending");
 });
 
+test("terminal review progress floors attemptCount at one while in_progress is stored unchanged", async () => {
+  const snapshot = workflowSnapshot("workflow-review-attempt-floor", [
+    { stepId: "step-1", role: "plan" },
+    { stepId: "review-1", role: "", behavior: "review", durable: false },
+  ]);
+  const runId = stateStore.createRun({
+    project: "wf-review-attempt-floor",
+    specRef: "main",
+    worktreePath: "/tmp/wf-review-attempt-floor",
+    branch: "wf-review-attempt-floor",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-attempt-floor", "review-1", {
+    status: "in_progress",
+    role: "critic",
+    attemptCount: 0,
+  });
+  let runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]?.attemptCount).toBe(0);
+
+  handlers.reportReviewDebateProgress("workflow-review-attempt-floor", "review-1", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+    attemptCount: 0,
+  });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]?.attemptCount).toBe(1);
+});
+
 test("list uses entry rollup not sibling status for completed-guard on step rows", async () => {
   const snapshot = workflowSnapshot("workflow-sibling-guard", [
     { stepId: "step-1", role: "implement" },

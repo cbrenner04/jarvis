@@ -51,9 +51,7 @@ export type PipelineExecutionDeps = {
   wait: PipelineWorkflowWait;
   context: PipelineContext;
   resolveStage?: typeof resolveStageWorkflowSteps;
-  executeTerminalPublication?: (
-    input: TerminalPublicationInput,
-  ) => Promise<TerminalPublicationResult>;
+  executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -345,9 +343,7 @@ export function setInvertPipelineTerminalPublicationFailureGuardForTest(value: b
 }
 
 /** True when the pipeline row carries a durable terminal-publication failure. */
-export function hasPipelineTerminalPublicationFailure(
-  pipeline: Pick<Pipeline, "terminalPublicationFailure">,
-): boolean {
+export function hasPipelineTerminalPublicationFailure(pipeline: Pick<Pipeline, "terminalPublicationFailure">): boolean {
   if (invertPipelineTerminalPublicationFailureGuardForTest) return false;
   return pipeline.terminalPublicationFailure !== null;
 }
@@ -479,7 +475,8 @@ async function settlePipelineTerminalPublication(
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline || !isPipelineSettlementPending(pipeline)) return;
 
-  const terminalAction = pipeline.definition.terminalAction!;
+  const terminalAction = pipeline.definition.terminalAction;
+  if (!terminalAction) return;
 
   if (pipeline.context === null) {
     commitTerminalPublicationFailureSafely(store, {

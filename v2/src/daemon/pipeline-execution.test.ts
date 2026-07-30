@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
@@ -24,6 +25,7 @@ import {
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
   isReopenedFailedContinuation,
+  type PipelineExecutionDeps,
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
@@ -35,11 +37,12 @@ import {
   resumeTerminalRefusalReason,
   runPipeline,
   setInvertPipelineTerminalPublicationFailureGuardForTest,
-  type PipelineExecutionDeps,
 } from "./pipeline-execution.ts";
-import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
-import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type {
+  PipelineStageArtifact,
+  PipelineWorkflowDispatch,
+  PipelineWorkflowWait,
+} from "./pipeline-stage-dispatch.ts";
 import type {
   PipelineContext,
   PipelineStageResolutionResult,
@@ -245,7 +248,11 @@ function fakeStore(
       prNumber?: number;
       prUrl?: string;
     }) => {
-      if (args.pipelineId !== PIPELINE_ID || terminalPublicationFailure !== null || terminalPublicationSucceededAt !== null) {
+      if (
+        args.pipelineId !== PIPELINE_ID ||
+        terminalPublicationFailure !== null ||
+        terminalPublicationSucceededAt !== null
+      ) {
         return;
       }
       terminalPublicationFailure = {
@@ -256,7 +263,11 @@ function fakeStore(
       };
     },
     commitTerminalPublicationSuccess: (args: { pipelineId: string }) => {
-      if (args.pipelineId !== PIPELINE_ID || terminalPublicationFailure !== null || terminalPublicationSucceededAt !== null) {
+      if (
+        args.pipelineId !== PIPELINE_ID ||
+        terminalPublicationFailure !== null ||
+        terminalPublicationSucceededAt !== null
+      ) {
         return;
       }
       terminalPublicationSucceededAt = Date.now();
@@ -2136,7 +2147,7 @@ function terminalImplementArtifact(entryRunId = "run-implement"): PipelineStageA
   return { entryRunId, specPath: "spec/implement.md", ...TERMINAL_PR };
 }
 
-function terminalImplementRun(entryRunId = "run-implement"): Partial<Run> {
+function terminalImplementRun(): Partial<Run> {
   return {
     specRef: "main",
     worktreePath: "/repo/worktree",
@@ -2177,10 +2188,7 @@ describe("pipeline terminal publication settlement", () => {
         return TERMINAL_PR;
       };
 
-      const runPromise = runPipeline(
-        PIPELINE_ID,
-        terminalRunDeps(store, executeTerminalPublication),
-      );
+      const runPromise = runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
 
       while (stages().find((s) => s.stageId === "implement")?.status !== "succeeded") {
         await Promise.resolve();
@@ -2361,7 +2369,10 @@ describe("pipeline terminal publication settlement", () => {
       },
     } as StateStore;
 
-    await runPipeline(PIPELINE_ID, terminalRunDeps(store, async () => TERMINAL_PR));
+    await runPipeline(
+      PIPELINE_ID,
+      terminalRunDeps(store, async () => TERMINAL_PR),
+    );
 
     const pipeline = store.loadPipeline(PIPELINE_ID);
     if (!pipeline) throw new Error("expected pipeline");

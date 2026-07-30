@@ -152,9 +152,7 @@ export async function resolveStageWorkflowSteps(
     return {
       ok: true,
       steps: result.steps.map((step) =>
-        step.behavior === "write" && step.publishCompletion !== false
-          ? { ...step, skipReadyFinalization: true }
-          : step,
+        step.behavior === "write" && step.publishCompletion !== false ? { ...step, skipReadyFinalization: true } : step,
       ),
     };
   }

@@ -6,8 +6,8 @@ import type { BuildImplementWorkflowStepsInput } from "../execution/implement-wo
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const okStep = { behavior: "write" } as never;
@@ -341,7 +341,13 @@ describe("resolveStageWorkflowSteps", () => {
     };
     const artifactSpecPaths = new Map([["plan", "spec/index.md"]]);
 
-    const leaveDraft = await resolveStageWorkflowSteps(leaveDraftDefinition, 1, baseContext, artifactSpecPaths, resolveDeps);
+    const leaveDraft = await resolveStageWorkflowSteps(
+      leaveDraftDefinition,
+      1,
+      baseContext,
+      artifactSpecPaths,
+      resolveDeps,
+    );
     expect(leaveDraft.ok).toBe(true);
     if (!leaveDraft.ok) return;
     const leaveDraftStep = leaveDraft.steps.find(

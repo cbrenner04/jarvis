@@ -67,7 +67,6 @@ last iteration's `completed_at`, not the reconciliation time.
       behavior unchanged by this slice).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
-
 ## Documentation updates
 
 - `v2/docs/state-store.md` — `reconciled_at` column, attempt-versus-run stamping precedence,

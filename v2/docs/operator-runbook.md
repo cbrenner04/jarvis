@@ -1116,6 +1116,30 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **`daemon status` reports on the *current* source digest, so a merge makes it read `stopped`
+  (2026-07-30):** the `jarvis` launcher keys its daemon by a digest of the source tree, so every
+  merge to `main` — including your own session's merges — rotates the key. `jarvis daemon status`
+  probes only the current digest and prints `stopped`, while the daemon that owns your in-flight
+  runs is alive and working on the previous key. This reads exactly like "the daemon died and my
+  runs are orphaned," and it is not. Observed this session after merging four PRs during three live
+  lanes; two of the three lanes completed normally under the superseded daemon.
+
+  Confirm before concluding anything:
+
+  ```sh
+  ls -lt ~/.jarvis/daemon-*.sock          # one socket per live keyed daemon
+  ps ax -o comm= | grep -cE 'cursor-agent|codex-aar|claude'   # agents actually writing
+  jarvis run list | awk -F'\t' '$5=="live"'                   # merges across keyed daemons
+  ```
+
+  `jarvis run list` already merges across live keyed daemons, so it stays truthful when
+  `daemon status` does not. Starting a daemon on the new digest is safe and supersedes the old one
+  (see [Overlapping daemons after rebuild](#observe)); it is not needed to rescue the old runs.
+
+  The real cost is confusion, so prefer batching merges at points when no lane is live — the
+  existing [Concurrency](#concurrency) guidance ("do not merge to `main` blindly during long
+  in-flight runs") is about this.
+
 - **A `completed` implement row can ship a mutation-verification artifact (2026-07-30):** PR #2314
   (`plan-split-preserves-draft-scope`) committed, pushed, flipped to ready, and reported
   `completed` while its commit carried `if (start !== -1) return null;` — the inverted form of

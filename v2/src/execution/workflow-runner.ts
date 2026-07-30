@@ -2786,11 +2786,9 @@ export function resolveExhaustedRedResumeContext(
   if (!hasRetainedFinalizationCheckpoint(run)) {
     return { ok: false, message: "retained finalization checkpoint is missing" };
   }
-  const snapshot = run.workflowSnapshot;
-  const stepId = run.stepId;
-  const step = stepId ? snapshot?.steps.find((candidate) => candidate.stepId === stepId) : undefined;
-  const checkpoint = run.retainedFinalizationCheckpoint;
-  const completionAgent = checkpoint?.completionAgent ?? reviewCompletionAgent(run) ?? step?.agents?.[0];
+  // `hasRetainedFinalizationCheckpoint` above proves the checkpoint exists, and its
+  // `completionAgent` is a required string — no sibling-step or attempt fallback is reachable.
+  const completionAgent = run.retainedFinalizationCheckpoint?.completionAgent;
   return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
     admit: isExhaustedRedTerminalEvidence,
     rejectMessage: "run did not fail with exhausted-red ready gate evidence",

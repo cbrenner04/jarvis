@@ -6,7 +6,9 @@ import {
   MODULE_BOUNDARY_SURFACES,
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
+  setInvertPartitionPreservationGuardForTest,
   spansMultipleModuleBoundaries,
+  splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
 
 const PHRASE_FIXTURES = [
@@ -15,13 +17,20 @@ const PHRASE_FIXTURES = [
   ["The CLI validates run flags before dispatch.", ["cli"]],
 ] as const;
 
+type ExpectedChild = {
+  file: string;
+  decisions: string[];
+  acceptanceCriteria: string[];
+  documentationUpdates: string[];
+};
+
 type FixtureManifest = {
   forbiddenProvenance: string[];
   fixtures: Array<{
     name: string;
     parentSlug: string;
     planningLabels: string[];
-    expectedChildren: Array<{ file: string; acceptanceCriteria: string[] }>;
+    expectedChildren: ExpectedChild[];
   }>;
 };
 
@@ -38,14 +47,39 @@ function stagedFixture(name: string): string {
   return dir;
 }
 
-function checkboxLines(body: string): string[] {
+const PRESERVED_SECTIONS = [
+  ["## Decisions", false, "decisions"],
+  ["## Acceptance criteria", true, "acceptanceCriteria"],
+  ["## Documentation updates", false, "documentationUpdates"],
+] as const;
+
+function sectionBulletLines(body: string, sectionHeading: string, checkbox: boolean): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const heading = lines.indexOf("## Acceptance criteria");
+  const heading = lines.indexOf(sectionHeading);
+  if (heading === -1) return [];
   const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
-  return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => /^\s*-\s\[[ xX]\]\s+/u.test(line));
+  const bulletRe = checkbox ? /^\s*-\s\[[ xX]\]\s+/u : /^\s*-\s+/u;
+  return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => bulletRe.test(line));
+}
+
+function survivingParentBullets(parentBody: string, sectionHeading: string, checkbox: boolean, parentSlug: string): string[] {
+  const residue = splitResiduePattern(parentSlug);
+  return sectionBulletLines(parentBody, sectionHeading, checkbox).filter((line) => !residue.test(line));
+}
+
+function assertFixturePreservation(dir: string, fixture: FixtureManifest["fixtures"][number], parentBody: string): void {
+  for (const [heading, checkbox, key] of PRESERVED_SECTIONS) {
+    for (const child of fixture.expectedChildren) {
+      expect(sectionBulletLines(readFileSync(join(dir, child.file), "utf8"), heading, checkbox)).toEqual(child[key]);
+    }
+    expect(fixture.expectedChildren.flatMap((child) => child[key])).toEqual(
+      survivingParentBullets(parentBody, heading, checkbox, fixture.parentSlug),
+    );
+  }
 }
 
 afterEach(() => {
+  setInvertPartitionPreservationGuardForTest(false);
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -99,6 +133,11 @@ describe("module boundary surfaces", () => {
   for (const fixture of MANIFEST.fixtures) {
     test(`normalizes the ${fixture.name} staged tree without provenance`, () => {
       const dir = stagedFixture(fixture.name);
+      const parentFile = readdirSync(dir)
+        .filter((file) => /^\d{2}-.*\.md$/u.test(file))
+        .sort()[0];
+      if (!parentFile) throw new Error(`${fixture.name} fixture is missing a parent subspec`);
+      const parentBody = readFileSync(join(dir, parentFile), "utf8");
 
       normalizePlanDraftSpecDir(dir);
 
@@ -106,9 +145,7 @@ describe("module boundary surfaces", () => {
         .filter((file) => /^\d{2}-.*\.md$/u.test(file))
         .sort();
       expect(emittedFiles).toEqual(fixture.expectedChildren.map((child) => child.file));
-      for (const child of fixture.expectedChildren) {
-        expect(checkboxLines(readFileSync(join(dir, child.file), "utf8"))).toEqual(child.acceptanceCriteria);
-      }
+      assertFixturePreservation(dir, fixture, parentBody);
       const durableText = [
         ...emittedFiles,
         ...emittedFiles.map((file) => readFileSync(join(dir, file), "utf8")),
@@ -141,7 +178,21 @@ describe("module boundary surfaces", () => {
     );
     writeFileSync(sourcePath, source);
 
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface acceptance criterion");
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface bullet");
     expect(readFileSync(sourcePath, "utf8")).toContain(multiSurface);
   });
+
+  test("inverting partition preservation guard fails k2 decisions, acceptance criteria, and documentation updates", () => {
+    const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k2");
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const parentFile = `00-${fixture.parentSlug}.md`;
+    const parentBody = readFileSync(join(dir, parentFile), "utf8");
+
+    setInvertPartitionPreservationGuardForTest(true);
+    normalizePlanDraftSpecDir(dir);
+
+    expect(() => assertFixturePreservation(dir, fixture, parentBody)).toThrow();
+  });
+
 });

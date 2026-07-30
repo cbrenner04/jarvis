@@ -2,6 +2,13 @@
 
 Expose published plan paths through the runtime.
 
+## Decisions
+
+- Keep published plan paths consistent across runtime surfaces.
+- SQLite storage owns the published plan path record.
+- Daemon RPC carries plan path requests.
+- The CLI surfaces the published plan path to callers.
+
 ## Acceptance criteria
 
 - [ ] SQLite storage retains the published plan path.
@@ -11,3 +18,6 @@ Expose published plan paths through the runtime.
 ## Documentation updates
 
 - None.
+- Document SQLite plan path storage.
+- Document daemon plan-path RPC handling.
+- Document CLI plan path output.

@@ -8,11 +8,21 @@
       "expectedChildren": [
         {
           "file": "00-persistence.md",
-          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."]
+          "decisions": [
+            "- Keep this unrelated draft scope for callers.",
+            "- Persist completed runs in the state-store."
+          ],
+          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."],
+          "documentationUpdates": [
+            "- None.",
+            "- Document state-store persistence in the operator runbook."
+          ]
         },
         {
           "file": "01-cli.md",
-          "acceptanceCriteria": ["- [ ] The CLI validates run flags before dispatch."]
+          "decisions": ["- Validate run flags in the CLI before dispatch."],
+          "acceptanceCriteria": ["- [ ] The CLI validates run flags before dispatch."],
+          "documentationUpdates": ["- Document CLI flag validation in install-and-config."]
         }
       ]
     },
@@ -23,15 +33,24 @@
       "expectedChildren": [
         {
           "file": "00-persistence.md",
-          "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."]
+          "decisions": [
+            "- Keep published plan paths consistent across runtime surfaces.",
+            "- SQLite storage owns the published plan path record."
+          ],
+          "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."],
+          "documentationUpdates": ["- None.", "- Document SQLite plan path storage."]
         },
         {
           "file": "01-daemon.md",
-          "acceptanceCriteria": ["- [ ] Daemon RPC rejects a malformed plan request."]
+          "decisions": ["- Daemon RPC carries plan path requests."],
+          "acceptanceCriteria": ["- [ ] Daemon RPC rejects a malformed plan request."],
+          "documentationUpdates": ["- Document daemon plan-path RPC handling."]
         },
         {
           "file": "02-cli.md",
-          "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."]
+          "decisions": ["- The CLI surfaces the published plan path to callers."],
+          "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."],
+          "documentationUpdates": ["- Document CLI plan path output."]
         }
       ]
     }

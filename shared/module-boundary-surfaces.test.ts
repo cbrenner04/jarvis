@@ -7,7 +7,9 @@ import {
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
   orderModuleBoundariesForSplit,
+  setInvertPartitionGuardForTest,
   spansMultipleModuleBoundaries,
+  splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
 
 const PHRASE_FIXTURES = [
@@ -16,18 +18,30 @@ const PHRASE_FIXTURES = [
   ["The CLI validates run flags before dispatch.", ["cli"]],
 ] as const;
 
+type FixtureChild = {
+  file: string;
+  decisions: string[];
+  acceptanceCriteria: string[];
+  documentationUpdates: string[];
+};
+
 type FixtureManifest = {
   forbiddenProvenance: string[];
   fixtures: Array<{
     name: string;
     parentSlug: string;
     planningLabels: string[];
-    expectedChildren: Array<{ file: string; acceptanceCriteria: string[] }>;
+    expectedChildren: FixtureChild[];
   }>;
 };
 
 const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "module-boundary-surfaces");
 const MANIFEST = JSON.parse(readFileSync(join(FIXTURE_ROOT, "manifest.json"), "utf8")) as FixtureManifest;
+const PRESERVED_SECTIONS = [
+  { key: "decisions", heading: "## Decisions", checkbox: false },
+  { key: "acceptanceCriteria", heading: "## Acceptance criteria", checkbox: true },
+  { key: "documentationUpdates", heading: "## Documentation updates", checkbox: false },
+] as const;
 const scratchRoot = resolve(".scratch");
 const tempDirs: string[] = [];
 
@@ -39,11 +53,19 @@ function stagedFixture(name: string): string {
   return dir;
 }
 
-function checkboxLines(body: string): string[] {
+function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const heading = lines.indexOf("## Acceptance criteria");
-  const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
-  return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => /^\s*-\s\[[ xX]\]\s+/u.test(line));
+  const start = lines.indexOf(heading);
+  if (start === -1) return [];
+  const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line ?? ""));
+  const section = lines.slice(start + 1, end === -1 ? undefined : end);
+  const pattern = checkbox ? /^\s*-\s\[[ xX]\]\s+/u : /^\s*-\s+(?!\[[ xX]\])/u;
+  return section.filter((line) => pattern.test(line));
+}
+
+function survivingParentBullets(body: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
+  const residue = splitResiduePattern(parentSlug);
+  return sectionBulletLines(body, heading, checkbox).filter((line) => !residue.test(line));
 }
 
 function indexChecklistFiles(indexBody: string): string[] {
@@ -56,7 +78,18 @@ function indexChecklistFiles(indexBody: string): string[] {
     });
 }
 
+function assertManifestUnion(
+  fixture: FixtureManifest["fixtures"][number],
+  section: (typeof PRESERVED_SECTIONS)[number],
+): void {
+  const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
+  const union = fixture.expectedChildren.flatMap((child) => child[section.key]);
+  const surviving = survivingParentBullets(parentBody, fixture.parentSlug, section.heading, section.checkbox);
+  expect([...union].sort()).toEqual([...surviving].sort());
+}
+
 afterEach(() => {
+  setInvertPartitionGuardForTest(false);
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -120,8 +153,12 @@ describe("module boundary surfaces", () => {
       expect(emittedFiles).toEqual(expectedFiles);
       expect(indexChecklistFiles(readFileSync(join(dir, "index.md"), "utf8"))).toEqual(expectedFiles);
       for (const child of fixture.expectedChildren) {
-        expect(checkboxLines(readFileSync(join(dir, child.file), "utf8"))).toEqual(child.acceptanceCriteria);
+        const body = readFileSync(join(dir, child.file), "utf8");
+        for (const section of PRESERVED_SECTIONS) {
+          expect(sectionBulletLines(body, section.heading, section.checkbox)).toEqual(child[section.key]);
+        }
       }
+      for (const section of PRESERVED_SECTIONS) assertManifestUnion(fixture, section);
       const durableText = [
         ...emittedFiles,
         ...emittedFiles.map((file) => readFileSync(join(dir, file), "utf8")),
@@ -140,6 +177,34 @@ describe("module boundary surfaces", () => {
       }
     });
   }
+
+  test("inverting partition guard fails k2 draft-scope preservation", () => {
+    const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k2");
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture("k2");
+    setInvertPartitionGuardForTest(true);
+
+    normalizePlanDraftSpecDir(dir);
+
+    const persistenceBody = readFileSync(join(dir, "00-persistence.md"), "utf8");
+    const cliBody = readFileSync(join(dir, "01-cli.md"), "utf8");
+    const persistenceChild = fixture.expectedChildren.find((child) => child.file === "00-persistence.md");
+    const cliChild = fixture.expectedChildren.find((child) => child.file === "01-cli.md");
+    if (!persistenceChild || !cliChild) throw new Error("k2 child expectations are missing");
+
+    for (const section of PRESERVED_SECTIONS) {
+      expect(sectionBulletLines(persistenceBody, section.heading, section.checkbox)).not.toEqual(
+        persistenceChild[section.key],
+      );
+    }
+    expect(sectionBulletLines(cliBody, "## Decisions", false)).toContain("- Validate CLI flags before dispatch.");
+    expect(sectionBulletLines(cliBody, "## Acceptance criteria", true)).toContain(
+      "- [ ] The CLI validates run flags before dispatch.",
+    );
+    expect(sectionBulletLines(cliBody, "## Documentation updates", false)).toContain(
+      "- Document CLI flag validation in install-and-config.",
+    );
+  });
 
   test("inverting draft dependency order guard fails k4", () => {
     const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k4");
@@ -206,7 +271,41 @@ describe("module boundary surfaces", () => {
     );
     writeFileSync(sourcePath, source);
 
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface acceptance criterion");
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
     expect(readFileSync(sourcePath, "utf8")).toContain(multiSurface);
+  });
+
+  test("hard-errors before dropping an out-of-union decision bullet", () => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    const outOfUnion = "- Stage the write-loop before splitting.";
+    const source = readFileSync(sourcePath, "utf8").replace(
+      "- Validate CLI flags before dispatch.",
+      `- Validate CLI flags before dispatch.\n${outOfUnion}`,
+    );
+    writeFileSync(sourcePath, source);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("out-of-union ## Decisions bullet");
+    expect(readFileSync(sourcePath, "utf8")).toContain(outOfUnion);
+    expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
+  });
+
+  test("hard-errors before dropping an out-of-union documentation bullet", () => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    const outOfUnion = "- Document execution-loop staging in the operator runbook.";
+    const source = readFileSync(sourcePath, "utf8").replace(
+      "- Document CLI flag validation in install-and-config.",
+      `- Document CLI flag validation in install-and-config.\n${outOfUnion}`,
+    );
+    writeFileSync(sourcePath, source);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("out-of-union ## Documentation updates bullet");
+    expect(readFileSync(sourcePath, "utf8")).toContain(outOfUnion);
+    expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
   });
 });

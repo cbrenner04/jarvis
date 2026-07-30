@@ -4,15 +4,9 @@ import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-de
 import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type { PipelineContext } from "../persistence/state-store.ts";
 
-/** Pipeline-level context admission (subspec 02) holds alongside the validated `PipelineDefinition`. */
-export interface PipelineContext {
-  cwd: string;
-  configPath?: string;
-  targetDir?: string;
-  projectRegistry?: Record<string, { root: string; origin?: string }>;
-  seed: string;
-}
+export type { PipelineContext };
 
 export type PipelineStageResolutionResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
 

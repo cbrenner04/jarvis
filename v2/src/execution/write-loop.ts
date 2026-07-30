@@ -116,9 +116,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   iterationCeilingMs?: number;
   /**
    * Bound on waiting for a raced-away invocation to quiesce after an abort/kill or watchdog loss,
-   * so an invocation that ignores its `AbortSignal` cannot hang the loop forever. Defaults to
-   * `DEFAULT_QUIESCENCE_TIMEOUT_MS`. On expiry the loop falls through to the un-checkpointed loss,
-   * same as an invocation that quiesced by throwing.
+   * so an ordinary invocation that ignores its `AbortSignal` cannot hang the loop forever.
+   * Finalization repairs ignore this bound and remain joined before terminal settlement.
    */
   quiescenceTimeoutMs?: number;
   /** Test seam: when false, stdout/stderr progress does not re-arm the wall segment. */
@@ -160,6 +159,14 @@ export type WriteLoopInput = WriteExecuteInput & {
    * test can leave a stale setting that alters another run's settlement.
    */
   invertAbortWatchdogPrecedenceForTest?: boolean;
+  /** Test seam: skip aborting the repair controller before join. */
+  invertRepairAbortPropagationForTest?: boolean;
+  /** Test seam: return from repair settlement without joining the invocation promise. */
+  invertRepairJoinForTest?: boolean;
+  /** Test seam: commit a terminal boundary before the repair invocation joins. */
+  invertRepairTerminalBeforeJoinForTest?: boolean;
+  /** When true, idle-output stall waits for the child process to close (finalization repair). */
+  joinProcessOnIdleStall?: boolean;
 };
 
 /**
@@ -178,7 +185,7 @@ export const MAX_MUTATION_REPAIR_ATTEMPTS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
-/** Bound on waiting for a raced-away invocation to quiesce after it loses an abort/watchdog race. */
+/** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
 /** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
@@ -275,6 +282,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             args.specPath,
             prepared.creationTitle,
           );
+          store.setRunStatus(prepared.result.runId, "in-progress");
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: args.worktree.baseRef,
@@ -284,7 +292,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             forceDistinctCommit: true,
           });
           if (published.commitSha !== undefined) {
-            store.setRunStatus(prepared.result.runId, "in-progress");
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
@@ -294,6 +301,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
             });
             if (publication.failure !== undefined) {
+              if (args.signal?.aborted) {
+                return finishLoop(args, prepared.result.runId, "progress", publication.iterationsConsumed, true);
+              }
               appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.failure.runtimeSmokeOutcome);
               const publishedResult = {
                 ...prepared.result,
@@ -327,6 +337,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
               );
             }
+            store.setRunStatus(prepared.result.runId, "completed");
           }
           args.logSink?.append(prepared.result.runId, {
             kind: "loop_finished",
@@ -337,9 +348,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ...(prepared.result.prUrl !== undefined ? { prUrl: prepared.result.prUrl } : {}),
           });
           if (published.commitSha === undefined) {
-            return prepared.result;
+            return { ...prepared.result, runStatus: "completed" };
           }
-          return withBoundaryTelemetry(args, prepared.result, published.commitSha, published.filesChanged);
+          return withBoundaryTelemetry(
+            args,
+            { ...prepared.result, runStatus: "completed" },
+            published.commitSha,
+            published.filesChanged,
+          );
         } catch (error) {
           return completionCommitFailed(
             args,
@@ -521,6 +537,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       const terminal = terminalMapping(result);
+      const completionAgent =
+        result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
+      const keepsCompletionInProgress =
+        terminal.kind === "complete" &&
+        args.publishCompletion !== false &&
+        (existsSync(join(worktreePath, ".git")) || completionAgent !== undefined);
+      const boundaryRunStatus = keepsCompletionInProgress ? ("in-progress" as const) : terminal.runStatus;
       const bindingAttempts = (invocation: InvocationExecution) =>
         invocation.attempts.map((attempt) => ({ bindingId: attempt.binding.id, resultKind: attempt.result.kind }));
       const detail =
@@ -540,11 +563,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 ...(result.model !== undefined ? { model: result.model } : {}),
               }
             : undefined;
-      const completionAgent =
-        result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       store.commitCompletionBoundary({
         attemptId,
-        runStatus: terminal.runStatus,
+        runStatus: boundaryRunStatus,
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
         ...(completionAgent ? { completionAgent } : {}),
@@ -553,7 +574,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         kind: "boundary_committed",
         attemptId,
         outcomeKind: terminal.outcomeKind,
-        runStatus: terminal.runStatus,
+        runStatus: boundaryRunStatus,
       });
       if (result.kind === "invalid_token") {
         args.logSink?.append(runId, {
@@ -589,7 +610,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runId,
         attemptId,
         outcomeKind: terminal.outcomeKind,
-        runStatus: terminal.runStatus,
+        runStatus: boundaryRunStatus,
       };
       const loopResult = finishLoop(
         args,
@@ -658,6 +679,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
           });
           if (publication.failure !== undefined) {
+            if (args.signal?.aborted) {
+              return finishLoop(args, runId, "progress", publication.iterationsConsumed, true);
+            }
             appendRuntimeSmokeOutcome(args.logSink, runId, publication.failure.runtimeSmokeOutcome);
             const publishedResult = {
               ...attributed,
@@ -691,6 +715,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
             );
           }
+          store.setRunStatus(runId, "completed");
         }
         args.logSink?.append(runId, {
           kind: "loop_finished",
@@ -701,9 +726,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           ...(attributed.prUrl !== undefined ? { prUrl: attributed.prUrl } : {}),
         });
         if (published.commitSha === undefined) {
-          return attributed;
+          return { ...attributed, runStatus: "completed" };
         }
-        return withBoundaryTelemetry(args, attributed, published.commitSha, published.filesChanged);
+        return withBoundaryTelemetry(
+          args,
+          { ...attributed, runStatus: "completed" },
+          published.commitSha,
+          published.filesChanged,
+        );
       } catch (error) {
         return completionCommitFailed(
           args,
@@ -744,10 +774,42 @@ type IterationSettlement =
   | { kind: "aborted"; quiesced: QuiescedExecutionOutcome };
 
 export type AbortWatchdogRole = "abort" | "watchdog";
+type IterationSettlementPolicy = "bounded" | "finalization-repair";
 
 /** Pure precedence predicate: which settlement kind a given race role produces. */
 export function resolveIterationSettlementKind(role: AbortWatchdogRole, invert: boolean): "aborted" | "timed_out" {
   return (role === "abort") !== invert ? "aborted" : "timed_out";
+}
+
+function isInterruptedRace(raced: RaceOutcome): raced is { kind: "aborted" | "timed_out" } {
+  return raced.kind === "aborted" || raced.kind === "timed_out";
+}
+
+async function settleFinalizationRepair(
+  args: WriteLoopInput,
+  raced: RaceOutcome,
+  execution: Promise<QuiescedExecutionOutcome>,
+  abortExecution: () => void,
+): Promise<IterationSettlement> {
+  if (!args.invertRepairAbortPropagationForTest) abortExecution();
+  if (args.invertRepairJoinForTest) {
+    return isInterruptedRace(raced)
+      ? { kind: raced.kind, quiesced: { kind: "threw", error: new Error("invert repair join") } }
+      : raced;
+  }
+  const quiesced = await execution;
+  return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
+}
+
+async function settleBoundedIteration(
+  raced: RaceOutcome,
+  execution: Promise<QuiescedExecutionOutcome>,
+  schedule: WallSegmentSchedule,
+  quiescenceTimeoutMs: number,
+): Promise<IterationSettlement> {
+  if (!isInterruptedRace(raced)) return raced;
+  const quiesced = await boundQuiescenceWait(execution, schedule, quiescenceTimeoutMs);
+  return { kind: raced.kind, quiesced };
 }
 
 /**
@@ -761,11 +823,16 @@ async function awaitIteration(
   runId: string,
   attemptId: string,
   sessionLog: SessionLog,
+  settlementPolicy: IterationSettlementPolicy = "bounded",
 ): Promise<IterationSettlement> {
+  const skipRepairAbortPropagation =
+    settlementPolicy === "finalization-repair" && args.invertRepairAbortPropagationForTest === true;
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
-  if (args.signal?.aborted) abortExecution();
-  args.signal?.addEventListener("abort", abortExecution, { once: true });
+  if (!skipRepairAbortPropagation) {
+    if (args.signal?.aborted) abortExecution();
+    args.signal?.addEventListener("abort", abortExecution, { once: true });
+  }
 
   const invertPrecedence = args.invertAbortWatchdogPrecedenceForTest ?? false;
   const schedule = args.schedule ?? defaultWallSegmentSchedule;
@@ -820,18 +887,15 @@ async function awaitIteration(
   watchdogSettled = true;
   wallSchedule?.cancel();
   if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
-  args.signal?.removeEventListener("abort", abortExecution);
+  if (!skipRepairAbortPropagation) {
+    args.signal?.removeEventListener("abort", abortExecution);
+  }
   removeAbort?.();
 
-  if (raced.kind === "aborted" || raced.kind === "timed_out") {
-    const quiesced = await boundQuiescenceWait(
-      execution,
-      schedule,
-      args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS,
-    );
-    return { kind: raced.kind, quiesced };
+  if (settlementPolicy === "finalization-repair") {
+    return settleFinalizationRepair(args, raced, execution, abortExecution);
   }
-  return raced;
+  return settleBoundedIteration(raced, execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS);
 }
 
 /**
@@ -1129,6 +1193,7 @@ function buildWriteExecuteInput(
     sessionLog,
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
   };
 }
 
@@ -1308,13 +1373,17 @@ async function runReadyRepairIteration(
   const repairArgs: WriteLoopInput = {
     ...args,
     promptId: "write.ready-repair",
+    joinProcessOnIdleStall: true,
     promptPlaceholders: {
       GATE_COMMAND: gateError.command,
       GATE_EXIT_CODE: String(gateError.exitCode ?? "unknown"),
       GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
     },
   };
-  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
+  if (args.invertRepairTerminalBeforeJoinForTest) {
+    store.setRunStatus(result.runId, "failed");
+  }
+  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");
   if (settled.kind !== "settled") {
     closeSessionLog(
       sessionLog,
@@ -1325,8 +1394,10 @@ async function runReadyRepairIteration(
   closeSessionLog(sessionLog, "completed");
 
   const stepResult = settled.result.result;
-  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
-  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  const boundary =
+    stepResult.kind === "blocked"
+      ? terminalMapping(stepResult)
+      : { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
   store.commitCompletionBoundary({
     attemptId,
     runStatus: boundary.runStatus,
@@ -1361,6 +1432,7 @@ export async function runMutationRepairIteration(
   const repairArgs: WriteLoopInput = {
     ...args,
     promptId: "write.mutation-repair",
+    joinProcessOnIdleStall: true,
     promptPlaceholders: {
       SURVIVING_MUTATION: mutationError.mutation,
       SOURCE_FILE: mutationError.sourceSiteFile,
@@ -1370,7 +1442,7 @@ export async function runMutationRepairIteration(
         : "",
     },
   };
-  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog);
+  const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");
   if (settled.kind !== "settled") {
     closeSessionLog(
       sessionLog,
@@ -1381,8 +1453,10 @@ export async function runMutationRepairIteration(
   closeSessionLog(sessionLog, "completed");
 
   const stepResult = settled.result.result;
-  const terminal = stepResult.kind === "progress" ? undefined : terminalMapping(stepResult);
-  const boundary = terminal ?? { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
+  const boundary =
+    stepResult.kind === "blocked"
+      ? terminalMapping(stepResult)
+      : { runStatus: "in-progress" as const, outcomeKind: "progress" as const };
   store.commitCompletionBoundary({
     attemptId,
     runStatus: boundary.runStatus,

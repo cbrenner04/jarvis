@@ -1022,6 +1022,16 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             );
             totalIterationsConsumed = publication.iterationsConsumed;
             if (publication.failure !== undefined) {
+              if (completionStep.signal?.aborted) {
+                return {
+                  kind: "progress",
+                  stepIndex: args.steps.length - 1,
+                  stepId: lastStepId,
+                  runId: lastResult.runId,
+                  iterationsConsumed: totalIterationsConsumed,
+                  resumable: true,
+                };
+              }
               appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.failure.runtimeSmokeOutcome);
               const publicationFailure = publicationFailureFor(publication.failure.error);
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
@@ -3177,6 +3187,7 @@ async function replayMutationFinalization(
   const { context } = resolved;
 
   const attemptId = store.recordAttemptStart(context.runId);
+  store.setRunStatus(context.runId, "in-progress");
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
 
   try {

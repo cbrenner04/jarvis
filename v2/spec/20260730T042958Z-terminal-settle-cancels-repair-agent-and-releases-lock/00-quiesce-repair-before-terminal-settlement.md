@@ -20,11 +20,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing matrix using real ready-gate/publication and mutation-repair settlement writers, across applicable fresh and resumed workflows, for `completed`, `failed`, and `killed` (including kill during repair). Each case states and asserts its expected terminal outcome and resumability, holds repair open, and proves the repair signal is aborted and both its process and invocation promise settle before the durable row becomes terminal.
-- [ ] The matrix proves that a repair which ignores cancellation leaves the row nonterminal and retains ownership after any bounded wait, until the repair process and invocation promise actually quiesce.
-- [ ] `v2/src/execution/write-loop.test.ts` ready-finalization outcome tests and `v2/src/execution/workflow-runner.test.ts` mutation-repair outcome tests stay green.
-- [ ] Inverting abort propagation, invocation joining, or terminal-status ordering turns its corresponding repair-settlement regression RED.
-- [ ] `v2/docs/write-behavior.md` records cancellation and join before covered terminal settlement, including the non-cooperative-repair behavior.
+- [x] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing matrix using real ready-gate/publication and mutation-repair settlement writers, across applicable fresh and resumed workflows, for `completed`, `failed`, and `killed` (including kill during repair). Each case states and asserts its expected terminal outcome and resumability, holds repair open, and proves the repair signal is aborted and both its process and invocation promise settle before the durable row becomes terminal.
+- [x] The matrix proves that a repair which ignores cancellation leaves the row nonterminal and retains ownership after any bounded wait, until the repair process and invocation promise actually quiesce.
+- [x] `v2/src/execution/write-loop.test.ts` ready-finalization outcome tests and `v2/src/execution/workflow-runner.test.ts` mutation-repair outcome tests stay green.
+- [x] Inverting abort propagation, invocation joining, or terminal-status ordering turns its corresponding repair-settlement regression RED.
+- [x] `v2/docs/write-behavior.md` records cancellation and join before covered terminal settlement, including the non-cooperative-repair behavior.
 
 ## Documentation updates
 

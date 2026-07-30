@@ -43,6 +43,7 @@ type StepRunInput = {
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -113,6 +114,7 @@ function sharedInvocationExtras(args: StepRunInput) {
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
     ...(args.onInvocationOutputProgress !== undefined ? { onOutputProgress: args.onInvocationOutputProgress } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
   };
 }
 

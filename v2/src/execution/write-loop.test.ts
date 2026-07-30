@@ -20,6 +20,7 @@ import {
   appendRuntimeSmokeOutcome,
   executeWriteLoop,
   resolveIterationSettlementKind,
+  runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -97,6 +98,46 @@ function createManualWallSchedule(): {
     },
     registrationCount: () => registrations.length,
     cancelledCount: () => registrations.filter((r) => r.cancelled).length,
+  };
+}
+
+function createHeldInvocation() {
+  let signal: AbortSignal | undefined;
+  let resolveStarted: (() => void) | undefined;
+  let releaseProcess: (() => void) | undefined;
+  let processSettled = false;
+  let invocationSettled = false;
+  const started = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+  const process = new Promise<void>((resolve) => {
+    releaseProcess = resolve;
+  });
+
+  return {
+    started,
+    invoke(invocationSignal: AbortSignal | undefined) {
+      signal = invocationSignal;
+      resolveStarted?.();
+      return process
+        .then(() => {
+          processSettled = true;
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        })
+        .finally(() => {
+          invocationSettled = true;
+        });
+    },
+    release: () => releaseProcess?.(),
+    get signal() {
+      return signal;
+    },
+    get processSettled() {
+      return processSettled;
+    },
+    get invocationSettled() {
+      return invocationSettled;
+    },
   };
 }
 
@@ -1042,6 +1083,310 @@ describe("write loop", () => {
       completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
       completionPublisher: async () => ({}),
     };
+
+    test.each([
+      { terminal: "completed", expectedKind: "complete", expectedResumable: false },
+      { terminal: "failed", expectedKind: "ready_gate_failed", expectedResumable: true },
+      { terminal: "killed", expectedKind: "progress", expectedResumable: true },
+    ] as const)("joins a held ready repair before $terminal becomes durable", async ({
+      terminal,
+      expectedKind,
+      expectedResumable,
+    }) => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+      let runId: string | undefined;
+      let calls = 0;
+      const repair = createHeldInvocation();
+      let gateCalls = 0;
+
+      const bindings: InvocationBinding[] = [
+        {
+          id: "held-repair",
+          metadata: { agent: "codex", model: "test" },
+          invoke: ({ cwd, signal }) => {
+            calls += 1;
+            if (calls === 1) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" });
+            }
+            return repair.invoke(signal);
+          },
+        },
+      ];
+
+      try {
+        const resultPromise = executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: `repair-settlement-${terminal}`,
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings,
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          signal: controller.signal,
+          maxIterations: 2,
+          quiescenceTimeoutMs: 1,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (terminal !== "completed" || gateCalls === 1) {
+              throw new ReadyGateError("bun run ready", 1, "red");
+            }
+          },
+          onRunCreated: (id) => {
+            runId = id;
+          },
+        });
+
+        await repair.started;
+        expect(runId).toBeDefined();
+        expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+
+        if (terminal === "killed") {
+          controller.abort();
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          expect(repair.signal?.aborted).toBe(true);
+          expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+        }
+
+        repair.release();
+        const result = await resultPromise;
+        if (terminal === "killed") {
+          expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+          store.commitGuardedKill(runId as string);
+        }
+
+        expect(result).toMatchObject({ kind: expectedKind, resumable: expectedResumable });
+        expect(store.loadRun(runId as string)?.status).toBe(terminal);
+        expect(repair.signal?.aborted).toBe(true);
+        expect(repair.processSettled).toBe(true);
+        expect(repair.invocationSettled).toBe(true);
+      } finally {
+        repair.release();
+        store.close();
+      }
+    });
+
+    test.each([
+      { label: "abort propagation", invert: { invertRepairAbortPropagationForTest: true } },
+      { label: "invocation join", invert: { invertRepairJoinForTest: true } },
+      { label: "terminal ordering", invert: { invertRepairTerminalBeforeJoinForTest: true } },
+    ])("inverting repair $label breaks held-repair settlement for killed", async ({ invert }) => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+      let runId: string | undefined;
+      let calls = 0;
+      const repair = createHeldInvocation();
+
+      try {
+        void executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: "repair-settlement-invert-killed",
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings: [
+            {
+              id: "held-repair",
+              metadata: { agent: "codex", model: "test" },
+              invoke: ({ cwd, signal }) => {
+                calls += 1;
+                if (calls === 1) {
+                  writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                  return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" });
+                }
+                return repair.invoke(signal);
+              },
+            },
+          ],
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          signal: controller.signal,
+          maxIterations: 2,
+          quiescenceTimeoutMs: 1,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, "red");
+          },
+          onRunCreated: (id) => {
+            runId = id;
+          },
+          ...invert,
+        });
+
+        await repair.started;
+        if (invert.invertRepairTerminalBeforeJoinForTest) {
+          expect(store.loadRun(runId as string)?.status).toBe("failed");
+        } else {
+          controller.abort();
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          if (invert.invertRepairAbortPropagationForTest) {
+            expect(repair.signal?.aborted).toBe(false);
+          } else {
+            expect(repair.invocationSettled).toBe(false);
+            expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+          }
+        }
+      } finally {
+        repair.release();
+        controller.abort();
+        store.close();
+      }
+    });
+
+    test("mutation repair ignores bounded quiescence and joins a non-cooperative invocation", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "mutation-repair-join";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      writeFileSync(join(worktreePath, "spec.md"), "# Spec\n", "utf8");
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      const repair = createHeldInvocation();
+      const binding: InvocationBinding = {
+        id: "held-mutation-repair",
+        metadata: { agent: "codex", model: "test" },
+        invoke: ({ signal }) => repair.invoke(signal),
+      };
+
+      try {
+        const outcomePromise = runMutationRepairIteration(
+          {
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            specPath: "spec.md",
+            expectedArtifactPath: "spec.md",
+            stepRules: "repair",
+            bindings: [binding],
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir: join(jarvisRoot, "sessions"),
+            iterationTimeoutMs: 1,
+            quiescenceTimeoutMs: 1,
+          },
+          store,
+          { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+          new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17),
+          1,
+        );
+
+        await repair.started;
+        await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        expect(repair.signal?.aborted).toBe(true);
+        expect(store.loadRun(runId)?.status).toBe("in-progress");
+        expect(repair.processSettled).toBe(false);
+        expect(repair.invocationSettled).toBe(false);
+
+        repair.release();
+        expect(await outcomePromise).toBe("unsettled");
+        expect(repair.processSettled).toBe(true);
+        expect(repair.invocationSettled).toBe(true);
+        expect(store.loadRun(runId)?.status).toBe("in-progress");
+      } finally {
+        repair.release();
+        store.close();
+      }
+    });
+
+    test("resumed publication joins its repair before restoring failed", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const branchName = "resumed-repair-settlement";
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(join(worktreePath, ".git"), { recursive: true });
+      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch: branchName,
+        specPath: "spec.md",
+      });
+      const attemptId = store.recordAttemptStart(runId);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      const repair = createHeldInvocation();
+
+      try {
+        const resultPromise = executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName,
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "repair",
+          expectedArtifactPath: "proof.txt",
+          bindings: [
+            {
+              id: "held-resume-repair",
+              metadata: { agent: "codex", model: "test" },
+              invoke: ({ signal }) => repair.invoke(signal),
+            },
+          ],
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          maxIterations: 1,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, "red");
+          },
+        });
+
+        await repair.started;
+        expect(store.loadRun(runId)?.status).toBe("in-progress");
+        repair.release();
+        expect(await resultPromise).toMatchObject({ kind: "ready_gate_failed", resumable: true });
+        expect(store.loadRun(runId)?.status).toBe("failed");
+        expect(repair.signal?.aborted).toBe(true);
+        expect(repair.processSettled).toBe(true);
+        expect(repair.invocationSettled).toBe(true);
+      } finally {
+        repair.release();
+        store.close();
+      }
+    });
 
     test("runs ready finalization only after publication succeeds", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();

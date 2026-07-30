@@ -110,6 +110,7 @@ type ActiveRun =
       kind: "workflow";
       runId: string;
       abortController: AbortController;
+      pendingKill?: true;
     }
   | {
       kind: "finalization";
@@ -359,6 +360,33 @@ export function setWriteLoopBindingSourceDepsForTests(deps: WriteLoopBindingSour
 
 export function resetWriteLoopBindingSourceDepsForTests(): void {
   writeLoopBindingSourceDeps = {};
+}
+
+let invertWorkflowKillBeforeRepairQuiescenceForTest = false;
+let invertWorkflowRegistryReleaseBeforeKillForTest = false;
+
+export function setInvertWorkflowKillBeforeRepairQuiescenceForTest(value: boolean): void {
+  invertWorkflowKillBeforeRepairQuiescenceForTest = value;
+}
+
+export function setInvertWorkflowRegistryReleaseBeforeKillForTest(value: boolean): void {
+  invertWorkflowRegistryReleaseBeforeKillForTest = value;
+}
+
+/** Release workflow registry claim and persist deferred kills in settlement order. */
+export function settleKilledWorkflowOwnership(args: {
+  killedRunIds: readonly string[];
+  releaseRegistry: () => void;
+  commitGuardedKill: (runId: string) => void;
+  invertRegistryReleaseBeforeKill?: boolean;
+}): void {
+  if (args.invertRegistryReleaseBeforeKill) {
+    args.releaseRegistry();
+    for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+    return;
+  }
+  for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+  args.releaseRegistry();
 }
 
 export function runWithWriteLoopMachineConfigPath<T>(machineConfigPath: string | undefined, fn: () => T): T {
@@ -1053,12 +1081,21 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         })
         .finally(() => {
           logSink?.close();
+          const killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
+            const activeRun = activeRuns.get(runId);
+            return activeRun?.kind === "workflow" && activeRun.pendingKill;
+          });
           for (const runId of workflowRunIds) activeRuns.delete(runId);
           activeRuns.delete(claimRunId);
+          settleKilledWorkflowOwnership({
+            killedRunIds: killedWorkflowRuns,
+            releaseRegistry: () => _registry.release(workflowKey, claimRunId),
+            commitGuardedKill: (runId) => store.commitGuardedKill(runId),
+            invertRegistryReleaseBeforeKill: invertWorkflowRegistryReleaseBeforeKillForTest,
+          });
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
           }
-          _registry.release(workflowKey, claimRunId);
           trackPromiseResolve?.();
         });
     });
@@ -1367,6 +1404,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
     if (activeRunAcceptsKill(activeRun, runId)) {
       activeRun.abortController.abort();
+      if (activeRun.kind === "workflow") {
+        activeRun.pendingKill = true;
+        if (invertWorkflowKillBeforeRepairQuiescenceForTest) {
+          store.commitGuardedKill(runId);
+        }
+        return { kind: "response", result: { ok: true } };
+      }
       store.commitGuardedKill(runId);
       return { kind: "response", result: { ok: true } };
     }

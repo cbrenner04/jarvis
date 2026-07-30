@@ -47,6 +47,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
     cwd: string;
     signal?: AbortSignal;
     idleOutputMs?: number;
+    joinProcessOnIdleStall?: boolean;
     onOutputProgress?: () => void;
   }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
@@ -123,6 +124,72 @@ export type InvocationTelemetryContext = {
   invocationIds: readonly string[];
 };
 
+function appendSessionLog(
+  sessionLog: SessionLog | undefined,
+  tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
+  text: string,
+): void {
+  try {
+    sessionLog?.append(tag, text);
+  } catch {
+    // A session log is observability only; it must never fail the invocation.
+  }
+}
+
+function logBindingStart<T extends InvocationResult>(
+  sessionLog: SessionLog | undefined,
+  binding: InvocationBinding<T>,
+  prompt: string,
+): void {
+  const metadataForLog = binding.metadata;
+  appendSessionLog(
+    sessionLog,
+    "harness",
+    `binding=${binding.id} agent=${metadataForLog?.agent ?? "unknown"} model=${metadataForLog?.model ?? "unknown"}`,
+  );
+  appendSessionLog(sessionLog, "outbound", prompt);
+}
+
+function logBindingInbound<T extends InvocationResult>(sessionLog: SessionLog | undefined, result: T): void {
+  if (result.kind === "ok") {
+    appendSessionLog(sessionLog, "inbound_stdout", result.stdout);
+    appendSessionLog(sessionLog, "inbound_stderr", result.stderr);
+  } else {
+    appendSessionLog(sessionLog, "inbound_stderr", result.stderr);
+  }
+}
+
+async function appendInvocationTelemetry<T extends InvocationResult>(
+  telemetry: InvocationTelemetryContext,
+  binding: InvocationBinding<T>,
+  bindingIndex: number,
+  invocationId: string,
+  result: T,
+  startedAt: number,
+  telemetryFailures: InvocationTelemetryFailure[],
+): Promise<void> {
+  const metadata = binding.metadata;
+  if (metadata === undefined) return;
+  const record = createInvocationCompletedRecord({
+    telemetry,
+    invocationId,
+    metadata,
+    bindingId: binding.id,
+    bindingIndex,
+    result,
+    durationMs: Date.now() - startedAt,
+  });
+  try {
+    await telemetry.sink.append(record);
+  } catch (error) {
+    telemetryFailures.push({
+      invocationId,
+      bindingId: binding.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
  * returns true (default: `result.kind === "quota"`).
@@ -136,78 +203,47 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   bindings: readonly InvocationBinding<T>[];
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
 }): Promise<InvocationExecution<T>> {
   const attempts: InvocationAttempt<T>[] = [];
   const telemetryFailures: InvocationTelemetryFailure[] = [];
-  const logAppend = (tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr", text: string): void => {
-    try {
-      args.sessionLog?.append(tag, text);
-    } catch {
-      // A session log is observability only; it must never fail the invocation.
-    }
-  };
 
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
-    const metadataForLog = binding.metadata;
-    logAppend(
-      "harness",
-      `binding=${binding.id} agent=${metadataForLog?.agent ?? "unknown"} model=${metadataForLog?.model ?? "unknown"}`,
-    );
-    logAppend("outbound", args.prompt);
+    logBindingStart(args.sessionLog, binding, args.prompt);
     const result = await binding.invoke({
       prompt: args.prompt,
       cwd: args.cwd,
       ...(args.signal !== undefined ? { signal: args.signal } : {}),
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
       ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     });
-    if (result.kind === "ok") {
-      logAppend("inbound_stdout", result.stdout);
-      logAppend("inbound_stderr", result.stderr);
-    } else {
-      logAppend("inbound_stderr", result.stderr);
-    }
+    logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };
     attempts.push(attempt);
-    const metadata = binding.metadata;
-    if (args.telemetry !== undefined && invocationId !== undefined && metadata !== undefined) {
-      const record = createInvocationCompletedRecord({
-        telemetry: args.telemetry,
-        invocationId,
-        metadata,
-        bindingId: binding.id,
+    if (args.telemetry !== undefined && invocationId !== undefined) {
+      await appendInvocationTelemetry(
+        args.telemetry,
+        binding,
         bindingIndex,
+        invocationId,
         result,
-        durationMs: Date.now() - startedAt,
-      });
-      try {
-        await args.telemetry.sink.append(record);
-      } catch (error) {
-        telemetryFailures.push({
-          invocationId,
-          bindingId: binding.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+        startedAt,
+        telemetryFailures,
+      );
     }
     const shouldAdvance = binding.shouldAdvance ? binding.shouldAdvance(result) : result.kind === "quota";
-    if (shouldAdvance) {
-      continue;
-    }
+    if (shouldAdvance) continue;
     return { attempts, final: attempt, telemetryFailures };
   }
 
   const final = attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
-  return {
-    attempts,
-    final,
-    telemetryFailures,
-  };
+  return { attempts, final, telemetryFailures };
 }
 
 function createInvocationCompletedRecord<T extends InvocationResult>(args: {

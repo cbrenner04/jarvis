@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { buildImplementWorkflowSteps } from "../execution/implement-workflow-steps.ts";
@@ -76,11 +76,13 @@ function productionResolveStage(
   definition: PipelineDefinition,
   stageIndex: number,
   context: Parameters<typeof resolveStageWorkflowSteps>[2],
-  artifactSpecPaths: Parameters<typeof resolveStageWorkflowSteps>[3],
+  stageArtifacts: Parameters<typeof resolveStageWorkflowSteps>[3],
+  deps: Parameters<typeof resolveStageWorkflowSteps>[4] = {},
 ) {
-  return resolveStageWorkflowSteps(definition, stageIndex, context, artifactSpecPaths, {
+  return resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
     resolveBaseRef: async () => "HEAD",
     builders: makeResolveStageBuilders(),
+    ...deps,
   });
 }
 
@@ -210,6 +212,13 @@ function createFakePipelineInvocation(
     return PLAN_SPEC;
   };
 
+  const seedWorktreeArtifact = (worktreePath: string, specPath: string): void => {
+    const sourcePath = join(repoRoot, specPath);
+    const targetPath = join(worktreePath, specPath);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, readFileSync(sourcePath, "utf8"), "utf8");
+  };
+
   const dispatch: PipelineWorkflowDispatch = async () => {
     const stageId = dispatchSequence[dispatchIndex];
     if (stageId === undefined) throw new Error("unexpected pipeline dispatch");
@@ -217,12 +226,14 @@ function createFakePipelineInvocation(
     dispatchCounts[stageId] = (dispatchCounts[stageId] ?? 0) + 1;
     const branch = branchForStage(stageId);
     const worktreePath = join(repoRoot, ".jarvis-worktrees", branch);
+    const specPath = specForStage(stageId);
+    seedWorktreeArtifact(worktreePath, specPath);
     const runId = store.createRun({
       project: PROJECT_KEY,
       specRef: "main",
       worktreePath,
       branch,
-      specPath: specForStage(stageId),
+      specPath,
       ...(stageId === "implement" ? TERMINAL_PR : {}),
     });
     if (stageId === "plan" && dispatchCounts.plan === 1) {

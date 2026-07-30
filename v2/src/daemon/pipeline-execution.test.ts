@@ -281,7 +281,7 @@ function resolveStageStub(): (
   definition: PipelineDefinition,
   stageIndex: number,
   context: PipelineContext,
-  artifactSpecPaths: ReadonlyMap<string, string>,
+  stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
   deps?: PipelineStageResolveDeps,
 ) => Promise<PipelineStageResolutionResult> {
   return async (_definition, stageIndex) => ({ ok: true, steps: [taggedStep(stageIndex)] });

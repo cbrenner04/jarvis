@@ -557,6 +557,12 @@ settlement finishes; then `derivePipelineState` is `succeeded` and
 `terminalPublicationSucceededAt` is set. Pair `pipeline wait` or `pipeline list`
 with attached `pipeline start` to observe the terminal boundary.
 
+**Inter-stage handoff:** workflow stages hand off through durable stage
+artifacts recorded on each stage's entry-run worktree. Merging intent or plan
+PRs to `main` between stages is not required for the next stage to resolve its
+inputs. Approval gates are continue/stop checkpoints only — they do not merge
+or rewrite artifact paths between stages.
+
 ## Related docs
 
 New plan and implement PRs use the spec's first non-empty `index.md` H1. A

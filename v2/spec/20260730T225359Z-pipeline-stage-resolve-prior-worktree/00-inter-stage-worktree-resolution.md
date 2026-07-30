@@ -39,13 +39,13 @@ Primary: `v2/src/daemon/pipeline-stage-resolve.ts`. In-scope support: `pipeline-
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` — with a recorded intent-stage `PipelineStageArtifact` and ready-intent file only on the intent entry-run worktree (absent from `context.cwd`), resolving the plan stage succeeds; captured plan preset input has `cwd` equal to the intent entry-run `worktreePath` and `readyIntent` equal to the artifact worktree-relative `specPath`; `setInvertPriorWorktreeRootGuardForTest(true)` makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — with a recorded plan-stage artifact and plan spec tree only on the plan entry-run worktree (absent from `context.cwd`), resolving the implement stage succeeds; captured implement preset input has `cwd` equal to the plan entry-run `worktreePath`, `specPath` equal to the artifact worktree-relative path, and `resolveBaseRef` invoked with the plan entry-run `worktreePath`; `setInvertPriorWorktreeRootGuardForTest(true)` makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — missing prior artifact, `entryRunId`, entry run, or `worktreePath` returns `{ ok: false, error }` without falling back to `context.cwd`.
-- [ ] `pipeline-stage-resolve.test.ts` — `"approval stages are skipped when walking back to find the preceding workflow artifact"` stays green.
-- [ ] `pipeline-stage-resolve.test.ts` — `"first workflow stage builds with PipelineContext.seed as the seed input"` stays green.
-- [ ] `pipeline-stage-resolve.test.ts` — `"leave-draft pipeline implement completion skips ready finalization"` stays green.
-- [ ] `bun run typecheck` exits zero.
+- [x] `pipeline-stage-resolve.test.ts` — with a recorded intent-stage `PipelineStageArtifact` and ready-intent file only on the intent entry-run worktree (absent from `context.cwd`), resolving the plan stage succeeds; captured plan preset input has `cwd` equal to the intent entry-run `worktreePath` and `readyIntent` equal to the artifact worktree-relative `specPath`; `setInvertPriorWorktreeRootGuardForTest(true)` makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — with a recorded plan-stage artifact and plan spec tree only on the plan entry-run worktree (absent from `context.cwd`), resolving the implement stage succeeds; captured implement preset input has `cwd` equal to the plan entry-run `worktreePath`, `specPath` equal to the artifact worktree-relative path, and `resolveBaseRef` invoked with the plan entry-run `worktreePath`; `setInvertPriorWorktreeRootGuardForTest(true)` makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — missing prior artifact, `entryRunId`, entry run, or `worktreePath` returns `{ ok: false, error }` without falling back to `context.cwd`.
+- [x] `pipeline-stage-resolve.test.ts` — `"approval stages are skipped when walking back to find the preceding workflow artifact"` stays green.
+- [x] `pipeline-stage-resolve.test.ts` — `"first workflow stage builds with PipelineContext.seed as the seed input"` stays green.
+- [x] `pipeline-stage-resolve.test.ts` — `"leave-draft pipeline implement completion skips ready finalization"` stays green.
+- [x] `bun run typecheck` exits zero.
 
 ## Documentation updates
 

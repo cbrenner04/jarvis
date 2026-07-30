@@ -114,6 +114,13 @@ to the same handoff value after landing (including review-last completion).
 Pipeline stage artifacts copy that persisted value unchanged into plan-stage
 `readyIntent` resolution.
 
+Standalone `jarvis run workflow plan --ready-intent <path>` reads the ready-intent
+from operator invocation `cwd`. Pipeline plan and implement stage resolution
+loads chained inputs from the prior stage entry run's worktree via
+`store.loadRun(artifact.entryRunId)`; artifact `specPath` stays worktree-relative
+and becomes preset `readyIntent` or `specPath` with `cwd` set to the prior
+entry run's `worktreePath`.
+
 Landing failures return `kind: "pre-publication"`, persist the completed step's
 run as `failed`, retain staging, and include rerun guidance. Resume retries this
 boundary without another agent invocation. This seam also appends a

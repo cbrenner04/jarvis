@@ -820,13 +820,19 @@ is realizable. `implement` has no unreviewed builder path (same rule as
 [`workflow-runner.md`](./workflow-runner.md) pipeline posture matrix).
 
 Seed/artifact hand-off: the first workflow stage (by authored position) builds
-with `PipelineContext.seed` as the seed input. Every later workflow stage
-builds with its immediately preceding workflow stage's recorded artifact spec
-path (approval stages are skipped when walking back to find it): `readyIntent`
-for the `plan`/`plan-reviewed*` presets, `specPath` for the implement builder.
-The spec path is worktree-relative, matching `Run.specPath` /
-`BuildImplementWorkflowStepsInput.specPath`; it is passed through unchanged,
-never re-resolved to an absolute path.
+with `PipelineContext.seed` as the seed input and `PipelineContext.cwd` as its
+read root. Every later workflow stage builds from the immediately preceding
+workflow stage's recorded artifact (approval stages are skipped when walking
+back to find it): resolution loads the prior stage's entry run via
+`store.loadRun(artifact.entryRunId)` and sets preset `cwd` to that run's
+`worktreePath`. Artifact `specPath` is worktree-relative and is passed through
+unchanged as `readyIntent` for the `plan`/`plan-reviewed*` presets or
+`specPath` for the implement builder — never joined to admission `cwd` and
+never absolutized in the store. Chained implement resolution calls
+`resolveBaseRef` with the prior entry run's `worktreePath`, not admission
+`cwd`. The `full-review` end-to-end harness pre-seeds ready-intent and plan
+artifacts on the operator checkout; the `fast` integration case in subspec 02
+is the inter-stage worktree handoff proof.
 
 `reviewPasses` and `reviewBehavior` on built intent/plan/implement inputs are
 derived from the stage's own `review` posture (`none` → `reviewPasses: 0` with

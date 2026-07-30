@@ -244,8 +244,7 @@ describe("cleanup command through main", () => {
     return worktreePath;
   }
 
-  // A daemon list-response reporting no runs for the queried branch (→ eligible).
-  const noRunsFrame = { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } };
+  // Daemon client with no runs for the queried branch (→ eligible).
   const cleanupDaemonClient = () => makeIpcClient([], { staleResetPreflight: { listRuns: [] } });
 
   beforeEach(async () => {

@@ -128,8 +128,8 @@ describe("checkEligibility: eligibility gate", () => {
     });
 
     test("asserts daemon client is invoked with correct project and branch", async () => {
-      let capturedProject: string | null = null;
-      let capturedBranch: string | null = null;
+      let capturedProject = "";
+      let capturedBranch = "";
       const candidate: DiscoveredWorktree = { path: "/path", branch: "my-branch" };
       await checkEligibility(
         candidate,
@@ -155,8 +155,15 @@ describe("checkEligibility: eligibility gate", () => {
       const candidate: DiscoveredWorktree = { path: "/path", branch };
 
       expect(
-        (await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, storeWithRun("in-progress", branch)))
-          .status,
+        (
+          await checkEligibility(
+            candidate,
+            "project",
+            mergedPrRunner,
+            daemonClient,
+            storeWithRun("in-progress", branch),
+          )
+        ).status,
       ).toBe("ineligible");
       expect(
         (await checkEligibility(candidate, "project", mergedPrRunner, daemonClient, storeWithRun("completed", branch)))
@@ -166,9 +173,9 @@ describe("checkEligibility: eligibility gate", () => {
 
     test("returns eligible when store has no run for branch", async () => {
       const candidate: DiscoveredWorktree = { path: "/path", branch: "unknown-branch" };
-      expect(
-        (await checkEligibility(candidate, "project", mergedPrRunner, async () => [], emptyStore)).status,
-      ).toBe("eligible");
+      expect((await checkEligibility(candidate, "project", mergedPrRunner, async () => [], emptyStore)).status).toBe(
+        "eligible",
+      );
     });
 
     test("correctly distinguishes terminal vs non-terminal statuses", async () => {
@@ -231,9 +238,9 @@ describe("checkEligibility: eligibility gate", () => {
   describe("integration: combined eligibility checks", () => {
     test("all checks pass → eligible", async () => {
       const candidate: DiscoveredWorktree = { path: "/path", branch: "test" };
-      expect(
-        (await checkEligibility(candidate, "project", mergedPrRunner, async () => [], emptyStore)).status,
-      ).toBe("eligible");
+      expect((await checkEligibility(candidate, "project", mergedPrRunner, async () => [], emptyStore)).status).toBe(
+        "eligible",
+      );
     });
 
     test("any check fails → ineligible with reason", async () => {
@@ -253,7 +260,9 @@ describe("checkEligibility: eligibility gate", () => {
         },
       });
       const candidate: DiscoveredWorktree = { path: "/path", branch: "detached-merge" };
-      expect((await checkEligibility(candidate, "project", runner, async () => [], emptyStore)).status).toBe("eligible");
+      expect((await checkEligibility(candidate, "project", runner, async () => [], emptyStore)).status).toBe(
+        "eligible",
+      );
       expect(captured).toContain("view");
     });
 

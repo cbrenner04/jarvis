@@ -1355,60 +1355,63 @@ describe("cleanup: discover merged local heads", () => {
     expect(invocations.some(({ cmd, args }) => cmd === "git" && args[0] === "push")).toBe(false);
   });
 
-  test.each(["head OID", "tracking OID", "PR authority", "checkout", "durable run", "daemon run"])(
-    "apply-time $guard revalidation retains changed refs",
-    async (guard) => {
-      const branch = `race-${guard.replaceAll(" ", "-").toLowerCase()}`;
-      const { head, parent } = await branchWithCommit(projectRoot, branch);
-      const headRef = `refs/heads/${branch}`;
-      const trackingRef = `refs/remotes/origin/${branch}`;
-      await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
-      let prMerged = true;
-      let durableRuns: unknown[] = [];
-      let daemonLive = false;
-      const runner: AsyncSubprocessRunner = {
-        runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[1] === "list")
-            return JSON.stringify([{ state: prMerged ? "MERGED" : "OPEN", headRefOid: head }]);
-          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
-        },
-      };
-      const store = { listRuns: () => durableRuns } as unknown as StateStore;
-      let stdout = "";
+  test.each([
+    "head OID",
+    "tracking OID",
+    "PR authority",
+    "checkout",
+    "durable run",
+    "daemon run",
+  ])("apply-time $guard revalidation retains changed refs", async (guard) => {
+    const branch = `race-${guard.replaceAll(" ", "-").toLowerCase()}`;
+    const { head, parent } = await branchWithCommit(projectRoot, branch);
+    const headRef = `refs/heads/${branch}`;
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    let prMerged = true;
+    let durableRuns: unknown[] = [];
+    let daemonLive = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "list")
+          return JSON.stringify([{ state: prMerged ? "MERGED" : "OPEN", headRefOid: head }]);
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    const store = { listRuns: () => durableRuns } as unknown as StateStore;
+    let stdout = "";
 
-      const code = await runCleanupCommand(
-        {
-          promptConfirm: async () => {
-            if (guard === "head OID")
-              await realAsyncSubprocessRunner.runAsync("git", ["update-ref", headRef, parent], projectRoot);
-            if (guard === "tracking OID")
-              await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, parent], projectRoot);
-            if (guard === "PR authority") prMerged = false;
-            if (guard === "checkout") {
-              const path = join(tempRoot, "late-checkout");
-              await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", path, branch], projectRoot);
-            }
-            if (guard === "durable run")
-              durableRuns = [{ project: "project", branch, status: "running" }];
-            if (guard === "daemon run") daemonLive = true;
-            return true;
-          },
+    const code = await runCleanupCommand(
+      {
+        promptConfirm: async () => {
+          if (guard === "head OID")
+            await realAsyncSubprocessRunner.runAsync("git", ["update-ref", headRef, parent], projectRoot);
+          if (guard === "tracking OID")
+            await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, parent], projectRoot);
+          if (guard === "PR authority") prMerged = false;
+          if (guard === "checkout") {
+            const path = join(tempRoot, "late-checkout");
+            await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", path, branch], projectRoot);
+          }
+          if (guard === "durable run") durableRuns = [{ project: "project", branch, status: "running" }];
+          if (guard === "daemon run") daemonLive = true;
+          return true;
         },
-        { project: { root: projectRoot } },
-        jarvisRoot,
-        runner,
-        async () => [{ isLive: daemonLive }],
-        store,
-        { stdout: (line) => (stdout += line), stderr: () => {} },
-      );
+      },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [{ isLive: daemonLive }],
+      store,
+      { stdout: (line) => (stdout += line), stderr: () => {} },
+    );
 
-      expect(code).toBe(0);
-      expect(await refExists(projectRoot, headRef)).toBe(true);
-      expect(await refExists(projectRoot, trackingRef)).toBe(true);
-      expect(stdout).toContain(`Skipped ref project: ${headRef}`);
-      expect(stdout).toContain(`Skipped ref project: ${trackingRef}`);
-    },
-  );
+    expect(code).toBe(0);
+    expect(await refExists(projectRoot, headRef)).toBe(true);
+    expect(await refExists(projectRoot, trackingRef)).toBe(true);
+    expect(stdout).toContain(`Skipped ref project: ${headRef}`);
+    expect(stdout).toContain(`Skipped ref project: ${trackingRef}`);
+  });
 
   test("exact ref guards retain orphan tracking refs and ignore similarly named tags", async () => {
     const branch = "tag-lookalike";
@@ -1494,12 +1497,7 @@ describe("cleanup: discover merged local heads", () => {
           authority.set(branch, authorized);
           return JSON.stringify([{ state: "MERGED", headRefOid: authorized }]);
         }
-        if (
-          cmd === "git" &&
-          args[0] === "update-ref" &&
-          args[1] === "-d" &&
-          args[2] === failedHeadRef
-        )
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2] === failedHeadRef)
           throw new Error("injected ref failure");
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -1796,7 +1794,6 @@ describe("cleanup: discover merged local heads", () => {
     const duplicateRoot = join(tempRoot, "project-alias");
     symlinkSync(projectRoot, duplicateRoot, "dir");
     await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
-    const head = await oid(projectRoot, branch);
     const store = {
       listRuns: () => [{ project: "duplicate", branch, status: "running" }],
     } as unknown as StateStore;
@@ -1829,12 +1826,7 @@ describe("cleanup: discover merged local heads", () => {
     let hideHeadRef = false;
     const runner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
-        if (
-          hideHeadRef &&
-          cmd === "git" &&
-          args[0] === "show-ref" &&
-          args.includes(`refs/heads/${branch}`)
-        ) {
+        if (hideHeadRef && cmd === "git" && args[0] === "show-ref" && args.includes(`refs/heads/${branch}`)) {
           throw new AsyncSubprocessError("missing head", 1, "", "", undefined);
         }
         return mergedRunner().runAsync(cmd, args, cwd);

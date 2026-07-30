@@ -103,13 +103,8 @@ function parseCheckedOutBranches(output: string): Set<string> {
   return branches;
 }
 
-function isBranchCheckedOutExcept(
-  output: string,
-  branch: string,
-  permittedWorktreePath?: string,
-): boolean {
-  const permitted =
-    permittedWorktreePath !== undefined ? realpathSync(resolve(permittedWorktreePath)) : undefined;
+function isBranchCheckedOutExcept(output: string, branch: string, permittedWorktreePath?: string): boolean {
+  const permitted = permittedWorktreePath !== undefined ? realpathSync(resolve(permittedWorktreePath)) : undefined;
   let currentWorktree: string | undefined;
   for (const line of output.split("\n")) {
     if (line.startsWith("worktree ")) {
@@ -126,9 +121,7 @@ function isBranchCheckedOutExcept(
 async function resolveRepositoryPath(projectRoot: string, runner: AsyncSubprocessRunner): Promise<string> {
   return realpathSync(
     resolve(
-      (
-        await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], projectRoot)
-      ).trim(),
+      (await runner.runAsync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], projectRoot)).trim(),
     ),
   );
 }
@@ -695,15 +688,7 @@ async function findEligibleWorktreeCandidates(
     const projectRoot = registry[project]?.root;
     if (projectRoot === undefined) continue;
     const aliases = await projectAliasesForRoot(projectRoot, project, repositoryAliases, runner);
-    const eligibility = await checkEligibility(
-      worktree,
-      project,
-      runner,
-      daemonClient,
-      store,
-      projectRoot,
-      aliases,
-    );
+    const eligibility = await checkEligibility(worktree, project, runner, daemonClient, store, projectRoot, aliases);
     if (eligibility.status !== "eligible") continue;
     const refs = await inspectBranchRefs(project, projectRoot, worktree.branch, runner);
     candidates.push({
@@ -778,9 +763,7 @@ async function refPruneEligibility(
     .listRuns()
     .find(
       (run) =>
-        projectAliases.includes(run.project) &&
-        run.branch === candidate.branch &&
-        !isTerminalRunStatus(run.status),
+        projectAliases.includes(run.project) && run.branch === candidate.branch && !isTerminalRunStatus(run.status),
     );
   if (durableRun !== undefined) return { status: "ineligible", reason: "non-terminal durable run exists" };
 
@@ -854,12 +837,7 @@ async function pruneRefCandidates(
 ): Promise<number> {
   let failed = false;
   for (const candidate of candidates) {
-    const aliases = await projectAliasesForRoot(
-      candidate.projectRoot,
-      candidate.project,
-      repositoryAliases,
-      runner,
-    );
+    const aliases = await projectAliasesForRoot(candidate.projectRoot, candidate.project, repositoryAliases, runner);
     if ((await pruneRefCandidate(candidate, runner, daemonClient, store, aliases, io)) === "failed") failed = true;
   }
   return failed ? 1 : 0;
@@ -896,8 +874,7 @@ async function retireEligibleWorktrees(
     }
 
     const previewRefs =
-      candidate.refs ??
-      (await inspectBranchRefs(candidate.project, projectRoot, candidate.worktree.branch, runner));
+      candidate.refs ?? (await inspectBranchRefs(candidate.project, projectRoot, candidate.worktree.branch, runner));
     if (previewRefs !== undefined) {
       const refEligibility = await refPruneEligibility(
         previewRefs,
@@ -914,14 +891,7 @@ async function retireEligibleWorktrees(
     }
 
     try {
-      await removeWorktreeAndBranch(
-        candidate.worktree.branch,
-        candidate.worktree.path,
-        projectRoot,
-        runner,
-        io,
-        false,
-      );
+      await removeWorktreeAndBranch(candidate.worktree.branch, candidate.worktree.path, projectRoot, runner, io, false);
 
       const refs = await inspectBranchRefs(candidate.project, projectRoot, candidate.worktree.branch, runner);
       if (refs !== undefined) {
@@ -931,18 +901,14 @@ async function retireEligibleWorktrees(
           continue;
         }
       } else {
-        io.stdout(
-          `Skipped ref ${candidate.project}: ${headRef(candidate.worktree.branch)} — local head absent\n`,
-        );
+        io.stdout(`Skipped ref ${candidate.project}: ${headRef(candidate.worktree.branch)} — local head absent\n`);
       }
 
       await archiveRetiredArtifact(candidate, registry, discovered, store, runner, io);
       io.stdout(`Retired: ${candidate.worktree.path}\n`);
     } catch (err) {
       failed = true;
-      io.stderr(
-        `Failed to retire ${candidate.worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+      io.stderr(`Failed to retire ${candidate.worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
     }
   }
 

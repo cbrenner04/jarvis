@@ -2557,7 +2557,11 @@ describe("implement preflight stale workspace reset", () => {
       { name: "missing", terminalAction: "leave-draft", reviewOverrides: [] },
       "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides must be an object\n",
     ],
-    ["lookup", { name: "missing", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } }, "unknown-pipeline: missing\n"],
+    [
+      "lookup",
+      { name: "missing", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } },
+      "unknown-pipeline: missing\n",
+    ],
     [
       "override target",
       { name: "fast", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } },

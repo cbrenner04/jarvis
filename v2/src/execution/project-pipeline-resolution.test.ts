@@ -11,10 +11,7 @@ import {
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { validatePipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
-import {
-  resolveProjectPipeline,
-  setInvertTerminalActionConflictGuardForTest,
-} from "./project-pipeline-resolution.ts";
+import { resolveProjectPipeline, setInvertTerminalActionConflictGuardForTest } from "./project-pipeline-resolution.ts";
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -37,9 +34,7 @@ function pipelineConfig(
   terminalAction = DEFAULT_TERMINAL_ACTION,
   reviewOverrides?: Record<string, string>,
 ): Record<string, unknown> {
-  return reviewOverrides === undefined
-    ? { name, terminalAction }
-    : { name, terminalAction, reviewOverrides };
+  return reviewOverrides === undefined ? { name, terminalAction } : { name, terminalAction, reviewOverrides };
 }
 
 const NO_IMPLEMENT_PIPELINE: PipelineDefinition = {
@@ -147,16 +142,32 @@ describe("resolveProjectPipeline", () => {
     ["empty terminalAction", { name: "fast", terminalAction: "" }, "projects.demo.pipeline.terminalAction"],
     ["null terminalAction", { name: "fast", terminalAction: null }, "projects.demo.pipeline.terminalAction"],
     ["non-string terminalAction", { name: "fast", terminalAction: 1 }, "projects.demo.pipeline.terminalAction"],
+    ["unknown terminalAction", { name: "fast", terminalAction: "publish" }, "projects.demo.pipeline.terminalAction"],
     [
-      "unknown terminalAction",
-      { name: "fast", terminalAction: "publish" },
-      "projects.demo.pipeline.terminalAction",
+      "null overrides",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, null as unknown as Record<string, string>),
+      "projects.demo.pipeline.reviewOverrides",
     ],
-    ["null overrides", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, null as unknown as Record<string, string>), "projects.demo.pipeline.reviewOverrides"],
-    ["array overrides", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, [] as unknown as Record<string, string>), "projects.demo.pipeline.reviewOverrides"],
-    ["string overrides", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, "none" as unknown as Record<string, string>), "projects.demo.pipeline.reviewOverrides"],
-    ["numeric override", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: 1 as unknown as string }), "projects.demo.pipeline.reviewOverrides.plan"],
-    ["null override", pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: null as unknown as string }), "projects.demo.pipeline.reviewOverrides.plan"],
+    [
+      "array overrides",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, [] as unknown as Record<string, string>),
+      "projects.demo.pipeline.reviewOverrides",
+    ],
+    [
+      "string overrides",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, "none" as unknown as Record<string, string>),
+      "projects.demo.pipeline.reviewOverrides",
+    ],
+    [
+      "numeric override",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: 1 as unknown as string }),
+      "projects.demo.pipeline.reviewOverrides.plan",
+    ],
+    [
+      "null override",
+      pipelineConfig("fast", DEFAULT_TERMINAL_ACTION, { plan: null as unknown as string }),
+      "projects.demo.pipeline.reviewOverrides.plan",
+    ],
     ["stages key", { ...pipelineConfig("fast"), stages: [] }, "projects.demo.pipeline.stages"],
     ["prompt key", { ...pipelineConfig("fast"), prompt: "x" }, "projects.demo.pipeline.prompt"],
     ["code key", { ...pipelineConfig("fast"), code: "x" }, "projects.demo.pipeline.code"],

@@ -25,12 +25,12 @@ subspec sizing rules.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/workflow-runner.md` states that multi-boundary drafted subspecs are split on emit
+- [x] `v2/docs/workflow-runner.md` states that multi-boundary drafted subspecs are split on emit
       rather than published whole, names acceptance criteria as the oversize signal, and references
       `shared/module-boundary-surfaces.ts`.
-- [ ] `v1/docs/spec-guidance.md` states that a subspec owns one module boundary and points readers
+- [x] `v1/docs/spec-guidance.md` states that a subspec owns one module boundary and points readers
       to `shared/module-boundary-surfaces.ts` for the surface list.
-- [ ] `v2/docs/v1-behaviors.md` records boundary-split normalization at the start of
+- [x] `v2/docs/v1-behaviors.md` records boundary-split normalization at the start of
       `validateDraftOutput` before structural per-subspec checks.
 
 ## Documentation updates

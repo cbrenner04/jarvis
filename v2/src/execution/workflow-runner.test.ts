@@ -8139,9 +8139,9 @@ describe("executeWorkflow plan review dispatch", () => {
         metadata: { agent: "claude", model: "plan" },
         invoke: async () => {
           mkdirSync(stage, { recursive: true });
-          writeFileSync(join(stage, "index.md"), "# Index\n", "utf8");
+          writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
           writeFileSync(join(stage, "intent.md"), intentContent, "utf8");
-          writeFileSync(join(stage, "00-first.md"), "# First\n", "utf8");
+          writeFileSync(join(stage, "00-first.md"), "# First\n\n## Acceptance criteria\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" };
         },
       });

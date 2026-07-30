@@ -30,16 +30,16 @@ staged spec directory to one emitted subspec per boundary before validation or p
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on the
+- [x] `shared/module-boundary-surfaces.test.ts` runs `normalizePlanDraftSpecDir` on the
       k=2 and k=3 fixtures and asserts emitted `NN-*.md` files match the committed ground-truth child
       AC checkbox text literally (no re-invocation of the classifier as the oracle); it fails against
       the pre-change emit-as-drafted path.
-- [ ] The same test asserts no emitted body, filename, or `index.md` checklist link contains forbidden
+- [x] The same test asserts no emitted body, filename, or `index.md` checklist link contains forbidden
       provenance phrases, the parent fixture slug, or planning-label residue defined in the fixture
       manifest.
-- [ ] The same test asserts an AC line naming two known surfaces is either assigned verbatim to a child
+- [x] The same test asserts an AC line naming two known surfaces is either assigned verbatim to a child
       or causes normalization to hard-error; it fails if the line disappears.
-- [ ] Inverting the split-emission guard inside `normalizePlanDraftSpecDir` turns the k=2 fixture case
+- [x] Inverting the split-emission guard inside `normalizePlanDraftSpecDir` turns the k=2 fixture case
       RED.
 
 ## Documentation updates

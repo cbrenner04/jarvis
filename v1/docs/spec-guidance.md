@@ -211,6 +211,10 @@ has:
 - acceptance criteria
 - required documentation updates
 
+Each subspec should own one module boundary. Use
+[`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts)
+for the canonical surface list and classification contract.
+
 Any spec that changes **existing functionality** (not purely net-new work) must
 include updating `v2/docs/v1-behaviors.md` in its documentation updates — that
 catalog is the v1 parity baseline v2 review reads, so a behavior change that

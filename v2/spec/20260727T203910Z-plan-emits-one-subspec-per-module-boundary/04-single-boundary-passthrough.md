@@ -19,12 +19,12 @@ renumbering, or extra files.
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` asserts a single-boundary fixture
+- [x] `shared/module-boundary-surfaces.test.ts` asserts a single-boundary fixture
       leaves subspec count, filenames, and file bytes unchanged after normalization; it fails if
       normalization splits or rewrites pass-through drafts.
-- [ ] `v2/src/execution/write.test.ts` plan-draft shape cases stay green.
-- [ ] `shared/spec-parser.test.ts` stays green.
-- [ ] `v2/src/execution/write.test.ts` plan-draft tests stay green.
+- [x] `v2/src/execution/write.test.ts` plan-draft shape cases stay green.
+- [x] `shared/spec-parser.test.ts` stays green.
+- [x] `v2/src/execution/write.test.ts` plan-draft tests stay green.
 
 ## Documentation updates
 

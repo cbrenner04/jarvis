@@ -18,7 +18,7 @@ shape validation.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write.test.ts` drives plan-draft write completion with the k=2 staged
+- [x] `v2/src/execution/write.test.ts` drives plan-draft write completion with the k=2 staged
       fixture and asserts the staging directory matches split ground truth before shape validation
       passes; it fails against the pre-change path.
 

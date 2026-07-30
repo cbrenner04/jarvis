@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -414,7 +414,7 @@ describe("write behavior", () => {
             capturedPrompt = prompt;
             const specDir = join(cwd, specPath);
             mkdirSync(specDir, { recursive: true });
-            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
             writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };
           },
@@ -437,6 +437,116 @@ describe("write behavior", () => {
     const intentPath = join(result.worktreePath, ".jarvis-plan-stage", "intent.md");
     expect(existsSync(intentPath)).toBe(true);
     expect(readFileSync(intentPath, "utf8")).toBe(intentSeed);
+  });
+
+  test("plan-draft completion normalizes the k=2 staged fixture before shape validation", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
+    const specPath = "v2/spec/2099-01-01T00-00-01Z-normalized";
+    const branchName = "plan-normalization";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    let validationCalls = 0;
+
+    const result = await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed: readFileSync(join(fixtureDir, "intent.md"), "utf8"),
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            cpSync(fixtureDir, stagePath, { recursive: true });
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      completionValidator: (stagingDir) => {
+        validationCalls += 1;
+        expect(stagingDir).toBe(stagePath);
+        expect(readdirSync(stagingDir).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+        expect(readFileSync(join(stagingDir, "index.md"), "utf8")).toBe(
+          "# Staged plan\n\n- [ ] [00 - Persistence](./00-persistence.md)\n- [ ] [01 - CLI](./01-cli.md)\n",
+        );
+        const persistenceCriteria = readFileSync(join(stagingDir, "00-persistence.md"), "utf8")
+          .split("\n")
+          .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
+        const cliCriteria = readFileSync(join(stagingDir, "01-cli.md"), "utf8")
+          .split("\n")
+          .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
+        expect(persistenceCriteria).toEqual(["- [ ] The state-store persists completed runs atomically."]);
+        expect(cliCriteria).toEqual(["- [ ] The CLI validates run flags before dispatch."]);
+        return { valid: true };
+      },
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(validationCalls).toBeGreaterThan(0);
+  });
+
+  test("plan-draft completion normalizes durable output before recovery", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
+    const specPath = "v2/spec/2099-01-01T00-00-02Z-recovered";
+    const branchName = "plan-recovery-normalization";
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+
+    const result = await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed: readFileSync(join(fixtureDir, "intent.md"), "utf8"),
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            cpSync(fixtureDir, join(cwd, specPath), { recursive: true });
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(readdirSync(stagePath).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+  });
+
+  test("plan-draft completion rejects an inconsistent staged index", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+
+    const result = await executeWrite({
+      worktree: { projectRoot: "/fake", projectName: "demo", branchName: "bad-index", baseRef: "HEAD", jarvisRoot },
+      specPath: "v2/spec/2099-01-01T00-00-03Z-bad-index",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed: "---\nname: bad-index\n---\n",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            const stagingDir = join(cwd, ".jarvis-plan-stage");
+            mkdirSync(stagingDir, { recursive: true });
+            writeFileSync(join(stagingDir, "intent.md"), "---\nname: bad-index\n---\n", "utf8");
+            writeFileSync(join(stagingDir, "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
+            writeFileSync(join(stagingDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
   });
 
   test("intentSeed branch: delimiter-violating intent seed fails as model_config", async () => {
@@ -612,7 +722,7 @@ describe("write behavior", () => {
             capturedPrompt = prompt;
             const specDir = join(cwd, specPath);
             mkdirSync(specDir, { recursive: true });
-            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
             writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };
           },
@@ -657,7 +767,7 @@ describe("write behavior", () => {
             bindingInvoked = true;
             const specDir = join(cwd, specPath);
             mkdirSync(specDir, { recursive: true });
-            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
             writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };
           },
@@ -697,7 +807,7 @@ describe("write behavior", () => {
             bindingInvoked = true;
             const specDir = join(cwd, specPath);
             mkdirSync(specDir, { recursive: true });
-            writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+            writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
             writeFileSync(join(specDir, "00-first.md"), "## Acceptance criteria\n", "utf8");
             return { kind: "ok", stdout: "done", stderr: "" };
           },

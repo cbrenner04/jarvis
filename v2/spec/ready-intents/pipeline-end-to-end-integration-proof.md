@@ -28,7 +28,11 @@ Slice-level tests can stay green while pipeline definition, daemon progression, 
 - [ ] The case observes the pinned durable status sequence at every boundary, including reset of skipped later stages on resume, and proves the successful `intent` stage retains its invocation ID while resumed `plan` receives a new one.
 - [ ] The named case turns RED if `intent`, `plan`, or `implement` is not dispatched, or if resume redispatches the completed `intent` stage.
 - [ ] `bun run test:integration:v2` exits zero.
-- [ ] `v2/docs/first-workflow-walkthrough.md` walks an operator through a configured pipeline, and `v2/docs/operator-runbook.md` marks pipelines usable and links that walkthrough.
+- [ ] `v2/docs/first-workflow-walkthrough.md` walks an operator through a configured pipeline.
+- [ ] `v2/docs/operator-runbook.md` marks pipelines usable and links that walkthrough.
+
+Name exactly one file per acceptance-criteria bullet; a bullet naming two files is rejected as
+multi-surface when the spec tree is normalized.
 
 ## Documentation updates
 

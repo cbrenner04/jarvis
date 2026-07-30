@@ -1134,9 +1134,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    const awaitingRejectPipeline = reopenedStore.loadPipeline(pipelineId);
-    if (!awaitingRejectPipeline) throw new Error("expected pipeline");
-    expect(derivePipelineState(awaitingRejectPipeline)).toBe("awaiting-approval");
+    const rejectedReopened = reopenedStore.loadPipeline(pipelineId);
+    if (!rejectedReopened) throw new Error("expected pipeline");
+    expect(derivePipelineState(rejectedReopened)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const handlers = createRunControlHandlers({
@@ -1177,9 +1177,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    const awaitingApprovePipeline = reopenedStore.loadPipeline(pipelineId);
-    if (!awaitingApprovePipeline) throw new Error("expected pipeline");
-    expect(derivePipelineState(awaitingApprovePipeline)).toBe("awaiting-approval");
+    const approvedReopened = reopenedStore.loadPipeline(pipelineId);
+    if (!approvedReopened) throw new Error("expected pipeline");
+    expect(derivePipelineState(approvedReopened)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const stage3Step: AnyWorkflowStep = createWriteStep("stage-3", "pipeline-branch", doneWithArtifactBindingFactory, {

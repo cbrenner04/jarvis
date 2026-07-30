@@ -68,17 +68,10 @@ The current `artifact` envelope (written by `v2/src/daemon/pipeline-stage-dispat
 
 The pipeline-level `status` stores only restart-reconciliation state:
 `active` or `interrupted`. It does not describe execution progress. Callers
-derive overall pipeline state from stage rows with
-`v2/src/daemon/pipeline-execution.ts`'s `derivePipelineState`, one of five states:
-
-- `succeeded` — every authored stage in order reads `succeeded` (workflow and approval rows alike); no undispatched approval gate remains.
-- `failed` — any workflow stage row reads `failed`.
-- `awaiting-approval` — every stage up to (not including) the next-in-order
-  approval stage has succeeded, and that approval stage has not been
-  dispatched.
-- `running` — some workflow stage row reads `running`.
-- `pending` — admitted, but the loop has not yet reached a dispatchable
-  stage.
+derive overall pipeline state from durable pipeline and stage rows with
+`derivePipelineState` in `v2/src/daemon/pipeline-execution.ts`; the seven-state
+precedence walk, stage-satisfaction rules, terminality, and daemon observation
+contract live in [`daemon-host.md`](./daemon-host.md#pipeline-snapshots).
 
 `skipped` rows (written when an earlier stage fails) are never themselves
 read as `failed` — they only distinguish "will never run" from "not yet

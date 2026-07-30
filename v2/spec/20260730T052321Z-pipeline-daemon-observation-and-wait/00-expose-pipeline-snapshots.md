@@ -32,12 +32,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` fails against the baseline and then `pipeline_list` reports every admitted pipeline with pipeline ID, name, derived state, and each stage's ID, raw status, and nullable workflow invocation ID in authored order; an empty store returns an empty `pipelines` array.
-- [ ] The same regression distinguishes `pending`, `running`, `awaiting-approval`, `succeeded`, `failed`, `rejected`, and `interrupted`, and classifies only the last four as terminal.
-- [ ] The live-snapshot regression in `v2/src/daemon/daemon-pipeline-observation.test.ts` completes within its bound while a pipeline remains non-terminal and reports the durable state observed by that request.
-- [ ] Inverting any added or modified state-classification, terminality, stage-order/projection, or snapshot non-follow guard makes `v2/src/daemon/daemon-pipeline-observation.test.ts` fail; negative cases prove undecided approval and live work are not reported terminal and no stage is omitted or reordered.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` owns the `pipeline_list` wire contract, seven-state precedence walk, stage-satisfaction rules, interruption source, terminality, ordering, isolation, and non-follow semantics; `v2/docs/state-store.md` links to that daemon-owned derivation instead of duplicating it.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` fails against the baseline and then `pipeline_list` reports every admitted pipeline with pipeline ID, name, derived state, and each stage's ID, raw status, and nullable workflow invocation ID in authored order; an empty store returns an empty `pipelines` array.
+- [x] The same regression distinguishes `pending`, `running`, `awaiting-approval`, `succeeded`, `failed`, `rejected`, and `interrupted`, and classifies only the last four as terminal.
+- [x] The live-snapshot regression in `v2/src/daemon/daemon-pipeline-observation.test.ts` completes within its bound while a pipeline remains non-terminal and reports the durable state observed by that request.
+- [x] Inverting any added or modified state-classification, terminality, stage-order/projection, or snapshot non-follow guard makes `v2/src/daemon/daemon-pipeline-observation.test.ts` fail; negative cases prove undecided approval and live work are not reported terminal and no stage is omitted or reordered.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` owns the `pipeline_list` wire contract, seven-state precedence walk, stage-satisfaction rules, interruption source, terminality, ordering, isolation, and non-follow semantics; `v2/docs/state-store.md` links to that daemon-owned derivation instead of duplicating it.
 
 ## Documentation updates
 

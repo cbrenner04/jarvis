@@ -43,7 +43,7 @@ collapse path is deleted.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-workflow-collapse.ts` exports no
+- [x] `tui-monitor-workflow-collapse.ts` exports no
       `setInvertWorkflowCollapseForTest`, contains no
       `invertWorkflowCollapseForTest` module variable, `buildWorkflowTableRows`
       has no test-flag branch, and no replacement production test hooks were
@@ -58,10 +58,10 @@ collapse path is deleted.
       verifies the pinning test turns red under that mutation. Operator-verified
       2026-07-30: mutating the `seenInvocations` dedup turned three cases in that
       file red; restoring it returned 5 pass.
-- [ ] `tui-monitor-workflow-collapse.test.ts` — `collapsed table shows one
+- [x] `tui-monitor-workflow-collapse.test.ts` — `collapsed table shows one
       top-level row for a multi-run workflow` stays green (rendered monitor
       text via `tableBodyLines`; behavior unchanged by the flag removal).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

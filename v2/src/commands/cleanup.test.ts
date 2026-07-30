@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, basename, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import {
@@ -20,9 +20,16 @@ import {
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
+  discoverMergedBranchRefCandidates,
+  exactOriginTrackingRefOid,
   inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
+  mergedPrHeadAuthorityMatches,
+  parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
+  pruneVerifiedMergedBranchRef,
+  revalidateMergedBranchRefCandidate,
+  resolveExactRefOid,
   type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
   runCleanupCommand,
@@ -80,7 +87,24 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
               : { state: "OPEN", mergedAt: null },
           );
-        if (cmd === "gh" && args[1] === "list") return "[]";
+        if (cmd === "gh" && args[1] === "list") {
+          if (state !== "MERGED" || args.includes("--state") && args[args.indexOf("--state") + 1] === "open") {
+            return "[]";
+          }
+          const headIndex = args.indexOf("--head");
+          const branch = headIndex >= 0 ? args[headIndex + 1] : undefined;
+          if (branch === undefined) return "[]";
+          try {
+            const oid = (
+              await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+            ).trim();
+            return JSON.stringify([
+              { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+            ]);
+          } catch {
+            return "[]";
+          }
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -185,14 +209,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       stderr: () => {},
     };
 
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
-      },
-    };
+    const mockRunner = ghRunnerForPr("MERGED");
 
     const code = await runCleanupCommand(
       { promptConfirm: async () => true },
@@ -234,6 +251,19 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         if (cmd === "gh" && args[1] === "list") {
+          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+            const headIndex = args.indexOf("--head");
+            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branchName === branch) {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return JSON.stringify([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            }
+            return "[]";
+          }
           order.push(retired ? "post-retire pr list" : "pre-retire pr list");
           return "[]";
         }
@@ -332,7 +362,22 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (cmd === "gh" && args[1] === "list") return "[]";
+        if (cmd === "gh" && args[1] === "list") {
+          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+            const headIndex = args.indexOf("--head");
+            const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+            if (branchName === branch) {
+              const oid = (
+                await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+              ).trim();
+              return JSON.stringify([
+                { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+              ]);
+            }
+            return "[]";
+          }
+          return "[]";
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -382,6 +427,19 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list" && args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+          const headIndex = args.indexOf("--head");
+          const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
+          if (branchName === branch) {
+            const oid = (
+              await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+            ).trim();
+            return JSON.stringify([
+              { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
+            ]);
+          }
+          return "[]";
+        }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
           throw new Error("remove failed");
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -3154,5 +3212,747 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listed.status).toBe("dirty");
     if (listed.status !== "dirty") throw new Error("expected dirty");
     expect(listed.paths).toEqual(expect.arrayContaining([tracked, "new.txt"]));
+  });
+});
+
+type MergedBranchGhPr = {
+  number: number;
+  state: "MERGED" | "OPEN" | "CLOSED";
+  mergedAt?: string | null;
+  headRefOid?: string;
+};
+
+function mergedBranchPr(oid: string, number = 1): MergedBranchGhPr {
+  return { number, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid };
+}
+
+async function initMergedBranchTestRepo(root: string): Promise<void> {
+  mkdirSync(root, { recursive: true });
+  await realAsyncSubprocessRunner.runAsync("git", ["init"], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], root);
+  writeFileSync(join(root, "README.md"), `# ${basename(root)}\n`);
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], root);
+}
+
+async function createMergedBranchLocalHead(
+  root: string,
+  branch: string,
+): Promise<{ branch: string; oid: string }> {
+  writeFileSync(join(root, `${branch.replace(/\//g, "-")}.txt`), `${branch}\n`);
+  await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+  await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", branch], root);
+  const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], root)).trim();
+  await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], root).catch(async () => {
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], root);
+  });
+  return { branch, oid };
+}
+
+function ghPrRunnerByRepo(
+  prsByRepoRoot: Record<string, MergedBranchGhPr[]>,
+  fallbackRoot: string,
+  options: { mergedView?: boolean } = {},
+): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr") {
+        if (args[1] === "list") {
+          const key = cwd ?? fallbackRoot;
+          return JSON.stringify(prsByRepoRoot[key] ?? []);
+        }
+        if (options.mergedView && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        }
+      }
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? fallbackRoot);
+    },
+  };
+}
+
+describe("cleanup: discover merged branch-ref candidates", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+
+  function ghPrListRunner(prsByRepoRoot: Record<string, MergedBranchGhPr[]>): AsyncSubprocessRunner {
+    return ghPrRunnerByRepo(prsByRepoRoot, projectRoot);
+  }
+
+  async function branchRefExists(root: string, branch: string): Promise<boolean> {
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "--verify", branch], root);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-ref-discovery-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("merged local head candidate requires matching merged PR head", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "merged-no-worktree");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+
+    expect(result.candidates).toEqual([
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+    ]);
+    expect(result.unusableProjects).toEqual([]);
+  });
+
+  test("guard inversion: open PR blocks merged local head admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "open-pr-branch");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({
+      [projectRoot]: [
+        { number: 1, state: "OPEN", mergedAt: null, headRefOid: oid },
+        mergedBranchPr(oid, 2),
+      ],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: closed-unmerged PR blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "closed-unmerged");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({
+      [projectRoot]: [{ number: 1, state: "CLOSED", mergedAt: null, headRefOid: oid }],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: no PR blocks admission", async () => {
+    const { branch } = await createMergedBranchLocalHead(projectRoot, "no-pr");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: OID mismatch blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "oid-mismatch");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(`${oid}deadbeef`)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: post-merge commit blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "post-merge");
+    writeFileSync(join(projectRoot, "post-merge-extra.txt"), "more\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "post-merge"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: conflicting merged PR matches block admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "conflicting-prs");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid, 1), mergedBranchPr(oid, 2)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: failed gh lookup blocks admission", async () => {
+    const { branch } = await createMergedBranchLocalHead(projectRoot, "gh-failure");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          throw new Error("gh down");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: PR lookup must run in the candidate repository", async () => {
+    const otherRoot = join(tempRoot, "other");
+    await initMergedBranchTestRepo(otherRoot);
+    await createMergedBranchLocalHead(projectRoot, "shared-name");
+    const remote = await createMergedBranchLocalHead(otherRoot, "shared-name");
+
+    const registry: Record<string, ProjectRegistryEntry> = {
+      project: { root: projectRoot },
+      other: { root: otherRoot },
+    };
+    const runner = ghPrListRunner({
+      [projectRoot]: [],
+      [otherRoot]: [mergedBranchPr(remote.oid)],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates.map((c) => c.project).sort()).toEqual(["other"]);
+    expect(result.candidates[0]?.branch).toBe("shared-name");
+  });
+
+  test("guard inversion: reused historical branch blocks admission when OID differs", async () => {
+    const first = await createMergedBranchLocalHead(projectRoot, "reused-name");
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", "-D", "reused-name"], projectRoot);
+    await createMergedBranchLocalHead(projectRoot, "reused-name");
+    writeFileSync(join(projectRoot, "reused-name-followup.txt"), "follow-up\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "reused-name"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "follow-up"], projectRoot);
+    const currentOid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "main"], projectRoot).catch(async () => {
+      await realAsyncSubprocessRunner.runAsync("git", ["checkout", "master"], projectRoot);
+    });
+    expect(currentOid).not.toBe(first.oid);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(first.oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, "reused-name")).toBe(true);
+  });
+
+  test("guard inversion: main is never admitted", async () => {
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, "main")).toBe(true);
+  });
+
+  test("guard inversion: project checkout current branch is never admitted", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "current-branch");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+  });
+
+  test("guard inversion: managed worktree checkout blocks admission until retired", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "managed-held");
+    const worktreePath = join(tempRoot, "managed-worktree");
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const blocked = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(blocked.candidates).toEqual([]);
+
+    const admitted = await discoverMergedBranchRefCandidates(registry, {
+      runner,
+      retiredBranches: new Set([branch]),
+    });
+    expect(admitted.candidates).toEqual([
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+    ]);
+  });
+
+  test("guard inversion: external linked checkout blocks admission", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "external-held");
+    const externalPath = join(tempRoot, "external-checkout");
+    mkdirSync(dirname(externalPath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", externalPath, branch], projectRoot);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrListRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+    expect(result.candidates).toEqual([]);
+    expect(await branchRefExists(projectRoot, branch)).toBe(true);
+    expect(parseCheckedOutBranchesFromWorktreePorcelain(
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot),
+    ).has(branch)).toBe(true);
+  });
+
+  test("candidate discovery isolates registered projects", async () => {
+    const otherRoot = join(tempRoot, "other-project");
+    await initMergedBranchTestRepo(otherRoot);
+    const local = await createMergedBranchLocalHead(projectRoot, "same-name");
+    const remote = await createMergedBranchLocalHead(otherRoot, "same-name");
+    const missingRoot = join(tempRoot, "missing");
+    const registry: Record<string, ProjectRegistryEntry> = {
+      project: { root: projectRoot },
+      duplicate: { root: projectRoot },
+      other: { root: otherRoot },
+      missing: { root: missingRoot },
+    };
+    const runner = ghPrListRunner({
+      [projectRoot]: [mergedBranchPr(local.oid)],
+      [otherRoot]: [],
+    });
+
+    const result = await discoverMergedBranchRefCandidates(registry, { runner });
+
+    expect(result.candidates).toEqual([
+      { project: "project", branch: local.branch, headOid: local.oid, repositoryRoot: projectRoot },
+    ]);
+    expect(result.unusableProjects).toEqual([
+      { project: "missing", root: missingRoot, reason: "project root does not exist" },
+    ]);
+
+    let stderr = "";
+    const jarvisRoot = join(tempRoot, "jarvis-home");
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("missing");
+    expect(stderr).toContain("project root does not exist");
+    expect(await branchRefExists(otherRoot, remote.branch)).toBe(true);
+  });
+
+  test("mergedPrHeadAuthorityMatches guard inversion skips OID comparison when disabled", async () => {
+    const oid = "abc123";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr("wrong-oid")]);
+        }
+        return "";
+      },
+    };
+    expect(await mergedPrHeadAuthorityMatches("branch", oid, projectRoot, runner)).toBe(false);
+  });
+});
+
+describe("cleanup: prune verified merged branch refs", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  function ghPrRunner(prsByRepoRoot: Record<string, MergedBranchGhPr[]>): AsyncSubprocessRunner {
+    return ghPrRunnerByRepo(prsByRepoRoot, projectRoot, { mergedView: true });
+  }
+
+  async function addOriginTrackingRef(root: string, branch: string): Promise<void> {
+    const originRoot = join(tempRoot, "origin.git");
+    if (!existsSync(originRoot)) {
+      await initMergedBranchTestRepo(originRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["remote", "add", "origin", originRoot], root);
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["push", "origin", branch], root);
+  }
+
+  async function exactRefExists(root: string, ref: string): Promise<boolean> {
+    return (await resolveExactRefOid(root, ref, realAsyncSubprocessRunner)) !== undefined;
+  }
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-ref-prune-${Date.now()}-${Math.random()}`);
+    mkdirSync(tempRoot, { recursive: true });
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    await initMergedBranchTestRepo(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("default cleanup prunes merged branch refs without a materialized worktree", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "merged-no-worktree");
+    await addOriginTrackingRef(projectRoot, branch);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+    const pushDeletes: string[] = [];
+    const wrappedRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin" && args[2] === "--delete") {
+          pushDeletes.push(args[3] ?? "");
+          throw new Error("remote delete must not run");
+        }
+        return runner.runAsync(cmd, args, cwd);
+      },
+    };
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      wrappedRunner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Pruned ref: project refs/heads/merged-no-worktree");
+    expect(stdout).toContain("Pruned ref: project refs/remotes/origin/merged-no-worktree");
+    expect(pushDeletes).toEqual([]);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(false);
+  });
+
+  test("default merged-worktree retirement prunes origin tracking ref", async () => {
+    const branch = "merged-worktree-tracking";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await addOriginTrackingRef(projectRoot, branch);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("Retired:");
+    expect(stdout).toContain("Pruned ref: project refs/heads/merged-worktree-tracking");
+    expect(stdout).toContain("Pruned ref: project refs/remotes/origin/merged-worktree-tracking");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(false);
+  });
+
+  test("dry-run previews merged dead refs without mutation", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "dry-run-refs");
+    await addOriginTrackingRef(projectRoot, branch);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("prune ref: project refs/heads/dry-run-refs");
+    expect(stdout).toContain("prune ref: project refs/remotes/origin/dry-run-refs");
+    expect(stdout).toContain("(dry-run: no changes made)");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(true);
+  });
+
+  test("head-only daemon-unreachable skip exits nonzero for dry-run and apply", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "head-only-daemon-skip");
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const runner = ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] });
+    const store = { listRuns: () => [] } as unknown as StateStore;
+    const unreachableDaemon: DaemonClient = async () => {
+      throw new Error("probe detail must not leak");
+    };
+
+    let dryStdout = "";
+    const dryCode = await runCleanupCommand(
+      { dryRun: true },
+      registry,
+      jarvisRoot,
+      runner,
+      unreachableDaemon,
+      store,
+      { stdout: (s) => (dryStdout += s), stderr: () => {} },
+    );
+    expect(dryCode).toBe(1);
+    expect(dryStdout).toContain("prune ref: project refs/heads/head-only-daemon-skip");
+    expect(dryStdout).not.toContain("probe detail must not leak");
+
+    let applyStdout = "";
+    const applyCode = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      runner,
+      unreachableDaemon,
+      store,
+      { stdout: (s) => (applyStdout += s), stderr: () => {} },
+    );
+    expect(applyCode).toBe(1);
+    expect(applyStdout).toContain(
+      "Skipped ref prune: project refs/heads/head-only-daemon-skip — Daemon unreachable; run `jarvis daemon start`",
+    );
+    expect(applyStdout).not.toContain("probe detail must not leak");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: ref changed after preview is not deleted", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "race-branch");
+    const candidate = {
+      project: "project",
+      branch,
+      headOid: oid,
+      repositoryRoot: projectRoot,
+    };
+    let applyPass = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr(oid)]);
+        }
+        if (!applyPass && cmd === "git" && args[0] === "rev-parse" && args[1] === "--verify") {
+          applyPass = true;
+          return `${oid}deadbeef\n`;
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      candidate,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("OID changed");
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: durable-run ownership blocks apply-time ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "durable-held");
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [],
+      {
+        listRuns: () => [{ project: "project", branch, status: "running" }],
+      } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("non-terminal run");
+  });
+
+  test("guard inversion: daemon-run ownership blocks apply-time ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "daemon-held");
+    const eligibility = await revalidateMergedBranchRefCandidate(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }),
+      async () => [{ isLive: true }],
+      { listRuns: () => [] } as unknown as StateStore,
+      new Set(),
+    );
+    expect(eligibility.status).toBe("ineligible");
+    if (eligibility.status !== "ineligible") throw new Error("expected ineligible");
+    expect(eligibility.reason).toContain("live run");
+  });
+
+  test("guard inversion: orphan tracking ref is not swept", async () => {
+    const branch = "orphan-tracking";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await addOriginTrackingRef(projectRoot, branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", "-d", `refs/heads/${branch}`], projectRoot);
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghPrRunner({ [projectRoot]: [] }),
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(await exactRefExists(projectRoot, `refs/remotes/origin/${branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+  });
+
+  test("guard inversion: similarly named tag does not establish tracking ref presence", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "tag-collision");
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["tag", `origin/${branch}`, oid],
+      projectRoot,
+    );
+    expect(await exactOriginTrackingRefOid(projectRoot, branch, realAsyncSubprocessRunner)).toBeUndefined();
+
+    let stdout = "";
+    await pruneVerifiedMergedBranchRef(
+      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
+      realAsyncSubprocessRunner,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+    expect(stdout).toContain("Pruned ref: project refs/heads/tag-collision");
+    expect(stdout).not.toContain("refs/remotes/origin/tag-collision");
+    expect(await exactRefExists(projectRoot, `refs/tags/origin/${branch}`)).toBe(true);
+  });
+
+  test("guard inversion: remote deletion is not attempted during ref prune", async () => {
+    const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "no-remote-delete");
+    await addOriginTrackingRef(projectRoot, branch);
+    const invocations: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "push" && args[1] === "origin") invocations.push("push");
+        return ghPrRunner({ [projectRoot]: [mergedBranchPr(oid)] }).runAsync(cmd, args, cwd);
+      },
+    };
+
+    await pruneVerifiedMergedBranchRef(
+      { project: "project", branch, headOid: oid, trackingRefOid: oid, repositoryRoot: projectRoot },
+      runner,
+      { stdout: () => {}, stderr: () => {} },
+    );
+    expect(invocations).toEqual([]);
+  });
+
+  test("ref-prune failures continue independent cleanup", async () => {
+    const first = await createMergedBranchLocalHead(projectRoot, "fail-first");
+    const second = await createMergedBranchLocalHead(projectRoot, "succeed-second");
+    const specName = "20260730T000000Z-stranded";
+    const strandedSource = join(projectRoot, "v2", "spec", specName);
+    mkdirSync(strandedSource, { recursive: true });
+    writeFileSync(join(strandedSource, "index.md"), "# stranded\n\n## Acceptance criteria\n\n- [x] done\n");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: specName,
+          status: "completed",
+          specPath: join(strandedSource, "index.md"),
+          worktreePath: projectRoot,
+        },
+      ],
+    } as unknown as StateStore;
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    let stderr = "";
+    let headDeleteCount = 0;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
+          const branchArg = args.indexOf("--head");
+          const branchName = branchArg >= 0 ? args[branchArg + 1] : "";
+          if (branchName === first.branch) return JSON.stringify([mergedBranchPr(first.oid)]);
+          if (branchName === second.branch) return JSON.stringify([mergedBranchPr(second.oid)]);
+          return "[]";
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2] === `refs/heads/${first.branch}`) {
+          headDeleteCount += 1;
+          throw new Error("simulated head delete failure");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(headDeleteCount).toBe(1);
+    expect(stderr).toContain(`Failed to prune ref refs/heads/${first.branch}`);
+    expect(stdout).not.toContain(`Pruned ref: project refs/heads/${first.branch}`);
+    expect(stdout).toContain(`Pruned ref: project refs/heads/${second.branch}`);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/heads/${first.branch}`)).toBe(true);
+    expect(await exactRefExists(projectRoot, `refs/heads/${second.branch}`)).toBe(false);
+  });
+
+  test("retirement success is not reported when required ref prune fails", async () => {
+    const branch = "retire-prune-fail";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], projectRoot)).trim();
+
+    let stdout = "";
+    let stderr = "";
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          return JSON.stringify([mergedBranchPr(oid)]);
+        }
+        if (cmd === "git" && args[0] === "update-ref" && args[1] === "-d" && args[2] === `refs/heads/${branch}`) {
+          throw new Error("simulated head delete failure");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (s) => (stdout += s), stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("Failed to retire");
+    expect(stdout).not.toContain(`Retired: ${worktreePath}`);
+    expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
   });
 });

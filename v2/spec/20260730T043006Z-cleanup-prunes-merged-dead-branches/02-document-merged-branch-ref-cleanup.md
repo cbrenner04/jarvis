@@ -19,9 +19,9 @@ and says v2 bulk cleanup never touches remote refs.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` states what `jarvis cleanup` prunes, deliberately keeps, previews, and reports, including local-only `origin` tracking-ref pruning and partial failure behavior.
-- [ ] `v2/docs/v1-behaviors.md` replaces the claim that v2 bulk cleanup never touches remote refs: it never deletes a remote branch, but prunes eligible local `origin` tracking refs and merged local heads independently of worktrees.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/operator-runbook.md` states what `jarvis cleanup` prunes, deliberately keeps, previews, and reports, including local-only `origin` tracking-ref pruning and partial failure behavior.
+- [x] `v2/docs/v1-behaviors.md` replaces the claim that v2 bulk cleanup never touches remote refs: it never deletes a remote branch, but prunes eligible local `origin` tracking refs and merged local heads independently of worktrees.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

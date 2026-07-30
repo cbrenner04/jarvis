@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
@@ -178,6 +178,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   joinProcessOnIdleStall?: boolean;
   /** Test seam: skip ready-gate repair completion fencing. */
   invertReadyGateRepairFenceForTest?: boolean;
+  /** Test seam: skip ready-gate repair harness-sidecar basename fencing. */
+  invertReadyGateRepairSidecarFenceForTest?: boolean;
   /** Test seam: skip persisted-fence enforcement on completed-run retry and resume recovery. */
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
@@ -268,6 +270,7 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
 
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
+const REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE = "Ready-gate repair stages harness sidecar: ";
 const REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE = "Ready-gate repair fence could not reconstruct persisted allowset";
 
 async function shouldEnforceReadyGateRepairFence(worktreePath: string): Promise<boolean> {
@@ -350,6 +353,30 @@ export async function enumerateRepairCompletionCandidates(worktreePath: string):
   }
 }
 
+function findFirstHarnessSidecarBasenameViolation(
+  candidates: readonly string[],
+  invertSidecarFence: boolean,
+): string | undefined {
+  if (invertSidecarFence) {
+    return undefined;
+  }
+  const normalizedCandidates: string[] = [];
+  for (const raw of candidates) {
+    const normalized = validateRepoRelativePath(raw);
+    if (normalized === undefined) {
+      continue;
+    }
+    normalizedCandidates.push(normalized);
+  }
+  normalizedCandidates.sort(compareRepoPathsByUtf8Bytes);
+  for (const normalized of normalizedCandidates) {
+    if (basename(normalized).startsWith(".jarvis-")) {
+      return escapeRepoPathForEvidence(normalized);
+    }
+  }
+  return undefined;
+}
+
 export function findFirstRepairFenceViolation(
   candidates: readonly string[],
   allowedPaths: Set<string>,
@@ -379,10 +406,18 @@ export async function validateReadyGateRepairCompletion(
   scope: ReadyGateScopeInput,
   allowedPaths: Set<string>,
   invertFence = false,
+  invertSidecarFence = false,
 ): Promise<{ error: Error; offendingPath?: string } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
+  }
+  const sidecarViolation = findFirstHarnessSidecarBasenameViolation(candidates, invertSidecarFence);
+  if (sidecarViolation !== undefined) {
+    return {
+      offendingPath: sidecarViolation,
+      error: new Error(`${REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE}${sidecarViolation}`),
+    };
   }
   const violation = findFirstRepairFenceViolation(candidates, allowedPaths, invertFence);
   if (violation === undefined) {
@@ -420,7 +455,7 @@ export async function enforcePersistedReadyGateRepairFence(
   scope: ReadyGateScopeInput,
   store: StateStore,
   runId: string,
-  options?: { invertFence?: boolean; bypass?: boolean },
+  options?: { invertFence?: boolean; invertSidecarFence?: boolean; bypass?: boolean },
 ): Promise<Error | undefined> {
   if (options?.bypass === true) {
     return undefined;
@@ -434,7 +469,12 @@ export async function enforcePersistedReadyGateRepairFence(
     return undefined;
   }
   return (
-    await validateReadyGateRepairCompletion(scope, new Set(provenance.allowedPaths), options?.invertFence === true)
+    await validateReadyGateRepairCompletion(
+      scope,
+      new Set(provenance.allowedPaths),
+      options?.invertFence === true,
+      options?.invertSidecarFence === true,
+    )
   )?.error;
 }
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
@@ -482,6 +522,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             {
               bypass: args.bypassPersistedReadyGateRepairFenceForTest === true,
               invertFence: args.invertReadyGateRepairFenceForTest === true,
+              invertSidecarFence: args.invertReadyGateRepairSidecarFenceForTest === true,
             },
           );
           if (recoveryFenceError !== undefined) {
@@ -1802,6 +1843,7 @@ async function enforceRepairIterationFence(
     },
     frozenRepairAllowset,
     args.invertReadyGateRepairFenceForTest === true,
+    args.invertReadyGateRepairSidecarFenceForTest === true,
   );
   if (fenceResult === undefined) {
     return undefined;

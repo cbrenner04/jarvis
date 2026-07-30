@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -230,6 +230,7 @@ async function runLoop(args: {
   completionPublisher?: WriteLoopInput["completionPublisher"];
   readyFinalizer?: WriteLoopInput["readyFinalizer"];
   invertReadyGateRepairFenceForTest?: boolean;
+  invertReadyGateRepairSidecarFenceForTest?: boolean;
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   stepId?: string;
   workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
@@ -261,6 +262,9 @@ async function runLoop(args: {
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
     ...(args.invertReadyGateRepairFenceForTest !== undefined
       ? { invertReadyGateRepairFenceForTest: args.invertReadyGateRepairFenceForTest }
+      : {}),
+    ...(args.invertReadyGateRepairSidecarFenceForTest !== undefined
+      ? { invertReadyGateRepairSidecarFenceForTest: args.invertReadyGateRepairSidecarFenceForTest }
       : {}),
     ...(args.bypassPersistedReadyGateRepairFenceForTest !== undefined
       ? { bypassPersistedReadyGateRepairFenceForTest: args.bypassPersistedReadyGateRepairFenceForTest }
@@ -1790,6 +1794,7 @@ describe("write loop", () => {
       function initRepairFenceWorktree(
         jarvisRoot: string,
         branchName: string,
+        options?: { harnessSidecars?: boolean },
       ): { worktreePath: string; baseRef: string } {
         const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
         mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
@@ -1798,8 +1803,10 @@ describe("write loop", () => {
         execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
         writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
         writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
-        writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
-        writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+        if (options?.harnessSidecars !== true) {
+          writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
+          writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+        }
         execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
         const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
@@ -1807,7 +1814,13 @@ describe("write loop", () => {
           stdio: "pipe",
         }).trim();
         writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
-        execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+        if (options?.harnessSidecars === true) {
+          writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
+          writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md.owner"), "owner\n", "utf8");
+          execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        } else {
+          execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+        }
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
         return { worktreePath, baseRef };
       }
@@ -1819,6 +1832,7 @@ describe("write loop", () => {
         baseRef: string;
         repairEdit: (cwd: string, invocations: number) => void;
         invertReadyGateRepairFenceForTest?: boolean;
+        invertReadyGateRepairSidecarFenceForTest?: boolean;
         stepId?: string;
         workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
       }) {
@@ -1858,6 +1872,9 @@ describe("write loop", () => {
           },
           ...(args.invertReadyGateRepairFenceForTest !== undefined
             ? { invertReadyGateRepairFenceForTest: args.invertReadyGateRepairFenceForTest }
+            : {}),
+          ...(args.invertReadyGateRepairSidecarFenceForTest !== undefined
+            ? { invertReadyGateRepairSidecarFenceForTest: args.invertReadyGateRepairSidecarFenceForTest }
             : {}),
           ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
           ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
@@ -1911,6 +1928,58 @@ describe("write loop", () => {
           baseRef: initRepairFenceWorktree(jarvisRoot, `${branchName}-invert`).baseRef,
           repairEdit: touchUntouchedRepairEdit,
           invertReadyGateRepairFenceForTest: true,
+        });
+        expect(unfenced.result.kind).toBe("complete");
+      });
+
+      function stageHarnessSidecarRepairEdit(cwd: string) {
+        writeFileSync(join(cwd, ".jarvis-intent-review-verdict.md"), "modified verdict\n", "utf8");
+        writeFileSync(join(cwd, ".jarvis-intent-review-verdict.md.owner"), "modified owner\n", "utf8");
+      }
+
+      test("rejects ready-gate repairs that would publish harness sidecars", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-harness-sidecars";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          harnessSidecars: true,
+        });
+
+        const allowed = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(allowed?.has(".jarvis-intent-review-verdict.md")).toBe(true);
+        expect(allowed?.has(".jarvis-intent-review-verdict.md.owner")).toBe(true);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: stageHarnessSidecarRepairEdit,
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("Ready-gate repair stages harness sidecar:");
+        expect(fenced.result.completionCommitError).toContain(".jarvis-intent-review-verdict.md");
+        expect(fenced.publishCalls).toBe(1);
+        expect(fenced.gateCalls).toBe(1);
+
+        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+          .split("\n")
+          .filter(Boolean);
+        expect(dirty.some((path) => basename(path).startsWith(".jarvis-"))).toBe(true);
+
+        const unfenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName: `${branchName}-invert`,
+          baseRef: initRepairFenceWorktree(jarvisRoot, `${branchName}-invert`, { harnessSidecars: true }).baseRef,
+          repairEdit: stageHarnessSidecarRepairEdit,
+          invertReadyGateRepairSidecarFenceForTest: true,
         });
         expect(unfenced.result.kind).toBe("complete");
       });
@@ -2130,6 +2199,41 @@ describe("write loop", () => {
         expect(retry.kind).toBe("completion_commit_failed");
         expect(retry.runId).toBe(first.result.runId);
         expect(retry.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(publishCalls).toBe(0);
+      });
+
+      test("completed-run retry rejects staged harness sidecars through the persisted fence", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-sidecar-retry";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, { harnessSidecars: true });
+
+        const first = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: stageHarnessSidecarRepairEdit,
+        });
+        expect(first.result.kind).toBe("completion_commit_failed");
+
+        let publishCalls = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+        expect(retry.kind).toBe("completion_commit_failed");
+        expect(retry.runId).toBe(first.result.runId);
+        expect(retry.completionCommitError).toContain("Ready-gate repair stages harness sidecar:");
+        expect(retry.completionCommitError).toContain(".jarvis-intent-review-verdict.md");
         expect(publishCalls).toBe(0);
       });
 

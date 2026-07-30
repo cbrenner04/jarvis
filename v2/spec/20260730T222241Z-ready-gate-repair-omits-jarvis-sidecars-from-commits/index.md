@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Exclude harness sidecars from ready-gate repair completion](./00-exclude-harness-sidecars-from-ready-gate-repair.md)
+- [x] [00 - Exclude harness sidecars from ready-gate repair completion](./00-exclude-harness-sidecars-from-ready-gate-repair.md)

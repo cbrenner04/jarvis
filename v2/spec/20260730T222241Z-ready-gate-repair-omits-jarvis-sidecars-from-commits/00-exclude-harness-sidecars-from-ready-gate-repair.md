@@ -46,20 +46,20 @@ This spec extends `validateReadyGateRepairCompletion` and must land before sibli
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `rejects ready-gate repairs that would publish harness
+- [x] `write-loop.test.ts` test `rejects ready-gate repairs that would publish harness
       sidecars` seeds `.jarvis-intent-review-verdict.md` (and `.owner`) as allowset members
       before the fence freezes (committed in the run diff or under the resolved spec tree),
       stages those paths as repair-completion candidates, returns `completion_commit_failed`
       before repair republish with a basename-specific message naming the first offending
       sidecar by normalized path, asserts the published tree contains no candidate whose
       basename matches `.jarvis-*`, and fails against the pre-fix baseline.
-- [ ] Inverting the basename-scoped test seam in that regression turns it RED
+- [x] Inverting the basename-scoped test seam in that regression turns it RED
       (`invertReadyGateRepairFenceForTest` is insufficient).
-- [ ] `write-loop.test.ts` tests `completes repair limited to an existing run-diff path`
+- [x] `write-loop.test.ts` tests `completes repair limited to an existing run-diff path`
       and `completes repair limited to the resolved spec tree` stay green.
-- [ ] `v2/docs/write-behavior.md` documents that ready-gate repair completion rejects
+- [x] `v2/docs/write-behavior.md` documents that ready-gate repair completion rejects
       `.jarvis-*` basename harness sidecars before commit or republish.
-- [ ] `v2/docs/v1-behaviors.md` ready-gate repair fencing entry records the `.jarvis-*`
+- [x] `v2/docs/v1-behaviors.md` ready-gate repair fencing entry records the `.jarvis-*`
       sidecar exclusion.
 
 ## Documentation updates

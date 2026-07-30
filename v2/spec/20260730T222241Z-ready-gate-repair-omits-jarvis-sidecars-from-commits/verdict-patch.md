@@ -1,0 +1,1 @@
+Reviewing the implementation against the spec and acceptance criteria before issuing a verdict.

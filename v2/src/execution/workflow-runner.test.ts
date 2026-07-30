@@ -37,7 +37,7 @@ import {
   trackedTempRoots,
   withStateStore,
 } from "../testing/write-fixtures.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
+import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
@@ -69,6 +69,17 @@ import {
 } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
+
+function countingCompletionCommitter(onCommit: () => void): CompletionCommitter {
+  const underlying = createCompletionCommitter();
+  return async (input) => {
+    const result = await underlying(input);
+    if (result.commitSha !== undefined) {
+      onCommit();
+    }
+    return result;
+  };
+}
 
 /** Test log sink that captures all events. */
 class TestLogSink implements LogSink {
@@ -6791,15 +6802,9 @@ describe("executeWorkflow review dispatch", () => {
         let finalizerCalls = 0;
         let commits = 0;
         const prompts: string[] = [];
-        const gitRepairCommitter = async ({ worktreePath }: { worktreePath: string }) => {
-          execFileSync("git", ["add", "-A"], { cwd: worktreePath });
-          execFileSync("git", ["commit", "-qm", "repair"], { cwd: worktreePath });
+        const gitRepairCommitter = countingCompletionCommitter(() => {
           commits += 1;
-          return {
-            commitSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim(),
-            filesChanged: 1,
-          };
-        };
+        });
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           completionCommitter: gitRepairCommitter,
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
@@ -7057,7 +7062,10 @@ describe("executeWorkflow review dispatch", () => {
       execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
 
       await withStateStore(async (store) => {
-        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-fence-no-rejection", "implement: no rejection");
+        const snapshot = reviewMutationWorkflowSnapshot(
+          "review-mutation-fence-no-rejection",
+          "implement: no rejection",
+        );
         const base = {
           project: "demo",
           specRef: "main",
@@ -7107,15 +7115,10 @@ describe("executeWorkflow review dispatch", () => {
         const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
 
         let commits = 0;
-        const gitRepairCommitter = async ({ worktreePath }: { worktreePath: string }) => {
-          execFileSync("git", ["add", "-A"], { cwd: worktreePath });
-          execFileSync("git", ["commit", "-qm", "repair"], { cwd: worktreePath });
+        let finalizerCalls = 0;
+        const gitRepairCommitter = countingCompletionCommitter(() => {
           commits += 1;
-          return {
-            commitSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim(),
-            filesChanged: 1,
-          };
-        };
+        });
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
           completionCommitter: gitRepairCommitter,
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
@@ -7133,7 +7136,7 @@ describe("executeWorkflow review dispatch", () => {
               {
                 id: "current-implement-binding",
                 metadata: { agent: "current-agent", model: "current-model" },
-                invoke: async ({ prompt, cwd }) => {
+                invoke: async ({ cwd }) => {
                   writeFileSync(join(cwd, outsidePath), "repaired\n", "utf8");
                   return { kind: "ok", stdout: "done", stderr: "" };
                 },

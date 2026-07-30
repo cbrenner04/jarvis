@@ -608,9 +608,7 @@ class StateStoreImpl implements StateStore {
   }
 
   setReadyGateRepairFence(runId: string, fence: PersistedReadyGateRepairFence): void {
-    this.db
-      .prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?")
-      .run(JSON.stringify(fence), runId);
+    this.db.prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?").run(JSON.stringify(fence), runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

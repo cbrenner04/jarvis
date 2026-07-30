@@ -26,14 +26,6 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
-  deriveRepairAllowset,
-  isGitBackedWorktree,
-  persistedToRepairAllowset,
-  repairAllowsetToPersisted,
-  type RepairAllowset,
-  validateReadyGateRepairCompletion,
-} from "./ready-gate-repair-fence.ts";
-import {
   classifyReadyGateError,
   createReadyFinalizer,
   type ReadyFinalizer,
@@ -44,6 +36,14 @@ import {
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
+import {
+  deriveRepairAllowset,
+  isGitBackedWorktree,
+  persistedToRepairAllowset,
+  type RepairAllowset,
+  repairAllowsetToPersisted,
+  validateReadyGateRepairCompletion,
+} from "./ready-gate-repair-fence.ts";
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -1509,6 +1509,7 @@ async function classifyReadyGatePublishFailure(
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ready-gate repair loop is one publication boundary.
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,

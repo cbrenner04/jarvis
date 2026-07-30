@@ -1,7 +1,7 @@
-import { existsSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { existsSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { parseGitNameStatusZ, type ReadyGateScopeInput, validateRepoRelativePath } from "./ready-finalize.ts";
@@ -233,12 +233,10 @@ export async function listRepairCompletionCandidatePaths(
     await runner.runAsync("git", ["add", "-A"], worktreePath, {
       env: indexEnv,
     });
-    const output = await runner.runAsync(
-      "git",
-      ["diff-index", "--name-status", "-z", "-M", head],
-      worktreePath,
-      { env: indexEnv, maxBuffer: READY_GATE_REPAIR_MAX_BUFFER },
-    );
+    const output = await runner.runAsync("git", ["diff-index", "--name-status", "-z", "-M", head], worktreePath, {
+      env: indexEnv,
+      maxBuffer: READY_GATE_REPAIR_MAX_BUFFER,
+    });
     return parseGitNameStatusZ(output);
   } catch {
     return undefined;

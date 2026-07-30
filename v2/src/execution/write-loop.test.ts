@@ -1,9 +1,18 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -243,9 +252,7 @@ async function runLoop(args: {
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
-    ...(args.invertReadyGateRepairFenceForTest === true
-      ? { invertReadyGateRepairFenceForTest: true }
-      : {}),
+    ...(args.invertReadyGateRepairFenceForTest === true ? { invertReadyGateRepairFenceForTest: true } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -1767,13 +1774,19 @@ describe("write loop", () => {
         const gitignorePath = join(worktreePath, ".gitignore");
         const lines = [".reused", "spec.md"];
         const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
-        const merged = `${existing}${lines.filter((line) => !existing.includes(`${line}\n`)).map((line) => `${line}\n`).join("")}`;
+        const merged = `${existing}${lines
+          .filter((line) => !existing.includes(`${line}\n`))
+          .map((line) => `${line}\n`)
+          .join("")}`;
         writeFileSync(gitignorePath, merged, "utf8");
         execFileSync("git", ["-C", worktreePath, "add", ".gitignore"], { stdio: "pipe" });
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "ignore jarvis test sidecars"], { stdio: "pipe" });
       }
 
-      function initRepairFenceWorktree(jarvisRoot: string, branchName: string): { worktreePath: string; baseRef: string } {
+      function initRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string } {
         const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
         mkdirSync(join(worktreePath, "v2/spec/demo"), { recursive: true });
         execFileSync("git", ["init", "-b", "main", worktreePath], { stdio: "pipe" });
@@ -1897,9 +1910,7 @@ describe("write loop", () => {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
             }
           },
-          ...(args.invertReadyGateRepairFenceForTest === true
-            ? { invertReadyGateRepairFenceForTest: true }
-            : {}),
+          ...(args.invertReadyGateRepairFenceForTest === true ? { invertReadyGateRepairFenceForTest: true } : {}),
         });
         return { result, repairCommits, publishCalls, gateCalls };
       }
@@ -2108,8 +2119,6 @@ describe("write loop", () => {
         const outsidePath = "README.md";
         const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
 
-        let repairCommits = 0;
-        let publishCalls = 0;
         const first = await runRepairFenceLoop({
           jarvisRoot,
           stateDbPath,

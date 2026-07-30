@@ -99,7 +99,8 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees and scans each registered
+6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees, prunes eligible merged
+   local heads and local `origin` tracking refs (never a remote branch), and scans each registered
    `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). When the
    owning worktree is retired in the same apply run, open-home stranded specs archive in that pass.
    It retains
@@ -306,7 +307,8 @@ v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
 `<repo>/.worktree/`. Intent branches: `intent/<slug>`. Plan branches: `plan/<name>`.
 Implement branch defaults to the spec directory basename.
 
-Merged worktrees are retired by `jarvis cleanup`. A leaked worktree from a **failed/unmerged** run
+Merged worktrees and eligible merged local branch refs are retired by `jarvis cleanup` (see
+[Cleanup: eligibility gate](#cleanup-eligibility-gate)). A leaked worktree from a **failed/unmerged** run
 is reset automatically on the next incomplete `jarvis run workflow implement` or `plan` re-run (see above);
 for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
@@ -803,6 +805,17 @@ finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 
 ### Cleanup: eligibility gate
 
+`jarvis cleanup` runs four independent slices in one invocation: merged-worktree retirement,
+worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead
+daemon-socket reaping. Each slice previews in `--dry-run`, shares the apply confirmation prompt,
+and continues after partial failure in another slice unless noted below.
+
+**Local-only ref scope.** Bulk cleanup never deletes a branch on the remote repository. It may
+delete exact local refs only: `refs/heads/<branch>` and, when present, exact
+`refs/remotes/origin/<branch>`. `--abandon` is the path that deletes the remote branch.
+
+#### Merged-worktree retirement
+
 `jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
 The eligibility gate decides whether a worktree is safe to remove.
 
@@ -856,13 +869,61 @@ Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.
 does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is
 held (see [§ `--abandon`](#v2-debris-blocks-the-jarvis1-fallback)).
 
+Successful merged-worktree retirement removes the worktree, then prunes the same local head and
+local `origin` tracking ref through the shared ref-prune path below.
+
+#### Merged-branch ref pruning (worktree-independent)
+
+Every cleanup also scans each distinct registered project Git root for local heads whose merged
+PR authority is verifiable, even when no managed worktree exists for that branch.
+
+**Prunes** (apply, after confirmation):
+
+- Exact `refs/heads/<branch>` when the head matches exactly one merged PR's `headRefOid`, no open
+  PR owns the branch, and apply-time guards pass.
+- Exact `refs/remotes/origin/<branch>` when that tracking ref existed at preview time and still
+  matches the previewed OID at apply time.
+
+Successfully retired merged worktrees use this same path immediately after worktree removal.
+
+**Keeps**:
+
+- The repository base branch, the operator's current branch, and any branch checked out in a
+  worktree (unless that worktree is retired in the same apply invocation).
+- Local heads whose PR is not merged, is ambiguous, or cannot be verified (`gh` failure).
+- Orphan `origin/<branch>` tracking refs with no matching local head.
+- Branches with a non-terminal durable run or a live daemon run for the owning project.
+
+**Preview and apply reporting** (project identity on every line):
+
+- Dry-run: `prune ref: <project> <full-ref>` for each apply-time candidate (subject to the same
+  revalidation guards as apply; not a guaranteed deletion).
+- Apply success: `Pruned ref: <project> <full-ref>`.
+- Apply skip (revalidation or ineligibility): `Skipped ref prune: <project> refs/heads/<branch> — <reason>`.
+- Apply failure: stderr `Failed to prune ref <full-ref> (<project>): <message>`.
+
+Apply revalidates head OID, tracking-ref OID, merged-PR authority, checkout status, and
+durable/daemon run ownership immediately before each mutation; a ref that changed after preview
+is skipped, not deleted. Dry-run lists candidates from discovery; apply-time guards (including
+daemon reachability) can skip a previewed ref without deleting it.
+
+**Partial failure.** A failed head or tracking-ref deletion is not reported as success, makes the
+invocation exit nonzero, and does not block later eligible ref candidates or the independent
+worktree-retirement, artifact-archival, and socket-reaping slices. Worktree retirement is
+reported successful only when both removal and its required ref prune succeed.
+
+Unusable registered project roots (missing, non-Git, or inaccessible) are reported on stderr as
+`Skipped project <project>: <reason> (<root>)` and make the invocation exit nonzero.
+
 **Fail closed**: if `gh` fails, or the daemon rejects or returns a malformed list probe, the
 worktree is marked ineligible and skipped. Daemon-unreachable merged worktrees appear in bulk preview as
 `Skipped merged worktree: <path>` with the stable reason
-`Daemon unreachable; run jarvis daemon start`. At least one such skip makes dry-run, declined, and
-applied cleanup exit nonzero, including when nothing else is eligible or a post-confirmation
-recheck withholds retirement. PR-not-merged, non-terminal-run, live-run, and other ineligibility
-skips retain exit `0`. Cleanup does not impose a response timeout after a connection is established;
+`Daemon unreachable; run jarvis daemon start`. Head-only merged-branch ref pruning uses the same
+daemon-unreachable reason on apply skip (`Skipped ref prune: … — Daemon unreachable; run jarvis daemon start`)
+and the same exit contract: at least one daemon-unreachable skip in either slice makes dry-run,
+declined, and applied cleanup exit nonzero, including when nothing else is eligible, every head-only
+candidate is skipped at apply, or a post-confirmation recheck withholds retirement. PR-not-merged,
+non-terminal-run, live-run, and other ineligibility skips retain exit `0`. Cleanup does not impose a response timeout after a connection is established;
 an established connection that never responds is outside this behavior. If the run store is inaccessible
 (`listRuns()` throws), cleanup aborts with that error rather than skipping individual worktrees.
 
@@ -1188,7 +1249,7 @@ Operators add bullets here; delete when fixed.
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
 - **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
   (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`; use `--yes` for scripted apply) to retire merged worktrees,
-  delete their local branches, and archive eligible open-home specs under `v2/spec/completed/`.
+  prune eligible merged local heads and local `origin` tracking refs, and archive eligible open-home specs under `v2/spec/completed/`.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 

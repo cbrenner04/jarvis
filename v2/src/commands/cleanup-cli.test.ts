@@ -222,6 +222,20 @@ describe("cleanup command through main", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+          if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
+          const headIndex = args.indexOf("--head");
+          const branch = headIndex >= 0 ? args[headIndex + 1] : undefined;
+          if (branch === undefined) return "[]";
+          try {
+            const oid = (
+              await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
+            ).trim();
+            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+          } catch {
+            return "[]";
+          }
+        }
         // Pass through all other commands, don't apply a default cwd - let git commands run from their specified cwd
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
@@ -337,7 +351,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame, noRunsFrame]),
+        connectIpcClient: async () => makeIpcClient([], { staleResetPreflight: { listRuns: [] } }),
         promptConfirm: async () => {
           throw new Error("--yes must not prompt");
         },

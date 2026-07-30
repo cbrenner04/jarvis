@@ -3183,16 +3183,13 @@ function reviewMutationExhaustedTerminalFields(
     : {};
 }
 
-function reviewMutationPublicationResumable(
-  failureKind: WriteLoopOutcomeKind,
-  isFlip: boolean,
-  exhaustedFields: Pick<LoopFinishedEvent, "readyGateOrigin" | "readyGateRepairCount">,
-): boolean {
-  return (
-    !isFlip &&
-    (REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failureKind) ||
-      (failureKind === "ready_gate_failed" && exhaustedFields.readyGateOrigin !== undefined))
-  );
+/**
+ * `ready_gate_failed` — including the exhausted-red case — is already a member of
+ * `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so the retained-checkpoint origin adds no
+ * admission beyond the set membership.
+ */
+function reviewMutationPublicationResumable(failureKind: WriteLoopOutcomeKind, isFlip: boolean): boolean {
+  return !isFlip && REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failureKind);
 }
 
 async function settleFailedReviewMutationPublication(
@@ -3231,7 +3228,7 @@ async function settleFailedReviewMutationPublication(
     // Reflects this resolver's own retryability, not merely "not a ready-flip": `runtime_smoke_failed`
     // is excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so retrying this tail can never
     // change that outcome — the newly emitted record must say so rather than claim resumable.
-    resumable: reviewMutationPublicationResumable(failure.kind, isFlip, exhaustedFields),
+    resumable: reviewMutationPublicationResumable(failure.kind, isFlip),
     ...survivingMutationLogFields(failure.error),
     ...readyGateOutOfScopeLogFields(failure.error),
     ...exhaustedFields,

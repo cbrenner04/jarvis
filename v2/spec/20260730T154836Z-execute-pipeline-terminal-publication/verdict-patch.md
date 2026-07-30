@@ -1,0 +1,4 @@
+Reviewing the implementation and related contracts to issue a grounded verdict.
+No required outcomes.
+
+The implementation satisfies the subspec: sole guarded executor, correct action ordering, fail-fast without PR evidence, `TerminalPublicationError` with retained evidence, no close/delete on failure, injectable seams with non-vacuous guard inversion, and the required doc updates. `wrapReadyGateFailure` correctly implements the pinned `ReadyGateError` evidence contract (using `normalizePublicationFailure` would drop gate fields). Merge flags, flip idempotency, retry, and production gate wiring are explicitly deferred to settle. Remaining notes (bare-export footgun in docs, thinner mutation retention assertions, mutation-path preservation inversion, `intent.md` drift) are polish or settle-scope items, not gaps against the checked acceptance criteria.

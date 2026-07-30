@@ -156,7 +156,7 @@ function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
 /** Segment rows for the ink run monitor from one snapshot. */
 export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   const selected = state.selectedRunId;
-  const lines: MonitorLineRow[] = [row(untoned("jarvis tui"))];
+  const lines: MonitorLineRow[] = [];
   const selectableRuns = orderSelectableRuns(state.runs);
   const tableRows = buildWorkflowTableRows(selectableRuns, state.runs, expandedInvocationIdSet(state));
   const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();

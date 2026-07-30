@@ -11,6 +11,7 @@ import {
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
+import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -210,6 +211,15 @@ async function executePlanDraftWrite(
   }
 
   const validator = args.completionValidator ?? validatePlanDraftShape;
+  const validatePlanDraft = (draftDir: string): boolean => {
+    if (!existsSync(join(draftDir, "index.md"))) return false;
+    try {
+      normalizePlanDraftSpecDir(draftDir);
+    } catch {
+      return false;
+    }
+    return validator(draftDir).valid;
+  };
   const intentBefore = args.intentBefore ?? args.intentSeed;
   const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [];
 
@@ -230,14 +240,15 @@ async function executePlanDraftWrite(
   contracts.push({
     id: "artifact.exists",
     reason: "plan.draft.shape",
-    check: () => validator(specDir).valid || validator(resolveInWorktree(worktreePath, args.specPath)).valid,
+    check: () => validatePlanDraft(specDir) || validatePlanDraft(resolveInWorktree(worktreePath, args.specPath)),
   });
 
   const result = await runWriteStep(args, worktreePath, { prompt, contracts });
   const durable = resolveInWorktree(worktreePath, args.specPath);
-  if (result.kind === "complete" && !validator(specDir).valid && validator(durable).valid) {
+  if (result.kind === "complete" && !validatePlanDraft(specDir) && validatePlanDraft(durable)) {
     for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
     rmSync(durable, { recursive: true, force: true });
+    validatePlanDraft(specDir);
   }
   return result;
 }

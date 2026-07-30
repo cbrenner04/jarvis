@@ -1,0 +1,39 @@
+{
+  "forbiddenProvenance": ["split from", "split-from"],
+  "fixtures": [
+    {
+      "name": "k2",
+      "parentSlug": "phase-1-state-cli",
+      "planningLabels": ["Phase 1"],
+      "expectedChildren": [
+        {
+          "file": "00-persistence.md",
+          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."]
+        },
+        {
+          "file": "01-cli.md",
+          "acceptanceCriteria": ["- [ ] The CLI validates run flags before dispatch."]
+        }
+      ]
+    },
+    {
+      "name": "k3",
+      "parentSlug": "milestone-2-runtime-surfaces",
+      "planningLabels": ["Milestone 2"],
+      "expectedChildren": [
+        {
+          "file": "00-persistence.md",
+          "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."]
+        },
+        {
+          "file": "01-daemon.md",
+          "acceptanceCriteria": ["- [ ] Daemon RPC rejects a malformed plan request."]
+        },
+        {
+          "file": "02-cli.md",
+          "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."]
+        }
+      ]
+    }
+  ]
+}

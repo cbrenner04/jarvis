@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentName, AgentResult } from "../../../src/agents/types.ts";
@@ -11,7 +11,7 @@ class FakeAgent {
   readonly name: AgentName = "claude";
   constructor(private readonly specDir: string) {}
   async run(): Promise<AgentResult> {
-    writeFileSync(join(this.specDir, "index.md"), "# Plan\n", "utf8");
+    writeFileSync(join(this.specDir, "index.md"), "# Plan\n\n- [ ] [00 - Task](./00-task.md)\n", "utf8");
     writeFileSync(join(this.specDir, "00-task.md"), "## Acceptance criteria\n- [ ] x\n", "utf8");
     return { kind: "ok", stdout: "", stderr: "" };
   }
@@ -107,6 +107,34 @@ describe("runDraftPhase external spec dir", () => {
     expect(validation.valid).toBe(true);
     expect(validation.warnings).toEqual([]);
   });
+});
+
+describe("plan draft boundary normalization", () => {
+  let repoDir: string;
+
+  afterEach(() => {
+    if (repoDir) rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  for (const layout of ["fresh", "recovery"] as const) {
+    test(`${layout} validation normalizes a non-blocked multi-boundary draft`, () => {
+      repoDir = mkdtempSync(join(tmpdir(), "jarvis-boundary-normalization-"));
+      const specDir = layout === "fresh" ? join(repoDir, "spec", "draft") : join(repoDir, "durable-output");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: draft\n---\n", "utf8");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00 - Runtime surfaces](./00-runtime-surfaces.md)\n", "utf8");
+      writeFileSync(
+        join(specDir, "00-runtime-surfaces.md"),
+        "# Draft\n\n## Acceptance criteria\n\n- [ ] The state-store persists the draft.\n- [ ] The CLI prints the draft.\n",
+        "utf8",
+      );
+
+      const result = validateDraftOutput(repoDir, "draft", undefined, layout === "recovery" ? specDir : undefined);
+
+      expect(result.valid).toBe(true);
+      expect(readdirSync(specDir).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+    });
+  }
 });
 
 describe("anchor grounding in validateDraftOutput", () => {

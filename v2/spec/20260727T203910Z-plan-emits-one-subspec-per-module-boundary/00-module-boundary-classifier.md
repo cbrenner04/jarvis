@@ -29,12 +29,12 @@ and later intent-split work share one testable vocabulary.
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` maps committed fixture phrases to `persistence`,
+- [x] `shared/module-boundary-surfaces.test.ts` maps committed fixture phrases to `persistence`,
       `daemon`, and `cli` and asserts a three-line AC union spans all three boundaries; it fails
       against the pre-change code.
-- [ ] The same module asserts a zero-match AC line paired with single-boundary classified lines does
+- [x] The same module asserts a zero-match AC line paired with single-boundary classified lines does
       not by itself trigger `spansMultipleModuleBoundaries`.
-- [ ] Inverting the `spansMultipleModuleBoundaries` guard turns the three-boundary union test RED.
+- [x] Inverting the `spansMultipleModuleBoundaries` guard turns the three-boundary union test RED.
 
 ## Documentation updates
 

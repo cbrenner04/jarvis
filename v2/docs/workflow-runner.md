@@ -229,6 +229,13 @@ Target precedence is run override, canonical ready-intent parent (`<targetDir>/r
 
 The builder emits one `write` step with role `plan`, prompt `plan.prompt.draft`, `.jarvis-plan-stage/` as the artifact boundary, and the ready-intent content threaded as `intentSeed` for downstream write-step seeding (subspec 01). Omitted `reviewPasses` defaults to one debate pass; pass `--review-passes 0` to emit draft-only (no review step). Positive explicit counts append either a light `review` step (`reviewBehavior: "light"`) or a debate `review-debate` step (the default when behavior is omitted). Branch, worktree, and project collisions are named failures. Divergent remote state fails without reset, force-push, suffixing, or publication.
 
+Before validation and publication, plan draft emission treats acceptance criteria as
+the oversize signal. If one drafted subspec's criteria own multiple module
+boundaries, Jarvis splits it into one emitted subspec per boundary rather than
+publishing it whole. Criteria-free prose does not trigger a split. The canonical
+surface list and classifier contract are in
+[`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts).
+
 Plan-drafted acceptance criteria follow the [both-direction guard contract](../../v1/docs/spec-guidance.md#failing-test-requirement-for-runtime-behavior-subspecs).
 
 **CLI usage:** `jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`

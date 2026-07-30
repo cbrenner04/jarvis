@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { buildPlanDraftPrompt } from "../../../../shared/prompts/plan-draft.ts";
 import { PromptRenderingError } from "../../../../shared/prompts/render.ts";
+import { normalizePlanDraftSpecDir } from "../../../../shared/module-boundary-surfaces.ts";
 import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
@@ -342,6 +343,21 @@ export function validateDraftOutput(
   const indexPath = join(specDir, "index.md");
   if (!existsSync(indexPath)) {
     return { valid: false, error: "index.md was not created", warnings: [] };
+  }
+
+  try {
+    normalizePlanDraftSpecDir(specDir);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const missingAcceptance = message.match(/^Plan subspec (.+) is missing ## Acceptance criteria$/u);
+    return {
+      valid: false,
+      error:
+        missingAcceptance?.[1] === undefined
+          ? `plan boundary normalization failed: ${message}`
+          : `${missingAcceptance[1]}: no acceptance criteria found under \`## Acceptance criteria\``,
+      warnings: [],
+    };
   }
 
   // Check at least one NN-*.md exists

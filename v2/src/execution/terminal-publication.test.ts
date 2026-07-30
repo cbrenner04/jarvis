@@ -146,6 +146,34 @@ describe("executeTerminalPublication", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 
+  it("keeps short gate output whole and truncates long output to its tail", async () => {
+    const runWithOutput = async (output: string): Promise<string | undefined> => {
+      const execute = createExecuteTerminalPublication({
+        runReadyGate: async () => {
+          throw new ReadyGateError("bun run ready", 1, output);
+        },
+      });
+      try {
+        await execute({ ...baseInput, terminalAction: "ready" });
+        throw new Error("expected ready gate failure");
+      } catch (error) {
+        expect(error).toBeInstanceOf(TerminalPublicationError);
+        return (error as TerminalPublicationError).failure.stdoutTail;
+      }
+    };
+
+    const short = `head${"s".repeat(4000)}tail`;
+    expect(short.length).toBeLessThanOrEqual(4096);
+    expect(await runWithOutput(short)).toBe(short);
+
+    const long = `head${"l".repeat(5000)}tail`;
+    expect(long.length).toBeGreaterThan(4096);
+    const longTail = await runWithOutput(long);
+    expect(longTail).toHaveLength(4096);
+    expect(longTail).toBe(long.slice(-4096));
+    expect(longTail?.startsWith("head")).toBe(false);
+  });
+
   it("retains PR evidence on terminal mutation failure", async () => {
     const closeCalls: string[] = [];
     const deleteCalls: string[] = [];

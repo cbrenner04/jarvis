@@ -6,6 +6,7 @@ import {
   MODULE_BOUNDARY_SURFACES,
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
+  splitResiduePattern,
   spansMultipleModuleBoundaries,
 } from "./module-boundary-surfaces.ts";
 
@@ -15,15 +16,28 @@ const PHRASE_FIXTURES = [
   ["The CLI validates run flags before dispatch.", ["cli"]],
 ] as const;
 
+type FixtureChild = {
+  acceptanceCriteria: string[];
+  decisions: string[];
+  documentationUpdates: string[];
+  file: string;
+};
+
 type FixtureManifest = {
   forbiddenProvenance: string[];
   fixtures: Array<{
+    expectedChildren: FixtureChild[];
     name: string;
     parentSlug: string;
     planningLabels: string[];
-    expectedChildren: Array<{ file: string; acceptanceCriteria: string[] }>;
   }>;
 };
+
+const PRESERVED_SECTIONS = [
+  { checkbox: false, field: "decisions" as const, heading: "## Decisions" },
+  { checkbox: true, field: "acceptanceCriteria" as const, heading: "## Acceptance criteria" },
+  { checkbox: false, field: "documentationUpdates" as const, heading: "## Documentation updates" },
+] as const;
 
 const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "module-boundary-surfaces");
 const MANIFEST = JSON.parse(readFileSync(join(FIXTURE_ROOT, "manifest.json"), "utf8")) as FixtureManifest;
@@ -38,11 +52,29 @@ function stagedFixture(name: string): string {
   return dir;
 }
 
-function checkboxLines(body: string): string[] {
+function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const heading = lines.indexOf("## Acceptance criteria");
-  const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
-  return lines.slice(heading + 1, end === -1 ? undefined : end).filter((line) => /^\s*-\s\[[ xX]\]\s+/u.test(line));
+  const headingIndex = lines.indexOf(heading);
+  if (headingIndex === -1) return [];
+  const end = lines.findIndex((line, index) => index > headingIndex && /^##\s/u.test(line ?? ""));
+  const sectionEnd = end === -1 ? lines.length : end;
+  const bulletPattern = checkbox ? /^\s*-\s\[[ xX]\]\s+/u : /^\s*-\s+(?!\[[ xX]\]\s)/u;
+  return lines.slice(headingIndex + 1, sectionEnd).filter((line) => bulletPattern.test(line));
+}
+
+function survivingParentBullets(parentBody: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
+  const residue = splitResiduePattern(parentSlug);
+  return sectionBulletLines(parentBody, heading, checkbox).filter((line) => !residue.test(line));
+}
+
+function expectExactlyOnceUnion(
+  children: readonly FixtureChild[],
+  field: (typeof PRESERVED_SECTIONS)[number]["field"],
+  parentSurviving: string[],
+): void {
+  const union = children.flatMap((child) => child[field]);
+  expect(union.toSorted()).toEqual(parentSurviving.toSorted());
+  expect(new Set(union).size).toBe(union.length);
 }
 
 afterEach(() => {
@@ -99,6 +131,11 @@ describe("module boundary surfaces", () => {
   for (const fixture of MANIFEST.fixtures) {
     test(`normalizes the ${fixture.name} staged tree without provenance`, () => {
       const dir = stagedFixture(fixture.name);
+      const parentFile = readdirSync(dir)
+        .filter((file) => /^\d{2}-.*\.md$/u.test(file))
+        .sort()[0];
+      if (!parentFile) throw new Error(`${fixture.name} fixture is missing a drafted subspec`);
+      const parentBody = readFileSync(join(dir, parentFile), "utf8");
 
       normalizePlanDraftSpecDir(dir);
 
@@ -107,7 +144,17 @@ describe("module boundary surfaces", () => {
         .sort();
       expect(emittedFiles).toEqual(fixture.expectedChildren.map((child) => child.file));
       for (const child of fixture.expectedChildren) {
-        expect(checkboxLines(readFileSync(join(dir, child.file), "utf8"))).toEqual(child.acceptanceCriteria);
+        const body = readFileSync(join(dir, child.file), "utf8");
+        for (const { checkbox, field, heading } of PRESERVED_SECTIONS) {
+          expect(sectionBulletLines(body, heading, checkbox)).toEqual(child[field]);
+        }
+      }
+      for (const { checkbox, field, heading } of PRESERVED_SECTIONS) {
+        expectExactlyOnceUnion(
+          fixture.expectedChildren,
+          field,
+          survivingParentBullets(parentBody, fixture.parentSlug, heading, checkbox),
+        );
       }
       const durableText = [
         ...emittedFiles,
@@ -128,20 +175,74 @@ describe("module boundary surfaces", () => {
     });
   }
 
-  test("hard-errors before dropping a multi-surface acceptance criterion", () => {
+  test.each([
+    {
+      error: "multi-surface acceptance criterion",
+      line: "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.",
+      replace: "- [ ] The state-store persists completed runs atomically.",
+    },
+    {
+      error: "multi-surface decisions",
+      line: "- The state-store persists completed runs atomically, and the CLI exposes the same completed run.",
+      replace: "- The state-store owns the completed-run persistence contract.",
+    },
+  ])("hard-errors before dropping a $error", ({ error, line, replace }) => {
     const fixture = MANIFEST.fixtures[0];
     if (!fixture) throw new Error("k2 fixture is missing");
     const dir = stagedFixture(fixture.name);
     const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    const multiSurface =
-      "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
-    const source = readFileSync(sourcePath, "utf8").replace(
-      "- [ ] The state-store persists completed runs atomically.",
-      multiSurface,
-    );
+    const source = readFileSync(sourcePath, "utf8").replace(replace, line);
     writeFileSync(sourcePath, source);
 
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface acceptance criterion");
-    expect(readFileSync(sourcePath, "utf8")).toContain(multiSurface);
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(error);
+    expect(readFileSync(sourcePath, "utf8")).toContain(line);
+  });
+
+  test("retains downstream headings when a non-first child has an empty optional section", () => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    const source = readFileSync(sourcePath, "utf8")
+      .replace("- The command-line entrypoint owns flag validation before dispatch.", "")
+      .replace("- Phase 1 phase-1-state-cli supersedes the prior draft.", "")
+      .replace("- Split from the original proposal.", "");
+    writeFileSync(sourcePath, source);
+
+    normalizePlanDraftSpecDir(dir);
+
+    const cliBody = readFileSync(join(dir, "01-cli.md"), "utf8");
+    expect(cliBody).not.toContain("## Decisions");
+    expect(cliBody).toContain("## Acceptance criteria");
+    expect(cliBody).toContain("## Documentation updates");
+    expect(sectionBulletLines(cliBody, "## Acceptance criteria", true)).toEqual([
+      "- [ ] The CLI validates run flags before dispatch.",
+    ]);
+    expect(sectionBulletLines(cliBody, "## Documentation updates", false)).toEqual([
+      "- Document CLI flag validation in install-and-config.",
+    ]);
+  });
+
+  test.each([
+    {
+      error: "out-of-boundary decisions",
+      line: "- Daemon RPC must validate plan requests before dispatch.",
+      replace: "- The command-line entrypoint owns flag validation before dispatch.",
+    },
+    {
+      error: "out-of-boundary documentation updates",
+      line: "- Document daemon RPC validation in operator runbook.",
+      replace: "- Document CLI flag validation in install-and-config.",
+    },
+  ])("hard-errors before dropping an $error", ({ error, line, replace }) => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    const source = readFileSync(sourcePath, "utf8").replace(replace, line);
+    writeFileSync(sourcePath, source);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(error);
+    expect(readFileSync(sourcePath, "utf8")).toContain(line);
   });
 });

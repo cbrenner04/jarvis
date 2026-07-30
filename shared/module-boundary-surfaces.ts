@@ -23,6 +23,12 @@ const SURFACES: Record<ModuleBoundarySurface, { patterns: readonly RegExp[]; tit
   },
 };
 
+const PARTITIONED_SECTIONS = [
+  { checkbox: false, heading: "## Decisions", required: false },
+  { checkbox: true, heading: "## Acceptance criteria", required: true },
+  { checkbox: false, heading: "## Documentation updates", required: false },
+] as const;
+
 export function classifyModuleBoundaryText(text: string): ModuleBoundarySurface[] {
   return MODULE_BOUNDARY_SURFACES.filter((surface) => SURFACES[surface].patterns.some((pattern) => pattern.test(text)));
 }
@@ -36,7 +42,7 @@ export function spansMultipleModuleBoundaries(acceptanceCriteria: readonly strin
   return moduleBoundariesForAcceptanceCriteria(acceptanceCriteria).length > 1;
 }
 
-type AcceptanceCriterionBlock = {
+type SectionBulletBlock = {
   lines: string[];
   text: string;
   surfaces: ModuleBoundarySurface[];
@@ -44,8 +50,8 @@ type AcceptanceCriterionBlock = {
 
 type DraftSubspec = {
   body: string;
-  criteria: AcceptanceCriterionBlock[];
   file: string;
+  sections: Record<(typeof PARTITIONED_SECTIONS)[number]["heading"], SectionBulletBlock[]>;
 };
 
 type EmittedSubspec = {
@@ -54,7 +60,7 @@ type EmittedSubspec = {
   linkText?: string;
 };
 
-function splitResiduePattern(parentSlug: string): RegExp {
+export function splitResiduePattern(parentSlug: string): RegExp {
   const escapedSlug = parentSlug.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   return new RegExp(`\\b(?:split[- ]from|${escapedSlug}|(?:phase|milestone|slice)\\s+\\d+)\\b`, "iu");
 }
@@ -68,43 +74,73 @@ function removeSplitResidue(body: string, parentSlug: string): string {
     .join("\n");
 }
 
-function acceptanceCriteria(body: string, file: string): AcceptanceCriterionBlock[] {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const heading = lines.indexOf("## Acceptance criteria");
-  if (heading === -1) throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
-  const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
-  const sectionEnd = end === -1 ? lines.length : end;
-  const blocks: AcceptanceCriterionBlock[] = [];
+function sectionBounds(lines: readonly string[], heading: string): { end: number; start: number } | null {
+  const start = lines.indexOf(heading);
+  if (start === -1) return null;
+  const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line ?? ""));
+  return { end: end === -1 ? lines.length : end, start };
+}
 
-  for (let index = heading + 1; index < sectionEnd; index += 1) {
+function sectionBullets(
+  body: string,
+  heading: string,
+  file: string,
+  checkbox: boolean,
+  required: boolean,
+): SectionBulletBlock[] {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const bounds = sectionBounds(lines, heading);
+  if (!bounds) {
+    if (required) throw new Error(`Plan subspec ${file} is missing ${heading}`);
+    return [];
+  }
+
+  const blocks: SectionBulletBlock[] = [];
+  for (let index = bounds.start + 1; index < bounds.end; index += 1) {
     const line = lines[index] ?? "";
-    const match = line.match(/^\s*-\s\[[ xX]\]\s+(.+)$/u);
+    const match = checkbox
+      ? line.match(/^\s*-\s\[[ xX]\]\s+(.+)$/u)
+      : line.match(/^\s*-\s+(?!\[[ xX]\]\s)(.+)$/u);
     if (!match?.[1]) continue;
     const blockLines = [line];
-    while (index + 1 < sectionEnd && !/^\s*-\s\[[ xX]\]\s+/u.test(lines[index + 1] ?? "")) {
-      blockLines.push(lines[index + 1] ?? "");
+    while (index + 1 < bounds.end) {
+      const next = lines[index + 1] ?? "";
+      const isNewBullet = checkbox
+        ? /^\s*-\s\[[ xX]\]\s+/u.test(next)
+        : /^\s*-\s+(?!\[[ xX]\]\s)/u.test(next);
+      if (isNewBullet) break;
+      blockLines.push(next);
       index += 1;
     }
-    blocks.push({
-      lines: blockLines,
-      text: [match[1], ...blockLines.slice(1)].map((part) => part.trim()).join("\n"),
-      surfaces: classifyModuleBoundaryText([match[1], ...blockLines.slice(1)].join("\n")),
-    });
+    const text = [match[1], ...blockLines.slice(1)].map((part) => part.trim()).join("\n");
+    blocks.push({ lines: blockLines, surfaces: classifyModuleBoundaryText(text), text });
   }
 
   return blocks;
 }
 
-function replaceAcceptanceCriteria(body: string, title: string, criteria: readonly AcceptanceCriterionBlock[]): string {
+function replaceSectionBullets(
+  body: string,
+  heading: string,
+  bullets: readonly SectionBulletBlock[],
+  title?: string,
+): string {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const h1 = lines.findIndex((line) => /^#\s+/u.test(line ?? ""));
-  if (h1 !== -1) lines[h1] = `# ${title}`;
-  const heading = lines.indexOf("## Acceptance criteria");
-  const end = lines.findIndex((line, index) => index > heading && /^##\s/u.test(line ?? ""));
-  const sectionEnd = end === -1 ? lines.length : end;
-  const replacement = ["", ...criteria.flatMap((criterion) => criterion.lines)];
-  if (sectionEnd < lines.length) replacement.push("");
-  lines.splice(heading + 1, sectionEnd - heading - 1, ...replacement);
+  if (title !== undefined) {
+    const h1 = lines.findIndex((line) => /^#\s+/u.test(line ?? ""));
+    if (h1 !== -1) lines[h1] = `# ${title}`;
+  }
+
+  const bounds = sectionBounds(lines, heading);
+  if (!bounds) return lines.join("\n");
+  if (bullets.length === 0) {
+    lines.splice(bounds.start, bounds.end - bounds.start);
+    return lines.join("\n").replace(/\n{3,}/gu, "\n\n");
+  }
+
+  const replacement = ["", ...bullets.flatMap((bullet) => bullet.lines)];
+  if (bounds.end < lines.length) replacement.push("");
+  lines.splice(bounds.start + 1, bounds.end - bounds.start - 1, ...replacement);
   return lines.join("\n");
 }
 
@@ -157,6 +193,32 @@ function assertNoSplitResidue(outputs: readonly EmittedSubspec[], indexBody: str
   }
 }
 
+function assertNoMultiSurfaceBullets(draft: DraftSubspec): void {
+  for (const { checkbox, heading } of PARTITIONED_SECTIONS) {
+    for (const bullet of draft.sections[heading]) {
+      if (bullet.surfaces.length <= 1) continue;
+      const kind = checkbox ? "acceptance criterion" : heading.slice(3).toLowerCase();
+      throw new Error(`Plan subspec ${draft.file} has a multi-surface ${kind}: ${bullet.text}`);
+    }
+  }
+}
+
+function assertBulletsWithinBoundaries(
+  draft: DraftSubspec,
+  boundaries: readonly ModuleBoundarySurface[],
+): void {
+  const boundarySet = new Set(boundaries);
+  for (const { checkbox, heading } of PARTITIONED_SECTIONS) {
+    if (checkbox) continue;
+    for (const bullet of draft.sections[heading]) {
+      const surface = bullet.surfaces[0];
+      if (surface === undefined || boundarySet.has(surface)) continue;
+      const kind = heading.slice(3).toLowerCase();
+      throw new Error(`Plan subspec ${draft.file} has an out-of-boundary ${kind}: ${bullet.text}`);
+    }
+  }
+}
+
 /** Split and contiguously renumber a staged plan draft by acceptance-criterion module boundary. */
 export function normalizePlanDraftSpecDir(specDir: string): void {
   const sourceFiles = readdirSync(specDir)
@@ -164,18 +226,32 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
     .sort();
   const drafts: DraftSubspec[] = sourceFiles.map((file) => {
     const body = readFileSync(join(specDir, file), "utf8");
-    return { body, criteria: acceptanceCriteria(body, file), file };
+    const sections = Object.fromEntries(
+      PARTITIONED_SECTIONS.map(({ checkbox, heading, required }) => [
+        heading,
+        sectionBullets(body, heading, file, checkbox, required),
+      ]),
+    ) as DraftSubspec["sections"];
+    return { body, file, sections };
   });
 
   const indexPath = join(specDir, "index.md");
   const indexBody = readFileSync(indexPath, "utf8");
   assertIndexLinks(indexBody, sourceFiles);
-  if (!drafts.some((draft) => spansMultipleModuleBoundaries(draft.criteria.map((criterion) => criterion.text)))) return;
+  if (
+    !drafts.some((draft) =>
+      spansMultipleModuleBoundaries(draft.sections["## Acceptance criteria"].map((criterion) => criterion.text)),
+    )
+  ) {
+    return;
+  }
 
   let emittedIndex = 0;
   const replacements = new Map<string, EmittedSubspec[]>();
   for (const draft of drafts) {
-    const boundaries = moduleBoundariesForAcceptanceCriteria(draft.criteria.map((criterion) => criterion.text));
+    const boundaries = moduleBoundariesForAcceptanceCriteria(
+      draft.sections["## Acceptance criteria"].map((criterion) => criterion.text),
+    );
     if (boundaries.length < 2) {
       const file = `${emittedIndex.toString().padStart(2, "0")}-${draft.file.slice(3)}`;
       replacements.set(draft.file, [{ body: draft.body, file }]);
@@ -183,20 +259,22 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
       continue;
     }
 
-    const ambiguous = draft.criteria.find((criterion) => criterion.surfaces.length > 1);
-    if (ambiguous) {
-      throw new Error(`Plan subspec ${draft.file} has a multi-surface acceptance criterion: ${ambiguous.text}`);
-    }
+    assertNoMultiSurfaceBullets(draft);
+    assertBulletsWithinBoundaries(draft, boundaries);
 
     const children = boundaries.map((surface, boundaryIndex) => {
       const { title } = SURFACES[surface];
-      const criteria = draft.criteria.filter(
-        (criterion) => criterion.surfaces[0] === surface || (boundaryIndex === 0 && criterion.surfaces.length === 0),
-      );
       const prefix = emittedIndex.toString().padStart(2, "0");
       emittedIndex += 1;
+      let body = draft.body;
+      for (const [sectionIndex, { heading }] of PARTITIONED_SECTIONS.entries()) {
+        const partitioned = draft.sections[heading].filter(
+          (bullet) => bullet.surfaces[0] === surface || (boundaryIndex === 0 && bullet.surfaces.length === 0),
+        );
+        body = replaceSectionBullets(body, heading, partitioned, sectionIndex === 0 ? title : undefined);
+      }
       return {
-        body: removeSplitResidue(replaceAcceptanceCriteria(draft.body, title, criteria), draft.file.slice(3, -3)),
+        body: removeSplitResidue(body, draft.file.slice(3, -3)),
         file: `${prefix}-${surface}.md`,
         linkText: `${prefix} - ${title}`,
       };

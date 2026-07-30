@@ -2621,7 +2621,7 @@ describe("executeWorkflow completion publication", () => {
         stateStore: store,
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
-        completionPublisher: async () => ({}),
+        completionPublisher: async () => ({ pushSha: "push-1", prNumber: 42, prUrl: "https://example.test/pr/42" }),
         readyFinalizer: async () => {
           gateCalls += 1;
           throw new ReadyGateError("bun run ready", 2, `failure ${gateCalls}`);
@@ -2631,8 +2631,19 @@ describe("executeWorkflow completion publication", () => {
       expect(result.resumable).toBe(true);
       expect(invocations).toBe(5);
       expect(gateCalls).toBe(4);
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+      expect(events.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        resumable: true,
+        readyGateFailureOrigin: "repair_budget_exhausted",
+        readyGateRepairCount: 3,
+        finalizationLineageRunId: result.runId,
+        retainedFinalizationCheckpoint: true,
+        prNumber: 42,
+      });
     });
   });
 

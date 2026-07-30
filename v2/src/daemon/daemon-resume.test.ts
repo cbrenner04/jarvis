@@ -3,8 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import type { CompletionCommitter } from "../execution/completion-commit.ts";
+import { formatReadyGateOutOfScopeDetail, createReadyFinalizer, exhaustedRedGateFailureMeta, isExhaustedRedReadyGateAdmission, ReadyGateError, type ReadyFinalizer } from "../execution/ready-finalize.ts";
+import { executeWriteLoop, MAX_READY_GATE_REPAIRS, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { resolveWriteExhaustedRedResumeContext } from "../execution/workflow-runner.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -584,7 +586,7 @@ test("resume retries a failed run after a landing failure", async () => {
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
-test("resume admits ready_gate_failed when repair attempt ended blocked", async () => {
+test("resume refuses ready_gate_failed when repair attempt ended blocked", async () => {
   const runId = createWorkflowRun({ invocationId: "ready-gate-blocked-repair" });
   stateStore.setRunStatus(runId, "failed");
   const attemptId = stateStore.recordAttemptStart(runId);
@@ -597,10 +599,19 @@ test("resume admits ready_gate_failed when repair attempt ended blocked", async 
     loopOutcomeKind: "ready_gate_failed",
     iterationsConsumed: 1,
     resumable: true,
+    readyGateFailureOrigin: "repair_blocked",
+    readyGateRepairCount: 1,
+    finalizationLineageRunId: runId,
+    retainedFinalizationCheckpoint: true,
+    prNumber: 1,
+    prUrl: "https://example.test/pr/1",
   });
   const localHandlers = createHandlers(logReader);
-  expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
-  expect(fakeExecutor.pendingCount()).toBe(1);
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind !== "error") throw new Error("not an error");
+  expect(response.code).toBe("resume_unsupported");
+  expect(fakeExecutor.pendingCount()).toBe(0);
 });
 
 test("resume admits ready_gate_out_of_scope for finalization retry and refuses repair re-entry", async () => {
@@ -970,7 +981,13 @@ test.each(
 
   const resumeResponse = await resumeDirect(localHandlers, runId);
   if (admitted) {
-    expect(resumeRefusedTerminal(resumeResponse)).toBe(false);
+    if (loopOutcomeKind === "ready_gate_failed" && status === "failed") {
+      expect(resumeResponse.kind).toBe("error");
+      if (resumeResponse.kind !== "error") throw new Error("not an error");
+      expect(resumeResponse.code).toBe("resume_unsupported");
+    } else {
+      expect(resumeRefusedTerminal(resumeResponse)).toBe(false);
+    }
   } else {
     expect(resumeRefusedTerminal(resumeResponse)).toBe(true);
   }
@@ -1105,6 +1122,10 @@ test("wait and list resumable agrees for non-entry workflow step row", async () 
   const admitted = isResumeAdmitted(run, terminalRecord);
   expect(await waitResumable(localHandlers, step2RunId)).toBe(admitted);
   expect(await listResumable(localHandlers, step2RunId)).toBe(admitted);
+  const response = await resumeDirect(localHandlers, step2RunId);
+  expect(response.kind).toBe("error");
+  if (response.kind !== "error") throw new Error("not an error");
+  expect(response.code).toBe("resume_unsupported");
 });
 
 /**
@@ -1166,12 +1187,27 @@ function landingFailedLogReader(runId: string): LogReader {
   });
 }
 
-async function listRow(h: Handlers, runId: string): Promise<{ error?: { reason?: string; nextAction?: string } }> {
+async function listRow(
+  h: Handlers,
+  runId: string,
+): Promise<{
+  status?: string;
+  resumable?: boolean;
+  error?: { reason?: string; nextAction?: string; retryable?: boolean };
+}> {
   const frame = await h.list({ kind: "request", id: "list-intent", method: "list" }, new AbortController().signal);
   expect(frame.kind).toBe("response");
   if (frame.kind !== "response") throw new Error("not a response");
-  const runs = (frame.result as { runs: Array<{ runId: string; error?: { reason?: string; nextAction?: string } }> })
-    .runs;
+  const runs = (
+    frame.result as {
+      runs: Array<{
+        runId: string;
+        status?: string;
+        resumable?: boolean;
+        error?: { reason?: string; nextAction?: string; retryable?: boolean };
+      }>;
+    }
+  ).runs;
   const row = runs.find((candidate) => candidate.runId === runId);
   if (!row) throw new Error(`row ${runId} not found`);
   return row;
@@ -1967,5 +2003,408 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
     expect(await waitResumable(localHandlers, shrinkRunId)).not.toBe(true);
   } finally {
     rmSync(logsPath, { force: true });
+  }
+});
+
+async function driveExhaustedRedImplementRun(invocationId: string): Promise<{
+  runId: string;
+  logsPath: string;
+}> {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branch = `exhausted-red/${invocationId}`;
+  const worktreePath = join(jarvisRoot, "worktree");
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "spec.md"), "- [x] done\n", "utf8");
+
+  const workflowSnapshot = {
+    invocationId,
+    steps: [
+      {
+        stepId: "step-1",
+        role: "implement",
+        stepRules: "resume rules",
+        expectedArtifactPath: "artifact",
+        agents: ["codex"] as const,
+        agentModelConfig: AGENT_MODEL_CONFIG,
+      },
+    ],
+  };
+  const runId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath,
+    branch,
+    specPath: "spec.md",
+    stepId: "step-1",
+    workflowSnapshot,
+  });
+
+  const logsPath = join(tmpdir(), `jarvis-exhausted-red-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  let gateCalls = 0;
+  const result = await executeWriteLoop({
+    worktree: {
+      projectRoot: worktreePath,
+      projectName: "test-project",
+      branchName: branch,
+      baseRef: "main",
+    },
+    specPath: "spec.md",
+    expectedArtifactPath: "artifact",
+    stepRules: "done",
+    bindings: simulatedBindings(["done", "progress", "progress", "progress", "progress"], {
+      emitArtifact: true,
+      artifactPath: "artifact",
+    }),
+    stepId: "step-1",
+    workflowSnapshot,
+    stateStore,
+    logSink,
+    withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    sessionsDir: join(jarvisRoot, "sessions"),
+    completionCommitter: async () => ({ commitSha: "commit-1" }),
+    completionPublisher: async () => ({ pushSha: "push-1", prNumber: 42, prUrl: "https://example.test/pr/42" }),
+    readyFinalizer: async () => {
+      gateCalls += 1;
+      throw new ReadyGateError("bun run ready", 2, `failure ${gateCalls}`);
+    },
+    maxIterations: 10,
+  });
+  logSink.close();
+  expect(result.kind).toBe("ready_gate_failed");
+  expect(stateStore.loadRun(runId)?.status).toBe("failed");
+  return { runId, logsPath };
+}
+
+function exhaustedRedLoopEvent(runId: string): Omit<LoopFinishedEvent, "kind"> {
+  return {
+    loopOutcomeKind: "ready_gate_failed",
+    iterationsConsumed: 5,
+    resumable: true,
+    ...exhaustedRedGateFailureMeta(runId, MAX_READY_GATE_REPAIRS),
+    prNumber: 42,
+    prUrl: "https://example.test/pr/42",
+  };
+}
+
+const exhaustedRedResumeDeps = {
+  completionCommitter: (async () => ({ commitSha: "deadbeef", filesChanged: 0 })) as CompletionCommitter,
+  completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" }),
+};
+
+function createTrackedExhaustedRedFinalizer(
+  readyFinalizerHook: () => Promise<void> = async () => undefined,
+): {
+  handlersDeps: {
+    completionCommitter: CompletionCommitter;
+    completionPublisher: NonNullable<typeof exhaustedRedResumeDeps.completionPublisher>;
+    readyFinalizer: ReadyFinalizer;
+  };
+  callOrder: string[];
+  counts: { flipCount: number; publisherCallCount: number };
+  committerAgents: string[];
+} {
+  const callOrder: string[] = [];
+  const counts = { flipCount: 0, publisherCallCount: 0 };
+  const committerAgents: string[] = [];
+  const finalizer = createReadyFinalizer({
+    runReadyGate: async () => {
+      callOrder.push("ready_gate");
+      await readyFinalizerHook();
+    },
+    runMutationVerification: async () => {
+      callOrder.push("mutation");
+    },
+    runRuntimeSmokeVerification: async () => {
+      callOrder.push("smoke");
+      return { kind: "not-runnable", inspectedPaths: [], discoveryReason: "no entrypoint" as never };
+    },
+    ghReadyFlip: async () => {
+      callOrder.push("flip");
+      counts.flipCount += 1;
+    },
+  });
+  return {
+    handlersDeps: {
+      completionCommitter: async (input) => {
+        committerAgents.push(input.agent);
+        return { commitSha: "deadbeef", filesChanged: 0 };
+      },
+      completionPublisher: async () => {
+        counts.publisherCallCount += 1;
+        return { pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" };
+      },
+      readyFinalizer: finalizer,
+    },
+    callOrder,
+    counts,
+    committerAgents,
+  };
+}
+
+function createExhaustedRedResumeHandlers(
+  logsPath: string,
+  readyFinalizer: () => Promise<void> = async () => undefined,
+) {
+  const tracked = createTrackedExhaustedRedFinalizer(readyFinalizer);
+  const handlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    logsPath,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    intentFinalizationResumeDeps: tracked.handlersDeps,
+  });
+  return { handlers, tracked };
+}
+
+test("exhausted-red implement completion: list, wait, and resume agree without write-agent dispatch", async () => {
+  const { runId, logsPath } = await driveExhaustedRedImplementRun("daemon-exhausted-red-admission");
+  try {
+    const { handlers: localHandlers, tracked } = createExhaustedRedResumeHandlers(logsPath);
+
+    const row = await listRow(localHandlers, runId);
+    expect(row.status).toBe("failed");
+    expect(row.resumable).toBe(true);
+    expect(row.error).toEqual({ reason: "ready_gate_failed", retryable: true, nextAction: "resume" });
+
+    const waitFrame = await localHandlers.wait(
+      { kind: "request", id: "wait-exhausted", method: "wait", params: { runId } },
+      new AbortController().signal,
+    );
+    expect(waitFrame.kind).toBe("response");
+    if (waitFrame.kind !== "response") throw new Error("not a response");
+    expect(waitFrame.result).toMatchObject({
+      runStatus: "failed",
+      resumable: true,
+      error: { reason: "ready_gate_failed", nextAction: "resume" },
+    });
+
+    const response = await resumeDirect(localHandlers, runId);
+    expect(response.kind).toBe("response");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
+    expect(stateStore.loadRun(runId)?.status).toBe("completed");
+    expect(tracked.committerAgents.length).toBe(1);
+    expect(tracked.counts.publisherCallCount).toBe(1);
+    expect(tracked.counts.flipCount).toBe(1);
+    expect(tracked.callOrder).toEqual(["ready_gate", "mutation", "smoke", "flip"]);
+
+    const events = openLogReader(logsPath)
+      .tail(runId)
+      .map((record) => record.event);
+    expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+    expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
+    expect(await listResumable(localHandlers, runId)).not.toBe(true);
+    expect(await waitResumable(localHandlers, runId)).not.toBe(true);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("repeated exhausted-red gate-only resume stays red without write agent or ready flip", async () => {
+  const { runId, logsPath } = await driveExhaustedRedImplementRun("daemon-exhausted-red-repeat-red");
+  try {
+    const { handlers: localHandlers, tracked } = createExhaustedRedResumeHandlers(logsPath, async () => {
+      throw new ReadyGateError("bun run ready", 1, "still red");
+    });
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const response = await resumeDirect(localHandlers, runId);
+      expect(response.kind).toBe("error");
+      expect(fakeExecutor.pendingCount()).toBe(0);
+      expect(starts).toHaveLength(0);
+      expect(tracked.counts.flipCount).toBe(0);
+      expect(stateStore.loadRun(runId)?.status).toBe("failed");
+
+      const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
+      const run = stateStore.loadRun(runId);
+      expect(run).toBeDefined();
+      if (!run) return;
+      expect(composeRunOperatorError(run, terminalRecord)).toMatchObject({
+        reason: "ready_gate_failed",
+        nextAction: "resume",
+      });
+      expect(isResumeAdmitted(run, terminalRecord)).toBe(true);
+      expect(await listResumable(localHandlers, runId)).toBe(true);
+
+      const events = openLogReader(logsPath)
+        .tail(runId)
+        .map((record) => record.event);
+      expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+      expect(events.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        resumable: true,
+        readyGateFailureOrigin: "repair_budget_exhausted",
+        retainedFinalizationCheckpoint: true,
+      });
+    }
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("exhausted-red resume eligibility matrix admits only exhausted-red lineage with retained checkpoint", () => {
+  const runId = createWorkflowRun({ invocationId: "eligibility-exhausted-red" });
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+
+  const admittedEvent = exhaustedRedLoopEvent(runId);
+  const admittedRecord = {
+    runId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: { kind: "loop_finished" as const, ...admittedEvent },
+  };
+  stateStore.setRunStatus(runId, "failed");
+  const doneAttemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId: doneAttemptId,
+    runStatus: "completed",
+    outcomeKind: "done",
+    completionAgent: "codex",
+  });
+  stateStore.setRunStatus(runId, "failed");
+  const failedRun = stateStore.loadRun(runId);
+  expect(failedRun).toBeDefined();
+  if (!failedRun) return;
+  expect(resolveWriteExhaustedRedResumeContext(failedRun, stateStore, admittedRecord).ok).toBe(true);
+  expect(isResumeAdmitted(failedRun, admittedRecord)).toBe(true);
+
+  const timeoutEvent = { ...admittedEvent, readyGateFailureOrigin: "timeout" as const, readyGateRepairCount: 0 };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...timeoutEvent },
+    }).ok,
+  ).toBe(false);
+
+  const blockedEvent = { ...admittedEvent, readyGateFailureOrigin: "repair_blocked" as const, readyGateRepairCount: 1 };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...blockedEvent },
+    }).ok,
+  ).toBe(false);
+
+  const unsettledEvent = {
+    ...admittedEvent,
+    readyGateFailureOrigin: "repair_unsettled" as const,
+    readyGateRepairCount: 1,
+  };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...unsettledEvent },
+    }).ok,
+  ).toBe(false);
+
+  const iterationLimitEvent = {
+    ...admittedEvent,
+    readyGateFailureOrigin: "iteration_limit" as const,
+    readyGateRepairCount: 1,
+  };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...iterationLimitEvent },
+    }).ok,
+  ).toBe(false);
+
+  const mismatchedLineage = { ...admittedEvent, finalizationLineageRunId: "other-run" };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...mismatchedLineage },
+    }).ok,
+  ).toBe(false);
+
+  const missingCheckpoint = { ...admittedEvent, retainedFinalizationCheckpoint: false };
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...missingCheckpoint },
+    }).ok,
+  ).toBe(false);
+
+  const unrelatedFinalization = { ...admittedEvent };
+  delete unrelatedFinalization.readyGateFailureOrigin;
+  expect(
+    resolveWriteExhaustedRedResumeContext(failedRun, stateStore, {
+      ...admittedRecord,
+      event: { kind: "loop_finished", ...unrelatedFinalization },
+    }).ok,
+  ).toBe(false);
+
+  stateStore.setRunStatus(runId, "completed");
+  const completedRun = stateStore.loadRun(runId);
+  expect(completedRun).toBeDefined();
+  if (!completedRun) return;
+  expect(resolveWriteExhaustedRedResumeContext(completedRun, stateStore, admittedRecord).ok).toBe(false);
+
+  expect(isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS)).toBe(true);
+  expect(isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { origin: true })).toBe(
+    false,
+  );
+  expect(
+    isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { repairCount: true }),
+  ).toBe(false);
+  expect(
+    isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { lineage: true }),
+  ).toBe(false);
+  expect(
+    isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { checkpoint: true }),
+  ).toBe(false);
+});
+
+test("resume refuses ineligible ready_gate_failed timeout and missing-checkpoint without write-agent dispatch", async () => {
+  const timeoutRunId = createWorkflowRun({ invocationId: "daemon-exhausted-red-timeout-refusal" });
+  stateStore.setRunStatus(timeoutRunId, "failed");
+  const timeoutLogsPath = join(tmpdir(), `jarvis-exhausted-red-timeout-${Date.now()}.jsonl`);
+  const timeoutSink = openLogSink(timeoutLogsPath);
+  timeoutSink.append(timeoutRunId, {
+    kind: "loop_finished",
+    ...exhaustedRedLoopEvent(timeoutRunId),
+    readyGateFailureOrigin: "timeout",
+    readyGateRepairCount: 0,
+  });
+  timeoutSink.close();
+
+  const missingCheckpointRunId = createWorkflowRun({ invocationId: "daemon-exhausted-red-missing-checkpoint-refusal" });
+  stateStore.setRunStatus(missingCheckpointRunId, "failed");
+  const missingLogsPath = join(tmpdir(), `jarvis-exhausted-red-missing-${Date.now()}.jsonl`);
+  const missingSink = openLogSink(missingLogsPath);
+  const missingEvent = exhaustedRedLoopEvent(missingCheckpointRunId);
+  delete (missingEvent as { retainedFinalizationCheckpoint?: boolean }).retainedFinalizationCheckpoint;
+  missingSink.append(missingCheckpointRunId, { kind: "loop_finished", ...missingEvent });
+  missingSink.close();
+
+  try {
+    for (const [runId, logsPath] of [
+      [timeoutRunId, timeoutLogsPath],
+      [missingCheckpointRunId, missingLogsPath],
+    ] as const) {
+      const localHandlers = createExhaustedRedResumeHandlers(logsPath).handlers;
+      const run = stateStore.loadRun(runId);
+      expect(run).toBeDefined();
+      if (!run) continue;
+      const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
+      expect(isResumeAdmitted(run, terminalRecord)).toBe(true);
+
+      const response = await resumeDirect(localHandlers, runId);
+      expect(response.kind).toBe("error");
+      if (response.kind !== "error") throw new Error("not an error");
+      expect(response.code).toBe("resume_unsupported");
+      expect(fakeExecutor.pendingCount()).toBe(0);
+    }
+    expect(starts).toHaveLength(0);
+  } finally {
+    rmSync(timeoutLogsPath, { force: true });
+    rmSync(missingLogsPath, { force: true });
   }
 });

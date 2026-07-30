@@ -36,6 +36,7 @@ import {
   resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
   resolveWriteOutOfScopeResumeContext,
+  resolveWriteExhaustedRedResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
@@ -631,6 +632,24 @@ function isReviewMutationResumable(
   return resolveReviewMutationResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok;
 }
 
+/** Failed `ready_gate_failed` rows ineligible for finalization-tail resume must not reconstruct write-loop input. */
+function isReadyGateFailedIneligibleForWriteResume(
+  run: Run & { attempts?: Attempt[] },
+  store: StateStore,
+  terminalRecord: TerminalLogRecord | undefined,
+): boolean {
+  if (run.status !== "failed") return false;
+  const event = terminalRecord?.event;
+  if (event?.kind !== "loop_finished" || event.loopOutcomeKind !== "ready_gate_failed" || !event.resumable) {
+    return false;
+  }
+  const runWithAttempts = { ...run, attempts: run.attempts ?? [] };
+  if (isReviewMutationResumable(run, store, terminalRecord)) return false;
+  if (resolveWriteOutOfScopeResumeContext(runWithAttempts, store, terminalRecord).ok) return false;
+  if (resolveWriteExhaustedRedResumeContext(runWithAttempts, store, terminalRecord).ok) return false;
+  return true;
+}
+
 function resumeContextForRun(
   run: Run & { attempts?: Attempt[] },
   store: StateStore,
@@ -643,8 +662,12 @@ function resumeContextForRun(
   if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
   if (
     isReviewMutationResumable(run, store, terminalRecord) ||
-    resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
+    resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
+    resolveWriteExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
   ) {
+    return undefined;
+  }
+  if (isReadyGateFailedIneligibleForWriteResume(run, store, terminalRecord)) {
     return undefined;
   }
   return reconstructWriteResume(run);
@@ -1651,7 +1674,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     if (
       isReviewMutationResumable(run, store, terminalRecord) ||
-      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok
+      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok ||
+      resolveWriteExhaustedRedResumeContext(run, store, terminalRecord).ok
     ) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
     }
@@ -1664,6 +1688,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (run.status === "paused") {
       const key: OwnershipKey = { project: run.project, branch: run.branch };
       return resumePausedRun(run, key, runId);
+    }
+
+    if (isReadyGateFailedIneligibleForWriteResume(run, store, terminalRecord)) {
+      return {
+        kind: "error",
+        code: "resume_unsupported",
+        message: "ready_gate_failed is not eligible for write-loop resume",
+      };
     }
 
     const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord);

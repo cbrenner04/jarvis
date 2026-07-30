@@ -465,6 +465,71 @@ export type SurvivingMutationLogFields = {
   survivingMutationSourceLine?: number;
 };
 
+export type ReadyGateFailureOrigin =
+  | "repair_budget_exhausted"
+  | "repair_blocked"
+  | "repair_unsettled"
+  | "iteration_limit"
+  | "timeout";
+
+export type ReadyGateFailureLogFields = {
+  readyGateFailureOrigin?: ReadyGateFailureOrigin;
+  readyGateRepairCount?: number;
+  finalizationLineageRunId?: string;
+  retainedFinalizationCheckpoint?: boolean;
+};
+
+export function exhaustedRedGateFailureMeta(
+  runId: string,
+  repairBudgetCap: number,
+  retainedCheckpoint = true,
+): ReadyGateFailureLogFields {
+  return {
+    readyGateFailureOrigin: "repair_budget_exhausted",
+    readyGateRepairCount: repairBudgetCap,
+    finalizationLineageRunId: runId,
+    ...(retainedCheckpoint ? { retainedFinalizationCheckpoint: true } : {}),
+  };
+}
+
+export type ExhaustedRedAdmissionInvert = {
+  origin?: boolean;
+  repairCount?: boolean;
+  lineage?: boolean;
+  checkpoint?: boolean;
+};
+
+/** Admission predicate for gate-only resume after repair-budget exhaustion (not composed operator error). */
+export function isExhaustedRedReadyGateAdmission(
+  event: {
+    loopOutcomeKind: string;
+    resumable: boolean;
+    readyGateFailureOrigin?: ReadyGateFailureOrigin;
+    readyGateRepairCount?: number;
+    finalizationLineageRunId?: string;
+    retainedFinalizationCheckpoint?: boolean;
+  },
+  runId: string,
+  repairBudgetCap: number,
+  invert?: ExhaustedRedAdmissionInvert,
+): boolean {
+  if (event.loopOutcomeKind !== "ready_gate_failed" || !event.resumable) return false;
+  const inv = invert ?? {};
+  const originOk = inv.origin
+    ? event.readyGateFailureOrigin !== "repair_budget_exhausted"
+    : event.readyGateFailureOrigin === "repair_budget_exhausted";
+  const repairCountOk = inv.repairCount
+    ? event.readyGateRepairCount !== repairBudgetCap
+    : event.readyGateRepairCount === repairBudgetCap;
+  const lineageOk = inv.lineage
+    ? event.finalizationLineageRunId !== runId
+    : event.finalizationLineageRunId === runId;
+  const checkpointOk = inv.checkpoint
+    ? event.retainedFinalizationCheckpoint !== true
+    : event.retainedFinalizationCheckpoint === true;
+  return originOk && repairCountOk && lineageOk && checkpointOk;
+}
+
 export function survivingMutationLogFields(
   source: Error | SurvivingMutationLogFields | undefined,
 ): SurvivingMutationLogFields {

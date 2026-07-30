@@ -32,7 +32,10 @@ import {
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
+  exhaustedRedGateFailureMeta,
   readyGateOutOfScopeLogFields,
+  type ReadyGateFailureLogFields,
+  type ReadyGateFailureOrigin,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
@@ -180,7 +183,7 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
-const MAX_READY_GATE_REPAIRS = 3;
+export const MAX_READY_GATE_REPAIRS = 3;
 export const MAX_MUTATION_REPAIR_ATTEMPTS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
@@ -313,7 +316,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               };
               return publication.failure.kind === "completion_commit_failed"
                 ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-                : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+                : readyFailed(
+                    args,
+                    store,
+                    publishedResult,
+                    publication.failure.kind,
+                    publication.failure.error,
+                    publication.readyGateFailureMeta,
+                  );
             }
             store.setRunStatus(prepared.result.runId, "completed");
             if (
@@ -691,7 +701,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             };
             return publication.failure.kind === "completion_commit_failed"
               ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
-              : readyFailed(args, store, publishedResult, publication.failure.kind, publication.failure.error);
+              : readyFailed(
+                  args,
+                  store,
+                  publishedResult,
+                  publication.failure.kind,
+                  publication.failure.error,
+                  publication.readyGateFailureMeta,
+                );
           }
           store.setRunStatus(runId, "completed");
           if (
@@ -1490,13 +1507,61 @@ async function classifyReadyGatePublishFailure(
   };
 }
 
+function buildReadyGateFailureMeta(
+  outcome: CompletionPublishFailure,
+  runId: string,
+  repairAttempt: number,
+  iterationsConsumed: number,
+  maxIterations: number,
+  repairExitOrigin?: ReadyGateFailureOrigin,
+): ReadyGateFailureLogFields | undefined {
+  if (repairExitOrigin !== undefined) {
+    const hasCheckpoint = outcome.prNumber !== undefined || outcome.prUrl !== undefined;
+    return {
+      readyGateFailureOrigin: repairExitOrigin,
+      readyGateRepairCount: repairAttempt,
+      finalizationLineageRunId: runId,
+      ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}),
+    };
+  }
+  if (outcome.kind !== "ready_gate_failed" || !(outcome.error instanceof ReadyGateError)) {
+    return undefined;
+  }
+  const hasCheckpoint = outcome.prNumber !== undefined || outcome.prUrl !== undefined;
+  if (outcome.error.timedOut) {
+    return {
+      readyGateFailureOrigin: "timeout",
+      finalizationLineageRunId: runId,
+      ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}),
+    };
+  }
+  if (repairAttempt > MAX_READY_GATE_REPAIRS) {
+    return exhaustedRedGateFailureMeta(runId, MAX_READY_GATE_REPAIRS, hasCheckpoint);
+  }
+  if (iterationsConsumed >= maxIterations) {
+    return {
+      readyGateFailureOrigin: "iteration_limit",
+      readyGateRepairCount: repairAttempt,
+      finalizationLineageRunId: runId,
+      ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}),
+    };
+  }
+  return { finalizationLineageRunId: runId, ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}) };
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
   iterationsConsumed: number,
   input: CompletionPublishInput,
-): Promise<{ failure?: CompletionPublishFailure; success?: CompletionPublishSuccess; iterationsConsumed: number }> {
+): Promise<{
+  failure?: CompletionPublishFailure;
+  success?: CompletionPublishSuccess;
+  iterationsConsumed: number;
+  readyGateFailureMeta?: ReadyGateFailureLogFields;
+}> {
+  const maxIterations = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   let outcome = await publishCompletionArtifacts(args, input);
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(outcome, input);
@@ -1505,7 +1570,7 @@ export async function publishWithReadyRepair(
   while (outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut) {
     repairAttempt += 1;
     if (repairAttempt > MAX_READY_GATE_REPAIRS) break;
-    if (iterationsConsumed >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
+    if (iterationsConsumed >= maxIterations) break;
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
       attempt: repairAttempt,
@@ -1513,9 +1578,37 @@ export async function publishWithReadyRepair(
     });
 
     const repairOutcome = await runReadyRepairIteration(args, store, result, outcome.error, iterationsConsumed + 1);
-    if (repairOutcome === "unsettled") return { failure: outcome, iterationsConsumed };
+    if (repairOutcome === "unsettled") {
+      const meta = buildReadyGateFailureMeta(
+        outcome,
+        result.runId,
+        repairAttempt,
+        iterationsConsumed,
+        maxIterations,
+        "repair_unsettled",
+      );
+      return {
+        failure: outcome,
+        iterationsConsumed,
+        ...(meta !== undefined ? { readyGateFailureMeta: meta } : {}),
+      };
+    }
     iterationsConsumed += 1;
-    if (repairOutcome === "blocked") return { failure: outcome, iterationsConsumed };
+    if (repairOutcome === "blocked") {
+      const meta = buildReadyGateFailureMeta(
+        outcome,
+        result.runId,
+        repairAttempt,
+        iterationsConsumed,
+        maxIterations,
+        "repair_blocked",
+      );
+      return {
+        failure: outcome,
+        iterationsConsumed,
+        ...(meta !== undefined ? { readyGateFailureMeta: meta } : {}),
+      };
+    }
     try {
       await (args.completionCommitter ?? createCompletionCommitter())({
         worktreePath: input.worktreePath,
@@ -1542,9 +1635,21 @@ export async function publishWithReadyRepair(
       gateExitCode: outcome.error.exitCode,
     });
   }
-  return outcome.kind === "success"
-    ? { success: outcome, iterationsConsumed }
-    : { failure: outcome, iterationsConsumed };
+  if (outcome.kind === "success") {
+    return { success: outcome, iterationsConsumed };
+  }
+  const failureMeta = buildReadyGateFailureMeta(
+    outcome,
+    result.runId,
+    repairAttempt,
+    iterationsConsumed,
+    maxIterations,
+  );
+  return {
+    failure: outcome,
+    iterationsConsumed,
+    ...(failureMeta !== undefined ? { readyGateFailureMeta: failureMeta } : {}),
+  };
 }
 
 async function runPublisher(
@@ -1728,12 +1833,14 @@ function readyFailed(
     | "surviving_mutation_failed"
     | "runtime_smoke_failed",
   error?: Error,
+  failureMeta?: ReadyGateFailureLogFields,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const resumable =
     kind === "ready_gate_failed" || kind === "ready_gate_out_of_scope" || kind === "surviving_mutation_failed";
   const mutationFields = survivingMutationLogFields(error);
   const outOfScopeFields = readyGateOutOfScopeLogFields(error);
+  const gateFailureFields = failureMeta ?? {};
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
   // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
   // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
@@ -1751,6 +1858,7 @@ function readyFailed(
     resumable,
     ...mutationFields,
     ...outOfScopeFields,
+    ...gateFailureFields,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),

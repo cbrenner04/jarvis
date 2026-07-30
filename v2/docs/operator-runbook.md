@@ -491,7 +491,15 @@ it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is th
 (see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
 
 A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
-consumes the iteration budget and republishes before the gate is rerun. A deadline-killed gate (exit code 124 or
+consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair
+stays red, the implement row settles `failed` with `ready_gate_failed`, `resumable: true`, and
+`nextAction: "resume"` — not `completed`. Only rows whose same-run terminal `loop_finished` records
+`readyGateFailureOrigin: repair_budget_exhausted`, matching repair-count evidence, same-run
+finalization lineage, and a retained draft-PR checkpoint admit gate-only `jarvis run resume` (ready
+gate, mutation verification, runtime smoke, and draft-to-ready flip when green — no write agent or
+`ready_gate_repair`). Other `ready_gate_failed` origins (timeout, blocked or unsettled repair,
+iteration-limit suppression, missing checkpoint, mismatched lineage) keep their existing admission
+paths or refusals. A genuinely `completed` implement row still implies a green gate. A deadline-killed gate (exit code 124 or
 `ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair,
 logs `ready_gate_timeout`, and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate:
 the gate passed locally and timed out against either a per-step budget or the overall run ceiling (see

@@ -41,7 +41,14 @@ import {
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { readyGateOutOfScopeLogFields, SurvivingMutationError, survivingMutationLogFields } from "./ready-finalize.ts";
+import {
+  exhaustedRedGateFailureMeta,
+  isExhaustedRedReadyGateAdmission,
+  type ReadyGateFailureLogFields,
+  readyGateOutOfScopeLogFields,
+  SurvivingMutationError,
+  survivingMutationLogFields,
+} from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -76,6 +83,7 @@ import {
   executeWriteLoop,
   getUncommittedPaths,
   MAX_MUTATION_REPAIR_ATTEMPTS,
+  MAX_READY_GATE_REPAIRS,
   publishWithReadyRepair,
   runMutationRepairIteration,
   type WriteLoopInput,
@@ -1039,6 +1047,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 publication.failure.kind === "ready_gate_failed" ||
                 publication.failure.kind === "ready_gate_out_of_scope";
               const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
+              const gateFailureFields = publication.readyGateFailureMeta ?? {};
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: publication.failure.kind,
@@ -1046,7 +1055,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 resumable: !isFlipFailure,
                 ...survivingMutationLogFields(publication.failure.error),
                 ...gateOutOfScopeFields,
+                ...gateFailureFields,
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+                ...(publication.failure.prNumber !== undefined ? { prNumber: publication.failure.prNumber } : {}),
+                ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
               });
               // The row was marked `in-progress` for the finalization tail, so both branches must
               // restore a terminal status. A flip failure keeps its documented `completed` status;
@@ -2636,6 +2648,8 @@ export type ReviewMutationResumeContext = {
   landingKind: "intent-stage" | "plain";
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
+  /** Gate-only exhausted-red resume: repeated red failures keep admission without write-loop re-entry. */
+  exhaustedRedGateOnly?: boolean;
 };
 
 export type ReviewMutationResumeResolution =
@@ -2698,6 +2712,41 @@ export function resolveWriteOutOfScopeResumeContext(
   _store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
+  return resolveWriteFinalizationTailResumeContext(
+    run,
+    terminalRecord,
+    (event) => event.loopOutcomeKind === "ready_gate_out_of_scope",
+    "run did not fail with ready_gate_out_of_scope",
+  );
+}
+
+/**
+ * Admission and reconstruction for resuming an ordinary write row's exhausted-red
+ * `ready_gate_failed` failure: the implement pass already settled and published a draft PR,
+ * so only mutation re-verification, the ready gate, and publication need to run again — never a
+ * write-loop re-entry, repair agent, or `ready_gate_repair` event.
+ */
+export function resolveWriteExhaustedRedResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  _store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+): ReviewMutationResumeResolution {
+  return resolveWriteFinalizationTailResumeContext(
+    run,
+    terminalRecord,
+    (event) => isExhaustedRedReadyGateAdmission(event, run.id, MAX_READY_GATE_REPAIRS),
+    "run did not exhaust ready gate repair budget",
+    { exhaustedRedGateOnly: true },
+  );
+}
+
+function resolveWriteFinalizationTailResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+  admit: (event: LoopFinishedEvent) => boolean,
+  failMessage: string,
+  options?: { exhaustedRedGateOnly?: boolean },
+): ReviewMutationResumeResolution {
   const snapshot = run.workflowSnapshot;
   const stepId = run.stepId;
   const step = stepId ? snapshot?.steps.find((candidate) => candidate.stepId === stepId) : undefined;
@@ -2707,11 +2756,8 @@ export function resolveWriteOutOfScopeResumeContext(
   if (run.status !== "failed") {
     return { ok: false, message: "run is not in a failed state" };
   }
-  if (
-    terminalRecord?.event.kind !== "loop_finished" ||
-    terminalRecord.event.loopOutcomeKind !== "ready_gate_out_of_scope"
-  ) {
-    return { ok: false, message: "run did not fail with ready_gate_out_of_scope" };
+  if (terminalRecord?.event.kind !== "loop_finished" || !admit(terminalRecord.event)) {
+    return { ok: false, message: failMessage };
   }
   const completionAgent = reviewCompletionAgent(run) ?? step?.agents?.[0];
   return {
@@ -2727,6 +2773,7 @@ export function resolveWriteOutOfScopeResumeContext(
       landingKind: step?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
+      ...(options?.exhaustedRedGateOnly ? { exhaustedRedGateOnly: true } : {}),
     },
   };
 }
@@ -3079,6 +3126,21 @@ async function runMutationRepairAttempt(
   };
 }
 
+function exhaustedRedGateOnlyFailureMeta(
+  runId: string,
+  failure: { prNumber?: number; prUrl?: string },
+  publicationMeta?: ReadyGateFailureLogFields,
+): ReadyGateFailureLogFields {
+  const hasCheckpoint = failure.prNumber !== undefined || failure.prUrl !== undefined;
+  if (publicationMeta?.readyGateFailureOrigin === "timeout") {
+    return {
+      ...publicationMeta,
+      ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}),
+    };
+  }
+  return exhaustedRedGateFailureMeta(runId, MAX_READY_GATE_REPAIRS, hasCheckpoint);
+}
+
 /**
  * Commit any uncommitted worktree changes and run the shared mutation-reverification / ready-gate /
  * publication tail.
@@ -3153,7 +3215,14 @@ async function runReviewMutationCommitAndPublish(
       resumable: !isFlip && REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failure.kind),
       ...survivingMutationLogFields(failure.error),
       ...readyGateOutOfScopeLogFields(failure.error),
+      ...(failure.kind === "ready_gate_failed"
+        ? context.exhaustedRedGateOnly
+          ? exhaustedRedGateOnlyFailureMeta(context.runId, publication.failure, publication.readyGateFailureMeta)
+          : (publication.readyGateFailureMeta ?? {})
+        : {}),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+      ...(publication.failure.prNumber !== undefined ? { prNumber: publication.failure.prNumber } : {}),
+      ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
     });
     return { ok: false, message };
   }
@@ -3217,7 +3286,11 @@ export async function resumeReviewMutationFinalization(
   deps: ReviewMutationResumeDeps = {},
 ): Promise<ReviewMutationResumeOutcome> {
   const reviewResolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
-  const resolved = reviewResolved.ok ? reviewResolved : resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
+  let resolved: ReviewMutationResumeResolution = reviewResolved;
+  if (!resolved.ok) {
+    const outOfScope = resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
+    resolved = outOfScope.ok ? outOfScope : resolveWriteExhaustedRedResumeContext(run, store, terminalRecord);
+  }
   return replayMutationFinalization(resolved, store, deps);
 }
 

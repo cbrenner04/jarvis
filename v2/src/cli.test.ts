@@ -585,6 +585,9 @@ describe("v2 cli dispatch", () => {
       "run wait": ["run-1"],
       "pipeline start": ["demo", "--seed-text", "seed"],
       "pipeline wait": ["pipe-1"],
+      "pipeline approve": ["pipe-1", "gate"],
+      "pipeline reject": ["pipe-1", "gate"],
+      "pipeline resume": ["pipe-1"],
       "tui log": ["run-1"],
     };
 

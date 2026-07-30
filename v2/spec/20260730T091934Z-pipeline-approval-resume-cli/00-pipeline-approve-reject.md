@@ -29,15 +29,15 @@ Operators cannot admit approval decisions at a named gate from the CLI.
 
 ## Acceptance criteria
 
-- [ ] The approve/reject regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves valid commands send both IDs to `pipeline_approve` / `pipeline_reject` and exit `0` only on `kind: "applied"`.
-- [ ] The same regression file fails on baseline and then proves a refused `status_not_awaiting` decision (non-awaiting or mismatched stage) prints the named reason on stderr and exits non-zero.
-- [ ] The same regression file fails on baseline and then proves a refused duplicate or racing decision (for example `invalid_decision`) prints the named reason on stderr, exits non-zero, and emits no success stdout.
-- [ ] The same regression file fails on baseline and then proves missing, extra, or whitespace-only positionals are usage errors before daemon connect.
-- [ ] The same regression file fails on baseline and then proves an unknown or malformed daemon result envelope prints `invalid daemon response` on stderr and exits non-zero.
-- [ ] Inverting the applied-vs-refused exit guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove refused outcomes are not reported as success.
-- [ ] `daemon-pipeline-approval.test.ts` and `pipeline-execution.test.ts` stay green (daemon-owned refusal and non-dispatch behavior unchanged by CLI wiring).
-- [ ] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then lists `approve` and `reject` in shared `PIPELINE_USAGE`, `jarvis help pipeline`, and per-subcommand usage/help alongside existing pipeline commands.
-- [ ] `v2/src/cli.test.ts` dispatch-coverage includes `pipeline approve` and `pipeline reject` with minimally valid operands.
+- [x] The approve/reject regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves valid commands send both IDs to `pipeline_approve` / `pipeline_reject` and exit `0` only on `kind: "applied"`.
+- [x] The same regression file fails on baseline and then proves a refused `status_not_awaiting` decision (non-awaiting or mismatched stage) prints the named reason on stderr and exits non-zero.
+- [x] The same regression file fails on baseline and then proves a refused duplicate or racing decision (for example `invalid_decision`) prints the named reason on stderr, exits non-zero, and emits no success stdout.
+- [x] The same regression file fails on baseline and then proves missing, extra, or whitespace-only positionals are usage errors before daemon connect.
+- [x] The same regression file fails on baseline and then proves an unknown or malformed daemon result envelope prints `invalid daemon response` on stderr and exits non-zero.
+- [x] Inverting the applied-vs-refused exit guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove refused outcomes are not reported as success.
+- [x] `daemon-pipeline-approval.test.ts` and `pipeline-execution.test.ts` stay green (daemon-owned refusal and non-dispatch behavior unchanged by CLI wiring).
+- [x] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then lists `approve` and `reject` in shared `PIPELINE_USAGE`, `jarvis help pipeline`, and per-subcommand usage/help alongside existing pipeline commands.
+- [x] `v2/src/cli.test.ts` dispatch-coverage includes `pipeline approve` and `pipeline reject` with minimally valid operands.
 
 ## Documentation updates
 

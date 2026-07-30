@@ -147,10 +147,13 @@ export function isReopenedFailedContinuation(pipeline: Pipeline & { stages: Pipe
   if (!reopenedFailurePermitsActivation(pipeline)) return false;
   const ordered = authoredStagesInPositionOrder(pipeline);
   for (let index = 0; index < ordered.length; index += 1) {
-    const { stage, record } = ordered[index]!;
+    const entry = ordered[index];
+    if (!entry) continue;
+    const { stage, record } = entry;
     if (isAuthoredStageSatisfied(stage, record)) continue;
     if (stage.kind !== "workflow" || record.status !== "pending") return false;
-    if (index > 0 && ordered[index - 1]!.stage.kind === "approval") return false;
+    const prior = index > 0 ? ordered[index - 1] : undefined;
+    if (prior?.stage.kind === "approval") return false;
     return ordered
       .slice(0, index)
       .some(

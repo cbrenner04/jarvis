@@ -219,6 +219,27 @@ jarvis pipeline wait <pipeline-id>                # block until terminal or awai
 
 `jarvis pipeline wait` prints one boundary JSON line per invocation. Exit **`0`** on `awaiting-approval` or terminal `succeeded`; non-zero on other terminal states. Re-run wait after approving a gate; attached start loops internally instead. Operator abort (SIGINT) during wait follows the same pattern as `jarvis run wait`: stderr connection detail, non-zero exit, no boundary JSON on stdout.
 
+### Pipeline approve and reject
+
+Read the deciding `stageId` from `pipeline wait` boundary JSON (`{kind:"awaiting-approval",stageId}`) or from `pipeline list` stage rows (`status: "awaiting"`). Admit or reject the named gate:
+
+```sh
+jarvis pipeline approve <pipeline-id> <stage-id>
+jarvis pipeline reject <pipeline-id> <stage-id>
+```
+
+Exit **`0`** on `kind: "applied"` means the decision was durably admitted, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Refused duplicate or stale decisions (`invalid_decision`, `status_not_awaiting`, etc.) print the daemon `reason` verbatim on stderr and exit non-zero with no success stdout. Re-run `pipeline wait` after a successful approve to observe the next boundary.
+
+### Pipeline resume
+
+Re-enter a failed or `awaiting-approval` pipeline without starting a new one:
+
+```sh
+jarvis pipeline resume <pipeline-id>
+```
+
+Use **`pipeline resume`** (not `pipeline start` or `jarvis run resume`) when a pipeline stalled at a failed stage or an approval gate and you want the daemon to reopen or claim continuation from persisted admission context. Exit **`0`** on `kind: "resumed"` means the daemon admitted detached continuation, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Terminal pipelines (`pipeline_terminal_succeeded`, `pipeline_terminal_rejected`) and other refusals print the daemon `reason` verbatim on stderr and exit non-zero. Failed resume replays from the failed stage (preserving predecessor invocation IDs); awaiting resume claims the pipeline without dispatching past the gate — approve the gate separately, then `pipeline wait`.
+
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved

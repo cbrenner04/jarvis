@@ -30,15 +30,15 @@ Operators cannot re-enter a failed or awaiting pipeline from the CLI without sta
 
 ## Acceptance criteria
 
-- [ ] The resume regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves `pipeline resume` issues `pipeline_resume` with the pipeline ID and exits `0` only on `kind: "resumed"` for a failed pipeline.
-- [ ] The same regression file fails on baseline and then proves `pipeline resume` on an `awaiting-approval` pipeline issues `pipeline_resume`, exits `0` on `kind: "resumed"`, and emits silent stdout.
-- [ ] The same regression file fails on baseline and then proves resume on a completed pipeline prints `pipeline_terminal_succeeded` on stderr with non-zero exit, and resume on a rejected pipeline prints `pipeline_terminal_rejected` with non-zero exit.
-- [ ] The same regression file fails on baseline and then proves missing, extra, or whitespace-only positionals are usage errors before daemon connect.
-- [ ] The same regression file fails on baseline and then proves an unknown or malformed daemon result envelope prints `invalid daemon response` on stderr and exits non-zero.
-- [ ] Inverting the resumed-vs-refused exit guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove terminal and other refusals are not reported as success.
-- [ ] `pipeline-execution.test.ts` and `daemon-pipeline-resume.test.ts` stay green (daemon-owned invocation-ID preservation unchanged by CLI wiring).
-- [ ] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then lists `resume` in shared `PIPELINE_USAGE`, `jarvis help pipeline`, and per-subcommand usage/help alongside `start`, `list`, `wait`, `approve`, and `reject`.
-- [ ] `v2/src/cli.test.ts` dispatch-coverage includes `pipeline resume` with minimally valid operands.
+- [x] The resume regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves `pipeline resume` issues `pipeline_resume` with the pipeline ID and exits `0` only on `kind: "resumed"` for a failed pipeline.
+- [x] The same regression file fails on baseline and then proves `pipeline resume` on an `awaiting-approval` pipeline issues `pipeline_resume`, exits `0` on `kind: "resumed"`, and emits silent stdout.
+- [x] The same regression file fails on baseline and then proves resume on a completed pipeline prints `pipeline_terminal_succeeded` on stderr with non-zero exit, and resume on a rejected pipeline prints `pipeline_terminal_rejected` with non-zero exit.
+- [x] The same regression file fails on baseline and then proves missing, extra, or whitespace-only positionals are usage errors before daemon connect.
+- [x] The same regression file fails on baseline and then proves an unknown or malformed daemon result envelope prints `invalid daemon response` on stderr and exits non-zero.
+- [x] Inverting the resumed-vs-refused exit guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove terminal and other refusals are not reported as success.
+- [x] `pipeline-execution.test.ts` and `daemon-pipeline-resume.test.ts` stay green (daemon-owned invocation-ID preservation unchanged by CLI wiring).
+- [x] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then lists `resume` in shared `PIPELINE_USAGE`, `jarvis help pipeline`, and per-subcommand usage/help alongside `start`, `list`, `wait`, `approve`, and `reject`.
+- [x] `v2/src/cli.test.ts` dispatch-coverage includes `pipeline resume` with minimally valid operands.
 
 ## Documentation updates
 

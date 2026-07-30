@@ -2201,6 +2201,41 @@ describe("write loop", () => {
         expect(publishCalls).toBe(0);
       });
 
+      test("completed-run retry rejects staged harness sidecars through the persisted fence", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-sidecar-retry";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, { harnessSidecars: true });
+
+        const first = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: stageHarnessSidecarRepairEdit,
+        });
+        expect(first.result.kind).toBe("completion_commit_failed");
+
+        let publishCalls = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+        expect(retry.kind).toBe("completion_commit_failed");
+        expect(retry.runId).toBe(first.result.runId);
+        expect(retry.completionCommitError).toContain("Ready-gate repair stages harness sidecar:");
+        expect(retry.completionCommitError).toContain(".jarvis-intent-review-verdict.md");
+        expect(publishCalls).toBe(0);
+      });
+
       test("jarvis run resume cannot commit rejected path after restart", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-resume";

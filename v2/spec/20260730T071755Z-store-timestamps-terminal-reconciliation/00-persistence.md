@@ -1,4 +1,4 @@
-# Daemon
+# Persistence
 
 ## Problem
 
@@ -40,12 +40,42 @@ last iteration's `completed_at`, not the reconciliation time.
 
 ## Acceptance criteria
 
+- [ ] After orphan settlement, a run with an `in-progress` attempt records a non-null
+      `completed_at` on that attempt and leaves `outcome_kind` null, attempt `status`
+      `in-progress`, `attempt_count` unchanged, and `reconciled_at` null.
+- [ ] After orphan settlement, a run with no attempts records non-null `reconciled_at` on the run row
+      and no attempt rows.
+- [ ] After orphan settlement on a run with one or more completed attempts and no `in-progress`
+      attempt, `reconciled_at` is non-null, every prior attempt `completed_at` is unchanged, and
+      `reconciled_at` is strictly later than the maximum prior attempt `completed_at`.
+- [ ] After orphan settlement on a run with a completed prior attempt and a later `in-progress`
+      attempt, the `in-progress` attempt's `completed_at` is greater than the prior attempt's
+      `completed_at`.
+- [ ] A durable `review-debate` orphan with an open `in-progress` attempt settled `interrupted`
+      stamps `completed_at` on that attempt (not `reconciled_at`), leaves attempt `status`
+      `in-progress`, and leaves `reconciled_at` null.
+- [ ] After `reconciled_at` settlement, `loadRun` and a `listRuns` entry both return non-null
+      `reconciledAt`.
+- [ ] A second reconciliation sweep, or a row already `killed`/`interrupted`, receives no additional
+      finish-time stamp.
+- [ ] `v2/src/persistence/state-store.test.ts` regression
+      `beginRunReconciliation stamps reconciliation finish time on orphaned runs` fails against the
+      pre-change store and passes after implementation.
+- [ ] That regression fails if either the in-progress-attempt stamp guard or the `reconciled_at`
+      fallback guard is removed; the no-attempt case proves no attempt row was fabricated.
 - [ ] `v2/src/daemon/daemon-reconciliation.test.ts` stays green (reconciliation status and event
       behavior unchanged by this slice).
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+
 
 ## Documentation updates
 
 - `v2/docs/state-store.md` — `reconciled_at` column, attempt-versus-run stamping precedence,
-  non-boundary semantics (no `commitCompletionBoundary`), and idempotence.
+  non-boundary semantics (no `commitCompletionBoundary`), and idempotence; non-boundary attempt stamp
+  (`completed_at` on an `in-progress` attempt with null `outcome_kind` is intentional, max-`completedAt`
+  readers are the intended consumers, boundary semantics require `outcome_kind` or attempt status);
+  dual-timestamp fallback rows (`reconciled_at` set while prior attempt `completed_at` values may
+  remain stale — raw max-attempt readers must not treat attempt `completed_at` as authoritative when
+  `reconciled_at` is set; list/TUI precedence is owned by `list-row-step-honesty`).
 - `v2/docs/v1-behaviors.md` — orphan reconciliation records a finish timestamp on settled
   `killed`/`interrupted` runs.

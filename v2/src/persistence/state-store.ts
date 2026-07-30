@@ -225,7 +225,7 @@ export function approvalDecisionAllowsStatus(status: string): boolean {
 
 /** True when a stage before the failed continuation may remain untouched during reopen. */
 export function reopenPredecessorAllowsStatus(status: string): boolean {
-  return status === "succeeded";
+  return status === "succeeded" || status === "approved";
 }
 
 /** True when a stage after the failed continuation may be reopened in place. */

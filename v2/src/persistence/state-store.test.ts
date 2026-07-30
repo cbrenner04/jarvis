@@ -2007,6 +2007,7 @@ describe("failed pipeline reopen", () => {
     };
 
     expect(reopenPredecessorAllowsStatus("succeeded")).toBe(true);
+    expect(reopenPredecessorAllowsStatus("approved")).toBe(true);
     expect(reopenPredecessorAllowsStatus("pending")).toBe(false);
     expect(reopenSuffixAllowsStatus("skipped")).toBe(true);
     expect(reopenSuffixAllowsStatus("pending")).toBe(false);

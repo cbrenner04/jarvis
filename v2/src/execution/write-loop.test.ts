@@ -1086,94 +1086,95 @@ describe("write loop", () => {
       { terminal: "completed", expectedKind: "complete", expectedResumable: false },
       { terminal: "failed", expectedKind: "ready_gate_failed", expectedResumable: true },
       { terminal: "killed", expectedKind: "progress", expectedResumable: true },
-    ] as const)(
-      "joins a held ready repair before $terminal becomes durable",
-      async ({ terminal, expectedKind, expectedResumable }) => {
-        const { jarvisRoot, stateDbPath } = createJarvisHome();
-        roots.push(join(jarvisRoot, ".."));
-        const store = openStateStore(stateDbPath);
-        const controller = new AbortController();
-        let runId: string | undefined;
-        let calls = 0;
-        const repair = createHeldInvocation();
-        let gateCalls = 0;
+    ] as const)("joins a held ready repair before $terminal becomes durable", async ({
+      terminal,
+      expectedKind,
+      expectedResumable,
+    }) => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+      const controller = new AbortController();
+      let runId: string | undefined;
+      let calls = 0;
+      const repair = createHeldInvocation();
+      let gateCalls = 0;
 
-        const bindings: InvocationBinding[] = [
-          {
-            id: "held-repair",
-            metadata: { agent: "codex", model: "test" },
-            invoke: ({ cwd, signal }) => {
-              calls += 1;
-              if (calls === 1) {
-                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-                return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" });
-              }
-              return repair.invoke(signal);
-            },
+      const bindings: InvocationBinding[] = [
+        {
+          id: "held-repair",
+          metadata: { agent: "codex", model: "test" },
+          invoke: ({ cwd, signal }) => {
+            calls += 1;
+            if (calls === 1) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" });
+            }
+            return repair.invoke(signal);
           },
-        ];
+        },
+      ];
 
-        try {
-          const resultPromise = executeWriteLoop({
-            worktree: {
-              projectRoot: "/fake",
-              projectName: "demo",
-              branchName: `repair-settlement-${terminal}`,
-              baseRef: "HEAD",
-              jarvisRoot,
-            },
-            specPath: "spec.md",
-            stepRules: "Return exactly one terminal token.",
-            expectedArtifactPath: "proof.txt",
-            bindings,
-            stateStore: store,
-            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-            sessionsDir: join(jarvisRoot, "sessions"),
-            signal: controller.signal,
-            maxIterations: 2,
-            quiescenceTimeoutMs: 1,
-            completionCommitter: completionHooks.completionCommitter,
-            completionPublisher: completionHooks.completionPublisher,
-            readyFinalizer: async () => {
-              gateCalls += 1;
-              if (terminal !== "completed" || gateCalls === 1) {
-                throw new ReadyGateError("bun run ready", 1, "red");
-              }
-            },
-            onRunCreated: (id) => {
-              runId = id;
-            },
-          });
+      try {
+        const resultPromise = executeWriteLoop({
+          worktree: {
+            projectRoot: "/fake",
+            projectName: "demo",
+            branchName: `repair-settlement-${terminal}`,
+            baseRef: "HEAD",
+            jarvisRoot,
+          },
+          specPath: "spec.md",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "proof.txt",
+          bindings,
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          signal: controller.signal,
+          maxIterations: 2,
+          quiescenceTimeoutMs: 1,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (terminal !== "completed" || gateCalls === 1) {
+              throw new ReadyGateError("bun run ready", 1, "red");
+            }
+          },
+          onRunCreated: (id) => {
+            runId = id;
+          },
+        });
 
-          await repair.started;
-          expect(runId).toBeDefined();
-          expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+        await repair.started;
+        expect(runId).toBeDefined();
+        expect(store.loadRun(runId as string)?.status).toBe("in-progress");
 
-          if (terminal === "killed") {
-            controller.abort();
-            await new Promise<void>((resolve) => setTimeout(resolve, 10));
-            expect(repair.signal?.aborted).toBe(true);
-            expect(store.loadRun(runId as string)?.status).toBe("in-progress");
-          }
-
-          repair.release();
-          const result = await resultPromise;
-          if (terminal === "killed") {
-            expect(store.loadRun(runId as string)?.status).toBe("in-progress");
-            store.commitGuardedKill(runId as string);
-          }
-
-          expect(result).toMatchObject({ kind: expectedKind, resumable: expectedResumable });
-          expect(store.loadRun(runId as string)?.status).toBe(terminal);
+        if (terminal === "killed") {
+          controller.abort();
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
           expect(repair.signal?.aborted).toBe(true);
-          expect(repair.processSettled).toBe(true);
-          expect(repair.invocationSettled).toBe(true);
-        } finally {
-          repair.release();
-          store.close();
+          expect(store.loadRun(runId as string)?.status).toBe("in-progress");
         }
-      },
-    );
+
+        repair.release();
+        const result = await resultPromise;
+        if (terminal === "killed") {
+          expect(store.loadRun(runId as string)?.status).toBe("in-progress");
+          store.commitGuardedKill(runId as string);
+        }
+
+        expect(result).toMatchObject({ kind: expectedKind, resumable: expectedResumable });
+        expect(store.loadRun(runId as string)?.status).toBe(terminal);
+        expect(repair.signal?.aborted).toBe(true);
+        expect(repair.processSettled).toBe(true);
+        expect(repair.invocationSettled).toBe(true);
+      } finally {
+        repair.release();
+        store.close();
+      }
+    });
 
     test.each([
       { label: "abort propagation", invert: { invertRepairAbortPropagationForTest: true } },

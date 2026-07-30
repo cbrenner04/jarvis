@@ -776,6 +776,37 @@ export function resolveIterationSettlementKind(role: AbortWatchdogRole, invert: 
   return (role === "abort") !== invert ? "aborted" : "timed_out";
 }
 
+function isInterruptedRace(raced: RaceOutcome): raced is { kind: "aborted" | "timed_out" } {
+  return raced.kind === "aborted" || raced.kind === "timed_out";
+}
+
+async function settleFinalizationRepair(
+  args: WriteLoopInput,
+  raced: RaceOutcome,
+  execution: Promise<QuiescedExecutionOutcome>,
+  abortExecution: () => void,
+): Promise<IterationSettlement> {
+  if (!args.invertRepairAbortPropagationForTest) abortExecution();
+  if (args.invertRepairJoinForTest) {
+    return isInterruptedRace(raced)
+      ? { kind: raced.kind, quiesced: { kind: "threw", error: new Error("invert repair join") } }
+      : raced;
+  }
+  const quiesced = await execution;
+  return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
+}
+
+async function settleBoundedIteration(
+  raced: RaceOutcome,
+  execution: Promise<QuiescedExecutionOutcome>,
+  schedule: WallSegmentSchedule,
+  quiescenceTimeoutMs: number,
+): Promise<IterationSettlement> {
+  if (!isInterruptedRace(raced)) return raced;
+  const quiesced = await boundQuiescenceWait(execution, schedule, quiescenceTimeoutMs);
+  return { kind: raced.kind, quiesced };
+}
+
 /**
  * Starts after `iteration_started`, so pre-spawn stalls are fenced too. On an abort/watchdog win,
  * this does not return until the raced-away `execution` promise itself quiesces (settles or
@@ -857,25 +888,9 @@ async function awaitIteration(
   removeAbort?.();
 
   if (settlementPolicy === "finalization-repair") {
-    if (!args.invertRepairAbortPropagationForTest) abortExecution();
-    if (args.invertRepairJoinForTest) {
-      return raced.kind === "aborted" || raced.kind === "timed_out"
-        ? { kind: raced.kind, quiesced: { kind: "threw", error: new Error("invert repair join") } }
-        : raced;
-    }
-    const quiesced = await execution;
-    return raced.kind === "aborted" || raced.kind === "timed_out" ? { kind: raced.kind, quiesced } : quiesced;
+    return settleFinalizationRepair(args, raced, execution, abortExecution);
   }
-
-  if (raced.kind === "aborted" || raced.kind === "timed_out") {
-    const quiesced = await boundQuiescenceWait(
-      execution,
-      schedule,
-      args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS,
-    );
-    return { kind: raced.kind, quiesced };
-  }
-  return raced;
+  return settleBoundedIteration(raced, execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS);
 }
 
 /**

@@ -301,7 +301,7 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
-  test("idle output expiry kills a silent child and settles stall", async () => {
+  test("idle output expiry settles stall without joining a silent child", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     let expiry: (() => void) | undefined;
     const binding = createResolvedAgentBinding(
@@ -320,7 +320,7 @@ describe("createResolvedAgentBinding", () => {
     expiry?.();
 
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
-    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
   test("idle output expiry joins the child before settling stall", async () => {
@@ -338,9 +338,11 @@ describe("createResolvedAgentBinding", () => {
       },
     );
     let invocationSettled = false;
-    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100, joinProcessOnIdleStall: true }).finally(() => {
-      invocationSettled = true;
-    });
+    const promise = binding
+      .invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100, joinProcessOnIdleStall: true })
+      .finally(() => {
+        invocationSettled = true;
+      });
 
     expiry?.();
     await Promise.resolve();
@@ -883,7 +885,7 @@ describe("createResolvedAgentBinding", () => {
     // The live timer still stalls when its budget really does elapse.
     expiries[1]?.();
     await expect(promise).resolves.toMatchObject({ kind: "stall" });
-    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
   test("cursor binding classifies quota phrases in stream-json frames", async () => {
@@ -928,7 +930,7 @@ describe("createResolvedAgentBinding", () => {
     expiry?.();
 
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
-    expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
   test("cursor quota advances fallback but model config and generic error stop", async () => {

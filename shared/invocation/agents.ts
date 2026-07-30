@@ -68,23 +68,18 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) => {
-        const runArgs = {
-          prompt,
-          cwd,
+      invoke: (invokeArgs) =>
+        runCodexBinding({
+          prompt: invokeArgs.prompt,
+          cwd: invokeArgs.cwd,
           adapterModel,
-          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...pickAgentRunOptions(invokeArgs),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
           ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
-          ...(signal !== undefined ? { signal } : {}),
-        };
-        return runCodexBinding(runArgs);
-      },
+        }),
     };
   }
 
@@ -322,20 +317,23 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       }
     };
 
-    const checkSettlement = (code?: number | null) => {
-      if (settled) return;
-      const closedOrClosing = childClosed || code !== undefined;
+    const trySettleForcedOrAbort = (closedOrClosing: boolean): boolean => {
       if (forcedResult !== null) {
         if (closedOrClosing) settle(forcedResult);
-        return;
+        return true;
       }
       if (abortReason !== null) {
         if (closedOrClosing) settleAbort();
-        return;
+        return true;
       }
-      if (!stdoutEnded || !stderrEnded || !closedOrClosing) {
-        return;
-      }
+      return false;
+    };
+
+    const checkSettlement = (code?: number | null) => {
+      if (settled) return;
+      const closedOrClosing = childClosed || code !== undefined;
+      if (trySettleForcedOrAbort(closedOrClosing)) return;
+      if (!stdoutEnded || !stderrEnded || !closedOrClosing) return;
       if (code === 0 || code === undefined) {
         settleZeroExit();
         return;

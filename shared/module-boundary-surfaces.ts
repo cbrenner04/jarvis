@@ -40,7 +40,10 @@ type DependencyEdge = readonly [ModuleBoundarySurface, ModuleBoundarySurface];
 
 const BEFORE_EDGE_PATTERN = /\b(?:lands\s+)?(?:implement\s+)?before\b/i;
 
-function pairwiseEdges(left: readonly ModuleBoundarySurface[], right: readonly ModuleBoundarySurface[]): DependencyEdge[] {
+function pairwiseEdges(
+  left: readonly ModuleBoundarySurface[],
+  right: readonly ModuleBoundarySurface[],
+): DependencyEdge[] {
   const edges: DependencyEdge[] = [];
   for (const before of left) for (const after of right) if (before !== after) edges.push([before, after]);
   return edges;
@@ -93,9 +96,7 @@ function parseNumberedListEdges(text: string): DependencyEdge[] {
   }
   const inlineMatches = [...text.matchAll(/\d+[.)]\s*([^.\d\n]+?)(?=\s*\d+[.)]|$)/gu)];
   if (inlineMatches.length >= 2) {
-    edges.push(
-      ...sequentialEdges(inlineMatches.flatMap((match) => classifyModuleBoundaryText(match[1] ?? ""))),
-    );
+    edges.push(...sequentialEdges(inlineMatches.flatMap((match) => classifyModuleBoundaryText(match[1] ?? ""))));
   }
   return edges;
 }
@@ -163,9 +164,7 @@ export function orderModuleBoundariesForSplit(
     inDegree.set(after, (inDegree.get(after) ?? 0) + 1);
   }
 
-  const ready = canonicalOrder
-    .filter((surface) => (inDegree.get(surface) ?? 0) === 0)
-    .sort(byCanonicalOrder);
+  const ready = canonicalOrder.filter((surface) => (inDegree.get(surface) ?? 0) === 0).sort(byCanonicalOrder);
   const ordered: ModuleBoundarySurface[] = [];
   while (ready.length > 0) {
     const next = ready.shift();

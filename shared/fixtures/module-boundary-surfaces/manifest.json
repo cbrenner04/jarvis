@@ -34,6 +34,24 @@
           "acceptanceCriteria": ["- [ ] The CLI prints the published plan path."]
         }
       ]
+    },
+    {
+      "name": "k4",
+      "parentSlug": "cli-first-state",
+      "planningLabels": [],
+      "expectedChildren": [
+        {
+          "file": "00-cli.md",
+          "acceptanceCriteria": [
+            "- [ ] The CLI validates run flags before dispatch.",
+            "- [ ] The behavior remains covered by a regression test."
+          ]
+        },
+        {
+          "file": "01-persistence.md",
+          "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."]
+        }
+      ]
     }
   ]
 }

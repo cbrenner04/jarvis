@@ -25,6 +25,7 @@ import {
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
@@ -67,6 +68,7 @@ import {
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   applyPipelineApprovalDecision,
+  type PipelineExecutionDeps,
   recoverContinuablePipelines,
   resumePipeline,
   runPipeline,
@@ -724,6 +726,12 @@ export type RunControlHandlerDeps = {
   intentFinalizationResumeDeps?: Omit<IntentFinalizationResumeDeps, "logSink">;
   /** Test seam for `pipeline_start`'s stage resolution; defaults to the real preset resolver. */
   resolveStage?: typeof resolveStageWorkflowSteps;
+  /** Test seam replacing the daemon's workflow dispatch closure for pipeline stages. */
+  pipelineDispatch?: PipelineWorkflowDispatch;
+  /** Test seam replacing the daemon's workflow wait closure for pipeline stages. */
+  pipelineWait?: PipelineWorkflowWait;
+  /** Test seam for pipeline terminal publication settlement. */
+  executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
 };
 
 export type WaitRunCompletionResult = {
@@ -1829,7 +1837,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /** Thin closure around `handleWorkflowStart`, the seam `pipeline-stage-dispatch.ts` calls to dispatch a stage. */
-  const pipelineDispatch: PipelineWorkflowDispatch = async (steps) => {
+  const defaultPipelineDispatch: PipelineWorkflowDispatch = async (steps) => {
     const started = await handleWorkflowStart(steps);
     if (started.kind === "error") {
       return { ok: false, code: started.code, message: started.message };
@@ -1841,7 +1849,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /** Thin closure around the `wait` machinery, reporting only the terminal rollup status. */
-  const pipelineWait: PipelineWorkflowWait = async (entryRunId) => {
+  const defaultPipelineWait: PipelineWorkflowWait = async (entryRunId) => {
     const run = store.loadRun(entryRunId);
     if (!run) return "failed";
     const entrySnapshot = workflowEntrySnapshot(run);
@@ -1850,7 +1858,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return (outcome.result as WaitRunCompletionResult).runStatus;
   };
 
+  const pipelineDispatch = deps.pipelineDispatch ?? defaultPipelineDispatch;
+  const pipelineWait = deps.pipelineWait ?? defaultPipelineWait;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+
+  const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => ({
+    store,
+    dispatch: pipelineDispatch,
+    wait: pipelineWait,
+    resolveStage,
+    ...(deps.executeTerminalPublication !== undefined
+      ? { executeTerminalPublication: deps.executeTerminalPublication }
+      : {}),
+  });
 
   /**
    * Admit an already-validated pipeline definition: create its durable rows, start the
@@ -1874,13 +1894,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: "pipeline context was not durably persisted",
       };
     }
-    void runPipeline(pipelineId, {
-      store,
-      dispatch: pipelineDispatch,
-      wait: pipelineWait,
-      context,
-      resolveStage,
-    }).catch((err: unknown) => {
+    void runPipeline(pipelineId, { ...pipelineExecutionDeps(), context }).catch((err: unknown) => {
       console.error(`Pipeline ${pipelineId} execution failed:`, err);
     });
     return { kind: "response", result: { pipelineId } };
@@ -1897,12 +1911,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
       }
       const { pipelineId, stageId } = params;
-      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, {
-        store,
-        dispatch: pipelineDispatch,
-        wait: pipelineWait,
-        resolveStage,
-      });
+      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps());
       return { kind: "response", result: outcome };
     };
 
@@ -1918,16 +1927,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "invalid_params", message: "pipelineId required" };
     }
     const { pipelineId } = params;
-    const outcome = await resumePipeline(
-      pipelineId,
-      {
-        store,
-        dispatch: pipelineDispatch,
-        wait: pipelineWait,
-        resolveStage,
-      },
-      { detachContinuation: true },
-    );
+    const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), { detachContinuation: true });
     return { kind: "response", result: outcome };
   };
 
@@ -1980,13 +1980,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_resume: handlePipelineResumeHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
-    continueContinuablePipelines: async () =>
-      recoverContinuablePipelines(store, {
-        store,
-        dispatch: pipelineDispatch,
-        wait: pipelineWait,
-        resolveStage,
-      }),
+    continueContinuablePipelines: async () => recoverContinuablePipelines(store, pipelineExecutionDeps()),
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */

@@ -96,9 +96,16 @@ export function resumeAwaitingClaimsOnly(derivedState: PipelineDerivedState): bo
   return derivedState === "awaiting-approval";
 }
 
+let invertResumeFailedRequiresReopenForTest = false;
+
+export function setInvertResumeFailedRequiresReopenForTest(value: boolean): void {
+  invertResumeFailedRequiresReopenForTest = value;
+}
+
 /** True when derived state requires `reopenFailedPipeline` before continuation. */
 export function resumeFailedRequiresReopen(derivedState: PipelineDerivedState): boolean {
-  return derivedState === "failed";
+  const requires = derivedState === "failed";
+  return invertResumeFailedRequiresReopenForTest ? !requires : requires;
 }
 
 /** True when derived state refuses resume without a reopened failed continuation. */

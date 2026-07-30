@@ -498,6 +498,65 @@ no-Git runs delete the source after the durable output exists. Draft, review,
 validation, collision, and publication failures retain queue inputs. Completion
 publication runs only after landing.
 
+## Configured pipeline (`jarvis pipeline start`)
+
+Use a **configured pipeline** when the project registry names a pipeline definition
+in `projects.<name>.pipeline` (for example `full-review` with `terminalAction:
+"ready"`). Registration requires `projects.<name>.root` in `~/.jarvis/config.json`
+(see [`install-and-config.md`](./install-and-config.md)). The pipeline walks
+ordered workflow and approval stages; the daemon persists stage state, handles
+failure resume, and settles the configured terminal action after every stage
+succeeds.
+
+**When to use pipeline vs direct `run start`:** `jarvis run start` runs one ad-hoc
+write loop against a spec you name on the CLI. `jarvis pipeline start <project>`
+admits the project's configured definition (intent → gates → plan → gates →
+implement for `full-review`) with a seed (`--seed-text` or `--seed`). Use pipeline
+when you want the full review-and-approval choreography and terminal `ready`
+settlement; use `run start` for a single spec iteration without pipeline stages.
+
+**Prerequisites for `full-review`:** registered project with
+`projects.<name>.pipeline` set to `{ "name": "full-review", "terminalAction":
+"ready" }`, machine profile and agent bindings configured, git repo with `origin`,
+and `gh auth status` succeeding (terminal `ready` settlement gates on GitHub).
+
+**Start and observe:**
+
+```bash
+jarvis pipeline start demo --seed-text "Ship feature"
+# or detached: jarvis pipeline start demo --seed-text "Ship feature" --detach
+
+jarvis pipeline list
+jarvis pipeline wait <pipeline-id>
+```
+
+**Approval gates:** when `pipeline wait` prints `{kind:"awaiting-approval",stageId}`,
+approve the named gate (`approve-intent`, then `approve-plan` on `full-review`):
+
+```bash
+jarvis pipeline approve <pipeline-id> <stage-id>
+jarvis pipeline wait <pipeline-id>
+```
+
+**Failure resume:** after a failed workflow stage (for example `plan`), reopen
+without a new admission:
+
+```bash
+jarvis pipeline resume <pipeline-id>
+jarvis pipeline wait <pipeline-id>
+```
+
+Resume replays from the failed stage; succeeded predecessors keep their
+`workflowInvocationId`. Re-approve any gate that returns to `awaiting` before
+the walk continues.
+
+**Terminal `ready` settlement:** when every workflow stage and approval gate has
+succeeded, the daemon runs terminal publication for `terminalAction: "ready"` (gate
+then flip draft PR to ready). Derived pipeline state stays `running` until
+settlement finishes; then `derivePipelineState` is `succeeded` and
+`terminalPublicationSucceededAt` is set. Pair `pipeline wait` or `pipeline list`
+with attached `pipeline start` to observe the terminal boundary.
+
 ## Related docs
 
 New plan and implement PRs use the spec's first non-empty `index.md` H1. A

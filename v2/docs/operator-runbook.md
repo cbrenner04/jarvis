@@ -45,7 +45,13 @@ lands; see the [workflow publication contract](./workflow-runner.md#publication-
 
 **v2 is the primary harness.** `intent`, `plan`, and `implement` are the
 first-class presets; `implement` launches only when its requested spec tree has
-unchecked automated work. `intent-reviewed`, `plan-reviewed`, and
+unchecked automated work. **Configured pipelines** are supported for registered
+projects whose `~/.jarvis/config.json` entry includes `projects.<name>.pipeline`
+(admission resolves the named definition and `terminalAction` before
+`pipeline_start`). Step-by-step operator flow for `full-review` with approval
+gates, failure resume, and terminal `ready` settlement lives in
+[Configured pipeline (`jarvis pipeline start`)](./first-workflow-walkthrough.md#configured-pipeline-jarvis-pipeline-start).
+`intent-reviewed`, `plan-reviewed`, and
 `plan-reviewed-light` are **legacy aliases** (see
 [Workflow presets](#workflow-presets-registered-names)), not first-class
 presets.

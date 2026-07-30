@@ -13,10 +13,7 @@
             "- Persist completed runs in the state-store atomically."
           ],
           "acceptanceCriteria": ["- [ ] The state-store persists completed runs atomically."],
-          "documentationUpdates": [
-            "- Document state-store persistence guarantees in the operator runbook.",
-            "- None."
-          ]
+          "documentationUpdates": ["- Document state-store persistence guarantees in the operator runbook.", "- None."]
         },
         {
           "file": "01-cli.md",
@@ -38,10 +35,7 @@
             "- Retain published plan paths in SQLite storage."
           ],
           "acceptanceCriteria": ["- [ ] SQLite storage retains the published plan path."],
-          "documentationUpdates": [
-            "- Document SQLite retention behavior in persistence docs.",
-            "- None."
-          ]
+          "documentationUpdates": ["- Document SQLite retention behavior in persistence docs.", "- None."]
         },
         {
           "file": "01-daemon.md",

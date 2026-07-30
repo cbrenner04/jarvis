@@ -63,12 +63,7 @@ function sectionBulletLines(body: string, heading: string, checkbox: boolean): s
   return section.filter((line) => pattern.test(line));
 }
 
-function survivingParentBullets(
-  body: string,
-  parentSlug: string,
-  heading: string,
-  checkbox: boolean,
-): string[] {
+function survivingParentBullets(body: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
   const residue = splitResiduePattern(parentSlug);
   return sectionBulletLines(body, heading, checkbox).filter((line) => !residue.test(line));
 }

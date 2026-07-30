@@ -190,13 +190,12 @@ before the `iteration_timeout` boundary. A quiesced invocation that instead
 threw (no step result to checkpoint) skips the commit and proceeds exactly as
 before. This is the durability floor's boundary condition, not a broader
 guarantee: it applies only once the raced-away invocation has actually
-quiesced and can no longer mutate the worktree. Waiting for that quiescence is
-bounded (`quiescenceTimeoutMs`, default `DEFAULT_QUIESCENCE_TIMEOUT_MS` = 30s):
-an invocation that never quiesces at all (ignores its `AbortSignal`) falls
-through to the un-checkpointed loss once the bound expires, the same as an
-invocation that quiesced by throwing — the loop still settles rather than
-hanging. Abrupt daemon/process death falls outside the floor entirely; that is
-not a new risk introduced here.
+quiesced and can no longer mutate the worktree. For ordinary write-loop
+iterations, waiting for that quiescence is bounded (`quiescenceTimeoutMs`,
+default `DEFAULT_QUIESCENCE_TIMEOUT_MS` = 30s): an invocation that never
+quiesces falls through to the un-checkpointed loss once the bound expires.
+Finalization repairs are stricter, as described below. Abrupt daemon/process
+death falls outside the floor entirely.
 
 An interrupted fallback attempt — the last-started binding when the invocation
 had already advanced past an earlier failed binding — checkpoints under its
@@ -218,9 +217,14 @@ result, appends a `run_execution_failed` log event naming the checkpoint error
 for resume diagnostics, and starts no boundary or publication — resume still
 retries the write path since the attempt was never marked complete.
 
-Ready-gate repair iterations (`runReadyRepairIteration`) are not covered write-
-loop iterations for this floor either; an abort/watchdog loss mid-repair keeps
-its pre-existing unsettled/blocked handling, unchanged by this checkpoint.
+Ready-gate and surviving-mutation repair iterations use a terminal-settlement
+join instead. Before `completed`, `failed`, or `killed` becomes durable, the
+repair controller is aborted and Jarvis joins both the agent process and its
+invocation promise. The row remains `in-progress` while that happens. A repair
+that ignores cancellation therefore keeps the row nonterminal after
+`quiescenceTimeoutMs` or any other bounded wait; settlement waits until the
+process and invocation promise actually finish. `blocked` and `interrupted`
+are outside this finalization-repair rule.
 
 Every settled main-loop iteration appends a distinct `iteration_commit` log
 event (`v2/src/persistence/log-stream.ts`), separate from the SQLite-only
@@ -379,6 +383,8 @@ then ready gate and draft→ready flip once.
 
 Publication terminal results and their `loop_finished` row retain the normalized failure detail. The ready gate remains outside this policy; `ReadyGateError` enters repair, while `already ready` and `not a draft` satisfy the ready flip before classification.
 
+Terminal ready-gate attribution uses the marker-prefixed failing-file records and ready-step completion boundaries documented in [`test-writing.md`](./test-writing.md). Classification is conservative: only the final failed ready step's final test attempt supplies attributable paths. Missing, malformed, stale-retry, later-non-test, partial, or mixed attribution stays `ready_gate_failed`. Each attributed path must be a nonempty normalized repo-relative path; absolute, escaping, malformed, or normalization-colliding records fail closed. The allowed set is the normalized union of the spec-tree files and all base-to-HEAD diff paths (including rename/copy/delete sides) plus untracked files, derived with NUL-safe git parsing; any unresolved diff, inventory, normalization, or spec-tree input also fails closed. When every validated failing path lies outside that set, the failure is a path-ownership heuristic only — `ready_gate_out_of_scope` with the normalized outside paths — not proof the run did or did not cause the red. Deadline-killed gates, successful gates, and `requiredIntegrationScope` failures are never eligible because they lack equally complete terminal file attribution.
+
 The captured snapshot is the retry identity: later operator edits are excluded.
 On continuation (`jarvis run resume`, daemon recovery, queue promotion), execution
 re-resolves agent/model bindings from the current machine profile while snapshot
@@ -419,6 +425,12 @@ first routing read happens before that materialization; the write loop creates
 the worktree on its first `executeWrite` call.
 
 When completion publication's ready gate fails with a `ReadyGateError`, the write loop invokes the agent again with the gate command, exit code, and the last 16 KiB of gate output. It commits and republishes after each repair, for at most three repair attempts. Repair iterations consume the normal iteration budget; a blocked repair, exhausted budget, or still-red gate returns retryable `ready_gate_failed`. Flip failures return `ready_flip_failed` and do not trigger repair.
+Resumed publication retry and surviving-mutation repair keep the durable row `in-progress`
+during repair. Every covered completion, failure, or kill first cancels and fully joins
+the repair; only then may its existing terminal status and resumability become visible.
+Finalization-repair invocations pass `joinProcessOnIdleStall` so idle-output expiry
+waits for the child process to close before settling `stall`; ordinary write and review
+invocations keep the fast idle stall without that join.
 
 The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the

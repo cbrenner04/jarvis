@@ -401,6 +401,31 @@ describe("log-stream", () => {
     expect(reader.tail("run-1").map((record) => record.seq)).toEqual([1]);
   });
 
+  it("persists ready_gate_out_of_scope loop_finished evidence with round-trip fields", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+    const outsidePath = "v2/src/untouched.test.ts";
+    const detail = `ready gate failing paths lie outside the run's touched set: ${outsidePath}`;
+
+    sink.append("run-1", {
+      kind: "loop_finished",
+      loopOutcomeKind: "ready_gate_out_of_scope",
+      iterationsConsumed: 1,
+      resumable: true,
+      readyGateOutsidePaths: [outsidePath],
+      readyGateOutOfScopeDetail: detail,
+    });
+    sink.close();
+
+    const record = reader.tail("run-1").at(-1);
+    expect(record?.event).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "ready_gate_out_of_scope",
+      readyGateOutsidePaths: [outsidePath],
+      readyGateOutOfScopeDetail: detail,
+    });
+  });
+
   it("follow waiter observes loop_finished appended by a second sink", async () => {
     const sinkA = openLogSink(storagePath);
     const reader = openLogReader(storagePath, TEST_POLL_MS);

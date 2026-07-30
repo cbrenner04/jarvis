@@ -279,4 +279,131 @@ describe("derivePipelineState", () => {
   test("reports pending when the loop has not yet reached a dispatchable stage", () => {
     expect(derivePipelineState(pipelineWith({}))).toBe("pending");
   });
+
+  test("walks durable position order, not definition array index", () => {
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "gate", kind: "approval" },
+        { stageId: "implement", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const pipeline: Pipeline & { stages: PipelineStageRecord[] } = {
+      id: PIPELINE_ID,
+      name: definition.name,
+      createdAt: 0,
+      ownerIdentity: null,
+      status: "active",
+      definition,
+      stages: [
+        {
+          id: "row-implement",
+          pipelineId: PIPELINE_ID,
+          stageId: "implement",
+          position: 0,
+          status: "pending",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+        {
+          id: "row-gate",
+          pipelineId: PIPELINE_ID,
+          stageId: "gate",
+          position: 1,
+          status: "awaiting",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+        {
+          id: "row-plan",
+          pipelineId: PIPELINE_ID,
+          stageId: "plan",
+          position: 2,
+          status: "succeeded",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+      ],
+    };
+
+    expect(derivePipelineState(pipeline)).toBe("pending");
+  });
+
+  test("reports rejected when any approval stage row reads rejected", () => {
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "gate", kind: "approval" },
+      ],
+    };
+    const pipeline: Pipeline & { stages: PipelineStageRecord[] } = {
+      id: PIPELINE_ID,
+      name: definition.name,
+      createdAt: 0,
+      ownerIdentity: null,
+      status: "active",
+      definition,
+      stages: definition.stages.map((stage, index) => ({
+        id: `row-${index}`,
+        pipelineId: PIPELINE_ID,
+        stageId: stage.stageId,
+        position: index,
+        status: stage.stageId === "s1" ? "succeeded" : "rejected",
+        workflowInvocationId: null,
+        startedAt: null,
+        endedAt: null,
+        artifact: null,
+        failureDetail: null,
+      })),
+    };
+    expect(derivePipelineState(pipeline)).toBe("rejected");
+  });
+
+  test("reports interrupted when the pipeline row or any stage row reads interrupted", () => {
+    expect(
+      derivePipelineState({
+        ...pipelineWith({ s1: "succeeded" }),
+        status: "interrupted",
+      }),
+    ).toBe("interrupted");
+
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const pipeline: Pipeline & { stages: PipelineStageRecord[] } = {
+      id: PIPELINE_ID,
+      name: definition.name,
+      createdAt: 0,
+      ownerIdentity: null,
+      status: "active",
+      definition,
+      stages: [
+        {
+          id: "row-0",
+          pipelineId: PIPELINE_ID,
+          stageId: "s1",
+          position: 0,
+          status: "interrupted",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+      ],
+    };
+    expect(derivePipelineState(pipeline)).toBe("interrupted");
+  });
 });

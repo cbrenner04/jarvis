@@ -4,6 +4,8 @@ import { isLoadSensitive, sliceTestFiles, type TestSliceMode, walkTestFiles } fr
 
 /** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
 export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
+export const FAILING_TEST_FILE_MARKER = "JARVIS_READY_FAILING_TEST_FILE ";
+export const READY_ATTEMPT_ENV = "JARVIS_READY_ATTEMPT_ID";
 
 /** Per-file timeout for test execution; must not undercut the supported healthy file budget. */
 const PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS;
@@ -39,6 +41,11 @@ export function spawnTimeoutMessage(mode: string, file?: string, label = "v2"): 
 /** Header line preceding a settled file's contiguous captured-output block. */
 export function fileOutputHeader(file: string): string {
   return `--- ${file} ---\n`;
+}
+
+/** Machine-readable evidence for one failed file settlement. */
+export function failingTestFileRecord(file: string, attemptId: string): string {
+  return `${FAILING_TEST_FILE_MARKER}${JSON.stringify({ attemptId, path: file })}\n`;
 }
 
 export interface SpawnOutcome {
@@ -162,6 +169,7 @@ export async function runV2TestFiles(
   spawn: Spawn = defaultSpawn,
   label = "v2",
   concurrency = resolveConcurrency(),
+  attemptId = process.env[READY_ATTEMPT_ENV] ?? "standalone",
 ): Promise<FileResult[]> {
   const results: FileResult[] = [];
   const poolable = files.filter((file) => !isLoadSensitive(file));
@@ -181,6 +189,9 @@ export async function runV2TestFiles(
       }
       const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
       process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
+      if (result.timedOut || result.status !== 0 || result.signal !== null) {
+        process.stderr.write(failingTestFileRecord(file, attemptId));
+      }
       if (result.timedOut) {
         process.stderr.write(spawnTimeoutMessage(mode, file, label));
         results.push({ file, timedOut: true, status: result.status });
@@ -206,6 +217,9 @@ export async function runV2TestFiles(
     }
     const result = await spawn("bun", ["test", file], { timeout: PER_FILE_TIMEOUT_MS });
     process.stdout.write(`${fileOutputHeader(file)}${result.stdout}${result.stderr}`);
+    if (result.timedOut || result.status !== 0 || result.signal !== null) {
+      process.stderr.write(failingTestFileRecord(file, attemptId));
+    }
     if (result.timedOut) {
       process.stderr.write(spawnTimeoutMessage(mode, file, label));
       results.push({ file, timedOut: true, status: result.status });

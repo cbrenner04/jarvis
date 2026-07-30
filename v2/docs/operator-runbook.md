@@ -455,6 +455,13 @@ this from running all three test slices). Because per-step budgets are fixed con
 the PR draft → ready transition (see [Publication / completion failures](#publication--completion-failures)); do
 not `jarvis run resume`.
 
+When every attributable failing path lies outside the run's touched set (spec tree plus base-to-HEAD
+diff and untracked inventory), finalization settles `ready_gate_out_of_scope` instead of entering
+bounded repair. `list` / `wait` name `error.reason: ready_gate_out_of_scope`, preserve
+`error.readyGateOutsidePaths` and `error.readyGateOutOfScopeDetail`, and guide retry finalization via
+`jarvis run resume` — not source-file repair. Review every repair commit's file list before merging;
+bounded repair can still touch in-scope paths when a mixed or in-scope gate failure triggered it.
+
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
 A `surviving_mutation_failed` outcome whose site is a timer callback in a determinism-guarded root (v2/src/daemon or v2/src/execution .test.ts) names both constraints: the natural kill test (which is forbidden by the determinism guard's real-timer prohibition) and the fix (extract the guard into a pure exported predicate and test both truth directions directly without a real-timer wait, then resume). Codify the extracted predicate directly in the guarded suite's test file and verify its coverage independently.

@@ -48,12 +48,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
         runClaudeBinding({
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
           ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
@@ -67,22 +68,18 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) => {
-        const runArgs = {
-          prompt,
-          cwd,
+      invoke: (invokeArgs) =>
+        runCodexBinding({
+          prompt: invokeArgs.prompt,
+          cwd: invokeArgs.cwd,
           adapterModel,
-          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...pickAgentRunOptions(invokeArgs),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
           ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
-          ...(signal !== undefined ? { signal } : {}),
-        };
-        return runCodexBinding(runArgs);
-      },
+        }),
     };
   }
 
@@ -90,12 +87,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
         runCursorBinding({
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
           ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
@@ -109,12 +107,13 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, onOutputProgress }) =>
+      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
         runOpencodeBinding({
           prompt,
           cwd,
           adapterModel,
           ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
           ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
@@ -140,17 +139,22 @@ type AgentRunOptions = {
   abortKillGraceMs?: number;
   sleepMs?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
 };
 
 function pickAgentRunOptions(
-  args: Pick<AgentRunOptions, "signal" | "idleOutputMs" | "onOutputProgress" | "setTimeout" | "clearTimeout">,
+  args: Pick<
+    AgentRunOptions,
+    "signal" | "idleOutputMs" | "joinProcessOnIdleStall" | "onOutputProgress" | "setTimeout" | "clearTimeout"
+  >,
 ): AgentRunOptions {
   return {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
     ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
@@ -212,6 +216,8 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     let stderrEnded = false;
     let childClosed = false;
     let abortReason: string | null = null;
+    let forcedResult: InvocationResult | null = null;
+    let removeAbortListener: (() => void) | undefined;
     let abortTimer: ReturnType<typeof setTimeout> | null = null;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const setTimer = opts.setTimeout ?? setTimeout;
@@ -228,6 +234,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         clearTimer(idleTimer);
         idleTimer = null;
       }
+      removeAbortListener?.();
       resolvePromise(result);
     };
 
@@ -268,8 +275,13 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       if (opts.idleOutputMs === undefined || opts.idleOutputMs <= 0 || settled) return;
       if (idleTimer !== null) clearTimer(idleTimer);
       idleTimer = setTimer(() => {
-        killProcessGroup();
-        settle({ kind: "stall", stderr: errBuf }, true);
+        if (opts.joinProcessOnIdleStall) {
+          forcedResult = { kind: "stall", stderr: errBuf };
+          killProcessGroup();
+          checkSettlement();
+        } else {
+          settle({ kind: "stall", stderr: errBuf }, true);
+        }
       }, opts.idleOutputMs);
       idleTimer.unref?.();
     };
@@ -305,16 +317,23 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       }
     };
 
+    const trySettleForcedOrAbort = (closedOrClosing: boolean): boolean => {
+      if (forcedResult !== null) {
+        if (closedOrClosing) settle(forcedResult);
+        return true;
+      }
+      if (abortReason !== null) {
+        if (closedOrClosing) settleAbort();
+        return true;
+      }
+      return false;
+    };
+
     const checkSettlement = (code?: number | null) => {
       if (settled) return;
       const closedOrClosing = childClosed || code !== undefined;
-      if (abortReason !== null) {
-        if (closedOrClosing) settleAbort();
-        return;
-      }
-      if (!stdoutEnded || !stderrEnded || !closedOrClosing) {
-        return;
-      }
+      if (trySettleForcedOrAbort(closedOrClosing)) return;
+      if (!stdoutEnded || !stderrEnded || !closedOrClosing) return;
       if (code === 0 || code === undefined) {
         settleZeroExit();
         return;
@@ -388,6 +407,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         handleAbort();
       } else {
         opts.signal.addEventListener("abort", handleAbort);
+        removeAbortListener = () => opts.signal?.removeEventListener("abort", handleAbort);
       }
     }
 
@@ -530,6 +550,7 @@ async function runClaudeBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
@@ -571,6 +592,7 @@ async function runCodexBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
@@ -639,6 +661,7 @@ async function runCursorBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
@@ -679,6 +702,7 @@ async function runOpencodeBinding(args: {
   adapterModel: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
+  joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;

@@ -35,6 +35,7 @@ import {
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
+  resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
@@ -64,6 +65,14 @@ import {
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { runPipeline } from "./pipeline-execution.ts";
+import {
+  bindPipelineWaitObserver,
+  PIPELINE_WAIT_ABORTED,
+  PipelineWaitAbortedError,
+  PipelineWaitObserver,
+  projectPipelineSnapshot,
+  waitForPipelineBoundary,
+} from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
@@ -101,6 +110,7 @@ type ActiveRun =
       kind: "workflow";
       runId: string;
       abortController: AbortController;
+      pendingKill?: true;
     }
   | {
       kind: "finalization";
@@ -352,6 +362,33 @@ export function resetWriteLoopBindingSourceDepsForTests(): void {
   writeLoopBindingSourceDeps = {};
 }
 
+let invertWorkflowKillBeforeRepairQuiescenceForTest = false;
+let invertWorkflowRegistryReleaseBeforeKillForTest = false;
+
+export function setInvertWorkflowKillBeforeRepairQuiescenceForTest(value: boolean): void {
+  invertWorkflowKillBeforeRepairQuiescenceForTest = value;
+}
+
+export function setInvertWorkflowRegistryReleaseBeforeKillForTest(value: boolean): void {
+  invertWorkflowRegistryReleaseBeforeKillForTest = value;
+}
+
+/** Release workflow registry claim and persist deferred kills in settlement order. */
+export function settleKilledWorkflowOwnership(args: {
+  killedRunIds: readonly string[];
+  releaseRegistry: () => void;
+  commitGuardedKill: (runId: string) => void;
+  invertRegistryReleaseBeforeKill?: boolean;
+}): void {
+  if (args.invertRegistryReleaseBeforeKill) {
+    args.releaseRegistry();
+    for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+    return;
+  }
+  for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+  args.releaseRegistry();
+}
+
 export function runWithWriteLoopMachineConfigPath<T>(machineConfigPath: string | undefined, fn: () => T): T {
   const prior = writeLoopBindingSourceDeps;
   writeLoopBindingSourceDeps = machineConfigPath === undefined ? prior : { ...prior, machineConfigPath };
@@ -592,7 +629,12 @@ function resumeContextForRun(
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
   if (!isResumeAdmitted(run, terminalRecord)) return undefined;
   if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
-  if (isReviewMutationResumable(run, store, terminalRecord)) return undefined;
+  if (
+    isReviewMutationResumable(run, store, terminalRecord) ||
+    resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
+  ) {
+    return undefined;
+  }
   return reconstructWriteResume(run);
 }
 
@@ -829,15 +871,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
   // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
-  const {
-    stateStore: store,
-    logReader,
-    writeLoopExecutor,
-    failureReporter,
-    logsPath,
-    operatorSessionId,
-    intentFinalizationResumeDeps,
-  } = deps;
+  const pipelineWaitObserver = new PipelineWaitObserver();
+  const store = bindPipelineWaitObserver(deps.stateStore, pipelineWaitObserver);
+  const { logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId, intentFinalizationResumeDeps } =
+    deps;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -1044,12 +1081,21 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         })
         .finally(() => {
           logSink?.close();
+          const killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
+            const activeRun = activeRuns.get(runId);
+            return activeRun?.kind === "workflow" && activeRun.pendingKill;
+          });
           for (const runId of workflowRunIds) activeRuns.delete(runId);
           activeRuns.delete(claimRunId);
+          settleKilledWorkflowOwnership({
+            killedRunIds: killedWorkflowRuns,
+            releaseRegistry: () => _registry.release(workflowKey, claimRunId),
+            commitGuardedKill: (runId) => store.commitGuardedKill(runId),
+            invertRegistryReleaseBeforeKill: invertWorkflowRegistryReleaseBeforeKillForTest,
+          });
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
           }
-          _registry.release(workflowKey, claimRunId);
           trackPromiseResolve?.();
         });
     });
@@ -1358,6 +1404,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
     if (activeRunAcceptsKill(activeRun, runId)) {
       activeRun.abortController.abort();
+      if (activeRun.kind === "workflow") {
+        activeRun.pendingKill = true;
+        if (invertWorkflowKillBeforeRepairQuiescenceForTest) {
+          store.commitGuardedKill(runId);
+        }
+        return { kind: "response", result: { ok: true } };
+      }
       store.commitGuardedKill(runId);
       return { kind: "response", result: { ok: true } };
     }
@@ -1574,7 +1627,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     // Checked ahead of the generic terminal-resume gate below: these two admission predicates carry
     // their own `status === "failed"` + row-shape checks, and the outcomes they admit
-    // (`surviving_mutation_failed`, `ready_gate_failed`, `completion_commit_failed`, populated-intent
+    // (`surviving_mutation_failed`, `ready_gate_failed`, `ready_gate_out_of_scope`,
+    // `completion_commit_failed`, populated-intent
     // `landing_failed`) are not resumable under the generic operator-error mapping — deferring to
     // that gate first would wrongly strand a row this code can actually resume.
     if (isIntentFinalizationResumable(run, store)) {
@@ -1583,7 +1637,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
 
-    if (isReviewMutationResumable(run, store, terminalRecord)) {
+    if (
+      isReviewMutationResumable(run, store, terminalRecord) ||
+      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok
+    ) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
     }
 
@@ -1739,6 +1796,32 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { pipelineId } };
   };
 
+  const handlePipelineListHandler: RpcHandler = () => {
+    return { kind: "response", result: { pipelines: store.listPipelines().map(projectPipelineSnapshot) } };
+  };
+
+  const handlePipelineWaitHandler: RpcHandler = async (frame, signal) => {
+    const params = frame.params as { pipelineId?: unknown } | undefined;
+    if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "Missing pipelineId" };
+    }
+
+    const pipelineId = params.pipelineId;
+    if (!store.loadPipeline(pipelineId)) {
+      return { kind: "error", code: "unknown_pipeline", message: `Pipeline ${pipelineId} not found` };
+    }
+
+    try {
+      const boundary = await waitForPipelineBoundary(store, pipelineId, signal, pipelineWaitObserver);
+      return { kind: "response", result: boundary };
+    } catch (error) {
+      if (signal.aborted || error instanceof PipelineWaitAbortedError) {
+        throw new Error(PIPELINE_WAIT_ABORTED);
+      }
+      throw error;
+    }
+  };
+
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
   const setRetiring = (): void => {
@@ -1757,6 +1840,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     kill: killHandler,
     wait: waitHandler,
     pipeline_start: handlePipelineStartHandler,
+    pipeline_list: handlePipelineListHandler,
+    pipeline_wait: handlePipelineWaitHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */

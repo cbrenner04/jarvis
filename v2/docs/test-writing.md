@@ -44,6 +44,12 @@ timer that fired the kill, not inferred from `signal`/`status` on the result, so
 externally-delivered `SIGKILL` within budget is reported as an ordinary failure rather than a
 timeout.
 
+Every non-zero, timed-out, signaled, or null-status settlement also emits one
+`JARVIS_READY_FAILING_TEST_FILE` record to stderr. The marker prefixes JSON containing the
+repo-relative `path` and ready-step `attemptId`; healthy files emit none. This applies in both the
+concurrent pool and isolated load-sensitive phase. The ready gate supplies the attempt through
+`JARVIS_READY_ATTEMPT_ID`; direct runner invocations use `standalone`.
+
 ### Bounded concurrency pool
 
 `runV2TestFiles` runs files under a bounded pool of concurrent `bun test <file>` children instead
@@ -132,6 +138,17 @@ constant in `scripts/ready.ts` — there is no per-step env knob. Update `TEST_S
 test:cost` to refresh the per-file totals below ("Measured aggregate cost") in step.
 
 Sources: `scripts/ready.ts`, `v1/test/ready-script.sandbox-unrunnable.test.ts`
+
+Each ready-step attempt ends with one `JARVIS_READY_STEP_COMPLETED` stderr boundary. Its JSON
+contains `stepId`, distinct `attemptId`, command identity, and numeric terminal `status`. A retry
+keeps the step identity and gets a new attempt identity; non-test steps emit completion boundaries
+but no failing-file records.
+
+For a failed ready invocation, select its terminal failed completion boundary. Only failing-file
+records correlated to that test step's final attempt are attributable. A recovered retry, a later
+non-test failure, or missing completion boundary is unattributed. Validate repo-relative paths,
+normalize them, then deduplicate exact paths within that selected attempt only, preserving
+deterministic first-seen settlement order.
 
 ### Per-file test cost reporter
 

@@ -1,9 +1,12 @@
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import {
+  type ApprovalDecision,
+  type ApprovalRefusalReason,
   isOwnerAlive,
   type OwnerLivenessProbe,
   type Pipeline,
   type PipelineContext,
+  type PipelineReopenRefusalReason,
   type PipelineStageRecord,
   type StateStore,
 } from "../persistence/state-store.ts";
@@ -48,9 +51,62 @@ export type ContinuePipelineOutcome =
   | { kind: "continued"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineContinuationRefusalReason };
 
+export type PipelineApprovalDecisionRefusalReason = ApprovalRefusalReason | "pipeline_not_found";
+
+export type PipelineApprovalDecisionOutcome =
+  | { kind: "applied"; pipelineId: string; stageId: string; decision: ApprovalDecision }
+  | { kind: "refused"; pipelineId: string; stageId: string; reason: PipelineApprovalDecisionRefusalReason };
+
+export type PipelineResumeRefusalReason =
+  | PipelineContinuationRefusalReason
+  | PipelineReopenRefusalReason
+  | "pipeline_terminal_succeeded"
+  | "pipeline_terminal_rejected"
+  | "pipeline_not_resumable";
+
+export type ResumePipelineOutcome =
+  | { kind: "resumed"; pipelineId: string }
+  | { kind: "refused"; pipelineId: string; reason: PipelineResumeRefusalReason };
+
 /** True when a pipeline row carries the admission context required for restart continuation. */
 export function persistedContextLoadPermitsContinuation(context: PipelineContext | null): boolean {
   return context !== null;
+}
+
+/** Terminal derived states that refuse resume without stage dispatch. */
+export function resumeTerminalRefusalReason(
+  derivedState: PipelineDerivedState,
+): "pipeline_terminal_succeeded" | "pipeline_terminal_rejected" | null {
+  if (derivedState === "succeeded") return "pipeline_terminal_succeeded";
+  if (derivedState === "rejected") return "pipeline_terminal_rejected";
+  return null;
+}
+
+/** True when derived state is awaiting-approval (claim only, never `continuePipeline`). */
+export function resumeAwaitingClaimsOnly(derivedState: PipelineDerivedState): boolean {
+  return derivedState === "awaiting-approval";
+}
+
+/** True when derived state requires `reopenFailedPipeline` before continuation. */
+export function resumeFailedRequiresReopen(derivedState: PipelineDerivedState): boolean {
+  return derivedState === "failed";
+}
+
+/** True when derived state refuses resume without a reopened failed continuation. */
+export function resumeDeferredRefusalApplies(
+  derivedState: PipelineDerivedState,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  if (derivedState === "running" || derivedState === "interrupted") return true;
+  return derivedState === "pending" && !isReopenedFailedContinuation(pipeline);
+}
+
+/** True when derived `pending` reflects an already-reopened failed continuation. */
+export function resumeReopenedPendingContinuation(
+  derivedState: PipelineDerivedState,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  return derivedState === "pending" && isReopenedFailedContinuation(pipeline);
 }
 
 /**
@@ -84,6 +140,146 @@ export async function continuePipeline(
 
   await runPipeline(pipelineId, { store, dispatch, wait, context, resolveStage });
   return { kind: "continued", pipelineId };
+}
+
+/** True when derived `pending` reflects an in-place failed-continuation reopen, not fresh or approval-gated work. */
+export function isReopenedFailedContinuation(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
+  if (!reopenedFailurePermitsActivation(pipeline)) return false;
+  const ordered = authoredStagesInPositionOrder(pipeline);
+  for (let index = 0; index < ordered.length; index += 1) {
+    const { stage, record } = ordered[index]!;
+    if (isAuthoredStageSatisfied(stage, record)) continue;
+    if (stage.kind !== "workflow" || record.status !== "pending") return false;
+    if (index > 0 && ordered[index - 1]!.stage.kind === "approval") return false;
+    return ordered
+      .slice(0, index)
+      .some(({ stage: priorStage, record: priorRecord }) => priorStage.kind === "workflow" && priorRecord.status === "succeeded");
+  }
+  return false;
+}
+
+/**
+ * Stage-scoped resume: reopen a failed continuation when needed, claim awaiting pipelines
+ * without dispatch, or continue a reopened failed stage — never restart or silently succeed
+ * terminal pipelines.
+ */
+export async function resumePipeline(
+  pipelineId: string,
+  deps: Omit<PipelineExecutionDeps, "context"> & { context?: PipelineContext },
+  options: { detachContinuation?: boolean } = {},
+): Promise<ResumePipelineOutcome> {
+  const { store } = deps;
+  const pipeline = store.loadPipeline(pipelineId);
+  if (!pipeline) {
+    return { kind: "refused", pipelineId, reason: "pipeline_not_found" };
+  }
+
+  const derivedState = derivePipelineState(pipeline);
+
+  const terminalReason = resumeTerminalRefusalReason(derivedState);
+  if (terminalReason) {
+    return { kind: "refused", pipelineId, reason: terminalReason };
+  }
+  if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
+    return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+  }
+
+  if (resumeAwaitingClaimsOnly(derivedState)) {
+    if (pipeline.context === null) {
+      return { kind: "refused", pipelineId, reason: "missing_context" };
+    }
+    const claim = store.claimPipelineContinuation({
+      pipelineId,
+      priorOwnerIdentity: pipeline.ownerIdentity,
+    });
+    if (claim.kind === "refused") {
+      return { kind: "refused", pipelineId, reason: "claim_refused" };
+    }
+    return { kind: "resumed", pipelineId };
+  }
+
+  const continueAfterAdmission = (): ResumePipelineOutcome | Promise<ResumePipelineOutcome> => {
+    const dispatchContinuation = async (): Promise<ResumePipelineOutcome> => {
+      const continuation = await continuePipeline(pipelineId, deps);
+      return continuation.kind === "refused"
+        ? { kind: "refused", pipelineId, reason: continuation.reason }
+        : { kind: "resumed", pipelineId };
+    };
+    if (options.detachContinuation) {
+      void dispatchContinuation().catch((err: unknown) => {
+        console.error(`Pipeline ${pipelineId} continuation after resume failed:`, err);
+      });
+      return { kind: "resumed", pipelineId };
+    }
+    return dispatchContinuation();
+  };
+
+  if (resumeFailedRequiresReopen(derivedState)) {
+    const reopen = store.reopenFailedPipeline({ pipelineId });
+    if (reopen.kind === "refused") {
+      return { kind: "refused", pipelineId, reason: reopen.reason };
+    }
+    return continueAfterAdmission();
+  }
+
+  if (resumeReopenedPendingContinuation(derivedState, pipeline)) {
+    return continueAfterAdmission();
+  }
+
+  return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+}
+
+/**
+ * Resolve `{ pipelineId, stageId }` to one durable approval row and admit `approved` or
+ * `rejected` through `commitApprovalDecision`. Refused decisions change no other row.
+ */
+export function commitPipelineApprovalDecision(args: {
+  store: StateStore;
+  pipelineId: string;
+  stageId: string;
+  decision: ApprovalDecision;
+}): PipelineApprovalDecisionOutcome {
+  const pipeline = args.store.loadPipeline(args.pipelineId);
+  if (!pipeline) {
+    return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: "pipeline_not_found" };
+  }
+
+  const stageRecord = findStageRecord(pipeline.stages, args.stageId);
+  if (!stageRecord) {
+    return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: "stage_not_found" };
+  }
+
+  const outcome = args.store.commitApprovalDecision({ stageRecordId: stageRecord.id, decision: args.decision });
+  if (outcome.kind === "refused") {
+    return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: outcome.reason };
+  }
+  return {
+    kind: "applied",
+    pipelineId: args.pipelineId,
+    stageId: args.stageId,
+    decision: args.decision,
+  };
+}
+
+/** Admit one approval decision; when `approved` applies, detach `continuePipeline` from persisted context. */
+export function applyPipelineApprovalDecision(
+  pipelineId: string,
+  stageId: string,
+  decision: ApprovalDecision,
+  deps: Omit<PipelineExecutionDeps, "context">,
+): PipelineApprovalDecisionOutcome {
+  const outcome = commitPipelineApprovalDecision({
+    store: deps.store,
+    pipelineId,
+    stageId,
+    decision,
+  });
+  if (outcome.kind === "applied" && decision === "approved") {
+    void continuePipeline(pipelineId, deps).catch((err: unknown) => {
+      console.error(`Pipeline ${pipelineId} continuation after approval failed:`, err);
+    });
+  }
+  return outcome;
 }
 
 /** True when a reached approval row blocks daemon activation. */

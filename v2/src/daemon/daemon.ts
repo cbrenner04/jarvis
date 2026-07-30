@@ -64,7 +64,7 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
-import { recoverContinuablePipelines, runPipeline } from "./pipeline-execution.ts";
+import { applyPipelineApprovalDecision, recoverContinuablePipelines, resumePipeline, runPipeline } from "./pipeline-execution.ts";
 import {
   bindPipelineWaitObserver,
   PIPELINE_WAIT_ABORTED,
@@ -1813,6 +1813,51 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { pipelineId } };
   };
 
+  const handlePipelineApprovalDecisionHandler =
+    (decision: "approved" | "rejected"): RpcHandler =>
+    (frame) => {
+      if (retiring) {
+        return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+      }
+      const params = frame.params as { pipelineId?: string; stageId?: string } | undefined;
+      if (!params?.pipelineId || !params?.stageId) {
+        return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
+      }
+      const { pipelineId, stageId } = params;
+      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, {
+        store,
+        dispatch: pipelineDispatch,
+        wait: pipelineWait,
+        resolveStage,
+      });
+      return { kind: "response", result: outcome };
+    };
+
+  const handlePipelineApproveHandler = handlePipelineApprovalDecisionHandler("approved");
+  const handlePipelineRejectHandler = handlePipelineApprovalDecisionHandler("rejected");
+
+  const handlePipelineResumeHandler: RpcHandler = async (frame) => {
+    if (retiring) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+    const params = frame.params as { pipelineId?: string } | undefined;
+    if (!params?.pipelineId) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    const { pipelineId } = params;
+    const outcome = await resumePipeline(
+      pipelineId,
+      {
+        store,
+        dispatch: pipelineDispatch,
+        wait: pipelineWait,
+        resolveStage,
+      },
+      { detachContinuation: true },
+    );
+    return { kind: "response", result: outcome };
+  };
+
   const handlePipelineListHandler: RpcHandler = () => {
     return { kind: "response", result: { pipelines: store.listPipelines().map(projectPipelineSnapshot) } };
   };
@@ -1857,6 +1902,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     kill: killHandler,
     wait: waitHandler,
     pipeline_start: handlePipelineStartHandler,
+    pipeline_approve: handlePipelineApproveHandler,
+    pipeline_reject: handlePipelineRejectHandler,
+    pipeline_resume: handlePipelineResumeHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
     continueContinuablePipelines: async () =>

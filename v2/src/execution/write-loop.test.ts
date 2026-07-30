@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, basename } from "node:path";
+import { basename, join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";

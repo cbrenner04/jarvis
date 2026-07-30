@@ -16,6 +16,7 @@ import {
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
+  PIPELINE_USAGE,
   RUN_LIST_USAGE,
   RUN_USAGE,
   TUI_USAGE,
@@ -28,7 +29,7 @@ import {
 import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
-const commandNames = "write, daemon, config, run, tui, cleanup, help";
+const commandNames = "write, daemon, config, run, tui, pipeline, cleanup, help";
 
 function helpStdoutWithFlags(
   usage: string,
@@ -107,6 +108,7 @@ describe("v2 cli dispatch", () => {
         "config\tShow or update machine configuration.\n" +
         "run\tManage daemon-backed runs.\n" +
         "tui\tOpen the interactive run monitor.\n" +
+        "pipeline\tManage daemon-backed pipelines.\n" +
         "cleanup\tRetire completed worktrees and specs.\n" +
         "help\tShow help for commands and subcommands.\n",
       stderr: "",
@@ -410,6 +412,7 @@ describe("v2 cli dispatch", () => {
       CONFIG_USAGE,
       RUN_USAGE,
       TUI_USAGE,
+      PIPELINE_USAGE,
       CLEANUP_USAGE,
       HELP_USAGE,
     ]);
@@ -580,6 +583,11 @@ describe("v2 cli dispatch", () => {
       "run resume": ["run-1"],
       "run kill": ["run-1"],
       "run wait": ["run-1"],
+      "pipeline start": ["demo", "--seed-text", "seed"],
+      "pipeline wait": ["pipe-1"],
+      "pipeline approve": ["pipe-1", "gate"],
+      "pipeline reject": ["pipe-1", "gate"],
+      "pipeline resume": ["pipe-1"],
       "tui log": ["run-1"],
     };
 
@@ -593,6 +601,7 @@ describe("v2 cli dispatch", () => {
       if (parent === "run") return RUN_USAGE;
       if (parent === "run workflow") return WORKFLOW_USAGE;
       if (parent === "tui") return TUI_USAGE;
+      if (parent === "pipeline") return PIPELINE_USAGE;
       throw new Error(`dispatch-coverage: no unknown-subcommand output known for parent \`${parent}\``);
     }
 

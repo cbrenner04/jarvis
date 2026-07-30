@@ -2,6 +2,9 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 
 export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
 
+export const PIPELINE_TERMINAL_ACTIONS = ["leave-draft", "ready", "merge"] as const;
+export type PipelineTerminalAction = (typeof PIPELINE_TERMINAL_ACTIONS)[number];
+
 const VALID_REVIEW_POSTURES = new Set(["none", "light", "debate"]);
 
 export function isUnrealizableWorkflowReview(workflow: string, review: string): boolean {
@@ -54,6 +57,7 @@ export type PipelineStage = WorkflowPipelineStage | ApprovalPipelineStage;
 export interface PipelineDefinition {
   name: string;
   stages: PipelineStage[];
+  terminalAction?: PipelineTerminalAction;
 }
 
 function collectDuplicateStageIdErrors(stages: PipelineStage[], errors: PipelineValidationError[]): void {

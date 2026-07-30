@@ -194,6 +194,52 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
 
+### Pipeline start
+
+Launch a registered project's configured pipeline when `projects.<name>.pipeline` is present in machine config (unlike `implement`, which treats `pipeline` as optional):
+
+```sh
+jarvis pipeline start <project> --seed-text "Ship feature"
+jarvis pipeline start <project> --seed path/to/seed.md
+jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return after admission; track via printed pipeline ID
+```
+
+**Detach vs attached:** `--detach` runs the same pre-admission validation and daemon `pipeline_start` path as the default attached launch. Detached stdout is the admitted pipeline ID only; exit **`0` means admitted**, not that the pipeline finished. Attached mode loops `pipeline_wait` through `awaiting-approval` boundaries until a terminal state, then prints `{kind:"terminal",state}` JSON.
+
+### Pipeline list and wait
+
+After a detached start, poll progress with list or block on boundaries with wait:
+
+```sh
+jarvis pipeline list                              # one JSON snapshot; does not follow live work
+jarvis pipeline wait <pipeline-id>                # block until terminal or awaiting-approval
+```
+
+`jarvis pipeline list` mirrors daemon `pipeline_list` in one stdout line (`pipelineId`, `name`, derived `state`, ordered stages with `stageId`/`status`/`workflowInvocationId`). The CLI issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
+
+`jarvis pipeline wait` prints one boundary JSON line per invocation. Exit **`0`** on `awaiting-approval` or terminal `succeeded`; non-zero on other terminal states. Re-run wait after approving a gate; attached start loops internally instead. Operator abort (SIGINT) during wait follows the same pattern as `jarvis run wait`: stderr connection detail, non-zero exit, no boundary JSON on stdout.
+
+### Pipeline approve and reject
+
+Read the deciding `stageId` from `pipeline wait` boundary JSON (`{kind:"awaiting-approval",stageId}`) or from `pipeline list` stage rows (`status: "awaiting"`). Admit or reject the named gate:
+
+```sh
+jarvis pipeline approve <pipeline-id> <stage-id>
+jarvis pipeline reject <pipeline-id> <stage-id>
+```
+
+Exit **`0`** on `kind: "applied"` means the decision was durably admitted, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Refused duplicate or stale decisions (`invalid_decision`, `status_not_awaiting`, etc.) print the daemon `reason` verbatim on stderr and exit non-zero with no success stdout. Re-run `pipeline wait` after a successful approve to observe the next boundary.
+
+### Pipeline resume
+
+Re-enter a failed or `awaiting-approval` pipeline without starting a new one:
+
+```sh
+jarvis pipeline resume <pipeline-id>
+```
+
+Use **`pipeline resume`** (not `pipeline start` or `jarvis run resume`) when a pipeline stalled at a failed stage or an approval gate and you want the daemon to reopen or claim continuation from persisted admission context. Exit **`0`** on `kind: "resumed"` means the daemon admitted detached continuation, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Terminal pipelines (`pipeline_terminal_succeeded`, `pipeline_terminal_rejected`) and other refusals print the daemon `reason` verbatim on stderr and exit non-zero. Failed resume replays from the failed stage (preserving predecessor invocation IDs); awaiting resume claims the pipeline without dispatching past the gate — approve the gate separately, then `pipeline wait`.
+
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved
@@ -1056,6 +1102,69 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 ## Known gotchas
 
 Operators add bullets here; delete when fixed.
+
+- **A `completed` implement row can ship a mutation-verification artifact (2026-07-30):** PR #2314
+  (`plan-split-preserves-draft-scope`) committed, pushed, flipped to ready, and reported
+  `completed` while its commit carried `if (start !== -1) return null;` — the inverted form of
+  `start === -1` in `shared/module-boundary-surfaces.ts`. The worktree *working copy* held the
+  correct source while `HEAD` held the mutation, so the run's own gate and a hand
+  `bun test <file>` both passed; CI failed 26 v1 plan tests. **Read the committed diff, not the
+  worktree**, when a CI failure cannot be reproduced locally:
+  `git -C <worktree> show HEAD:<path>`. Recovery was `gh pr close` + `jarvis cleanup --abandon` +
+  a fresh implement run. Seed: `v2/spec/seeds/mutation-verification-artifact-reached-the-completion-commit.md`.
+  Cleanup: delete this bullet when it ships.
+
+- **Formatter-only red gates exhaust the repair budget (2026-07-30):** two implement attempts on
+  `pipeline-durable-approval-and-reopen-state` settled `ready_gate_failed` on biome formatting
+  diffs; bounded repair never runs `bun run fix`. Recovery both times:
+  `cd <worktree> && bun run fix`, then `jarvis run resume <row-id>` — the resume commits the
+  pending changes under the retained attribution and re-gates. One of those gates also had a real
+  `noExcessiveCognitiveComplexity` error, which is genuine agent work (extract helpers). Seed:
+  `v2/spec/seeds/gate-repair-does-not-run-the-formatter.md`. Cleanup: delete when it ships.
+
+- **`--abandon` refuses over a ready PR and over a dead keyed socket (2026-07-30):** retiring a
+  wedged workspace after the executable was rebuilt hits two guards in sequence —
+  `Cannot abandon: no daemon is listening` (the digest-keyed socket moved; fix with
+  `jarvis daemon start`) and then `Cannot abandon: matching PR is ready (non-draft)` (fix with
+  `gh pr close <n>`, or mark it draft again). Both are the guards working; the order is not obvious
+  from the messages.
+
+- **Migration ids collide across parallel branches (2026-07-30):** two concurrently-implemented
+  specs each added `015-…` to `MIGRATIONS` in `state-store.ts`, and
+  `state-store.test.ts` asserts a hardcoded `migrationCount.total`. The second branch to merge
+  conflicts and then fails that assertion. Resolution: renumber the later migration and bump the
+  count. Worth checking before dispatching two specs that both touch persistence.
+
+- **A wrapped `(Manual)` criterion is not read as human-only (2026-07-30):** the marker is matched
+  on the criterion's first line only, so a line-wrapped criterion ending in `(Manual)` blocks
+  `spec.criteria-ticked` and settles `contract_miss`. Two dispatches burned on
+  `workflow-collapse-drops-test-flag`. Workaround: move the marker to the first line of the bullet
+  (#2321). Seed: `v2/spec/seeds/human-only-marker-read-from-first-line-only.md`. Cleanup: delete
+  when it ships.
+
+- **`idle_output_timeout` clusters with machine load (2026-07-30):** at 5–8 concurrent implement
+  lanes (load average 15–25 on this machine) three runs settled `idle_output_timeout`
+  (`retryable: false`, `nextAction: "stop"`) — `cleanup-prunes-merged-dead-branches`,
+  `plan-split-preserves-draft-scope`, `ready-gate-red-in-untouched-files`. All three recovered on
+  re-dispatch at lower load. Read a cluster of `idle_output_timeout` as a saturation signal, not an
+  agent verdict; `idleOutputTimeoutMs` in `config/machines/home.json` is the lever if you want to
+  keep the fan-out.
+
+- **A dependent plan run costs one dispatch to learn its prerequisite is unmerged (2026-07-30):**
+  five plan runs settled `blocked` / `agent_blocked` with accurate `## Blocker` text naming an
+  unmerged sibling spec (slice-4 daemon observation, slice-5 terminal action,
+  `list-row-step-honesty` ×1, `markdown-only-workflow-ready-repair-rejects-code-edits`,
+  `ready-gate-repair-omits-jarvis-sidecars-from-commits`). The refusals are correct and cheap, but
+  fanning out a whole dependency chain at once wastes a run per unmet edge. Read the blocker from
+  the staged intent, not the run row: `sed -n '/## Blocker/,$p'
+  ~/.jarvis/worktrees/<project>/plan/<name>/.jarvis-plan-stage/intent.md`.
+
+- **A spec that widens an interface needs its test doubles named in scope (2026-07-30):**
+  `pipeline-store-enumeration` blocked immediately — adding a required `StateStore` member broke
+  `crashOnceMidBoundary` in `v2/src/execution/write-loop.test.ts`, a file the spec did not name, and
+  patch-mode scope forbade touching it. The agent refused correctly. Fix was a one-line spec edit
+  naming the doubles (#2301), then re-dispatch. When planning an interface widening, name the
+  complete-implementation doubles in the task checklist.
 
 - **Match the `live` field, never grep the substring (2026-07-26):** `jarvis run list` rows are
   tab-separated and column 5 is `live` or `not-live`. `grep -q "live"` matches **`not-live`**, so a

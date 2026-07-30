@@ -30,14 +30,14 @@
 
 ## Acceptance criteria
 
-- [ ] A regression in `v2/src/daemon/pipeline-execution.test.ts` fails on baseline and then proves `pipeline_resume` on a failed pipeline re-dispatches only the failed continuation stage while every prior stage `workflowInvocationId` stays unchanged, including when `reopenFailedPipeline` runs vs is skipped on an already-reopened failure.
-- [ ] The same regression file fails on baseline and then proves `pipeline_resume` on an `awaiting-approval` pipeline preserves `awaiting` on the gate, dispatches no later workflow stage, and does not rely on `isPipelineContinuable` or `recoverContinuablePipelines` treating the pipeline as continuable.
-- [ ] The same regression file fails on baseline and then proves resume on a completed pipeline returns `pipeline_terminal_succeeded` and on a rejected pipeline returns `pipeline_terminal_rejected`, each without stage dispatch.
-- [ ] The same regression file fails on baseline and then proves `pipeline_resume` on an ineligible failed shape (for example `multiple_failed_stages`) returns the matching `reopenFailedPipeline` refusal without stage dispatch.
-- [ ] The same regression file fails on baseline and then proves `pipeline_resume` on failed and `awaiting-approval` pipelines after store close/reopen (including post-reconcile `interrupted` ownership) continues or re-claims from persisted context without caller-supplied reconstruction.
-- [ ] The same regression file fails on baseline and then proves resume on derived `running`, `pending`, or `interrupted` returns `pipeline_not_resumable` without stage dispatch.
-- [ ] Inverting the failed-only redispatch, awaiting-no-dispatch, terminal-refusal, or deferred-state-refusal guard makes `v2/src/daemon/pipeline-execution.test.ts` fail; negative cases prove completed, rejected, and deferred-state resume attempts change no stage row and dispatch nothing.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A regression in `v2/src/daemon/pipeline-execution.test.ts` fails on baseline and then proves `pipeline_resume` on a failed pipeline re-dispatches only the failed continuation stage while every prior stage `workflowInvocationId` stays unchanged, including when `reopenFailedPipeline` runs vs is skipped on an already-reopened failure.
+- [x] The same regression file fails on baseline and then proves `pipeline_resume` on an `awaiting-approval` pipeline preserves `awaiting` on the gate, dispatches no later workflow stage, and does not rely on `isPipelineContinuable` or `recoverContinuablePipelines` treating the pipeline as continuable.
+- [x] The same regression file fails on baseline and then proves resume on a completed pipeline returns `pipeline_terminal_succeeded` and on a rejected pipeline returns `pipeline_terminal_rejected`, each without stage dispatch.
+- [x] The same regression file fails on baseline and then proves `pipeline_resume` on an ineligible failed shape (for example `multiple_failed_stages`) returns the matching `reopenFailedPipeline` refusal without stage dispatch.
+- [x] The same regression file fails on baseline and then proves `pipeline_resume` on failed and `awaiting-approval` pipelines after store close/reopen (including post-reconcile `interrupted` ownership) continues or re-claims from persisted context without caller-supplied reconstruction.
+- [x] The same regression file fails on baseline and then proves resume on derived `running`, `pending`, or `interrupted` returns `pipeline_not_resumable` without stage dispatch.
+- [x] Inverting the failed-only redispatch, awaiting-no-dispatch, terminal-refusal, or deferred-state-refusal guard makes `v2/src/daemon/pipeline-execution.test.ts` fail; negative cases prove completed, rejected, and deferred-state resume attempts change no stage row and dispatch nothing.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

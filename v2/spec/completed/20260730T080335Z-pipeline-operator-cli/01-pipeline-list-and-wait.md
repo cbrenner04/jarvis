@@ -31,13 +31,13 @@ Operators cannot snapshot or block on daemon-owned pipeline progress from the CL
 
 ## Acceptance criteria
 
-- [ ] The list/wait regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then reports ordered stage ID, status, and workflow invocation ID plus distinct terminal and `awaiting-approval` wait boundaries.
-- [ ] The live-list regression in `v2/src/commands/pipeline.test.ts` fails on baseline and returns within **500ms** while a pipeline remains non-terminal (same bound as `daemon-pipeline-observation.test.ts`).
-- [ ] Inverting the list non-follow guard or the wait-boundary guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove list does not follow live transitions and wait does not resolve on `pending`/`running` alone.
-- [ ] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then exposes the `jarvis pipeline` family, `start` operands, detach behavior, list snapshot semantics, and wait boundaries; `jarvis help pipeline` and subcommand help match.
-- [ ] `v2/src/cli.test.ts` dispatch-coverage includes every new `jarvis pipeline` tree path with minimally valid operands.
-- [ ] When a pipeline is already at a wait boundary, `pipeline wait` returns promptly with correct boundary JSON and exit code.
-- [ ] Operator abort during `pipeline wait` follows existing `run wait` / workflow attach patterns: stderr detail, non-zero exit, and no boundary JSON on stdout.
+- [x] The list/wait regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then reports ordered stage ID, status, and workflow invocation ID plus distinct terminal and `awaiting-approval` wait boundaries.
+- [x] The live-list regression in `v2/src/commands/pipeline.test.ts` fails on baseline and returns within **500ms** while a pipeline remains non-terminal (same bound as `daemon-pipeline-observation.test.ts`).
+- [x] Inverting the list non-follow guard or the wait-boundary guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove list does not follow live transitions and wait does not resolve on `pending`/`running` alone.
+- [x] The help regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then exposes the `jarvis pipeline` family, `start` operands, detach behavior, list snapshot semantics, and wait boundaries; `jarvis help pipeline` and subcommand help match.
+- [x] `v2/src/cli.test.ts` dispatch-coverage includes every new `jarvis pipeline` tree path with minimally valid operands.
+- [x] When a pipeline is already at a wait boundary, `pipeline wait` returns promptly with correct boundary JSON and exit code.
+- [x] Operator abort during `pipeline wait` follows existing `run wait` / workflow attach patterns: stderr detail, non-zero exit, and no boundary JSON on stdout.
 
 ## Documentation updates
 

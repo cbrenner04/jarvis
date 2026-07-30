@@ -141,6 +141,23 @@ export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
   WORKFLOW_DETACH_FLAG,
 ];
 
+/** `parseArgs` options for `jarvis pipeline start`. */
+export const PIPELINE_START_PARSE_ARG_OPTIONS = {
+  seed: { type: "string" },
+  "seed-text": { type: "string" },
+  detach: { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
+
+export const PIPELINE_START_HELP_FLAGS: readonly CommandFlag[] = [
+  { name: "--seed", argumentShape: "<path>", description: "Path to a seed file." },
+  { name: "--seed-text", argumentShape: "<text>", description: "Seed prose inline." },
+  {
+    name: "--detach",
+    argumentShape: "",
+    description: "Return after daemon admission with the pipeline ID on stdout; do not block on completion.",
+  },
+];
+
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--branch", argumentShape: "<name>", description: "Implementation branch name." },
   { name: "--base", argumentShape: "<ref>", description: "Base git ref for the branch." },

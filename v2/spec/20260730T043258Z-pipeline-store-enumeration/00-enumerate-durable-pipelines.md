@@ -16,6 +16,8 @@
 ## Task checklist
 
 - Add the typed pipeline enumeration operation to `v2/src/persistence/state-store.ts`.
+- Forward the new member from every complete `StateStore` test double so `bun run typecheck` passes —
+  including `v2/src/execution/write-loop.test.ts`. In scope for this subspec.
 - Add focused empty-store, multi-pipeline, status, association, authored-order, and reopen coverage to `v2/src/persistence/state-store.test.ts`.
 - Update the repository contract, concurrent-read deferral, and lifecycle-interpretation boundary in `v2/docs/state-store.md`.
 

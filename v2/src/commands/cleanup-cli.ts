@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { CLEANUP_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
@@ -7,7 +8,13 @@ import { formatConnectionError } from "../cli/ipc.ts";
 import { CLEANUP_USAGE } from "../cli/usage.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { createStaleResetDaemonClient, type DaemonClient, runAbandonCommand, runCleanupCommand } from "./cleanup.ts";
+import {
+  createStaleResetDaemonClient,
+  DAEMON_UNREACHABLE_REASON,
+  type DaemonClient,
+  runAbandonCommand,
+  runCleanupCommand,
+} from "./cleanup.ts";
 
 type PromptStdin = {
   isTTY?: boolean;
@@ -88,6 +95,7 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
   const { dryRun, yes, abandonName } = parsedArgs;
 
   const registry = deps.readProjectRegistry();
+  const cleanupRoot = deps.jarvisRoot ?? jarvisHome();
 
   // Use the real daemon client for both preview and removal so the dry-run
   // preview reflects true eligibility (a fail-open `() => []` would show a
@@ -97,8 +105,21 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     const client = await deps.connectIpcClient(deps.socketPath);
     daemonClient = createStaleResetDaemonClient(client);
   } catch (error) {
-    io.stderr(formatConnectionError(error));
-    return 1;
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+    if (code !== "ENOENT" && code !== "ECONNREFUSED") {
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+    const unavailable = async () => {
+      throw new Error(DAEMON_UNREACHABLE_REASON);
+    };
+    daemonClient = Object.assign(unavailable, { checkWorkflowStartClaim: unavailable }) as DaemonClient;
+    if (abandonName !== undefined) {
+      io.stderr(`Cannot abandon: ${DAEMON_UNREACHABLE_REASON}. Run \`jarvis daemon start\` and retry.\n`);
+      return 1;
+    }
+    io.stderr("Cleanup daemon is not listening; continuing cleanup. Start it with `jarvis daemon start`.\n");
   }
 
   const options = dryRun
@@ -110,19 +131,19 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
       abandonName,
       options,
       registry,
-      deps.jarvisRoot ?? jarvisHome(),
+      cleanupRoot,
       deps.subprocessRunner ?? realAsyncSubprocessRunner,
       daemonClient,
       io,
     );
   }
 
-  const store = openStateStore();
+  const store = openStateStore(join(cleanupRoot, "state", "v2.sqlite"));
 
   return runCleanupCommand(
     options,
     registry,
-    deps.jarvisRoot ?? jarvisHome(),
+    cleanupRoot,
     deps.subprocessRunner ?? realAsyncSubprocessRunner,
     daemonClient,
     store,

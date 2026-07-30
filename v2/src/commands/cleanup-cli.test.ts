@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -362,18 +362,84 @@ describe("cleanup command through main", () => {
     expect(cap.read().stderr).toContain("usage: jarvis cleanup");
   });
 
+  test("continues cleanup when keyed socket has no listener", async () => {
+    const branch = "missing-daemon-merged";
+    const worktreePath = await materializeMergedWorktree(branch);
+    const deadSocket = join(cleanupJarvisRoot, "daemon-0000000000000001.sock");
+    writeFileSync(deadSocket, "");
+    const stranded = join(cleanupProjectRoot, "v2", "spec", "stranded");
+    mkdirSync(stranded, { recursive: true });
+    writeFileSync(join(stranded, "index.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] Done\n");
+    const events: string[] = [];
+    let stdout = "";
+    let stderr = "";
+    const io = {
+      stdout: (s: string) => {
+        stdout += s;
+        events.push(`stdout:${s}`);
+      },
+      stderr: (s: string) => {
+        stderr += s;
+        events.push(`stderr:${s}`);
+      },
+    };
+
+    const code = await runCleanupCliCommand(["--yes"], io, {
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
+      socketPath: deadSocket,
+      subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+      connectIpcClient: async () => {
+        throw Object.assign(new Error(`connect ENOENT ${deadSocket}`), { code: "ENOENT" });
+      },
+    } as unknown as CliDeps);
+
+    expect(code).toBe(1);
+    expect(stdout).toContain(`Skipped worktree: ${worktreePath} — Daemon unreachable`);
+    expect(stdout).toContain(`Skipped stranded artifact: ${stranded}`);
+    expect(stdout).toContain("dead daemon socket(s)");
+    expect(existsSync(deadSocket)).toBe(false);
+    expect(events[0]).toStartWith("stderr:Cleanup daemon is not listening");
+    expect(stderr.match(/jarvis daemon start/g)).toHaveLength(1);
+    expect(stderr).not.toContain(deadSocket);
+    expect(stderr).not.toContain("ENOENT");
+  });
+
+  test("abandon refuses when keyed daemon absent", async () => {
+    const cap = captureIo();
+    const socketPath = join(cleanupJarvisRoot, "daemon-absent.sock");
+
+    const code = await runCleanupCliCommand(["--abandon", "workspace"], cap.io, {
+      readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+      jarvisRoot: cleanupJarvisRoot,
+      socketPath,
+      connectIpcClient: async () => {
+        throw Object.assign(new Error(`connect ECONNREFUSED ${socketPath}`), { code: "ECONNREFUSED" });
+      },
+    } as unknown as CliDeps);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toBe("Cannot abandon: Daemon unreachable. Run `jarvis daemon start` and retry.\n");
+  });
+
   test("cleanup with daemon connection failure prints error and exits 1", async () => {
     const cap = captureIo();
+    const deadSocket = join(cleanupJarvisRoot, "daemon-0000000000000002.sock");
+    mkdirSync(cleanupJarvisRoot, { recursive: true });
+    writeFileSync(deadSocket, "");
 
     const code = await cliMain(["cleanup"], cap.io, {
       readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
       jarvisRoot: cleanupJarvisRoot,
+      socketPath: deadSocket,
       connectIpcClient: async () => {
-        throw new Error("Daemon unreachable");
+        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
       },
     });
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("Daemon unreachable");
+    expect(cap.read().stderr).toContain("permission denied");
+    expect(existsSync(deadSocket)).toBe(true);
   });
 });

@@ -849,10 +849,23 @@ Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.
 does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is
 held (see [§ `--abandon`](#v2-debris-blocks-the-jarvis1-fallback)).
 
-**Fail closed**: if `gh` fails or the daemon is unreachable, the worktree is marked ineligible and
-skipped. If the run store is inaccessible (`listRuns()` throws), cleanup aborts with that error
-rather than skipping individual worktrees. Worktrees ineligible for this session remain untouched;
-the operator can retry `jarvis cleanup` later if issues are resolved.
+Cleanup first connects to the invoking `jarvis` executable digest's keyed socket. If that socket
+has no listener (`ENOENT` or `ECONNREFUSED`), bulk cleanup prints one recovery line naming
+`jarvis daemon start`, then still scans stranded open-home specs and reaps dead sockets. Merged
+worktrees that reach the daemon gate are listed as `Skipped worktree: <path> — Daemon unreachable`.
+The same stable skip applies when a connected daemon's list probe fails; raw socket paths, errnos,
+and probe messages are not exposed in these preview lines.
+
+Any daemon-unreachable merged-worktree skip makes dry-run, declined/cancelled, and applied cleanup
+exit nonzero, even when there is nothing else to clean. PR-not-merged, non-terminal-run, and other
+ineligibility retain their existing exit behavior. Other keyed-socket connection failures still
+abort before cleanup phases. If the run store is inaccessible (`listRuns()` throws), cleanup also
+aborts rather than skipping individual worktrees.
+
+This keyed-socket behavior does not yet discover another executable digest's daemon: a daemon may
+be live on another digest while cleanup exits `1` and lists merged worktrees as unreachable.
+`jarvis cleanup --abandon <name>` refuses before preview when the invoking keyed daemon has no
+listener; start it with `jarvis daemon start` and retry.
 
 Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
 is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;

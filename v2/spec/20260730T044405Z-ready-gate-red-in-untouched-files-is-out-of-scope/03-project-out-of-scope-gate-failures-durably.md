@@ -41,4 +41,3 @@ operator-facing status surface.
 - `v2/docs/daemon-host.md` — durable failed/resumable reason and list/wait evidence.
 - `v2/docs/workflow-runner.md` — settlement, persistence, recovery, and CLI outcome semantics.
 - `v2/docs/v1-behaviors.md` — v2 parity delta for untouched-path ready-gate classification.
-

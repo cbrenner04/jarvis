@@ -48,4 +48,3 @@ either evidence or the run's touched set is ambiguous.
 
 - `v2/docs/write-behavior.md` — terminal attribution contract, conservative fallback, path-ownership
   meaning, and `requiredIntegrationScope` exclusion.
-

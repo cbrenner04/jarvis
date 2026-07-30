@@ -36,4 +36,3 @@ than act on unrelated paths.
 ## Documentation updates
 
 - None; the observable settlement and operator contract is documented by adjacent subspecs.
-

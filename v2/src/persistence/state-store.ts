@@ -121,6 +121,15 @@ export type Run = {
 
 export type PipelineStatus = "active" | "interrupted";
 
+/** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. */
+export type PipelineContext = {
+  cwd: string;
+  configPath?: string;
+  targetDir?: string;
+  projectRegistry?: Record<string, { root: string; origin?: string }>;
+  seed: string;
+};
+
 /** A durable admitted pipeline record: identity, source name, ownership, and immutable admitted-definition snapshot. */
 export type Pipeline = {
   id: string;
@@ -129,7 +138,103 @@ export type Pipeline = {
   ownerIdentity: string | null;
   status: PipelineStatus;
   definition: PipelineDefinition;
+  /** Immutable admission context; `null` for pre-migration rows and admissions that omitted context. */
+  context: PipelineContext | null;
 };
+
+export type ApprovalDecision = "approved" | "rejected";
+
+export type ApprovalRefusalReason =
+  | "stage_not_found"
+  | "not_approval_stage"
+  | "status_not_pending"
+  | "status_not_awaiting"
+  | "invalid_decision";
+
+export type ApprovalOperationOutcome =
+  | { kind: "applied"; stageRecordId: string }
+  | { kind: "refused"; stageRecordId: string; reason: ApprovalRefusalReason };
+
+export type PipelineContinuationRefusalReason = "pipeline_not_found" | "not_active" | "stale_owner" | "claim_lost";
+
+export type PipelineContinuationOutcome =
+  | { kind: "applied"; pipelineId: string }
+  | { kind: "refused"; pipelineId: string; reason: PipelineContinuationRefusalReason };
+
+export type PipelineReopenRefusalReason =
+  | "pipeline_not_found"
+  | "no_failed_stage"
+  | "multiple_failed_stages"
+  | "malformed_continuation"
+  | "reopen_lost";
+
+export type PipelineReopenOutcome =
+  | { kind: "applied"; stageRecordId: string }
+  | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
+
+/** True when the authored stage at `stageId` is `kind: "approval"`. */
+export function isApprovalAuthoredStage(stageId: string, definition: PipelineDefinition): boolean {
+  const authored = definition.stages.find((stage) => stage.stageId === stageId);
+  return authored?.kind === "approval";
+}
+
+/** True when a boundary write may transition an approval row from `pending` to `awaiting`. */
+export function approvalBoundaryAllowsStatus(status: string): boolean {
+  return status === "pending";
+}
+
+/** True when a decision write may transition an approval row from `awaiting` to `approved` or `rejected`. */
+export function approvalDecisionAllowsStatus(status: string): boolean {
+  return status === "awaiting";
+}
+
+/** True when a stage before the failed continuation may remain untouched during reopen. */
+export function reopenPredecessorAllowsStatus(status: string): boolean {
+  return status === "succeeded";
+}
+
+/** True when a stage after the failed continuation may be reopened in place. */
+export function reopenSuffixAllowsStatus(status: string): boolean {
+  return status === "skipped";
+}
+
+export type FailedPipelineReopenShape =
+  | { kind: "valid"; failedStageRecordId: string; suffixStageRecordIds: readonly string[] }
+  | {
+      kind: "invalid";
+      reason: Exclude<PipelineReopenRefusalReason, "pipeline_not_found" | "reopen_lost">;
+    };
+
+/** Detect whether ordered stage rows match the in-place failed-continuation reopen shape. */
+export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
+  const failed = stages.filter((stage) => stage.status === "failed");
+  if (failed.length === 0) {
+    return { kind: "invalid", reason: "no_failed_stage" };
+  }
+  if (failed.length > 1) {
+    return { kind: "invalid", reason: "multiple_failed_stages" };
+  }
+
+  const failedStage = failed[0]!;
+  const failedIndex = stages.findIndex((stage) => stage.id === failedStage.id);
+
+  for (let index = 0; index < failedIndex; index += 1) {
+    if (!reopenPredecessorAllowsStatus(stages[index]?.status ?? "")) {
+      return { kind: "invalid", reason: "malformed_continuation" };
+    }
+  }
+
+  const suffixStageRecordIds: string[] = [];
+  for (let index = failedIndex + 1; index < stages.length; index += 1) {
+    const stage = stages[index];
+    if (!stage || !reopenSuffixAllowsStatus(stage.status)) {
+      return { kind: "invalid", reason: "malformed_continuation" };
+    }
+    suffixStageRecordIds.push(stage.id);
+  }
+
+  return { kind: "valid", failedStageRecordId: failedStage.id, suffixStageRecordIds };
+}
 
 /** A durable stage record belonging to an admitted pipeline. */
 export type PipelineStageRecord = {
@@ -222,7 +327,11 @@ export interface StateStore {
    * the generated pipeline ID. `beforeStageInsert` is a test seam to force a
    * mid-transaction failure after a given authored-stage index.
    */
-  createPipeline(args: { definition: PipelineDefinition; beforeStageInsert?: (stageIndex: number) => void }): string;
+  createPipeline(args: {
+    definition: PipelineDefinition;
+    context?: PipelineContext;
+    beforeStageInsert?: (stageIndex: number) => void;
+  }): string;
 
   /** Load an admitted pipeline and its stages, ordered by authored position; null when unknown. */
   loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null;
@@ -236,6 +345,36 @@ export interface StateStore {
    * an unknown `(pipelineId, stageId)`.
    */
   updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void;
+
+  /**
+   * Conditionally mark one `kind: "approval"` row `pending` → `awaiting` by durable
+   * `PipelineStageRecord.id`. Returns an explicit applied or refused outcome.
+   */
+  commitApprovalBoundary(args: { stageRecordId: string }): ApprovalOperationOutcome;
+
+  /**
+   * Conditionally decide one `kind: "approval"` row `awaiting` → `approved` or
+   * `rejected` by durable `PipelineStageRecord.id`. First writer wins; duplicates
+   * and races are refused without mutation.
+   */
+  commitApprovalDecision(args: { stageRecordId: string; decision: ApprovalDecision }): ApprovalOperationOutcome;
+
+  /**
+   * Atomically claim an `active` or reconciled-`interrupted` pipeline for continuation by
+   * the current process, restoring `status = 'active'`. Succeeds only when
+   * `priorOwnerIdentity` matches the durable row; first writer wins under concurrent claims.
+   */
+  claimPipelineContinuation(args: {
+    pipelineId: string;
+    priorOwnerIdentity: string | null;
+  }): PipelineContinuationOutcome;
+
+  /**
+   * Atomically reopen one failed continuation row and its contiguous skipped suffix
+   * in place as `pending`, clearing only prior-attempt lifecycle payloads. Returns
+   * the durable `PipelineStageRecord.id` of the failed row on application.
+   */
+  reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome;
 
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
@@ -320,7 +459,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
@@ -394,12 +533,32 @@ const SCHEMA_MIGRATIONS = [
     up: `ALTER TABLE pipelines ADD COLUMN owner_identity TEXT;
         ALTER TABLE pipelines ADD COLUMN status TEXT NOT NULL DEFAULT 'active';`,
   },
+  {
+    id: "015-pipeline-context",
+    up: "ALTER TABLE pipelines ADD COLUMN context TEXT",
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
-/** Stage statuses this layer treats as terminal or undispatched; anything else is active. */
-const NON_ACTIVE_STAGE_STATUSES = "'pending', 'succeeded', 'failed', 'interrupted'";
+/** Stage statuses restart reconciliation leaves untouched; anything else is active. */
+const RECONCILIATION_STABLE_STAGE_STATUSES: ReadonlySet<string> = new Set([
+  "pending",
+  "succeeded",
+  "failed",
+  "interrupted",
+  "awaiting",
+  "approved",
+  "rejected",
+  "skipped",
+]);
+
+const NON_ACTIVE_STAGE_STATUSES = [...RECONCILIATION_STABLE_STAGE_STATUSES].map((status) => `'${status}'`).join(", ");
+
+/** True when `reconcilePipelines` leaves a stage row untouched. */
+export function reconciliationStableStageStatus(status: string): boolean {
+  return RECONCILIATION_STABLE_STAGE_STATUSES.has(status);
+}
 
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
@@ -491,11 +650,15 @@ function mapRunRow(row: RunRow): Run {
   };
 }
 
-type PipelineRow = Omit<Pipeline, "definition"> & { definitionJson: string };
+type PipelineRow = Omit<Pipeline, "definition" | "context"> & { definitionJson: string; contextJson: string | null };
 
 function mapPipelineRow(row: PipelineRow): Pipeline {
-  const { definitionJson, ...pipeline } = row;
-  return { ...pipeline, definition: JSON.parse(definitionJson) as PipelineDefinition };
+  const { definitionJson, contextJson, ...pipeline } = row;
+  return {
+    ...pipeline,
+    definition: JSON.parse(definitionJson) as PipelineDefinition,
+    context: contextJson === null ? null : (JSON.parse(contextJson) as PipelineContext),
+  };
 }
 
 type StageRow = Omit<PipelineStageRecord, "artifact" | "failureDetail"> & {
@@ -510,6 +673,13 @@ function mapStageRow(row: StageRow): PipelineStageRecord {
     artifact: artifactJson === null ? null : (JSON.parse(artifactJson) as unknown),
     failureDetail: failureDetailJson === null ? null : (JSON.parse(failureDetailJson) as unknown),
   };
+}
+
+class PipelineReopenLostError extends Error {
+  constructor() {
+    super("pipeline reopen lost concurrent claim");
+    this.name = "PipelineReopenLostError";
+  }
 }
 
 class StateStoreImpl implements StateStore {
@@ -633,16 +803,21 @@ class StateStoreImpl implements StateStore {
     ).map(mapRunRow);
   }
 
-  createPipeline(args: { definition: PipelineDefinition; beforeStageInsert?: (stageIndex: number) => void }): string {
+  createPipeline(args: {
+    definition: PipelineDefinition;
+    context?: PipelineContext;
+    beforeStageInsert?: (stageIndex: number) => void;
+  }): string {
     const pipelineId = crypto.randomUUID();
     const definitionJson = JSON.stringify(args.definition);
+    const contextJson = args.context === undefined ? null : JSON.stringify(args.context);
 
     this.db.transaction(() => {
       this.db
         .prepare(
-          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition, context) VALUES (?, ?, ?, ?, 'active', ?, ?)",
         )
-        .run(pipelineId, args.definition.name, Date.now(), this.currentIdentity, definitionJson);
+        .run(pipelineId, args.definition.name, Date.now(), this.currentIdentity, definitionJson, contextJson);
 
       args.definition.stages.forEach((stage, index) => {
         args.beforeStageInsert?.(index);
@@ -683,6 +858,156 @@ class StateStoreImpl implements StateStore {
         .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC`)
         .all(pipelineId) as StageRow[]
     ).map(mapStageRow);
+  }
+
+  commitApprovalBoundary(args: { stageRecordId: string }): ApprovalOperationOutcome {
+    return this.commitApprovalTransition({
+      stageRecordId: args.stageRecordId,
+      requiredStatus: "pending",
+      refusalReason: "status_not_pending",
+      nextStatus: "awaiting",
+    });
+  }
+
+  commitApprovalDecision(args: { stageRecordId: string; decision: ApprovalDecision }): ApprovalOperationOutcome {
+    if (args.decision !== "approved" && args.decision !== "rejected") {
+      return { kind: "refused", stageRecordId: args.stageRecordId, reason: "invalid_decision" };
+    }
+    return this.commitApprovalTransition({
+      stageRecordId: args.stageRecordId,
+      requiredStatus: "awaiting",
+      refusalReason: "status_not_awaiting",
+      nextStatus: args.decision,
+    });
+  }
+
+  claimPipelineContinuation(args: {
+    pipelineId: string;
+    priorOwnerIdentity: string | null;
+  }): PipelineContinuationOutcome {
+    const pipeline = this.loadPipeline(args.pipelineId);
+    if (pipeline === null) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+    }
+    if (pipeline.status !== "active" && pipeline.status !== "interrupted") {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "not_active" };
+    }
+    if (pipeline.ownerIdentity !== args.priorOwnerIdentity) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "stale_owner" };
+    }
+    if (pipeline.ownerIdentity === this.currentIdentity && pipeline.status === "active") {
+      return { kind: "applied", pipelineId: args.pipelineId };
+    }
+
+    const result =
+      args.priorOwnerIdentity === null
+        ? this.db
+            .prepare(
+              `UPDATE pipelines SET owner_identity = ?, status = 'active'
+               WHERE id = ? AND status IN ('active', 'interrupted') AND owner_identity IS NULL`,
+            )
+            .run(this.currentIdentity, args.pipelineId)
+        : this.db
+            .prepare(
+              `UPDATE pipelines SET owner_identity = ?, status = 'active'
+               WHERE id = ? AND status IN ('active', 'interrupted') AND owner_identity = ?`,
+            )
+            .run(this.currentIdentity, args.pipelineId, args.priorOwnerIdentity);
+    if (result.changes === 0) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "claim_lost" };
+    }
+    return { kind: "applied", pipelineId: args.pipelineId };
+  }
+
+  reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome {
+    const pipeline = this.loadPipeline(args.pipelineId);
+    if (pipeline === null) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+    }
+
+    const shape = analyzeFailedPipelineReopenShape(pipeline.stages);
+    if (shape.kind === "invalid") {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: shape.reason };
+    }
+
+    try {
+      return this.db.transaction((): PipelineReopenOutcome => {
+        const freshStages = this.loadPipelineStages(args.pipelineId);
+        const freshShape = analyzeFailedPipelineReopenShape(freshStages);
+        if (freshShape.kind === "invalid") {
+          return { kind: "refused", pipelineId: args.pipelineId, reason: freshShape.reason };
+        }
+
+        const reopenLifecycle = this.db.prepare(`
+        UPDATE pipeline_stages
+        SET status = 'pending',
+            workflow_invocation_id = NULL,
+            started_at = NULL,
+            ended_at = NULL,
+            artifact = NULL,
+            failure_detail = NULL
+        WHERE id = ? AND status = ?
+      `);
+
+        const failedResult = reopenLifecycle.run(freshShape.failedStageRecordId, "failed");
+        if (failedResult.changes === 0) {
+          return { kind: "refused", pipelineId: args.pipelineId, reason: "reopen_lost" };
+        }
+
+        for (const suffixStageRecordId of freshShape.suffixStageRecordIds) {
+          const suffixResult = reopenLifecycle.run(suffixStageRecordId, "skipped");
+          if (suffixResult.changes === 0) {
+            throw new PipelineReopenLostError();
+          }
+        }
+
+        return { kind: "applied", stageRecordId: freshShape.failedStageRecordId };
+      })();
+    } catch (error) {
+      if (error instanceof PipelineReopenLostError) {
+        return { kind: "refused", pipelineId: args.pipelineId, reason: "reopen_lost" };
+      }
+      throw error;
+    }
+  }
+
+  private commitApprovalTransition(args: {
+    stageRecordId: string;
+    requiredStatus: string;
+    refusalReason: Extract<ApprovalRefusalReason, "status_not_pending" | "status_not_awaiting">;
+    nextStatus: string;
+  }): ApprovalOperationOutcome {
+    const stage = this.loadStageById(args.stageRecordId);
+    if (stage === null) {
+      return { kind: "refused", stageRecordId: args.stageRecordId, reason: "stage_not_found" };
+    }
+
+    const pipelineRow = this.db
+      .prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines WHERE id = ?`)
+      .get(stage.pipelineId) as PipelineRow | null;
+    if (pipelineRow === null || !isApprovalAuthoredStage(stage.stageId, mapPipelineRow(pipelineRow).definition)) {
+      return { kind: "refused", stageRecordId: args.stageRecordId, reason: "not_approval_stage" };
+    }
+
+    if (stage.status !== args.requiredStatus) {
+      return { kind: "refused", stageRecordId: args.stageRecordId, reason: args.refusalReason };
+    }
+
+    const result = this.db
+      .prepare(`UPDATE pipeline_stages SET status = ? WHERE id = ? AND status = ?`)
+      .run(args.nextStatus, args.stageRecordId, args.requiredStatus);
+    if (result.changes === 0) {
+      return { kind: "refused", stageRecordId: args.stageRecordId, reason: args.refusalReason };
+    }
+
+    return { kind: "applied", stageRecordId: args.stageRecordId };
+  }
+
+  private loadStageById(stageRecordId: string): PipelineStageRecord | null {
+    const row = this.db
+      .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE id = ?`)
+      .get(stageRecordId) as StageRow | null;
+    return row === null ? null : mapStageRow(row);
   }
 
   updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void {

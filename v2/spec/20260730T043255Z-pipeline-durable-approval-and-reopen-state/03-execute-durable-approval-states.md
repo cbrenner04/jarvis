@@ -26,22 +26,22 @@
 
 ## Acceptance criteria
 
-- [ ] Reaching a pending approval after succeeded predecessors persists `awaiting` under its stable
+- [x] Reaching a pending approval after succeeded predecessors persists `awaiting` under its stable
       `PipelineStageRecord.id` before the loop returns; every later row remains pending and undispatched.
-- [ ] Ordered execution blocks at `awaiting`, continues past `approved`, and settles deterministically at
+- [x] Ordered execution blocks at `awaiting`, continues past `approved`, and settles deterministically at
       `rejected`; pipeline-state derivation distinguishes all three states.
-- [ ] Restart reconciliation leaves `awaiting`, `approved`, and `rejected` approval rows unchanged, including their
+- [x] Restart reconciliation leaves `awaiting`, `approved`, and `rejected` approval rows unchanged, including their
       preceding succeeded and later pending siblings.
-- [ ] A refused boundary write is handled only from the reloaded requested row: it neither changes nor attributes a
+- [x] A refused boundary write is handled only from the reloaded requested row: it neither changes nor attributes a
       transition to another stage, never dispatches the suffix without approval, and leaves a deterministic durable
       pipeline outcome.
-- [ ] New or updated `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/persistence/state-store.test.ts`
+- [x] New or updated `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/persistence/state-store.test.ts`
       regressions for reached gates, approval reconciliation and execution meanings, and boundary refusal fail
       against the pre-fix behavior.
-- [ ] Inverting the approval-stop, approved-continue, rejected-settlement, or boundary-refusal guard makes its
+- [x] Inverting the approval-stop, approved-continue, rejected-settlement, or boundary-refusal guard makes its
       targeted regression fail; negative cases prove decided rows are not rewritten and forbidden dispatch is absent.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document durable approval execution and link
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` document durable approval execution and link
       repository details to `v2/docs/state-store.md`.
 
 ## Documentation updates

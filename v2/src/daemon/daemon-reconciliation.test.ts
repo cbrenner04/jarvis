@@ -517,6 +517,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
           }
         : null,
     finishRunReconciliation: () => order.push("finished"),
+    listPipelines: () => [],
     reconcilePipelines: async () => {
       order.push("pipelines");
       return [];
@@ -543,7 +544,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     },
   });
   try {
-    expect(order).toEqual(["state", "log", "finished", "pipelines", "ipc", "recovery"]);
+    expect(order).toEqual(["state", "log", "finished", "ipc", "pipelines", "recovery"]);
     const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
     expect(complete).toMatchObject({
       kind: "response",
@@ -588,14 +589,16 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
       {
         store: {
           beginRunReconciliation: async () => [],
+          listPipelines: () => [],
           reconcilePipelines: () => {
             throw new Error("pipeline state unavailable");
           },
         } as unknown as StateStore,
         sink,
         message: "pipeline state unavailable",
+        ipcOpens: true,
       },
-    ]) {
+    ] as const) {
       let opened = false;
       await expect(
         startDaemonRuntime("/fake/socket", failure.store, reader, {
@@ -606,7 +609,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
           },
         }),
       ).rejects.toThrow(failure.message);
-      expect(opened).toBe(false);
+      expect(opened).toBe("ipcOpens" in failure ? failure.ipcOpens : false);
     }
   } finally {
     await runtime.close();

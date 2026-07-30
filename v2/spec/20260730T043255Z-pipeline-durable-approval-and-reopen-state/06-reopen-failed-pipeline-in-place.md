@@ -21,21 +21,21 @@
 
 ## Acceptance criteria
 
-- [ ] Reopening a valid failed-plus-skipped-suffix pipeline has exactly one winning caller and returns the failed
+- [x] Reopening a valid failed-plus-skipped-suffix pipeline has exactly one winning caller and returns the failed
       row's `PipelineStageRecord.id`; the returned row retains its authored `stageId` and becomes pending.
-- [ ] The operation retains every preceding succeeded row's durable ID, authored `stageId`, workflow invocation ID,
+- [x] The operation retains every preceding succeeded row's durable ID, authored `stageId`, workflow invocation ID,
       and artifact, while retaining IDs but clearing only prior-attempt lifecycle payloads on the failed row and its
       exact contiguous skipped suffix.
-- [ ] Closing and reopening the store, including after restart reconciliation, retains the valid continuation point
+- [x] Closing and reopening the store, including after restart reconciliation, retains the valid continuation point
       and blocked suffix before reopen.
-- [ ] No-failure, multiple-failure, malformed-suffix, and losing-concurrent-reopen requests return refusal and
+- [x] No-failure, multiple-failure, malformed-suffix, and losing-concurrent-reopen requests return refusal and
       leave predecessor evidence, unrelated rows, and all stage payloads unchanged.
-- [ ] A new or updated `v2/src/persistence/state-store.test.ts` regression for in-place failed continuation and
+- [x] A new or updated `v2/src/persistence/state-store.test.ts` regression for in-place failed continuation and
       one-winner reopen fails against the pre-fix store behavior.
-- [ ] Inverting the valid-failed-boundary, suffix-scope, lifecycle-clear, or atomic-claim guard makes its targeted
+- [x] Inverting the valid-failed-boundary, suffix-scope, lifecycle-clear, or atomic-claim guard makes its targeted
       regression fail; negative cases prove refusal-path and predecessor writes are absent.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/state-store.md` and `v2/docs/v1-behaviors.md` document valid reopen shape, return identity, field
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/state-store.md` and `v2/docs/v1-behaviors.md` document valid reopen shape, return identity, field
       preservation, and refusal behavior.
 
 ## Documentation updates

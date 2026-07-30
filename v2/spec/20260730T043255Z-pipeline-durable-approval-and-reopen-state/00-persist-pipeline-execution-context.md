@@ -19,16 +19,16 @@
 
 ## Acceptance criteria
 
-- [ ] Closing and reopening the store preserves the complete immutable admitted `PipelineContext`; mutating the
+- [x] Closing and reopening the store preserves the complete immutable admitted `PipelineContext`; mutating the
       caller's source context after admission does not change the stored snapshot.
-- [ ] A database from before the context migration opens successfully and loads legacy pipeline context as absent.
-- [ ] A new or updated `v2/src/persistence/state-store.test.ts` regression for snapshot persistence and legacy
+- [x] A database from before the context migration opens successfully and loads legacy pipeline context as absent.
+- [x] A new or updated `v2/src/persistence/state-store.test.ts` regression for snapshot persistence and legacy
       rows fails against the pre-fix store behavior.
-- [ ] Inverting any added context-presence or legacy-fallback guard makes its targeted regression fail; negative
+- [x] Inverting any added context-presence or legacy-fallback guard makes its targeted regression fail; negative
       cases prove absent legacy context is not synthesized.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/state-store.md` documents the context schema, immutable snapshot contract, and legacy-row behavior.
-- [ ] `v2/docs/v1-behaviors.md` records the additive v2 persisted-context behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/state-store.md` documents the context schema, immutable snapshot contract, and legacy-row behavior.
+- [x] `v2/docs/v1-behaviors.md` records the additive v2 persisted-context behavior.
 
 ## Documentation updates
 

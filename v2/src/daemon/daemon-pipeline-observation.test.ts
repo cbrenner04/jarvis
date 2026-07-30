@@ -121,6 +121,7 @@ function pipelineWithStages(
     ownerIdentity: null,
     status: pipelineOverrides.status ?? "active",
     definition,
+    context: pipelineOverrides.context ?? null,
     ...pipelineOverrides,
     stages: definition.stages.map((stage, index) => ({
       id: `row-${index}`,
@@ -215,7 +216,7 @@ test("pipeline_list distinguishes all derived states and classifies only termina
     },
     {
       pipeline: pipelineWithStages(WORKFLOW_ONLY, {}, { status: "interrupted" }),
-      state: "interrupted",
+      state: "pending",
     },
   ];
 
@@ -392,12 +393,6 @@ test("pipeline_wait returns terminal and awaiting-approval boundaries for durabl
       statuses: { s1: { status: "interrupted" } },
       state: "interrupted",
       overrides: { status: "active" },
-    },
-    {
-      definition: WORKFLOW_ONLY,
-      statuses: {},
-      state: "interrupted",
-      overrides: { status: "interrupted" },
     },
   ];
 

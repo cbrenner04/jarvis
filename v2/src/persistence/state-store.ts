@@ -216,7 +216,10 @@ export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageR
     return { kind: "invalid", reason: "multiple_failed_stages" };
   }
 
-  const failedStage = failed[0]!;
+  const failedStage = failed[0];
+  if (failedStage === undefined) {
+    return { kind: "invalid", reason: "no_failed_stage" };
+  }
   const failedIndex = stages.findIndex((stage) => stage.id === failedStage.id);
 
   for (let index = 0; index < failedIndex; index += 1) {

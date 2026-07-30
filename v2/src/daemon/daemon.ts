@@ -1342,6 +1342,24 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     });
   };
 
+  const runListRowWorkflowField = (
+    fullRun: LoadedRun | undefined,
+    snapshot: LoadedRun["workflowSnapshot"] | undefined,
+    workflowRuns: Map<string, Map<string, LoadedRun>>,
+    liveRunIds: Set<string>,
+  ) => {
+    if (fullRun === undefined || snapshot === undefined) return {};
+    return {
+      workflow: workflowRowSnapshot(
+        fullRun,
+        workflowRuns,
+        liveRunIds,
+        reviewDebateProgressByInvocation,
+        workflowEntryRollupStatus(fullRun, workflowRuns),
+      ),
+    };
+  };
+
   const buildRunListRow = (
     run: Run,
     fullRun: LoadedRun | undefined,
@@ -1384,17 +1402,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...(error !== undefined ? { error } : {}),
       ...runListReviewFields(snapshot),
       ...(fullRun?.stepId !== null && fullRun?.stepId !== undefined ? { stepId: fullRun.stepId } : {}),
-      ...(fullRun !== undefined && snapshot !== undefined
-        ? {
-            workflow: workflowRowSnapshot(
-              fullRun,
-              workflowRuns,
-              liveRunIds,
-              reviewDebateProgressByInvocation,
-              workflowEntryRollupStatus(fullRun, workflowRuns),
-            ),
-          }
-        : {}),
+      ...runListRowWorkflowField(fullRun, snapshot, workflowRuns, liveRunIds),
       ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       ...runListPrEvidence(run),
       ...(finishedAtMs !== undefined ? { finishedAtMs } : {}),

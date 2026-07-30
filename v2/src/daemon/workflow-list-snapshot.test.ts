@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import type { ReviewProgress } from "../execution/workflow-runner.ts";
 import type { Attempt, Run, RunStatus, WorkflowSnapshot } from "../persistence/state-store.ts";
-import { stoppedOutcomeForRun, workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 import type { LoadedRun } from "./daemon.ts";
+import { stoppedOutcomeForRun, workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
 function runFixture(
   status: Run["status"],

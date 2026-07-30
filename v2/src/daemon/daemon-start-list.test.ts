@@ -1,5 +1,5 @@
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -832,7 +832,7 @@ function seedTerminalRun(overrides: Partial<Parameters<StateStore["createRun"]>[
   });
 }
 
-function patchStore(sql: string, ...params: unknown[]): void {
+function patchStore(sql: string, ...params: SQLQueryBindings[]): void {
   const raw = new Database(stateStorePath);
   try {
     raw.prepare(sql).run(...params);

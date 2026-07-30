@@ -1,5 +1,5 @@
 import type { ReviewProgress } from "../execution/workflow-runner.ts";
-import { type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store.ts";
 import type { LoadedRun } from "./daemon.ts";
 
 export type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
@@ -78,8 +78,7 @@ function workflowStepSnapshot(
     };
   }
 
-  const nonDurableReview =
-    step.behavior === "review" || (step.behavior === "review-debate" && !step.durable);
+  const nonDurableReview = step.behavior === "review" || (step.behavior === "review-debate" && !step.durable);
   if (nonDurableReview) {
     if (progress === undefined) {
       if (entryRollupStatus === "completed") {

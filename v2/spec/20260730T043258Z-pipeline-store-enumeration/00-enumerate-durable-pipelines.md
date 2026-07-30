@@ -23,12 +23,12 @@
 
 ## Acceptance criteria
 
-- [ ] `StateStore.listPipelines()` returns an empty collection for an empty store, then every admitted `active` and `interrupted` pipeline exactly once, with each associated stage exactly once in stored authored-position order; callers need no SQL and pipeline result order is unspecified.
-- [ ] After close and reopen, enumeration preserves complete persisted pipeline and stage records, including IDs, association, definition, reconciliation status, nullable ownership and lifecycle metadata, workflow invocation IDs, artifacts, and failure details.
-- [ ] The `v2/src/persistence/state-store.test.ts` regression `listPipelines enumerates complete durable active and interrupted pipelines with ordered stages after reopen` fails against the pre-change store and passes after implementation.
-- [ ] Omitting, duplicating, or misassociating a pipeline or stage, or inverting authored-position ordering, fails the regression; no stage appears under a sibling pipeline.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/state-store.md` documents `listPipelines`, empty/exactly-once collection semantics, unspecified pipeline ordering/filtering and concurrent-write snapshot consistency, authored stage order, and persisted `active`/`interrupted` reconciliation status; it corrects the claim that no pipeline-level status is stored and preserves that callers—not persistence—derive execution progress.
+- [x] `StateStore.listPipelines()` returns an empty collection for an empty store, then every admitted `active` and `interrupted` pipeline exactly once, with each associated stage exactly once in stored authored-position order; callers need no SQL and pipeline result order is unspecified.
+- [x] After close and reopen, enumeration preserves complete persisted pipeline and stage records, including IDs, association, definition, reconciliation status, nullable ownership and lifecycle metadata, workflow invocation IDs, artifacts, and failure details.
+- [x] The `v2/src/persistence/state-store.test.ts` regression `listPipelines enumerates complete durable active and interrupted pipelines with ordered stages after reopen` fails against the pre-change store and passes after implementation.
+- [x] Omitting, duplicating, or misassociating a pipeline or stage, or inverting authored-position ordering, fails the regression; no stage appears under a sibling pipeline.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/state-store.md` documents `listPipelines`, empty/exactly-once collection semantics, unspecified pipeline ordering/filtering and concurrent-write snapshot consistency, authored stage order, and persisted `active`/`interrupted` reconciliation status; it corrects the claim that no pipeline-level status is stored and preserves that callers—not persistence—derive execution progress.
 
 ## Documentation updates
 

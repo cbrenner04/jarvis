@@ -900,8 +900,10 @@ recorded as that stage's failure. This slice adds no pipeline-level queueing
 beyond the existing registry; two pipelines targeting the same project
 concurrently is out of scope. Observability: pipeline stage runs are not yet
 attributable to their owning pipeline in `workflow.list`/CLI run listings —
-deferred; `loadPipeline` is the only way to inspect stage-level state in this
-slice.
+deferred. RPC and CLI pipeline inspection remain unavailable. Internal
+repository reads `loadPipeline` and `listPipelines` can inspect persisted
+pipeline and stage state; [`state-store.md`](./state-store.md) is their single
+contract home.
 
 ### Derived pipeline state
 

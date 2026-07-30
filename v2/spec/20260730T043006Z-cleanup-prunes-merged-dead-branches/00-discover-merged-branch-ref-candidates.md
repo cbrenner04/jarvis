@@ -23,10 +23,10 @@ equally conservative replacement for that project boundary.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `merged local head candidate requires matching merged PR head` fails against the pre-fix tree and passes after: a local merged-PR head without a materialized worktree is admitted only when its OID matches one unambiguous merged PR in that project.
-- [ ] Guard-inversion coverage in `v2/src/commands/cleanup.test.ts` fails if PR lookup is not run in the candidate repository, if OID matching is removed, or if an open PR, closed-unmerged PR, no PR at merged or unmerged Git ancestry, reused/historical branch, post-merge commit, conflicting PR match, or failed/ambiguous lookup is admitted.
-- [ ] Guard-inversion coverage in `v2/src/commands/cleanup.test.ts` fails if `main`, the project checkout's current branch, a branch held by an unretired managed worktree, or a co-located external linked checkout is admitted; each retains both local refs and emits no prune-success line.
-- [ ] `v2/src/commands/cleanup.test.ts` test `candidate discovery isolates registered projects` fails against the pre-fix tree and passes after: identical branch names with different PR states are evaluated in their own repositories, invalid registered roots are named and make cleanup nonzero without blocking unrelated projects, and duplicate registry entries process a repository once.
+- [x] `v2/src/commands/cleanup.test.ts` test `merged local head candidate requires matching merged PR head` fails against the pre-fix tree and passes after: a local merged-PR head without a materialized worktree is admitted only when its OID matches one unambiguous merged PR in that project.
+- [x] Guard-inversion coverage in `v2/src/commands/cleanup.test.ts` fails if PR lookup is not run in the candidate repository, if OID matching is removed, or if an open PR, closed-unmerged PR, no PR at merged or unmerged Git ancestry, reused/historical branch, post-merge commit, conflicting PR match, or failed/ambiguous lookup is admitted.
+- [x] Guard-inversion coverage in `v2/src/commands/cleanup.test.ts` fails if `main`, the project checkout's current branch, a branch held by an unretired managed worktree, or a co-located external linked checkout is admitted; each retains both local refs and emits no prune-success line.
+- [x] `v2/src/commands/cleanup.test.ts` test `candidate discovery isolates registered projects` fails against the pre-fix tree and passes after: identical branch names with different PR states are evaluated in their own repositories, invalid registered roots are named and make cleanup nonzero without blocking unrelated projects, and duplicate registry entries process a repository once.
 
 ## Documentation updates
 

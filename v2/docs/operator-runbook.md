@@ -799,6 +799,24 @@ finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 `jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
 The eligibility gate decides whether a worktree is safe to remove.
 
+Cleanup also scans each distinct registered repository for merged local branch heads,
+independently of whether a managed worktree exists. A head is eligible only when it is
+not `main`, the repository's current branch, or checked out in any worktree, and exactly
+one PR matches the branch with `state: "MERGED"` and `headRefOid` equal to the local
+head. Cleanup prunes the eligible `refs/heads/<branch>` and, when present, its exact
+local `refs/remotes/origin/<branch>` tracking ref. This is local-only `git update-ref`
+cleanup: it never pushes or deletes a branch in the remote repository. Non-merged,
+ambiguous, or unverifiable PRs, changed refs, protected/current/checked-out heads,
+non-terminal durable or live daemon runs, and orphan `origin` tracking refs remain
+untouched.
+
+`--dry-run` previews each candidate as the registered project identity plus exact ref
+and OID. Apply revalidates the refs, PR authority, checkout state, and run ownership,
+then reports each exact ref as `Pruned`, `Skipped` with a reason, or `Failed`. Project
+inspection and individual ref-deletion failures do not stop independent cleanup work;
+stderr names the project/ref failure and the command exits nonzero after processing
+the remaining refs, worktrees, artifacts, and sockets.
+
 After Git retires a workspace, cleanup resolves its durable workflow or ad-hoc spec
 identity and archives an eligible completed artifact to `completed/` in the same cleanup
 invocation; this path needs no rerun.

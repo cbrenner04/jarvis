@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
@@ -18,6 +18,7 @@ import {
   type DaemonClient,
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
+  discoverMergedLocalHeadCandidates,
   inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
   performWorktreeRemovals,
@@ -65,6 +66,32 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     return worktreePath;
   }
 
+  function mergedWorktreeGhRunner(
+    options: {
+      onList?: (branch: string, cwd: string | undefined) => Promise<string> | string;
+      onView?: () => string;
+    } = {},
+  ): AsyncSubprocessRunner {
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        const root = cwd ?? projectRoot;
+        if (cmd === "gh" && args[1] === "view") {
+          return options.onView?.() ?? JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        }
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          if (options.onList !== undefined) return options.onList(branch, cwd);
+          const head = (
+            await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], root)
+          ).trim();
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, root);
+      },
+    };
+  }
+
   function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
@@ -74,7 +101,14 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
               : { state: "OPEN", mergedAt: null },
           );
-        if (cmd === "gh" && args[1] === "list") return "[]";
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const head = (
+            await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], cwd ?? projectRoot)
+          ).trim();
+          return JSON.stringify([{ state: state === "MERGED" ? "MERGED" : "OPEN", headRefOid: head }]);
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -137,15 +171,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       stderr: () => {},
     };
 
-    // Mock runner that reports PR as merged
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
-      },
-    };
+    const mockRunner = mergedWorktreeGhRunner();
 
     const code = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, daemonClient, store, io);
 
@@ -179,14 +205,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       stderr: () => {},
     };
 
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
-      },
-    };
+    const mockRunner = mergedWorktreeGhRunner();
 
     const code = await runCleanupCommand(
       { promptConfirm: async () => true },
@@ -229,7 +248,12 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         if (cmd === "gh" && args[1] === "list") {
           order.push(retired ? "post-retire pr list" : "pre-retire pr list");
-          return "[]";
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const head = (
+            await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], cwd ?? projectRoot)
+          ).trim();
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
         }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
           order.push("retire");
@@ -322,14 +346,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
           },
         ] as never[],
     } as unknown as StateStore;
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[1] === "view")
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (cmd === "gh" && args[1] === "list") return "[]";
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
-      },
-    };
+    const mockRunner = mergedWorktreeGhRunner();
     let stdout = "";
 
     expect(
@@ -376,6 +393,14 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const head = (
+            await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], cwd ?? projectRoot)
+          ).trim();
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
+        }
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove" && failRemoval)
           throw new Error("remove failed");
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
@@ -438,12 +463,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ],
     } as unknown as StateStore;
     let stdout = "";
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) =>
-        cmd === "gh" && args[1] === "view"
-          ? JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" })
-          : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
-    };
+    const mockRunner = mergedWorktreeGhRunner();
 
     expect(
       await runCleanupCommand(
@@ -812,14 +832,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       stderr: () => {},
     };
 
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
-      },
-    };
+    const mockRunner = mergedWorktreeGhRunner();
 
     const code = await runCleanupCommand(
       { promptConfirm: async () => true },
@@ -832,7 +845,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
 
     expect(code).toBe(0);
-    // Preview call + at least one post-confirmation recheck call.
+    // Discovery eligibility + per-candidate apply-time revalidation.
     expect(daemonCalls).toBeGreaterThanOrEqual(2);
     expect(stdout).toContain("became ineligible");
     expect(stdout).not.toContain("Retired");
@@ -905,14 +918,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       stderr: () => {},
     };
 
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
-          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, projectRoot);
-      },
-    };
+    const mockRunner = mergedWorktreeGhRunner();
 
     const code = await runCleanupCommand(
       { promptConfirm: async () => false },
@@ -1121,6 +1127,755 @@ describe("cleanup: discover materialized worktrees", () => {
     const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
 
     expect(discovered).toHaveLength(0);
+  });
+});
+
+describe("cleanup: discover merged local heads", () => {
+  let tempRoot: string;
+  let projectRoot: string;
+  let jarvisRoot: string;
+
+  async function initRepository(path: string): Promise<void> {
+    mkdirSync(path, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "-b", "trunk"], path);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "test@test.com"], path);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "Test User"], path);
+    writeFileSync(join(path, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], path);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], path);
+  }
+
+  async function oid(root: string, ref: string): Promise<string> {
+    return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", ref], root)).trim();
+  }
+
+  async function branchWithCommit(root: string, branch: string): Promise<{ head: string; parent: string }> {
+    const current = (await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], root)).trim();
+    const parent = await oid(root, "HEAD");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], root);
+    writeFileSync(join(root, `${branch.replaceAll("/", "-")}.txt`), `${branch}\n`);
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", branch], root);
+    const head = await oid(root, "HEAD");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", current], root);
+    return { head, parent };
+  }
+
+  async function refExists(root: string, ref: string): Promise<boolean> {
+    try {
+      await realAsyncSubprocessRunner.runAsync("git", ["show-ref", "--verify", ref], root);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function mergedRunner(invocations: Array<{ cmd: string; args: string[] }> = []): AsyncSubprocessRunner {
+    const authority = new Map<string, string>();
+    return {
+      runAsync: async (cmd, args, cwd) => {
+        invocations.push({ cmd, args: [...args] });
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const head = authority.get(branch) ?? (await oid(projectRoot, `refs/heads/${branch}`));
+          authority.set(branch, head);
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
+        }
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+  }
+
+  const emptyStore = { listRuns: () => [] } as unknown as StateStore;
+
+  beforeEach(async () => {
+    tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-cleanup-heads-${Date.now()}-${Math.random()}`);
+    projectRoot = join(tempRoot, "project");
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    await initRepository(projectRoot);
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("merged local head candidate requires matching merged PR head", async () => {
+    const branch = "merged-without-worktree";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const lookups: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "list") {
+          expect(cwd).toBe(projectRoot);
+          lookups.push(args[3] ?? "");
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+
+    const result = await discoverMergedLocalHeadCandidates({ project: { root: projectRoot } }, runner);
+    expect(result.errors).toEqual([]);
+    expect(result.candidates).toEqual([expect.objectContaining({ project: "project", branch, oid: head })]);
+    expect(lookups).toEqual([branch]);
+
+    const mismatchRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "list"
+          ? JSON.stringify([{ state: "MERGED", headRefOid: "0000000000000000000000000000000000000000" }])
+          : realAsyncSubprocessRunner.runAsync(cmd, args, cwd),
+    };
+    expect(
+      (await discoverMergedLocalHeadCandidates({ project: { root: projectRoot } }, mismatchRunner)).candidates,
+    ).toEqual([]);
+  });
+
+  test("default cleanup prunes merged branch refs without a materialized worktree", async () => {
+    const branch = "merged-dead";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    const invocations: Array<{ cmd: string; args: string[] }> = [];
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      mergedRunner(invocations),
+      async () => [],
+      emptyStore,
+      { stdout: (line) => (stdout += line), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(await refExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await refExists(projectRoot, trackingRef)).toBe(false);
+    expect(stdout).toContain(`Pruned ref project: refs/heads/${branch}`);
+    expect(stdout).toContain(`Pruned ref project: ${trackingRef}`);
+    expect(invocations.some(({ cmd, args }) => cmd === "git" && args[0] === "push")).toBe(false);
+  });
+
+  test("default merged-worktree retirement prunes origin tracking ref", async () => {
+    const branch = "merged-worktree";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      mergedRunner(),
+      async () => [],
+      emptyStore,
+      { stdout: (line) => (stdout += line), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(await refExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await refExists(projectRoot, trackingRef)).toBe(false);
+    expect(stdout).toContain(`Pruned ref project: refs/heads/${branch}`);
+    expect(stdout).toContain(`Pruned ref project: ${trackingRef}`);
+    expect(stdout).toContain(`Retired: ${worktreePath}`);
+  });
+
+  test("dry-run previews merged dead refs without mutation", async () => {
+    const branch = "preview-dead";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    const worktreeBranch = "preview-worktree";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", worktreeBranch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["update-ref", `refs/remotes/origin/${worktreeBranch}`, head],
+      projectRoot,
+    );
+    const worktreePath = join(jarvisRoot, "worktrees", "project", worktreeBranch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, worktreeBranch], projectRoot);
+    const artifact = join(projectRoot, "v2", "spec", "20260730T000000Z-preview-artifact");
+    mkdirSync(artifact, { recursive: true });
+    writeFileSync(join(artifact, "index.md"), "# Plan\n\n## Acceptance criteria\n\n- [x] Done\n");
+    const socket = join(jarvisRoot, "daemon-0000000000000098.sock");
+    writeFileSync(socket, "");
+    const store = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: "preview-artifact",
+          status: "completed",
+          worktreePath: projectRoot,
+          specPath: join(artifact, "index.md"),
+        },
+      ],
+    } as unknown as StateStore;
+    const invocations: Array<{ cmd: string; args: string[] }> = [];
+    let stdout = "";
+
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      mergedRunner(invocations),
+      async () => [],
+      store,
+      { stdout: (line) => (stdout += line), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    for (const ref of [
+      `refs/heads/${branch}`,
+      trackingRef,
+      `refs/heads/${worktreeBranch}`,
+      `refs/remotes/origin/${worktreeBranch}`,
+    ]) {
+      expect(stdout).toContain(`project: ${ref}`);
+      expect(await refExists(projectRoot, ref)).toBe(true);
+    }
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(existsSync(artifact)).toBe(true);
+    expect(existsSync(socket)).toBe(true);
+    expect(invocations.some(({ cmd, args }) => cmd === "git" && args[0] === "update-ref" && args[1] === "-d")).toBe(
+      false,
+    );
+    expect(invocations.some(({ cmd, args }) => cmd === "git" && args[0] === "push")).toBe(false);
+  });
+
+  test.each(["head OID", "tracking OID", "PR authority", "checkout", "durable run", "daemon run"])(
+    "apply-time $guard revalidation retains changed refs",
+    async (guard) => {
+      const branch = `race-${guard.replaceAll(" ", "-").toLowerCase()}`;
+      const { head, parent } = await branchWithCommit(projectRoot, branch);
+      const headRef = `refs/heads/${branch}`;
+      const trackingRef = `refs/remotes/origin/${branch}`;
+      await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+      let prMerged = true;
+      let durableRuns: unknown[] = [];
+      let daemonLive = false;
+      const runner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[1] === "list")
+            return JSON.stringify([{ state: prMerged ? "MERGED" : "OPEN", headRefOid: head }]);
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      };
+      const store = { listRuns: () => durableRuns } as unknown as StateStore;
+      let stdout = "";
+
+      const code = await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            if (guard === "head OID")
+              await realAsyncSubprocessRunner.runAsync("git", ["update-ref", headRef, parent], projectRoot);
+            if (guard === "tracking OID")
+              await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, parent], projectRoot);
+            if (guard === "PR authority") prMerged = false;
+            if (guard === "checkout") {
+              const path = join(tempRoot, "late-checkout");
+              await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", path, branch], projectRoot);
+            }
+            if (guard === "durable run")
+              durableRuns = [{ project: "project", branch, status: "running" }];
+            if (guard === "daemon run") daemonLive = true;
+            return true;
+          },
+        },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [{ isLive: daemonLive }],
+        store,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      expect(await refExists(projectRoot, headRef)).toBe(true);
+      expect(await refExists(projectRoot, trackingRef)).toBe(true);
+      expect(stdout).toContain(`Skipped ref project: ${headRef}`);
+      expect(stdout).toContain(`Skipped ref project: ${trackingRef}`);
+    },
+  );
+
+  test("exact ref guards retain orphan tracking refs and ignore similarly named tags", async () => {
+    const branch = "tag-lookalike";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["tag", `origin/${branch}`], projectRoot);
+    const orphan = "refs/remotes/origin/orphan";
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", orphan, "HEAD"], projectRoot);
+    const invocations: Array<{ cmd: string; args: string[] }> = [];
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mergedRunner(invocations),
+        async () => [],
+        emptyStore,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(await refExists(projectRoot, `refs/heads/${branch}`)).toBe(false);
+    expect(await refExists(projectRoot, `refs/tags/origin/${branch}`)).toBe(true);
+    expect(await refExists(projectRoot, orphan)).toBe(true);
+    expect(stdout).not.toContain(`refs/remotes/origin/${branch}`);
+    expect(stdout).not.toContain(orphan);
+    expect(invocations.some(({ cmd, args }) => cmd === "git" && args[0] === "push")).toBe(false);
+  });
+
+  test("ref-prune failures continue independent cleanup", async () => {
+    const retiredSpec = "20260730T010000Z-retired";
+    const strandedSpec = "20260730T010001Z-stranded";
+    for (const name of [retiredSpec, strandedSpec]) {
+      const source = join(projectRoot, "v2", "spec", name);
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "index.md"), "# Plan\n\n## Acceptance criteria\n\n- [x] Done\n");
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "cleanup artifacts"], projectRoot);
+
+    const failedBranch = "failed-retirement-ref";
+    const laterBranch = "later-eligible-ref";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", failedBranch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", laterBranch], projectRoot);
+    const head = await oid(projectRoot, "HEAD");
+    const failedHeadRef = `refs/heads/${failedBranch}`;
+    const failedTrackingRef = `refs/remotes/origin/${failedBranch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", failedTrackingRef, head], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", failedBranch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, failedBranch], projectRoot);
+    const socket = join(jarvisRoot, "daemon-0000000000000099.sock");
+    writeFileSync(socket, "");
+    const store: StateStore = {
+      listRuns: () =>
+        [
+          {
+            project: "project",
+            branch: failedBranch,
+            status: "completed",
+            worktreePath,
+            specPath: join(worktreePath, "v2", "spec", retiredSpec, "index.md"),
+          },
+          {
+            project: "project",
+            branch: "stranded-implementation",
+            status: "completed",
+            worktreePath: projectRoot,
+            specPath: join(projectRoot, "v2", "spec", strandedSpec, "index.md"),
+          },
+        ] as never[],
+    } as unknown as StateStore;
+    const authority = new Map<string, string>();
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const authorized = authority.get(branch) ?? (await oid(projectRoot, `refs/heads/${branch}`));
+          authority.set(branch, authorized);
+          return JSON.stringify([{ state: "MERGED", headRefOid: authorized }]);
+        }
+        if (
+          cmd === "git" &&
+          args[0] === "update-ref" &&
+          args[1] === "-d" &&
+          args[2] === failedHeadRef
+        )
+          throw new Error("injected ref failure");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+    let stderr = "";
+
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      store,
+      { stdout: (line) => (stdout += line), stderr: (line) => (stderr += line) },
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain(`Failed to prune ref project: ${failedHeadRef}`);
+    expect(stdout).not.toContain(`Pruned ref project: ${failedHeadRef}`);
+    expect(stdout).toContain(`Pruned ref project: ${failedTrackingRef}`);
+    expect(await refExists(projectRoot, `refs/heads/${laterBranch}`)).toBe(false);
+    expect(existsSync(join(projectRoot, "v2", "spec", retiredSpec))).toBe(false);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", retiredSpec))).toBe(true);
+    expect(existsSync(join(projectRoot, "v2", "spec", strandedSpec))).toBe(false);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", strandedSpec))).toBe(true);
+    expect(existsSync(socket)).toBe(false);
+    expect(stdout).not.toContain(`Retired: ${worktreePath}`);
+  });
+
+  test("merged local head PR authority guards fail closed", async () => {
+    const base = await oid(projectRoot, "HEAD");
+    const branches = [
+      "eligible",
+      "open",
+      "closed-unmerged",
+      "no-pr-merged-ancestry",
+      "historical-name",
+      "conflicting",
+      "failed",
+      "malformed",
+    ];
+    for (const branch of branches) await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const unmerged = await branchWithCommit(projectRoot, "no-pr-unmerged-ancestry");
+    const postMerge = await branchWithCommit(projectRoot, "post-merge-commit");
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd !== "gh" || args[1] !== "list") return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+        expect(cwd).toBe(projectRoot);
+        const branch = args[3];
+        if (branch === "eligible") return JSON.stringify([{ state: "MERGED", headRefOid: base }]);
+        if (branch === "open") return JSON.stringify([{ state: "OPEN", headRefOid: base }]);
+        if (branch === "closed-unmerged") return JSON.stringify([{ state: "CLOSED", headRefOid: base }]);
+        if (branch === "historical-name")
+          return JSON.stringify([{ state: "MERGED", headRefOid: "0000000000000000000000000000000000000000" }]);
+        if (branch === "post-merge-commit") return JSON.stringify([{ state: "MERGED", headRefOid: postMerge.parent }]);
+        if (branch === "conflicting")
+          return JSON.stringify([
+            { state: "MERGED", headRefOid: base },
+            { state: "OPEN", headRefOid: base },
+          ]);
+        if (branch === "failed") throw new Error("lookup failed");
+        if (branch === "malformed") return "{";
+        if (branch === "no-pr-unmerged-ancestry") expect(await oid(projectRoot, branch)).toBe(unmerged.head);
+        return "[]";
+      },
+    };
+
+    const result = await discoverMergedLocalHeadCandidates({ project: { root: projectRoot } }, runner);
+    expect(result.errors).toEqual([]);
+    expect(result.candidates.map((candidate) => candidate.branch)).toEqual(["eligible"]);
+  });
+
+  test("checked-out branch guards retain local refs", async () => {
+    const current = (await realAsyncSubprocessRunner.runAsync("git", ["branch", "--show-current"], projectRoot)).trim();
+    const guarded = ["main", current, "managed", "external"];
+    for (const branch of guarded) {
+      if (branch !== current) await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+      const head = await oid(projectRoot, branch);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["update-ref", `refs/remotes/origin/${branch}`, head],
+        projectRoot,
+      );
+    }
+    const managedPath = join(jarvisRoot, "worktrees", "project", "managed");
+    const externalPath = join(tempRoot, "external-worktree");
+    mkdirSync(dirname(managedPath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", managedPath, "managed"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", externalPath, "external"], projectRoot);
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "list") {
+          return JSON.stringify([{ state: "MERGED", headRefOid: await oid(projectRoot, args[3] ?? "") }]);
+        }
+        if (cmd === "gh" && args[1] === "view") return JSON.stringify({ state: "OPEN", mergedAt: null });
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (line) => (stdout += line), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("eligible local branch ref");
+    expect(stdout).not.toContain("Pruned");
+    expect(stdout).toContain(managedPath);
+    for (const branch of guarded) {
+      await expect(
+        realAsyncSubprocessRunner.runAsync("git", ["show-ref", "--verify", `refs/heads/${branch}`], projectRoot),
+      ).resolves.toContain(await oid(projectRoot, branch));
+      await expect(
+        realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["show-ref", "--verify", `refs/remotes/origin/${branch}`],
+          projectRoot,
+        ),
+      ).resolves.toContain(await oid(projectRoot, branch));
+    }
+  });
+
+  test("candidate discovery isolates registered projects", async () => {
+    const otherRoot = join(tempRoot, "other");
+    const duplicateRoot = join(tempRoot, "project-alias");
+    const invalidRoot = join(tempRoot, "missing");
+    await initRepository(otherRoot);
+    symlinkSync(projectRoot, duplicateRoot, "dir");
+    const branch = "same-name";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], otherRoot);
+    const firstOid = await oid(projectRoot, branch);
+    const lookups: string[] = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "list") {
+          lookups.push(cwd);
+          return cwd === projectRoot
+            ? JSON.stringify([{ state: "MERGED", headRefOid: firstOid }])
+            : JSON.stringify([{ state: "OPEN", headRefOid: await oid(otherRoot, branch) }]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd);
+      },
+    };
+    let stdout = "";
+    let stderr = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      {
+        first: { root: projectRoot },
+        duplicate: { root: duplicateRoot },
+        second: { root: otherRoot },
+        invalid: { root: invalidRoot },
+      },
+      jarvisRoot,
+      runner,
+      async () => [],
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (line) => (stdout += line), stderr: (line) => (stderr += line) },
+    );
+
+    expect(code).toBe(1);
+    expect(lookups).toEqual([projectRoot, otherRoot]);
+    expect(stdout).toContain(`first: refs/heads/${branch}`);
+    expect(stdout).not.toContain(`duplicate: refs/heads/${branch}`);
+    expect(stdout).not.toContain(`second: refs/heads/${branch}`);
+    expect(stderr).toContain(`invalid (${invalidRoot})`);
+  });
+
+  test("worktree retirement uses apply-time merged PR head OID authority", async () => {
+    const branch = "weak-view-authority";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    let authorized = true;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh" && args[1] === "view")
+          return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const listedBranch = args[3] ?? "";
+          return JSON.stringify([
+            {
+              state: "MERGED",
+              headRefOid: authorized
+                ? await oid(projectRoot, listedBranch)
+                : "0000000000000000000000000000000000000000",
+            },
+          ]);
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            authorized = false;
+            return true;
+          },
+        },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [],
+        emptyStore,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(await refExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+    expect(await refExists(projectRoot, trackingRef)).toBe(true);
+    expect(stdout).not.toContain(`Pruned ref project: refs/heads/${branch}`);
+    expect(stdout).toContain("merged PR authority changed");
+  });
+
+  test("worktree retirement revalidates ownership immediately before mutation", async () => {
+    const branch = "late-worktree-run";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    let durableRuns: unknown[] = [];
+    const store = { listRuns: () => durableRuns } as unknown as StateStore;
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            durableRuns = [{ project: "project", branch, status: "running" }];
+            return true;
+          },
+        },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mergedRunner(),
+        async () => [],
+        store,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(existsSync(worktreePath)).toBe(true);
+    expect(stdout).toContain(`Skipped (became ineligible): ${worktreePath}`);
+    expect(stdout).not.toContain(`Retired: ${worktreePath}`);
+  });
+
+  test("managed worktree checkout is permitted during pre-removal ref revalidation", async () => {
+    const branch = "managed-checkout";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const trackingRef = `refs/remotes/origin/${branch}`;
+    await realAsyncSubprocessRunner.runAsync("git", ["update-ref", trackingRef, head], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        mergedRunner(),
+        async () => [],
+        emptyStore,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(stdout).toContain(`Retired: ${worktreePath}`);
+    expect(stdout).toContain(`Pruned ref project: refs/heads/${branch}`);
+    expect(stdout).not.toContain("branch is checked out");
+  });
+
+  test("deduplicated repository aliases share durable-run ownership guards", async () => {
+    const branch = "alias-owned";
+    const duplicateRoot = join(tempRoot, "project-alias");
+    symlinkSync(projectRoot, duplicateRoot, "dir");
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const head = await oid(projectRoot, branch);
+    const store = {
+      listRuns: () => [{ project: "duplicate", branch, status: "running" }],
+    } as unknown as StateStore;
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { first: { root: projectRoot }, duplicate: { root: duplicateRoot } },
+        jarvisRoot,
+        mergedRunner(),
+        async () => [],
+        store,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(await refExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+    expect(stdout).toContain(`Skipped ref first: refs/heads/${branch}`);
+    expect(stdout).toContain("non-terminal durable run exists");
+    expect(stdout).not.toContain(`Pruned ref first: refs/heads/${branch}`);
+  });
+
+  test("merged worktree without local head ref is still retired with explicit ref skip", async () => {
+    const branch = "missing-head-worktree";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "project", branch);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
+    let hideHeadRef = false;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (
+          hideHeadRef &&
+          cmd === "git" &&
+          args[0] === "show-ref" &&
+          args.includes(`refs/heads/${branch}`)
+        ) {
+          throw new AsyncSubprocessError("missing head", 1, "", "", undefined);
+        }
+        return mergedRunner().runAsync(cmd, args, cwd);
+      },
+    };
+    let stdout = "";
+
+    expect(
+      await runCleanupCommand(
+        {
+          dryRun: true,
+          promptConfirm: async () => true,
+        },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [],
+        emptyStore,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(worktreePath);
+
+    hideHeadRef = true;
+    stdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        runner,
+        async () => [],
+        emptyStore,
+        { stdout: (line) => (stdout += line), stderr: () => {} },
+      ),
+    ).toBe(0);
+
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(stdout).toContain(`Retired: ${worktreePath}`);
+    expect(stdout).toContain(`Skipped ref project: refs/heads/${branch} — local head absent`);
+    expect(stdout).not.toContain(`Pruned ref project: refs/heads/${branch}`);
   });
 });
 

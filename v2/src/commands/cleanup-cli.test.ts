@@ -219,10 +219,17 @@ describe("cleanup command through main", () => {
   function mergedPrRunner(projectRoot: string): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+        if (cmd === "gh" && args[1] === "view") {
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         }
-        // Pass through all other commands, don't apply a default cwd - let git commands run from their specified cwd
+        if (cmd === "gh" && args[1] === "list") {
+          if (args[5] === "open") return "[]";
+          const branch = args[3] ?? "";
+          const head = (
+            await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `refs/heads/${branch}`], cwd ?? projectRoot)
+          ).trim();
+          return JSON.stringify([{ state: "MERGED", headRefOid: head }]);
+        }
         return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
       },
     };
@@ -239,6 +246,7 @@ describe("cleanup command through main", () => {
 
   // A daemon list-response reporting no runs for the queried branch (→ eligible).
   const noRunsFrame = { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } };
+  const cleanupDaemonClient = () => makeIpcClient([], { staleResetPreflight: { listRuns: [] } });
 
   beforeEach(async () => {
     cleanupTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
@@ -266,7 +274,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        connectIpcClient: async () => cleanupDaemonClient(),
       }),
     );
 
@@ -287,7 +295,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        connectIpcClient: async () => cleanupDaemonClient(),
         promptConfirm: async () => false,
       }),
     );
@@ -315,7 +323,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame]),
+        connectIpcClient: async () => cleanupDaemonClient(),
         promptConfirm: createPromptFunction(nonInteractiveStdin, () => {}),
       }),
     );
@@ -337,7 +345,7 @@ describe("cleanup command through main", () => {
         readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
-        connectIpcClient: async () => makeIpcClient([noRunsFrame, noRunsFrame]),
+        connectIpcClient: async () => cleanupDaemonClient(),
         promptConfirm: async () => {
           throw new Error("--yes must not prompt");
         },

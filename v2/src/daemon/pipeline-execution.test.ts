@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
@@ -21,8 +22,10 @@ import {
   commitPipelineApprovalDecision,
   continuePipeline,
   derivePipelineState,
+  hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
   isReopenedFailedContinuation,
+  type PipelineExecutionDeps,
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
@@ -33,8 +36,13 @@ import {
   resumeReopenedPendingContinuation,
   resumeTerminalRefusalReason,
   runPipeline,
+  setInvertPipelineTerminalPublicationFailureGuardForTest,
 } from "./pipeline-execution.ts";
-import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import type {
+  PipelineStageArtifact,
+  PipelineWorkflowDispatch,
+  PipelineWorkflowWait,
+} from "./pipeline-stage-dispatch.ts";
 import type {
   PipelineContext,
   PipelineStageResolutionResult,
@@ -97,6 +105,8 @@ function fakeStore(
     context?: PipelineContext | null;
     ownerIdentity?: string | null;
     currentIdentity?: string;
+    terminalPublicationFailure?: Pipeline["terminalPublicationFailure"];
+    terminalPublicationSucceededAt?: Pipeline["terminalPublicationSucceededAt"];
   } = {},
 ): { store: StateStore; stages: () => PipelineStageRecord[] } {
   const stages: PipelineStageRecord[] = definition.stages.map((stage, index) => ({
@@ -115,6 +125,8 @@ function fakeStore(
   let ownerIdentity = options.ownerIdentity ?? options.currentIdentity ?? CURRENT_OWNER;
   const pipelineContext = options.context === undefined ? baseContext : options.context;
   const currentIdentity = options.currentIdentity ?? CURRENT_OWNER;
+  let terminalPublicationFailure = options.terminalPublicationFailure ?? null;
+  let terminalPublicationSucceededAt = options.terminalPublicationSucceededAt ?? null;
 
   const store = {
     loadPipeline: (id: string) =>
@@ -127,6 +139,8 @@ function fakeStore(
             status: "active",
             definition,
             context: pipelineContext,
+            terminalPublicationFailure,
+            terminalPublicationSucceededAt,
             stages: stages.map((s) => ({ ...s })),
           } as Pipeline & {
             stages: PipelineStageRecord[];
@@ -226,6 +240,37 @@ function fakeStore(
         });
       }
       return { kind: "applied" as const, stageRecordId: shape.failedStageRecordId };
+    },
+    commitTerminalPublicationFailure: (args: {
+      pipelineId: string;
+      terminalAction: PipelineTerminalAction;
+      failure: { operation: string; message: string };
+      prNumber?: number;
+      prUrl?: string;
+    }) => {
+      if (
+        args.pipelineId !== PIPELINE_ID ||
+        terminalPublicationFailure !== null ||
+        terminalPublicationSucceededAt !== null
+      ) {
+        return;
+      }
+      terminalPublicationFailure = {
+        terminalAction: args.terminalAction,
+        failure: args.failure,
+        ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
+        ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
+      };
+    },
+    commitTerminalPublicationSuccess: (args: { pipelineId: string }) => {
+      if (
+        args.pipelineId !== PIPELINE_ID ||
+        terminalPublicationFailure !== null ||
+        terminalPublicationSucceededAt !== null
+      ) {
+        return;
+      }
+      terminalPublicationSucceededAt = Date.now();
     },
   } as unknown as StateStore;
 
@@ -1257,6 +1302,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1293,6 +1340,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1326,6 +1375,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1358,6 +1409,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1390,6 +1443,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1435,6 +1490,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: [
         {
           id: "row-implement",
@@ -1494,6 +1551,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1530,6 +1589,8 @@ describe("derivePipelineState", () => {
       status: "active",
       definition,
       context: null,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
       stages: [
         {
           id: "row-0",
@@ -2071,5 +2132,253 @@ describe("post-reconcile activation on real store", () => {
       sweepStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ stageId: stage.stageId, status: stage.status })),
     ).toEqual(beforeSecond);
     sweepStore.close();
+  });
+});
+
+const TERMINAL_PIPELINE_DEFINITION: PipelineDefinition = {
+  name: "terminal-p",
+  terminalAction: "ready",
+  stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+};
+
+const TERMINAL_PR = { prNumber: 42, prUrl: "https://github.com/org/repo/pull/42" } as const;
+
+function terminalImplementArtifact(entryRunId = "run-implement"): PipelineStageArtifact {
+  return { entryRunId, specPath: "spec/implement.md", ...TERMINAL_PR };
+}
+
+function terminalImplementRun(): Partial<Run> {
+  return {
+    specRef: "main",
+    worktreePath: "/repo/worktree",
+    branch: "feature-branch",
+    specPath: "spec/implement.md",
+    ...TERMINAL_PR,
+  };
+}
+
+function terminalPipelineDefinition(action: PipelineTerminalAction): PipelineDefinition {
+  return { ...TERMINAL_PIPELINE_DEFINITION, terminalAction: action };
+}
+
+function terminalRunDeps(
+  store: StateStore,
+  executeTerminalPublication: NonNullable<PipelineExecutionDeps["executeTerminalPublication"]>,
+): PipelineExecutionDeps {
+  return {
+    store,
+    dispatch: async () => ({ ok: true, entryRunId: "run-implement", invocationId: "inv-implement" }),
+    wait: async () => "completed",
+    context: baseContext,
+    resolveStage: resolveStageStub(),
+    executeTerminalPublication,
+  };
+}
+
+describe("pipeline terminal publication settlement", () => {
+  test("settles each configured terminal action end to end", async () => {
+    for (const terminalAction of ["leave-draft", "ready", "merge"] as const satisfies PipelineTerminalAction[]) {
+      const definition = terminalPipelineDefinition(terminalAction);
+      const { store, stages } = fakeStore(definition, { "run-implement": terminalImplementRun() });
+      const settlement = deferred<void>();
+      const capturedInputs: unknown[] = [];
+      const executeTerminalPublication = async (input: unknown) => {
+        capturedInputs.push(input);
+        await settlement.promise;
+        return TERMINAL_PR;
+      };
+
+      const runPromise = runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
+
+      while (stages().find((s) => s.stageId === "implement")?.status !== "succeeded") {
+        await Promise.resolve();
+      }
+
+      const midPipeline = store.loadPipeline(PIPELINE_ID);
+      if (!midPipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(midPipeline)).toBe("running");
+
+      settlement.resolve();
+      await runPromise;
+
+      expect(capturedInputs).toEqual([
+        {
+          terminalAction,
+          worktreePath: "/repo/worktree",
+          branch: "feature-branch",
+          baseRef: "main",
+          ...TERMINAL_PR,
+        },
+      ]);
+      const settled = store.loadPipeline(PIPELINE_ID);
+      if (!settled) throw new Error("expected pipeline");
+      expect(settled.terminalPublicationSucceededAt).not.toBeNull();
+      expect(derivePipelineState(settled)).toBe("succeeded");
+    }
+  });
+
+  test("continues pending terminal publication after restart", async () => {
+    const definition = terminalPipelineDefinition("ready");
+    const { store, stages } = fakeStore(
+      definition,
+      { "run-implement": terminalImplementRun() },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: { status: "succeeded", artifact: terminalImplementArtifact() },
+    });
+
+    const dispatchOrder: number[] = [];
+    const executeTerminalPublication = async () => TERMINAL_PR;
+
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async (steps) => {
+        dispatchOrder.push(stageIndexOf(steps));
+        return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+      },
+      wait: async () => "completed",
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication,
+    });
+
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(dispatchOrder).toEqual([]);
+    const settled = store.loadPipeline(PIPELINE_ID);
+    if (!settled) throw new Error("expected pipeline");
+    expect(settled.terminalPublicationSucceededAt).not.toBeNull();
+    expect(derivePipelineState(settled)).toBe("succeeded");
+    expect(stages().find((s) => s.stageId === "implement")?.status).toBe("succeeded");
+  });
+
+  test("does not invoke terminal publication when the stage walk stops early", async () => {
+    const definition: PipelineDefinition = {
+      name: "p",
+      terminalAction: "merge",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "gate", kind: "approval" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+
+    let terminalCalls = 0;
+    const executeTerminalPublication = async () => {
+      terminalCalls += 1;
+      return {};
+    };
+    const dispatch: PipelineWorkflowDispatch = async (steps) => ({
+      ok: true,
+      entryRunId: `run-${stageIndexOf(steps)}`,
+      invocationId: `inv-${stageIndexOf(steps)}`,
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const deps = {
+      store: fakeStore(definition, { "run-0": { specPath: "spec/s1.md" } }).store,
+      dispatch,
+      wait,
+      context: baseContext,
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication,
+    };
+
+    await runPipeline(PIPELINE_ID, deps);
+    expect(terminalCalls).toBe(0);
+
+    const awaiting = fakeStore(definition, { "run-0": { specPath: "spec/s1.md" } });
+    await runPipeline(PIPELINE_ID, { ...deps, store: awaiting.store });
+    expect(terminalCalls).toBe(0);
+
+    const rejected = fakeStore(definition, { "run-0": { specPath: "spec/s1.md" } });
+    rejected.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "rejected" } });
+    await runPipeline(PIPELINE_ID, { ...deps, store: rejected.store });
+    expect(terminalCalls).toBe(0);
+
+    const failed = fakeStore(definition, { "run-0": { specPath: "spec/s1.md" } });
+    const failingDispatch: PipelineWorkflowDispatch = async (steps) => {
+      const index = stageIndexOf(steps);
+      if (index === 0) return { ok: false, code: "worktree_claimed", message: "claimed" };
+      return { ok: true, entryRunId: `run-${index}`, invocationId: `inv-${index}` };
+    };
+    await runPipeline(PIPELINE_ID, {
+      ...deps,
+      store: failed.store,
+      dispatch: failingDispatch,
+    });
+    expect(terminalCalls).toBe(0);
+  });
+
+  test("fails a pipeline when its terminal action fails", async () => {
+    const definition = terminalPipelineDefinition("ready");
+    const { store, stages } = fakeStore(definition, { "run-implement": terminalImplementRun() });
+    const failure = { operation: "gh pr ready", message: "ready flip failed", exitCode: 1 };
+    const executeTerminalPublication = async () => {
+      throw new TerminalPublicationError("ready", failure, TERMINAL_PR.prNumber, TERMINAL_PR.prUrl);
+    };
+
+    await runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationFailure).toEqual({
+      terminalAction: "ready",
+      failure,
+      ...TERMINAL_PR,
+    });
+    expect(stages().every((stage) => stage.status === "succeeded")).toBe(true);
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    expect(hasPipelineTerminalPublicationFailure(pipeline)).toBe(true);
+    setInvertPipelineTerminalPublicationFailureGuardForTest(true);
+    expect(hasPipelineTerminalPublicationFailure(pipeline)).toBe(false);
+    setInvertPipelineTerminalPublicationFailureGuardForTest(false);
+  });
+
+  test("does not merge a pipeline after a red ready gate", async () => {
+    const definition = terminalPipelineDefinition("merge");
+    const { store, stages } = fakeStore(definition, { "run-implement": terminalImplementRun() });
+    let mergeCalls = 0;
+    const executeTerminalPublication = async () => {
+      mergeCalls += 1;
+      throw new TerminalPublicationError(
+        "merge",
+        { operation: "ready-gate", message: "gateFailureKind=failed_checks", exitCode: 1 },
+        TERMINAL_PR.prNumber,
+        TERMINAL_PR.prUrl,
+      );
+    };
+
+    await runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
+
+    expect(mergeCalls).toBe(1);
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationFailure?.terminalAction).toBe("merge");
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    expect(stages().every((stage) => stage.status === "succeeded")).toBe(true);
+  });
+
+  test("records terminal publication failure when success commit throws", async () => {
+    const definition = terminalPipelineDefinition("ready");
+    const { store: inner, stages } = fakeStore(definition, { "run-implement": terminalImplementRun() });
+    const store = {
+      ...inner,
+      commitTerminalPublicationSuccess: () => {
+        throw new Error("success commit failed");
+      },
+    } as StateStore;
+
+    await runPipeline(
+      PIPELINE_ID,
+      terminalRunDeps(store, async () => TERMINAL_PR),
+    );
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(pipeline.terminalPublicationFailure).not.toBeNull();
+    expect(pipeline.terminalPublicationSucceededAt).toBeNull();
+    expect(stages().every((stage) => stage.status === "succeeded")).toBe(true);
+    expect(derivePipelineState(pipeline)).toBe("failed");
   });
 });

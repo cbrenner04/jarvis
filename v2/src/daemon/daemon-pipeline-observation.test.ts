@@ -122,6 +122,8 @@ function pipelineWithStages(
     status: pipelineOverrides.status ?? "active",
     definition,
     context: pipelineOverrides.context ?? null,
+    terminalPublicationFailure: pipelineOverrides.terminalPublicationFailure ?? null,
+    terminalPublicationSucceededAt: pipelineOverrides.terminalPublicationSucceededAt ?? null,
     ...pipelineOverrides,
     stages: definition.stages.map((stage, index) => ({
       id: `row-${index}`,

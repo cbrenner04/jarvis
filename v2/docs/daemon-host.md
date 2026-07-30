@@ -975,11 +975,13 @@ after this pass are settled `interrupted` by `reconcilePipelines` as before;
 eligible pipelines reconciled in an earlier daemon incarnation become activatable
 again when `claimPipelineContinuation` restores `active` ownership.
 
-`isPipelineContinuable` composes `derivePipelineState`, `approvalOutcomePermitsActivation`
-(no `awaiting`/`rejected` approval rows), and `reopenedFailurePermitsActivation`
-(no remaining `failed` rows). Approved gates with a pending workflow successor
-and reopened failed continuations both satisfy these guards when derived state
-is `pending`.
+`isPipelineContinuable` returns true when `isPipelineSettlementPending` is true
+(every authored stage satisfied but terminal publication has not succeeded) regardless
+of derived `pending`, so restart can finish never-attempted settlement. Otherwise it
+composes `derivePipelineState`, `approvalOutcomePermitsActivation` (no `awaiting`/`rejected`
+approval rows), and `reopenedFailurePermitsActivation` (no remaining `failed` rows).
+Approved gates with a pending workflow successor and reopened failed continuations both
+satisfy these guards when derived state is `pending`.
 
 ### Pipeline approval decisions
 
@@ -1074,7 +1076,15 @@ First match wins:
    `awaiting`).
 6. `pending` — the walk reaches the first unsatisfied workflow stage (including
    undispatched rows).
-7. `succeeded` — every authored stage is satisfied in position order.
+7. `running` — `terminalAction` is set, every authored stage is satisfied, and
+   `terminal_publication_succeeded_at` is unset with no durable
+   `terminal_publication_failure` (settling interval while
+   `executeTerminalPublication` runs or awaits restart continuation).
+8. `failed` — durable `terminal_publication_failure` is present (stage rows may
+   still read all `succeeded`).
+9. `succeeded` — every authored stage is satisfied and either no `terminalAction`
+   is configured or terminal publication succeeded (`terminal_publication_succeeded_at`
+   set).
 
 Stage satisfaction for the walk: workflow stages satisfy on `succeeded`;
 approval stages satisfy on `approved`. Any unsatisfied approval row (for example
@@ -1088,6 +1098,18 @@ claims ownership.
 Terminal states: `succeeded`, `failed`, `rejected`, `interrupted`.
 Non-terminal: `pending`, `running`, `awaiting-approval`. Callers must not
 infer terminality from raw stage vocabulary alone.
+
+After the ordered stage walk completes with every authored stage satisfied and
+no early `stop`, `runPipeline` invokes `executeTerminalPublication` when the
+admitted definition carries `terminalAction`. Executor input resolves from the
+authored-order last succeeded workflow stage artifact (`prNumber`, `prUrl` from
+the stage artifact; `worktreePath`, `branch`, `baseRef` from
+`store.loadRun(artifact.entryRunId)`). Success stamps
+`terminal_publication_succeeded_at`; failure records `terminal_publication_failure`
+without rewriting stage rows. `continuePipeline` and `recoverContinuablePipelines`
+idempotently finish pending settlement when stages are satisfied but the success
+marker is absent. Terminal-publication failure is non-resumable via
+`pipeline_resume` / `reopenFailedPipeline` in this slice.
 
 ### Pipeline wait
 

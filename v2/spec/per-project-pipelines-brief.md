@@ -26,6 +26,7 @@ Serialize 1 → 2 → {3, 4} → 5 → 6. Each row is a seed; docs ride with eac
 | 4 | CLI start/list/wait/detach | `seeds/pipeline-cli-start-list-wait-detach.md` |
 | 5 | Configured final actions (draft PR / ready / merge) | `seeds/pipeline-configured-final-actions.md` |
 | 6 | One e2e integration proof | `seeds/pipeline-end-to-end-integration-proof.md` |
+| 7 | Inter-stage artifact handoff from prior worktree | `seeds/pipeline-stage-artifact-handoff-from-prior-worktree.md` |
 
 ## Serialize with TUI
 

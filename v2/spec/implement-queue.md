@@ -37,6 +37,10 @@ end to end, and #2352 proves it composes through the daemon.
 Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-walkthrough.md)
 § Configured pipeline.
 
+**Pipeline handoff gap:** stages do not yet read the prior worktree's concrete output;
+see `seeds/pipeline-stage-artifact-handoff-from-prior-worktree.md`. Until it ships, do not
+expect `fast` or unattended `full-review` to walk past intent without manual file sync.
+
 **Before using a pipeline on this machine**, note `projects.<name>.pipeline` now requires
 `terminalAction`; the jarvis entry is set to `leave-draft`. See the seed in item 3 — until it ships,
 a missing or stale key refuses unrelated `implement` dispatches too.
@@ -78,6 +82,7 @@ Remaining chrome sits with the [TUI phase](tui-overhaul-brief.md):
 
 | Seed | Why |
 | --- | --- |
+| `pipeline-stage-artifact-handoff-from-prior-worktree` | `fast` and `full-review` cannot chain intent→plan→implement: artifacts pass a directory path read from `cwd`, not the prior stage worktree file |
 | `plan-draft-contract-swallows-the-normalizer-reason` | Three plan runs lost this session to an opaque `artifact.exists`; the normalizer's real message names the offending bullet in one line |
 | `pipeline-config-validation-blocks-unrelated-implement` | A stale `projects.<name>.pipeline` block refuses `implement`, which never reads pipelines |
 | `out-of-scope-gate-classification-strands-caused-failures` | #2313's classifier calls a run-caused failure in an unedited file "out of scope" and advertises a resume that cannot help |

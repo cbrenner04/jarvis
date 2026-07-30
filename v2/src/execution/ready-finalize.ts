@@ -521,9 +521,7 @@ export function isExhaustedRedReadyGateAdmission(
   const repairCountOk = inv.repairCount
     ? event.readyGateRepairCount !== repairBudgetCap
     : event.readyGateRepairCount === repairBudgetCap;
-  const lineageOk = inv.lineage
-    ? event.finalizationLineageRunId !== runId
-    : event.finalizationLineageRunId === runId;
+  const lineageOk = inv.lineage ? event.finalizationLineageRunId !== runId : event.finalizationLineageRunId === runId;
   const checkpointOk = inv.checkpoint
     ? event.retainedFinalizationCheckpoint !== true
     : event.retainedFinalizationCheckpoint === true;

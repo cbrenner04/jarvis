@@ -40,7 +40,12 @@ export type LoopFinishedEvent = {
   survivingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
-  readyGateFailureOrigin?: "repair_budget_exhausted" | "repair_blocked" | "repair_unsettled" | "iteration_limit" | "timeout";
+  readyGateFailureOrigin?:
+    | "repair_budget_exhausted"
+    | "repair_blocked"
+    | "repair_unsettled"
+    | "iteration_limit"
+    | "timeout";
   readyGateRepairCount?: number;
   finalizationLineageRunId?: string;
   retainedFinalizationCheckpoint?: boolean;

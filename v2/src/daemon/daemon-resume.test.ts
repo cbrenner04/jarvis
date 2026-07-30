@@ -4,9 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { CompletionCommitter } from "../execution/completion-commit.ts";
-import { formatReadyGateOutOfScopeDetail, createReadyFinalizer, exhaustedRedGateFailureMeta, isExhaustedRedReadyGateAdmission, ReadyGateError, type ReadyFinalizer } from "../execution/ready-finalize.ts";
-import { executeWriteLoop, MAX_READY_GATE_REPAIRS, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import {
+  createReadyFinalizer,
+  exhaustedRedGateFailureMeta,
+  formatReadyGateOutOfScopeDetail,
+  isExhaustedRedReadyGateAdmission,
+  type ReadyFinalizer,
+  ReadyGateError,
+} from "../execution/ready-finalize.ts";
 import { resolveWriteExhaustedRedResumeContext } from "../execution/workflow-runner.ts";
+import {
+  executeWriteLoop,
+  MAX_READY_GATE_REPAIRS,
+  type WriteLoopInput,
+  type WriteLoopOutcomeKind,
+} from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -2093,9 +2105,7 @@ const exhaustedRedResumeDeps = {
   completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" }),
 };
 
-function createTrackedExhaustedRedFinalizer(
-  readyFinalizerHook: () => Promise<void> = async () => undefined,
-): {
+function createTrackedExhaustedRedFinalizer(readyFinalizerHook: () => Promise<void> = async () => undefined): {
   handlersDeps: {
     completionCommitter: CompletionCommitter;
     completionPublisher: NonNullable<typeof exhaustedRedResumeDeps.completionPublisher>;
@@ -2354,9 +2364,9 @@ test("exhausted-red resume eligibility matrix admits only exhausted-red lineage 
   expect(
     isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { repairCount: true }),
   ).toBe(false);
-  expect(
-    isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { lineage: true }),
-  ).toBe(false);
+  expect(isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { lineage: true })).toBe(
+    false,
+  );
   expect(
     isExhaustedRedReadyGateAdmission(admittedRecord.event, runId, MAX_READY_GATE_REPAIRS, { checkpoint: true }),
   ).toBe(false);

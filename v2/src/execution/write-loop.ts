@@ -28,14 +28,14 @@ import { type PublicationFailure, publicationFailureFor } from "./publication-re
 import {
   classifyReadyGateError,
   createReadyFinalizer,
+  exhaustedRedGateFailureMeta,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
-  RuntimeSmokeFailedError,
-  exhaustedRedGateFailureMeta,
-  readyGateOutOfScopeLogFields,
   type ReadyGateFailureLogFields,
   type ReadyGateFailureOrigin,
+  RuntimeSmokeFailedError,
+  readyGateOutOfScopeLogFields,
   SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
@@ -1549,18 +1549,56 @@ function buildReadyGateFailureMeta(
   return { finalizationLineageRunId: runId, ...(hasCheckpoint ? { retainedFinalizationCheckpoint: true } : {}) };
 }
 
+type PublishWithReadyRepairResult = {
+  failure?: CompletionPublishFailure;
+  success?: CompletionPublishSuccess;
+  iterationsConsumed: number;
+  readyGateFailureMeta?: ReadyGateFailureLogFields;
+};
+
+function readyGateRepairExitResult(
+  outcome: CompletionPublishFailure,
+  runId: string,
+  repairAttempt: number,
+  iterationsConsumed: number,
+  maxIterations: number,
+  origin: ReadyGateFailureOrigin,
+): PublishWithReadyRepairResult {
+  const meta = buildReadyGateFailureMeta(outcome, runId, repairAttempt, iterationsConsumed, maxIterations, origin);
+  return {
+    failure: outcome,
+    iterationsConsumed,
+    ...(meta !== undefined ? { readyGateFailureMeta: meta } : {}),
+  };
+}
+
+async function republishAfterReadyRepair(
+  args: WriteLoopInput,
+  input: CompletionPublishInput,
+  result: WriteLoopResult,
+): Promise<Awaited<ReturnType<typeof publishCompletionArtifacts>>> {
+  await (args.completionCommitter ?? createCompletionCommitter())({
+    worktreePath: input.worktreePath,
+    baseRef: input.baseRef,
+    specPath: input.specPath,
+    agent: result.completionAgent ?? "",
+    title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+    forceDistinctCommit: true,
+  });
+  let outcome = await publishCompletionArtifacts(args, input);
+  if (outcome.kind !== "success") {
+    outcome = await classifyReadyGatePublishFailure(outcome, input);
+  }
+  return outcome;
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
   iterationsConsumed: number,
   input: CompletionPublishInput,
-): Promise<{
-  failure?: CompletionPublishFailure;
-  success?: CompletionPublishSuccess;
-  iterationsConsumed: number;
-  readyGateFailureMeta?: ReadyGateFailureLogFields;
-}> {
+): Promise<PublishWithReadyRepairResult> {
   const maxIterations = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   let outcome = await publishCompletionArtifacts(args, input);
   if (outcome.kind !== "success") {
@@ -1579,7 +1617,7 @@ export async function publishWithReadyRepair(
 
     const repairOutcome = await runReadyRepairIteration(args, store, result, outcome.error, iterationsConsumed + 1);
     if (repairOutcome === "unsettled") {
-      const meta = buildReadyGateFailureMeta(
+      return readyGateRepairExitResult(
         outcome,
         result.runId,
         repairAttempt,
@@ -1587,15 +1625,10 @@ export async function publishWithReadyRepair(
         maxIterations,
         "repair_unsettled",
       );
-      return {
-        failure: outcome,
-        iterationsConsumed,
-        ...(meta !== undefined ? { readyGateFailureMeta: meta } : {}),
-      };
     }
     iterationsConsumed += 1;
     if (repairOutcome === "blocked") {
-      const meta = buildReadyGateFailureMeta(
+      return readyGateRepairExitResult(
         outcome,
         result.runId,
         repairAttempt,
@@ -1603,25 +1636,9 @@ export async function publishWithReadyRepair(
         maxIterations,
         "repair_blocked",
       );
-      return {
-        failure: outcome,
-        iterationsConsumed,
-        ...(meta !== undefined ? { readyGateFailureMeta: meta } : {}),
-      };
     }
     try {
-      await (args.completionCommitter ?? createCompletionCommitter())({
-        worktreePath: input.worktreePath,
-        baseRef: input.baseRef,
-        specPath: input.specPath,
-        agent: result.completionAgent ?? "",
-        title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
-        forceDistinctCommit: true,
-      });
-      outcome = await publishCompletionArtifacts(args, input);
-      if (outcome.kind !== "success") {
-        outcome = await classifyReadyGatePublishFailure(outcome, input);
-      }
+      outcome = await republishAfterReadyRepair(args, input, result);
     } catch (error) {
       return {
         failure: { kind: "completion_commit_failed", error: error instanceof Error ? error : new Error(String(error)) },

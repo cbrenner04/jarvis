@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import {
@@ -28,10 +28,10 @@ import {
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
   pruneVerifiedMergedBranchRef,
-  revalidateMergedBranchRefCandidate,
-  resolveExactRefOid,
   type ResetStaleWorkspaceOptions,
   resetStaleWorkspace,
+  resolveExactRefOid,
+  revalidateMergedBranchRefCandidate,
   runCleanupCommand,
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
@@ -88,7 +88,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
               : { state: "OPEN", mergedAt: null },
           );
         if (cmd === "gh" && args[1] === "list") {
-          if (state !== "MERGED" || args.includes("--state") && args[args.indexOf("--state") + 1] === "open") {
+          if (state !== "MERGED" || (args.includes("--state") && args[args.indexOf("--state") + 1] === "open")) {
             return "[]";
           }
           const headIndex = args.indexOf("--head");
@@ -98,9 +98,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
             const oid = (
               await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
             ).trim();
-            return JSON.stringify([
-              { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
-            ]);
+            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
           } catch {
             return "[]";
           }
@@ -427,16 +425,19 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
-        if (cmd === "gh" && args[1] === "list" && args.includes("--state") && args[args.indexOf("--state") + 1] === "all") {
+        if (
+          cmd === "gh" &&
+          args[1] === "list" &&
+          args.includes("--state") &&
+          args[args.indexOf("--state") + 1] === "all"
+        ) {
           const headIndex = args.indexOf("--head");
           const branchName = headIndex >= 0 ? args[headIndex + 1] : undefined;
           if (branchName === branch) {
             const oid = (
               await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
             ).trim();
-            return JSON.stringify([
-              { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
-            ]);
+            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
           }
           return "[]";
         }
@@ -3236,10 +3237,7 @@ async function initMergedBranchTestRepo(root: string): Promise<void> {
   await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], root);
 }
 
-async function createMergedBranchLocalHead(
-  root: string,
-  branch: string,
-): Promise<{ branch: string; oid: string }> {
+async function createMergedBranchLocalHead(root: string, branch: string): Promise<{ branch: string; oid: string }> {
   writeFileSync(join(root, `${branch.replace(/\//g, "-")}.txt`), `${branch}\n`);
   await realAsyncSubprocessRunner.runAsync("git", ["checkout", "-b", branch], root);
   await realAsyncSubprocessRunner.runAsync("git", ["add", "."], root);
@@ -3307,9 +3305,7 @@ describe("cleanup: discover merged branch-ref candidates", () => {
 
     const result = await discoverMergedBranchRefCandidates(registry, { runner });
 
-    expect(result.candidates).toEqual([
-      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
-    ]);
+    expect(result.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
     expect(result.unusableProjects).toEqual([]);
   });
 
@@ -3317,10 +3313,7 @@ describe("cleanup: discover merged branch-ref candidates", () => {
     const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "open-pr-branch");
     const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
     const runner = ghPrListRunner({
-      [projectRoot]: [
-        { number: 1, state: "OPEN", mergedAt: null, headRefOid: oid },
-        mergedBranchPr(oid, 2),
-      ],
+      [projectRoot]: [{ number: 1, state: "OPEN", mergedAt: null, headRefOid: oid }, mergedBranchPr(oid, 2)],
     });
 
     const result = await discoverMergedBranchRefCandidates(registry, { runner });
@@ -3485,9 +3478,7 @@ describe("cleanup: discover merged branch-ref candidates", () => {
       runner,
       retiredBranches: new Set([branch]),
     });
-    expect(admitted.candidates).toEqual([
-      { project: "project", branch, headOid: oid, repositoryRoot: projectRoot },
-    ]);
+    expect(admitted.candidates).toEqual([{ project: "project", branch, headOid: oid, repositoryRoot: projectRoot }]);
   });
 
   test("guard inversion: external linked checkout blocks admission", async () => {
@@ -3502,9 +3493,11 @@ describe("cleanup: discover merged branch-ref candidates", () => {
     const result = await discoverMergedBranchRefCandidates(registry, { runner });
     expect(result.candidates).toEqual([]);
     expect(await branchRefExists(projectRoot, branch)).toBe(true);
-    expect(parseCheckedOutBranchesFromWorktreePorcelain(
-      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot),
-    ).has(branch)).toBe(true);
+    expect(
+      parseCheckedOutBranchesFromWorktreePorcelain(
+        await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot),
+      ).has(branch),
+    ).toBe(true);
   });
 
   test("candidate discovery isolates registered projects", async () => {
@@ -3696,15 +3689,10 @@ describe("cleanup: prune verified merged branch refs", () => {
     };
 
     let dryStdout = "";
-    const dryCode = await runCleanupCommand(
-      { dryRun: true },
-      registry,
-      jarvisRoot,
-      runner,
-      unreachableDaemon,
-      store,
-      { stdout: (s) => (dryStdout += s), stderr: () => {} },
-    );
+    const dryCode = await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, runner, unreachableDaemon, store, {
+      stdout: (s) => (dryStdout += s),
+      stderr: () => {},
+    });
     expect(dryCode).toBe(1);
     expect(dryStdout).toContain("prune ref: project refs/heads/head-only-daemon-skip");
     expect(dryStdout).not.toContain("probe detail must not leak");
@@ -3817,11 +3805,7 @@ describe("cleanup: prune verified merged branch refs", () => {
 
   test("guard inversion: similarly named tag does not establish tracking ref presence", async () => {
     const { branch, oid } = await createMergedBranchLocalHead(projectRoot, "tag-collision");
-    await realAsyncSubprocessRunner.runAsync(
-      "git",
-      ["tag", `origin/${branch}`, oid],
-      projectRoot,
-    );
+    await realAsyncSubprocessRunner.runAsync("git", ["tag", `origin/${branch}`, oid], projectRoot);
     expect(await exactOriginTrackingRefOid(projectRoot, branch, realAsyncSubprocessRunner)).toBeUndefined();
 
     let stdout = "";

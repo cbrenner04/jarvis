@@ -231,9 +231,7 @@ describe("cleanup command through main", () => {
             const oid = (
               await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd ?? projectRoot)
             ).trim();
-            return JSON.stringify([
-              { number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid },
-            ]);
+            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
           } catch {
             return "[]";
           }

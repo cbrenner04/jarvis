@@ -352,26 +352,32 @@ export async function mergedPrHeadAuthorityMatches(
     const parsed = JSON.parse(output) as GhPrHeadRecord[];
     if (!Array.isArray(parsed)) return false;
     if (parsed.some((pr) => pr.state === "OPEN")) return false;
-    const mergedMatches = parsed.filter(
-      (pr) => pr.state === "MERGED" && pr.mergedAt && pr.headRefOid === localHeadOid,
-    );
+    const mergedMatches = parsed.filter((pr) => pr.state === "MERGED" && pr.mergedAt && pr.headRefOid === localHeadOid);
     return mergedMatches.length === 1;
   } catch {
     return false;
   }
 }
 
-/**
- * Discover local merged-PR heads eligible for ref pruning, scoped per distinct registered
- * Git repository. Missing or non-Git roots are reported in `unusableProjects`; remaining
- * projects continue.
- */
-export async function discoverMergedBranchRefCandidates(
+function shouldSkipLocalHeadForRefPrune(
+  head: LocalHead,
+  baseBranch: string,
+  currentBranch: string,
+  checkedOut: ReadonlySet<string>,
+  retiredBranches: ReadonlySet<string>,
+): boolean {
+  if (head.branch === baseBranch) return true;
+  if (currentBranch !== "HEAD" && head.branch === currentBranch) return true;
+  return checkedOut.has(head.branch) && !retiredBranches.has(head.branch);
+}
+
+async function mapRegisteredProjectsToDistinctRepos(
   registry: Record<string, ProjectRegistryEntry>,
-  options: DiscoverMergedBranchRefCandidatesOptions = {},
-): Promise<DiscoverMergedBranchRefCandidatesResult> {
-  const runner = options.runner ?? realAsyncSubprocessRunner;
-  const retiredBranches = options.retiredBranches ?? new Set<string>();
+  runner: AsyncSubprocessRunner,
+): Promise<{
+  repoProjects: Map<string, { root: string; project: string }>;
+  unusableProjects: UnusableRegisteredProject[];
+}> {
   const unusableProjects: UnusableRegisteredProject[] = [];
   const repoProjects = new Map<string, { root: string; project: string }>();
 
@@ -401,31 +407,57 @@ export async function discoverMergedBranchRefCandidates(
     }
   }
 
-  const candidates: MergedBranchRefCandidate[] = [];
-  for (const { root, project } of repoProjects.values()) {
-    const [baseBranch, currentBranch, worktreePorcelain, localHeads] = await Promise.all([
-      getBaseBranch(root, runner),
-      getCurrentBranchAsync(root, runner),
-      runner.runAsync("git", ["worktree", "list", "--porcelain"], root),
-      listLocalHeads(root, runner),
-    ]);
-    const checkedOut = parseCheckedOutBranchesFromWorktreePorcelain(worktreePorcelain);
+  return { repoProjects, unusableProjects };
+}
 
-    for (const head of localHeads) {
-      if (head.branch === baseBranch) continue;
-      if (currentBranch !== "HEAD" && head.branch === currentBranch) continue;
-      if (checkedOut.has(head.branch) && !retiredBranches.has(head.branch)) continue;
-      if (!(await mergedPrHeadAuthorityMatches(head.branch, head.oid, root, runner))) continue;
-      const trackingRefOid = await exactOriginTrackingRefOid(root, head.branch, runner);
-      const candidate: MergedBranchRefCandidate = {
-        project,
-        branch: head.branch,
-        headOid: head.oid,
-        repositoryRoot: root,
-      };
-      if (trackingRefOid !== undefined) candidate.trackingRefOid = trackingRefOid;
-      candidates.push(candidate);
-    }
+async function discoverMergedBranchRefCandidatesForRepo(
+  root: string,
+  project: string,
+  retiredBranches: ReadonlySet<string>,
+  runner: AsyncSubprocessRunner,
+): Promise<MergedBranchRefCandidate[]> {
+  const [baseBranch, currentBranch, worktreePorcelain, localHeads] = await Promise.all([
+    getBaseBranch(root, runner),
+    getCurrentBranchAsync(root, runner),
+    runner.runAsync("git", ["worktree", "list", "--porcelain"], root),
+    listLocalHeads(root, runner),
+  ]);
+  const checkedOut = parseCheckedOutBranchesFromWorktreePorcelain(worktreePorcelain);
+  const candidates: MergedBranchRefCandidate[] = [];
+
+  for (const head of localHeads) {
+    if (shouldSkipLocalHeadForRefPrune(head, baseBranch, currentBranch, checkedOut, retiredBranches)) continue;
+    if (!(await mergedPrHeadAuthorityMatches(head.branch, head.oid, root, runner))) continue;
+    const trackingRefOid = await exactOriginTrackingRefOid(root, head.branch, runner);
+    const candidate: MergedBranchRefCandidate = {
+      project,
+      branch: head.branch,
+      headOid: head.oid,
+      repositoryRoot: root,
+    };
+    if (trackingRefOid !== undefined) candidate.trackingRefOid = trackingRefOid;
+    candidates.push(candidate);
+  }
+
+  return candidates;
+}
+
+/**
+ * Discover local merged-PR heads eligible for ref pruning, scoped per distinct registered
+ * Git repository. Missing or non-Git roots are reported in `unusableProjects`; remaining
+ * projects continue.
+ */
+export async function discoverMergedBranchRefCandidates(
+  registry: Record<string, ProjectRegistryEntry>,
+  options: DiscoverMergedBranchRefCandidatesOptions = {},
+): Promise<DiscoverMergedBranchRefCandidatesResult> {
+  const runner = options.runner ?? realAsyncSubprocessRunner;
+  const retiredBranches = options.retiredBranches ?? new Set<string>();
+  const { repoProjects, unusableProjects } = await mapRegisteredProjectsToDistinctRepos(registry, runner);
+  const candidates: MergedBranchRefCandidate[] = [];
+
+  for (const { root, project } of repoProjects.values()) {
+    candidates.push(...(await discoverMergedBranchRefCandidatesForRepo(root, project, retiredBranches, runner)));
   }
 
   return { candidates, unusableProjects };
@@ -520,9 +552,7 @@ export async function revalidateMergedBranchRefCandidate(
 
   const run = store
     .listRuns()
-    .find(
-      (entry) => entry.project === project && entry.branch === branch && !isTerminalRunStatus(entry.status),
-    );
+    .find((entry) => entry.project === project && entry.branch === branch && !isTerminalRunStatus(entry.status));
   if (run !== undefined) {
     return { status: "ineligible", reason: `non-terminal run exists: status=${run.status}` };
   }
@@ -627,9 +657,7 @@ async function applyMergedBranchRefPrunes(
       retiredBranches,
     );
     if (eligibility.status === "ineligible") {
-      io.stdout(
-        `Skipped ref prune: ${candidate.project} refs/heads/${candidate.branch} — ${eligibility.reason}\n`,
-      );
+      io.stdout(`Skipped ref prune: ${candidate.project} refs/heads/${candidate.branch} — ${eligibility.reason}\n`);
       if (eligibility.reason === DAEMON_UNREACHABLE_REASON) exit = 1;
       continue;
     }
@@ -938,13 +966,7 @@ async function retireEligibleWorktrees(
           repositoryRoot: projectRoot,
         };
         if (snapshot.trackingRefOid !== undefined) refCandidate.trackingRefOid = snapshot.trackingRefOid;
-        return revalidateMergedBranchRefCandidate(
-          refCandidate,
-          runner,
-          daemonClient,
-          store,
-          retiredBranches,
-        );
+        return revalidateMergedBranchRefCandidate(refCandidate, runner, daemonClient, store, retiredBranches);
       },
       retiredBranches,
     },
@@ -1016,6 +1038,197 @@ async function retireStrandedArtifacts(
   }
 }
 
+function reportUnusableProjects(
+  unusableProjects: readonly UnusableRegisteredProject[],
+  io: { stderr: (s: string) => void },
+): number {
+  for (const unusable of unusableProjects) {
+    io.stderr(`Skipped project ${unusable.project}: ${unusable.reason} (${unusable.root})\n`);
+  }
+  return unusableProjects.length > 0 ? 1 : 0;
+}
+
+function resolveDiscoveryOrDaemonExit(discoveryExit: number, daemonExit: number): number {
+  return discoveryExit !== 0 ? discoveryExit : daemonExit;
+}
+
+async function collectWorktreeRefSnapshots(
+  candidates: readonly CleanupCandidate[],
+  registry: Record<string, ProjectRegistryEntry>,
+  runner: AsyncSubprocessRunner,
+): Promise<Map<string, MergedBranchRefSnapshot>> {
+  const worktreeRefSnapshots = new Map<string, MergedBranchRefSnapshot>();
+  for (const candidate of candidates) {
+    const projectRoot = registry[candidate.project]?.root;
+    if (projectRoot === undefined) continue;
+    const snapshot = await snapshotMergedBranchRefs(projectRoot, candidate.worktree.branch, runner);
+    if (snapshot !== undefined) worktreeRefSnapshots.set(candidate.worktree.path, snapshot);
+  }
+  return worktreeRefSnapshots;
+}
+
+type CleanupDiscoveryContext = {
+  branchRefDiscovery: DiscoverMergedBranchRefCandidatesResult;
+  discoveryExit: number;
+  discovered: DiscoveredWorktree[];
+  candidates: CleanupCandidate[];
+  worktreeRefSnapshots: Map<string, MergedBranchRefSnapshot>;
+  daemonUnreachableExit: number;
+  strandedArtifacts: DiscoveredStrandedArtifact[];
+  stranded: StrandedArtifact[];
+  reaperResult: ReaperResult;
+  daemonUnreachable: DiscoveredWorktree[];
+};
+
+async function gatherCleanupDiscoveryContext(
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  store: StateStore,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<CleanupDiscoveryContext> {
+  const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner });
+  const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
+  const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
+  const { candidates, daemonUnreachable } = await findEligibleWorktreeCandidates(
+    discovered,
+    registry,
+    jarvisRoot,
+    runner,
+    daemonClient,
+    store,
+  );
+  const worktreeRefSnapshots = await collectWorktreeRefSnapshots(candidates, registry, runner);
+  const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
+  const strandedArtifacts = discoverStrandedArtifacts(registry);
+  const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
+  const stranded = await inspectStrandedArtifacts(
+    strandedArtifacts,
+    registry,
+    discovered.filter((worktree) => !retiringPaths.has(worktree.path)),
+    jarvisRoot,
+    store,
+    runner,
+    io,
+  );
+  const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+
+  return {
+    branchRefDiscovery,
+    discoveryExit,
+    discovered,
+    candidates,
+    worktreeRefSnapshots,
+    daemonUnreachableExit,
+    strandedArtifacts,
+    stranded,
+    reaperResult,
+    daemonUnreachable,
+  };
+}
+
+function mergedBranchRefCandidateFromWorktree(
+  candidate: CleanupCandidate,
+  snapshot: MergedBranchRefSnapshot,
+  projectRoot: string,
+): MergedBranchRefCandidate {
+  const refCandidate: MergedBranchRefCandidate = {
+    project: candidate.project,
+    branch: candidate.worktree.branch,
+    headOid: snapshot.headOid,
+    repositoryRoot: projectRoot,
+  };
+  if (snapshot.trackingRefOid !== undefined) refCandidate.trackingRefOid = snapshot.trackingRefOid;
+  return refCandidate;
+}
+
+async function previewAllCleanupTargets(
+  ctx: CleanupDiscoveryContext,
+  registry: Record<string, ProjectRegistryEntry>,
+  store: StateStore,
+  runner: AsyncSubprocessRunner,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<void> {
+  previewWorktreeCandidates(ctx.candidates, registry, store, io);
+  for (const candidate of ctx.candidates) {
+    const snapshot = ctx.worktreeRefSnapshots.get(candidate.worktree.path);
+    if (snapshot === undefined) continue;
+    const projectRoot = registry[candidate.project]?.root;
+    if (projectRoot === undefined) continue;
+    await pruneVerifiedMergedBranchRef(
+      mergedBranchRefCandidateFromWorktree(candidate, snapshot, projectRoot),
+      runner,
+      io,
+      { dryRun: true },
+    );
+  }
+  if (ctx.branchRefDiscovery.candidates.length > 0) {
+    io.stdout(`Found ${ctx.branchRefDiscovery.candidates.length} eligible merged branch ref(s) for cleanup:\n`);
+    for (const candidate of ctx.branchRefDiscovery.candidates) {
+      await pruneVerifiedMergedBranchRef(candidate, runner, io, { dryRun: true });
+    }
+  }
+  if (ctx.stranded.length > 0) {
+    io.stdout(`Found ${ctx.stranded.length} eligible stranded artifact(s) for cleanup:\n`);
+    for (const spec of ctx.stranded) previewArtifact(spec, io);
+  }
+  previewReaperResult(ctx.reaperResult, io);
+}
+
+async function executeConfirmedCleanup(
+  ctx: CleanupDiscoveryContext,
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  store: StateStore,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  daemonBlockedExit: number,
+): Promise<number> {
+  const recheck = await recheckEligibleWorktrees(ctx.candidates, runner, daemonClient, store, io);
+  const stillEligible = recheck.candidates;
+  const retiredBranches = new Set<string>();
+  const result = await retireEligibleWorktrees(
+    stillEligible,
+    registry,
+    ctx.discovered,
+    store,
+    runner,
+    io,
+    ctx.worktreeRefSnapshots,
+    daemonClient,
+    retiredBranches,
+  );
+  const branchRefExit = await applyMergedBranchRefPrunes(
+    ctx.branchRefDiscovery.candidates,
+    runner,
+    daemonClient,
+    store,
+    retiredBranches,
+    io,
+  );
+  const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
+  if (socketRemoval !== 0) return socketRemoval;
+
+  const strandedAfterRetirement = await inspectStrandedArtifacts(
+    ctx.strandedArtifacts,
+    registry,
+    await discoverMaterializedWorktrees(registry, jarvisRoot, runner),
+    jarvisRoot,
+    store,
+    runner,
+    io,
+  );
+  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
+  if (stillEligible.length === 0 && ctx.candidates.length > 0) {
+    io.stdout("No worktrees remain eligible after re-check.\n");
+  }
+  if (result !== 0 || branchRefExit !== 0) return 1;
+  if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
+  return daemonBlockedExit;
+}
+
 /**
  * Run the cleanup command: discover merged-PR worktrees, filter by eligibility,
  * optionally preview (--dry-run) or prompt for confirmation, then retire them.
@@ -1035,81 +1248,21 @@ export async function runCleanupCommand(
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
-  const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner });
-  let discoveryExit = 0;
-  for (const unusable of branchRefDiscovery.unusableProjects) {
-    io.stderr(`Skipped project ${unusable.project}: ${unusable.reason} (${unusable.root})\n`);
-    discoveryExit = 1;
-  }
+  const ctx = await gatherCleanupDiscoveryContext(registry, jarvisRoot, runner, daemonClient, store, io);
 
-  const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-  const { candidates, daemonUnreachable } = await findEligibleWorktreeCandidates(
-    discovered,
-    registry,
-    jarvisRoot,
-    runner,
-    daemonClient,
-    store,
-  );
-  const worktreeRefSnapshots = new Map<string, MergedBranchRefSnapshot>();
-  for (const candidate of candidates) {
-    const projectRoot = registry[candidate.project]?.root;
-    if (projectRoot === undefined) continue;
-    const snapshot = await snapshotMergedBranchRefs(projectRoot, candidate.worktree.branch, runner);
-    if (snapshot !== undefined) worktreeRefSnapshots.set(candidate.worktree.path, snapshot);
-  }
-  const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
-  const strandedArtifacts = discoverStrandedArtifacts(registry);
-  const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
-  const stranded = await inspectStrandedArtifacts(
-    strandedArtifacts,
-    registry,
-    discovered.filter((worktree) => !retiringPaths.has(worktree.path)),
-    jarvisRoot,
-    store,
-    runner,
-    io,
-  );
-
-  const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
-  for (const worktree of daemonUnreachable) {
+  for (const worktree of ctx.daemonUnreachable) {
     io.stdout(`Skipped merged worktree: ${worktree.path} — ${DAEMON_UNREACHABLE_REASON}\n`);
   }
 
-  if (hasNothingToClean(candidates, stranded, reaperResult, branchRefDiscovery.candidates)) {
+  if (hasNothingToClean(ctx.candidates, ctx.stranded, ctx.reaperResult, ctx.branchRefDiscovery.candidates)) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
-    return discoveryExit !== 0 ? discoveryExit : daemonUnreachableExit;
+    return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, ctx.daemonUnreachableExit);
   }
 
-  previewWorktreeCandidates(candidates, registry, store, io);
-  for (const candidate of candidates) {
-    const snapshot = worktreeRefSnapshots.get(candidate.worktree.path);
-    if (snapshot === undefined) continue;
-    const projectRoot = registry[candidate.project]?.root;
-    if (projectRoot === undefined) continue;
-    const refCandidate: MergedBranchRefCandidate = {
-      project: candidate.project,
-      branch: candidate.worktree.branch,
-      headOid: snapshot.headOid,
-      repositoryRoot: projectRoot,
-    };
-    if (snapshot.trackingRefOid !== undefined) refCandidate.trackingRefOid = snapshot.trackingRefOid;
-    await pruneVerifiedMergedBranchRef(refCandidate, runner, io, { dryRun: true });
-  }
-  if (branchRefDiscovery.candidates.length > 0) {
-    io.stdout(`Found ${branchRefDiscovery.candidates.length} eligible merged branch ref(s) for cleanup:\n`);
-    for (const candidate of branchRefDiscovery.candidates) {
-      await pruneVerifiedMergedBranchRef(candidate, runner, io, { dryRun: true });
-    }
-  }
-  if (stranded.length > 0) {
-    io.stdout(`Found ${stranded.length} eligible stranded artifact(s) for cleanup:\n`);
-    for (const spec of stranded) previewArtifact(spec, io);
-  }
-  previewReaperResult(reaperResult, io);
+  await previewAllCleanupTargets(ctx, registry, store, runner, io);
 
   const headOnlyDaemonUnreachableExit = (await hasHeadOnlyDaemonUnreachableSkip(
-    branchRefDiscovery.candidates,
+    ctx.branchRefDiscovery.candidates,
     runner,
     daemonClient,
     store,
@@ -1117,69 +1270,25 @@ export async function runCleanupCommand(
   ))
     ? 1
     : 0;
-  const daemonBlockedExit = daemonUnreachableExit !== 0 || headOnlyDaemonUnreachableExit !== 0 ? 1 : 0;
+  const daemonBlockedExit = ctx.daemonUnreachableExit !== 0 || headOnlyDaemonUnreachableExit !== 0 ? 1 : 0;
 
   if (options.dryRun) {
     io.stdout("(dry-run: no changes made)\n");
-    return discoveryExit !== 0 ? discoveryExit : daemonBlockedExit;
+    return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, daemonBlockedExit);
   }
 
   const confirmed = options.promptConfirm !== undefined ? await options.promptConfirm("Apply cleanup? [y/N] ") : false;
-
   if (!confirmed) {
     io.stdout("Cancelled.\n");
-    return discoveryExit !== 0 ? discoveryExit : daemonBlockedExit;
+    return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, daemonBlockedExit);
   }
 
-  const recheck = await recheckEligibleWorktrees(candidates, runner, daemonClient, store, io);
-  const stillEligible = recheck.candidates;
-  const retiredBranches = new Set<string>();
-  const result = await retireEligibleWorktrees(
-    stillEligible,
-    registry,
-    discovered,
-    store,
-    runner,
-    io,
-    worktreeRefSnapshots,
-    daemonClient,
-    retiredBranches,
-  );
-
-  const branchRefExit = await applyMergedBranchRefPrunes(
-    branchRefDiscovery.candidates,
-    runner,
-    daemonClient,
-    store,
-    retiredBranches,
-    io,
-  );
-
-  const socketRemoval = removeDeadDaemonSockets(reaperResult.dead, io);
-  if (socketRemoval !== 0) return socketRemoval;
-
-  const strandedAfterRetirement = await inspectStrandedArtifacts(
-    strandedArtifacts,
-    registry,
-    await discoverMaterializedWorktrees(registry, jarvisRoot, runner),
-    jarvisRoot,
-    store,
-    runner,
-    io,
-  );
-  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
-  if (stillEligible.length === 0 && candidates.length > 0) io.stdout("No worktrees remain eligible after re-check.\n");
-  if (result !== 0 || branchRefExit !== 0) return 1;
-  if (recheck.daemonUnreachable || discoveryExit !== 0) return 1;
-  return daemonBlockedExit;
+  return executeConfirmedCleanup(ctx, registry, jarvisRoot, runner, daemonClient, store, io, daemonBlockedExit);
 }
 
 type WorktreeRefPruneOptions = {
   refPruneSnapshotForCandidate?: (candidate: CleanupCandidate) => MergedBranchRefSnapshot | undefined;
-  revalidateRefPrune?: (
-    candidate: CleanupCandidate,
-    snapshot: MergedBranchRefSnapshot,
-  ) => Promise<EligibilityResult>;
+  revalidateRefPrune?: (candidate: CleanupCandidate, snapshot: MergedBranchRefSnapshot) => Promise<EligibilityResult>;
   retiredBranches?: Set<string>;
 };
 
@@ -1250,13 +1359,7 @@ export async function performWorktreeRemovals(
   for (const candidate of candidates) {
     const worktree = candidate.worktree;
     try {
-      await removeWorktreeAndPruneRefs(
-        candidate,
-        projectRootForCandidate(candidate),
-        runner,
-        io,
-        refPruneOptions,
-      );
+      await removeWorktreeAndPruneRefs(candidate, projectRootForCandidate(candidate), runner, io, refPruneOptions);
       io.stdout(`Retired: ${worktree.path}\n`);
       await afterRetirement?.(candidate);
     } catch (err) {

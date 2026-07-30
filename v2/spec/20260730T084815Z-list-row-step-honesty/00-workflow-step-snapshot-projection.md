@@ -54,15 +54,15 @@ in-memory progress is cleared. Review and review-debate steps that invoked an ag
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` test `list projects a review behavior entry in authored order and tracks progress to terminal` expects `attemptCount >= 1` on the terminal review step after critic progress was reported; it fails against baseline and passes after implementation.
-- [ ] `daemon-start-list.test.ts` test `list retains frozen review snapshot when completed entry rollup clears in-memory progress` asserts no authored step in `workflow.steps` has `status: "pending"` and the review step retains `role`, `terminalOutcome`, and `attemptCount >= 1`; it fails against baseline and passes after implementation.
-- [ ] `daemon-start-list.test.ts` test `list retains frozen review snapshot when early-stop entry rollup clears in-memory progress` asserts a review step that reported progress before a `killed` or `failed` rollup cleared the map retains `role`, `terminalOutcome`, `attemptCount >= 1`, and non-`pending` status; it fails against baseline and passes after implementation.
-- [ ] The completed-rollup cleared-progress regression fails if the guard that suppresses `pending` when rollup is `completed` is inverted (step returns `pending` despite completed rollup).
-- [ ] The attempt-count regression fails if review progress omits or zeroes `attemptCount` after an agent invocation was reported on a settled step.
-- [ ] `daemon-start-list.test.ts` test `list projects a review behavior entry in authored order and tracks progress to terminal` keeps `attemptCount: 0` on the `in_progress` review step assertion (live unsettled contract).
-- [ ] `daemon-start-list.test.ts` test `list returns workflow step snapshots for live, stopped, and completed workflow-backed runs` stays green (early-stop pending steps unchanged).
-- [ ] `daemon-start-list.test.ts` test `list retains durable plan debate rows across live, terminal, and restart projection` stays green (durable `attemptCount` from `run.attempts.length`).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-start-list.test.ts` test `list projects a review behavior entry in authored order and tracks progress to terminal` expects `attemptCount >= 1` on the terminal review step after critic progress was reported; it fails against baseline and passes after implementation.
+- [x] `daemon-start-list.test.ts` test `list retains frozen review snapshot when completed entry rollup clears in-memory progress` asserts no authored step in `workflow.steps` has `status: "pending"` and the review step retains `role`, `terminalOutcome`, and `attemptCount >= 1`; it fails against baseline and passes after implementation.
+- [x] `daemon-start-list.test.ts` test `list retains frozen review snapshot when early-stop entry rollup clears in-memory progress` asserts a review step that reported progress before a `killed` or `failed` rollup cleared the map retains `role`, `terminalOutcome`, `attemptCount >= 1`, and non-`pending` status; it fails against baseline and passes after implementation.
+- [x] The completed-rollup cleared-progress regression fails if the guard that suppresses `pending` when rollup is `completed` is inverted (step returns `pending` despite completed rollup).
+- [x] The attempt-count regression fails if review progress omits or zeroes `attemptCount` after an agent invocation was reported on a settled step.
+- [x] `daemon-start-list.test.ts` test `list projects a review behavior entry in authored order and tracks progress to terminal` keeps `attemptCount: 0` on the `in_progress` review step assertion (live unsettled contract).
+- [x] `daemon-start-list.test.ts` test `list returns workflow step snapshots for live, stopped, and completed workflow-backed runs` stays green (early-stop pending steps unchanged).
+- [x] `daemon-start-list.test.ts` test `list retains durable plan debate rows across live, terminal, and restart projection` stays green (durable `attemptCount` from `run.attempts.length`).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -1,3 +1,4 @@
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,7 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import {
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
+  runListTerminalFinishAtMs,
   setWriteLoopBindingSourceDepsForTests,
 } from "./daemon.ts";
 
@@ -500,15 +502,172 @@ test("list projects a review behavior entry in authored order and tracks progres
     status: "completed",
     role: "actuator",
     terminalOutcome: "complete",
+    attemptCount: 1,
   });
   runs = await listRunsDirect(handlers);
-  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]).toEqual({
+  const terminalReview = runs?.find((row) => row.runId === runId)?.workflow?.steps[1];
+  expect(terminalReview).toMatchObject({
     stepId: "review-1",
     role: "actuator",
     status: "completed",
-    attemptCount: 0,
     terminalOutcome: "complete",
   });
+  expect(terminalReview?.attemptCount).toBeGreaterThanOrEqual(1);
+});
+
+test("list retains frozen review snapshot when completed entry rollup survives live-map cleanup", async () => {
+  const snapshot = workflowSnapshot("workflow-completed-freeze", [
+    { stepId: "step-1", role: "plan", durable: false },
+    { stepId: "review-1", role: "", behavior: "review", durable: false },
+    { stepId: "step-3", role: "plan", durable: false },
+  ]);
+  const runId = stateStore.createRun({
+    project: "wf-completed-freeze",
+    specRef: "main",
+    worktreePath: "/tmp/wf-completed-freeze",
+    branch: "wf-completed-freeze",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  stateStore.setRunStatus(runId, "completed");
+
+  handlers.reportReviewDebateProgress("workflow-completed-freeze", "review-1", {
+    status: "in_progress",
+    role: "critic",
+  });
+  handlers.reportReviewDebateProgress("workflow-completed-freeze", "review-1", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+    attemptCount: 1,
+  });
+  handlers.clearLiveReviewDebateProgress("workflow-completed-freeze");
+
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === runId);
+  expect(row?.status).toBe("completed");
+  expect(row?.workflow?.steps.every((step) => step.status !== "pending")).toBe(true);
+  const reviewStep = row?.workflow?.steps.find((step) => step.stepId === "review-1");
+  expect(reviewStep).toMatchObject({
+    role: "actuator",
+    status: "completed",
+    terminalOutcome: "complete",
+  });
+  expect(reviewStep?.attemptCount).toBeGreaterThanOrEqual(1);
+});
+
+test("list retains frozen review snapshot when early-stop entry rollup survives live-map cleanup", async () => {
+  const snapshot = workflowSnapshot("workflow-early-stop-freeze", [
+    { stepId: "step-1", role: "implement" },
+    { stepId: "review-1", role: "", behavior: "review", durable: false },
+    { stepId: "step-3", role: "verify" },
+  ]);
+  const entryRunId = stateStore.createRun({
+    project: "wf-early-stop-freeze",
+    specRef: "main",
+    worktreePath: "/tmp/wf-early-stop-freeze",
+    branch: "wf-early-stop-freeze",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  const step1AttemptId = stateStore.recordAttemptStart(entryRunId);
+  stateStore.commitCompletionBoundary({ attemptId: step1AttemptId, runStatus: "completed", outcomeKind: "done" });
+
+  handlers.reportReviewDebateProgress("workflow-early-stop-freeze", "review-1", {
+    status: "in_progress",
+    role: "critic",
+  });
+  handlers.reportReviewDebateProgress("workflow-early-stop-freeze", "review-1", {
+    status: "stopped",
+    role: "critic",
+    terminalOutcome: "invocation_failure",
+    attemptCount: 1,
+  });
+  handlers.clearLiveReviewDebateProgress("workflow-early-stop-freeze");
+  stateStore.setRunStatus(entryRunId, "killed");
+
+  const row = (await listRunsDirect(handlers))?.find((entry) => entry.runId === entryRunId);
+  expect(row?.status).toBe("killed");
+  const reviewStep = row?.workflow?.steps.find((step) => step.stepId === "review-1");
+  expect(reviewStep).toMatchObject({
+    role: "critic",
+    status: "stopped",
+    terminalOutcome: "invocation_failure",
+  });
+  expect(reviewStep?.attemptCount).toBeGreaterThanOrEqual(1);
+  expect(reviewStep?.status).not.toBe("pending");
+  expect(row?.workflow?.steps.find((step) => step.stepId === "step-3")?.status).toBe("pending");
+});
+
+test("terminal review progress floors attemptCount at one while in_progress is stored unchanged", async () => {
+  const snapshot = workflowSnapshot("workflow-review-attempt-floor", [
+    { stepId: "step-1", role: "plan" },
+    { stepId: "review-1", role: "", behavior: "review", durable: false },
+  ]);
+  const runId = stateStore.createRun({
+    project: "wf-review-attempt-floor",
+    specRef: "main",
+    worktreePath: "/tmp/wf-review-attempt-floor",
+    branch: "wf-review-attempt-floor",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+
+  handlers.reportReviewDebateProgress("workflow-review-attempt-floor", "review-1", {
+    status: "in_progress",
+    role: "critic",
+  });
+  let runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]?.attemptCount).toBe(0);
+
+  handlers.reportReviewDebateProgress("workflow-review-attempt-floor", "review-1", {
+    status: "completed",
+    role: "actuator",
+    terminalOutcome: "complete",
+    attemptCount: 0,
+  });
+  runs = await listRunsDirect(handlers);
+  expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]?.attemptCount).toBe(1);
+});
+
+test("list uses entry rollup not sibling status for completed-guard on step rows", async () => {
+  const snapshot = workflowSnapshot("workflow-sibling-guard", [
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+    { stepId: "step-3", role: "verify" },
+  ]);
+  const entryRunId = stateStore.createRun({
+    project: "wf-sibling-guard",
+    specRef: "main",
+    worktreePath: "/tmp/wf-sibling-guard",
+    branch: "wf-sibling-guard",
+    specPath: "/tmp/spec.md",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  const step1AttemptId = stateStore.recordAttemptStart(entryRunId);
+  stateStore.commitCompletionBoundary({ attemptId: step1AttemptId, runStatus: "completed", outcomeKind: "done" });
+
+  const step2RunId = stateStore.createRun({
+    project: "wf-sibling-guard",
+    specRef: "main",
+    worktreePath: "/tmp/wf-sibling-guard",
+    branch: "wf-sibling-guard",
+    specPath: "/tmp/spec.md",
+    stepId: "step-2",
+    workflowSnapshot: snapshot,
+  });
+  const step2AttemptId = stateStore.recordAttemptStart(step2RunId);
+  stateStore.commitCompletionBoundary({ attemptId: step2AttemptId, runStatus: "completed", outcomeKind: "done" });
+
+  stateStore.setRunStatus(entryRunId, "killed");
+
+  const runs = await listRunsDirect(handlers);
+  const step2Row = runs?.find((row) => row.runId === step2RunId);
+  expect(step2Row?.status).toBe("completed");
+  expect(step2Row?.workflow?.steps.find((step) => step.stepId === "step-3")?.status).toBe("pending");
 });
 
 test("review-debate progress does not bleed across invocations sharing a stepId", async () => {
@@ -688,6 +847,79 @@ test("pause rejects unknown run ID", async () => {
   if (pauseResponse.kind === "error") {
     expect(pauseResponse.code).toBe("unknown_run");
   }
+});
+
+const RECONCILED_AT = 1_700_000_100_000;
+const STALE_COMPLETED_AT = 1_700_000_000_000;
+
+function seedTerminalRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree",
+    branch: `branch-${crypto.randomUUID()}`,
+    specPath: "spec.md",
+    status: "killed",
+    ...overrides,
+  });
+}
+
+function patchStore(sql: string, ...params: SQLQueryBindings[]): void {
+  const raw = new Database(stateStorePath);
+  try {
+    raw.prepare(sql).run(...params);
+  } finally {
+    raw.close();
+  }
+}
+
+function setRunReconciledAt(runId: string, reconciledAt: number): void {
+  patchStore("UPDATE runs SET reconciled_at = ? WHERE id = ?", reconciledAt, runId);
+}
+
+function setAttemptCompletedAt(attemptId: string, completedAt: number): void {
+  patchStore("UPDATE attempts SET completed_at = ? WHERE id = ?", completedAt, attemptId);
+}
+
+test("list sets finishedAtMs from reconciledAt when terminal row has no attempt completed_at", async () => {
+  const runId = seedTerminalRun();
+  setRunReconciledAt(runId, RECONCILED_AT);
+
+  const runs = await listRunsDirect(handlers);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.finishedAtMs).toBe(RECONCILED_AT);
+  expect(loadRunOrThrow(stateStore, runId).reconciledAt).toBe(RECONCILED_AT);
+});
+
+test("reconciledAt-only finish-time maximum guard inversion", () => {
+  const attemptOnlyMax = (
+    attempts: Array<{ completedAt: number | null }>,
+    _reconciledAt: number | null | undefined,
+  ): number | undefined => {
+    let finishedAtMs: number | undefined;
+    for (const attempt of attempts) {
+      if (attempt.completedAt === null) continue;
+      if (finishedAtMs === undefined || attempt.completedAt > finishedAtMs) {
+        finishedAtMs = attempt.completedAt;
+      }
+    }
+    return finishedAtMs;
+  };
+
+  expect(attemptOnlyMax([], RECONCILED_AT)).toBeUndefined();
+  expect(runListTerminalFinishAtMs([], RECONCILED_AT)).toBe(RECONCILED_AT);
+});
+
+test("list sets finishedAtMs to later reconciledAt when attempt completed_at is stale", async () => {
+  const runId = seedTerminalRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  setAttemptCompletedAt(attemptId, STALE_COMPLETED_AT);
+  setRunReconciledAt(runId, RECONCILED_AT);
+
+  const runs = await listRunsDirect(handlers);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  expect(row?.finishedAtMs).toBe(RECONCILED_AT);
+  expect(loadRunOrThrow(stateStore, runId).reconciledAt).toBe(RECONCILED_AT);
 });
 
 test("list includes error on terminal rows and omits it on in-progress and completed", async () => {

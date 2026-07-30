@@ -37,11 +37,11 @@ the sibling `terminal-window-renders-finishless-rows` consumes it.
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` test `list sets finishedAtMs from reconciledAt when terminal row has no attempt completed_at` asserts `finishedAtMs` equals the run row's `reconciledAt`; it fails against baseline and passes after implementation.
-- [ ] The reconciledAt-only regression fails if `reconciledAt` is excluded from the
+- [x] `daemon-start-list.test.ts` test `list sets finishedAtMs from reconciledAt when terminal row has no attempt completed_at` asserts `finishedAtMs` equals the run row's `reconciledAt`; it fails against baseline and passes after implementation.
+- [x] The reconciledAt-only regression fails if `reconciledAt` is excluded from the
   finish-time maximum (guard inversion).
-- [ ] `daemon-start-list.test.ts` test `list sets finishedAtMs to later reconciledAt when attempt completed_at is stale` asserts `finishedAtMs` equals `reconciledAt`; it fails against baseline and passes after implementation.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-start-list.test.ts` test `list sets finishedAtMs to later reconciledAt when attempt completed_at is stale` asserts `finishedAtMs` equals `reconciledAt`; it fails against baseline and passes after implementation.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

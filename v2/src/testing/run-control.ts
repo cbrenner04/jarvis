@@ -24,6 +24,7 @@ type SnapshotStep = {
   stepId: string;
   role: string;
   behavior?: "review-debate" | "review";
+  durable?: boolean;
 };
 
 /** Minimal workflow snapshot for list/retention tests. */
@@ -47,6 +48,7 @@ type RunControlHandlers = ReturnType<typeof createRunControlHandlers>;
 export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcHandler> {
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
+    clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
     close: _close,
     hasActiveRuns: _hasActiveRuns,
     setRetiring: _setRetiring,

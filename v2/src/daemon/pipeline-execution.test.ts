@@ -22,6 +22,7 @@ import {
   continuePipeline,
   derivePipelineState,
   isPipelineContinuable,
+  isReopenedFailedContinuation,
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
@@ -941,6 +942,30 @@ describe("activation eligibility guards", () => {
     const failed = store.loadPipeline(PIPELINE_ID);
     if (!failed) throw new Error("expected pipeline");
     expect(reopenedFailurePermitsActivation(failed)).toBe(false);
+  });
+
+  test("an approval stage immediately before the pending workflow stage blocks reopened continuation", () => {
+    const { store } = fakeStore(definition, {}, { context: baseContext });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "pending" } });
+    const gated = store.loadPipeline(PIPELINE_ID);
+    if (!gated) throw new Error("expected pipeline");
+    expect(isReopenedFailedContinuation(gated)).toBe(false);
+
+    const ungatedDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "s3", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const ungated = fakeStore(ungatedDefinition, {}, { context: baseContext });
+    ungated.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    ungated.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "pending" } });
+    const reopened = ungated.store.loadPipeline(PIPELINE_ID);
+    if (!reopened) throw new Error("expected pipeline");
+    expect(isReopenedFailedContinuation(reopened)).toBe(true);
   });
 });
 

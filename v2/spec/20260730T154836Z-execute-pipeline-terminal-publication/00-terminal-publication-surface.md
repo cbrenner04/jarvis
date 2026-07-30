@@ -38,13 +38,13 @@ Completion publication can create and ready a PR, but no execution surface appli
 
 ## Acceptance criteria
 
-- [ ] `terminal-publication.test.ts` — `executes each terminal action type once against fake publication` fails against the baseline, then drives leave-draft, ready, and merge in separate cases (three invocations, not one pipeline running all three).
-- [ ] `terminal-publication.test.ts` — `does not ready-flip or merge after a red ready gate` fails against the baseline, then confirms zero ready-flip and zero merge calls and turns RED when the gate guard is inverted.
-- [ ] `terminal-publication.test.ts` — `retains PR evidence on ready gate failure` fails against the baseline, then reports the requested action and wrapped gate failure without closing or deleting the PR.
-- [ ] `terminal-publication.test.ts` — `retains PR evidence on terminal mutation failure` fails against the baseline, then reports the requested action and wrapped flip or merge failure without closing or deleting the PR.
-- [ ] `terminal-publication.test.ts` — `fails fast for ready and merge without PR evidence` fails against the baseline, then confirms zero `gh` calls when `prNumber`/`prUrl` are absent.
-- [ ] Inverting the leave-draft no-mutation, red-gate-before-flip-or-merge, or failure-preservation guard makes `terminal-publication.test.ts` fail; negative cases use injectable close/delete seams or a shared `gh` call log to prove spurious `gh` calls, merge or flip after a red gate, and PR close or delete on gate or mutation failure.
-- [ ] `workflow-runner.md` and `v1-behaviors.md` document completion/terminal composition, settle handoff, terminal failure classes (`ReadyGateError` wrap, `"gh pr merge"` label), and PR evidence retention on failure.
+- [x] `terminal-publication.test.ts` — `executes each terminal action type once against fake publication` fails against the baseline, then drives leave-draft, ready, and merge in separate cases (three invocations, not one pipeline running all three).
+- [x] `terminal-publication.test.ts` — `does not ready-flip or merge after a red ready gate` fails against the baseline, then confirms zero ready-flip and zero merge calls and turns RED when the gate guard is inverted.
+- [x] `terminal-publication.test.ts` — `retains PR evidence on ready gate failure` fails against the baseline, then reports the requested action and wrapped gate failure without closing or deleting the PR.
+- [x] `terminal-publication.test.ts` — `retains PR evidence on terminal mutation failure` fails against the baseline, then reports the requested action and wrapped flip or merge failure without closing or deleting the PR.
+- [x] `terminal-publication.test.ts` — `fails fast for ready and merge without PR evidence` fails against the baseline, then confirms zero `gh` calls when `prNumber`/`prUrl` are absent.
+- [x] Inverting the leave-draft no-mutation, red-gate-before-flip-or-merge, or failure-preservation guard makes `terminal-publication.test.ts` fail; negative cases use injectable close/delete seams or a shared `gh` call log to prove spurious `gh` calls, merge or flip after a red gate, and PR close or delete on gate or mutation failure.
+- [x] `workflow-runner.md` and `v1-behaviors.md` document completion/terminal composition, settle handoff, terminal failure classes (`ReadyGateError` wrap, `"gh pr merge"` label), and PR evidence retention on failure.
 
 ## Documentation updates
 

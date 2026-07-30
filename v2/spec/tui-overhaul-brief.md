@@ -2,7 +2,7 @@
 
 Meta-index phase after [per-project pipelines](per-project-pipelines-brief.md). Build against the pipeline state model so rows are not rewritten immediately.
 
-Folded from former `ready-intents/daemon-inventory-and-retirement.md` and `ready-intents/run-list-reports-active-agent-binding.md` (2026-07-27 priorities). Monitor honesty lives in `seeds/tui-monitor-row-honesty.md` — store/list fixes there may precede this phase; dropped-row chrome and the `e` keybinding stay here.
+Folded from former `ready-intents/daemon-inventory-and-retirement.md` and `ready-intents/run-list-reports-active-agent-binding.md` (2026-07-27 priorities). The monitor-honesty seed fanned out (#2283) into five ready-intents — store/list fixes may precede this phase; `terminal-window-renders-finishless-rows` and `expansion-driven-through-e-keybinding` stay here. See [implement-queue.md](implement-queue.md).
 
 ## North star
 
@@ -87,6 +87,9 @@ Three subspecs: inventory (`status`), retirement instrumentation, cleanup retire
 
 ---
 
-## Monitor row honesty (seed)
+## Monitor row honesty
 
-See `seeds/tui-monitor-row-honesty.md`. Split if needed: `finishedAtMs`, real `attempts`, and removing `setInvert*ForTest` globals may land before the full TUI phase.
+Fanned out (#2283) into `ready-intents/`: `list-row-step-honesty`,
+`store-timestamps-terminal-reconciliation`, and `workflow-collapse-drops-test-flag` may land before
+the full TUI phase; `terminal-window-renders-finishless-rows` and
+`expansion-driven-through-e-keybinding` belong to it.

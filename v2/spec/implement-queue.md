@@ -1,55 +1,67 @@
 # v2 implement queue
 
-Authority: operator priorities. Rebuilt 2026-07-27 at session close.
+Authority: operator priorities. Rebuilt 2026-07-29.
 
 ## Rule
 
-Recovery batch and pipeline slices 1–2 are done. The implement lane stays on **per-project
-pipelines** (slices 3–6) until that phase ships. Reliability seeds are a parallel lane, except the P0.
+The implement lane stays on **per-project pipelines** (slices 3–6) until that phase ships.
+Reliability and split-discipline intents are a parallel lane.
 
-## P0 — fix before anything else
+Both 2026-07-27 P0s shipped: boundary path parsing (#2273, confirmed by live intent
+reviews #2275/#2283/#2284 — `--review-passes 0` bypass no longer needed) and absent-pipeline admission
+(#2274 — the hand-added `projects.jarvis.pipeline` key in `~/.jarvis/config.json` is no longer a
+required workaround; keep it only if the `full-review` pipeline is wanted). Opencode landed
+off-queue (#2280 invocable, #2282 quota classification).
 
-| Seed | Why |
+## In flight — planned, awaiting implement
+
+| Spec | Notes |
 | --- | --- |
-| `seeds/intent-review-boundary-drops-a-path-character.md` | Porcelain path parsing no longer whole-buffer-trims `git status` output. Git-mode intent review can still false-positive when unrelated tracked dirty paths appear in porcelain (full status, not snapshot diff). Confirm a live `intent` review before treating the 2026-07-27 seven-for-seven boundary failures as closed; `--review-passes 0` remains the bypass until then. |
-| `ready-intents/absent-pipeline-admits-implement.md` | #2248 made an absent `projects.<key>.pipeline` refuse **every** implement dispatch. The lane only runs because that key was hand-added to `~/.jarvis/config.json`; it can be removed once this ships. |
+| `20260727T203910Z-plan-emits-one-subspec-per-module-boundary/` | 5 subspecs (#2272). Implement before slice 3 — split discipline pays there first |
+| `20260727T203910Z-cleanup-without-listening-daemon/` | 1 subspec |
 
 ## Phase gate — per-project pipelines
 
-The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices are seeded individually
-(`seeds/pipeline-*.md`) and fanned out through `intent` → `plan` → `implement`.
+The [brief](per-project-pipelines-brief.md) is **not** plan input: its slices are seeded
+individually (`seeds/pipeline-*.md`) and fanned out through `intent` → `plan` → `implement`.
 
 | Slice | Work | State |
 | --- | --- | --- |
-| 1a | definitions, registry, admission validation | shipped #2240 |
-| 1b | project config selects a pipeline | shipped #2248 |
-| 2a | durable pipeline + stage records | shipped #2249 |
-| 2b | daemon-owned ordered stage execution | shipped #2255 |
-| 2c | restart reconciliation | shipped #2254 |
+| 1a–2c | definitions/registry/validation, config selection, durable records, daemon-ordered execution, restart reconciliation | shipped #2240 #2248 #2249 #2255 #2254 |
 | 3 | approve/reject + resume | seeded |
 | 4 | CLI start/list/wait/detach | seeded |
 | 5 | configured terminal actions | seeded |
 | 6 | one e2e integration proof | seeded |
 
-**Slot before slice 3** (split discipline pays there first): `ready-intents/intent-split-prompt-by-surface.md`,
-`ready-intents/intent-split-multi-surface-regression.md`, `ready-intents/plan-blocks-unmet-split-dependencies.md`,
-`ready-intents/plan-emits-one-subspec-per-module-boundary.md`,
-`ready-intents/plan-split-index-orders-by-dependency.md`, `ready-intents/plan-split-preserves-draft-scope.md`.
+**Slot before slice 3** (with the in-flight plan-emits spec above):
+`ready-intents/intent-split-multi-surface-regression.md`,
+`ready-intents/plan-blocks-unmet-split-dependencies.md`,
+`ready-intents/plan-split-index-orders-by-dependency.md`,
+`ready-intents/plan-split-preserves-draft-scope.md`.
+`intent-split-prompt-by-surface` shipped #2277.
 
-**Slot before any work that resolves a posture:** `ready-intents/pipeline-intent-debate-posture-realizes.md`
-and `ready-intents/pipeline-posture-table-pins-cli-review-acceptance.md`. #2240's validator rejects
-`intent` + `debate`, which the CLI supports.
+**Slot before any work that resolves a posture:**
+`ready-intents/pipeline-posture-table-pins-cli-review-acceptance.md`. The `intent` + `debate`
+rejection is fixed (#2276); the table pin is still open.
 
 Plan-lane dependency: each slice's plan blocks until its prerequisite slice is **implemented**, not
 merely planned. Observed twice (1b, 2b) — both agents correctly refused with a `## Blocker`.
 
-## Reliability seeds — parallel lane
+## Reliability lane
 
-| Seed | Notes |
+| Intents | Notes |
 | --- | --- |
 | `ready-intents/markdown-only-workflow-ready-repair-rejects-code-edits.md`, `ready-gate-red-in-untouched-files-is-out-of-scope.md`, `ready-gate-repair-cannot-extend-load-sensitive-files.md`, `ready-gate-repair-omits-jarvis-sidecars-from-commits.md`, `repair-commits-limited-to-run-diff-and-spec-tree.md` | Gate repair edits unrelated tests to go green; seen twice |
-| `seeds/terminal-settle-leaves-agent-and-lock-behind.md` | Mid-repair rows read `completed`; an agent and its worktree lock outlived the settle. Split lost to the boundary defect; re-run `intent` |
-| `ready-intents/cleanup-without-listening-daemon.md`, `cleanup-eligibility-uses-live-socket-discovery.md` | A rebuilt executable moves the socket key; cleanup dies on a raw `ENOENT` and skips daemon-independent work |
+| `ready-intents/terminal-settle-cancels-repair-agent-and-releases-lock.md`, `exhausted-red-ready-gate-settles-failed-and-resumable.md` | Fan-out of the terminal-settle seed (#2275): stray agent + held lock; red gate settling `completed` |
+| `ready-intents/cleanup-eligibility-uses-live-socket-discovery.md`, `cleanup-prunes-merged-dead-branches.md` (#2284) | With the planned cleanup spec above: rebuilt executable moves the socket key; merged-branch ref pruning |
+
+## TUI honesty fan-out (#2283)
+
+From the retired `tui-monitor-row-honesty` seed. Store/list fixes may precede the
+[TUI phase](tui-overhaul-brief.md): `ready-intents/list-row-step-honesty.md`,
+`store-timestamps-terminal-reconciliation.md`, `workflow-collapse-drops-test-flag.md`.
+Chrome stays with the phase: `terminal-window-renders-finishless-rows.md`,
+`expansion-driven-through-e-keybinding.md`.
 
 ## Ready-intents (queued)
 
@@ -61,12 +73,9 @@ merely planned. Observed twice (1b, 2b) — both agents correctly refused with a
 
 ## Seeds (deferred / low)
 
-Notable: `daemon-child-output-test-races-process-startup` (mitigated #2208, race remains),
+`daemon-child-output-test-races-process-startup` (mitigated #2208, race remains),
 `publication-tails-are-consolidated`, `materialization-base-drift-guard`,
-`cleanup-prunes-merged-dead-branches`, `implement-review-bounds-diff-payload`,
-`review-checkpoint-reuse-is-not-scoped-to-a-dispatch`, `set-agents-accepts-any-string-including-flags`,
-`reviewer-verification-command`, `surface-the-completion-commit-error-instead-of-swallowing-it`,
+`implement-review-bounds-diff-payload`, `review-checkpoint-reuse-is-not-scoped-to-a-dispatch`,
+`set-agents-accepts-any-string-including-flags`, `reviewer-verification-command`,
+`surface-the-completion-commit-error-instead-of-swallowing-it`,
 `archival-refusal-names-why-owner-was-not-retired` (ship with next cleanup diagnostic touch).
-
-TUI presentation work is folded into [tui-overhaul-brief.md](tui-overhaul-brief.md);
-`seeds/tui-monitor-row-honesty.md` may land before the full TUI phase.

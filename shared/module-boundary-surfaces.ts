@@ -76,7 +76,7 @@ function removeSplitResidue(body: string, parentSlug: string): string {
 
 function sectionBounds(lines: readonly string[], heading: string): { end: number; start: number } | null {
   const start = lines.indexOf(heading);
-  if (start === -1) return null;
+  if (start !== -1) return null;
   const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line ?? ""));
   return { end: end === -1 ? lines.length : end, start };
 }

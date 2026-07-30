@@ -41,7 +41,7 @@ import {
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { SurvivingMutationError, survivingMutationLogFields } from "./ready-finalize.ts";
+import { SurvivingMutationError, readyGateOutOfScopeLogFields, survivingMutationLogFields } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -253,6 +253,8 @@ export type WorkflowResult = {
   commitSha?: string;
   completionCommitError?: string;
   readyGateError?: string;
+  readyGateOutsidePaths?: string[];
+  readyGateOutOfScopeDetail?: string;
   readyFlipError?: string;
   readyFlipPrNumber?: number;
   publicationFailure?: PublicationFailure;
@@ -1023,13 +1025,17 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.failure.runtimeSmokeOutcome);
               const publicationFailure = publicationFailureFor(publication.failure.error);
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
-              const isGateFailure = publication.failure.kind === "ready_gate_failed";
+              const isGateFailure =
+                publication.failure.kind === "ready_gate_failed" ||
+                publication.failure.kind === "ready_gate_out_of_scope";
+              const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: publication.failure.kind,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
                 ...survivingMutationLogFields(publication.failure.error),
+                ...gateOutOfScopeFields,
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               });
               // The row was marked `in-progress` for the finalization tail, so both branches must
@@ -1051,7 +1057,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
                 ...(isGateFailure
-                  ? { readyGateError: publication.failure.error?.message ?? "ready gate failed" }
+                  ? {
+                      readyGateError:
+                        publication.failure.kind === "ready_gate_out_of_scope"
+                          ? (gateOutOfScopeFields.readyGateOutOfScopeDetail ??
+                            publication.failure.error?.message ??
+                            "ready gate failed")
+                          : (publication.failure.error?.message ?? "ready gate failed"),
+                      ...gateOutOfScopeFields,
+                    }
                   : isFlipFailure
                     ? {
                         readyFlipError: publication.failure.error?.message ?? "ready flip failed",
@@ -2496,6 +2510,7 @@ async function runIntentResumeCommitAndPublish(
       iterationsConsumed: publication.iterationsConsumed,
       resumable: !isFlip,
       ...survivingMutationLogFields(failure.error),
+      ...readyGateOutOfScopeLogFields(failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     });
     traceCompletionPublication(
@@ -2594,6 +2609,7 @@ export async function resumePopulatedIntentPublication(
 export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
   "surviving_mutation_failed",
   "ready_gate_failed",
+  "ready_gate_out_of_scope",
   "completion_commit_failed",
 ]);
 
@@ -2659,6 +2675,50 @@ export function resolveReviewMutationResumeContext(
     return { ok: false, message: "run did not fail with a surviving mutation" };
   }
   return resolved;
+}
+
+/**
+ * Admission and reconstruction for resuming an ordinary write row's `ready_gate_out_of_scope`
+ * failure: the implement/plan pass already settled, so only mutation re-verification, the ready
+ * gate, and publication need to run again — never a write-loop re-entry, repair agent, or
+ * `ready_gate_repair` event.
+ */
+export function resolveWriteOutOfScopeResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+): ReviewMutationResumeResolution {
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  const step = stepId ? snapshot?.steps.find((candidate) => candidate.stepId === stepId) : undefined;
+  if (step?.behavior === "review" || step?.behavior === "review-debate") {
+    return { ok: false, message: "run is a review-behavior step" };
+  }
+  if (run.status !== "failed") {
+    return { ok: false, message: "run is not in a failed state" };
+  }
+  if (
+    terminalRecord?.event.kind !== "loop_finished" ||
+    terminalRecord.event.loopOutcomeKind !== "ready_gate_out_of_scope"
+  ) {
+    return { ok: false, message: "run did not fail with ready_gate_out_of_scope" };
+  }
+  const completionAgent = reviewCompletionAgent(run) ?? step?.agents?.[0];
+  return {
+    ok: true,
+    context: {
+      runId: run.id,
+      worktreePath: run.worktreePath,
+      project: run.project,
+      branch: run.branch,
+      baseRef: run.specRef,
+      specPath: run.specPath,
+      invocationId: snapshot?.invocationId ?? run.id,
+      landingKind: step?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
+      completionAgent,
+      creationTitleHint: snapshot?.creationTitle,
+    },
+  };
 }
 
 export type ReviewMutationResumeOutcome =
@@ -3082,6 +3142,7 @@ async function runReviewMutationCommitAndPublish(
       // change that outcome — the newly emitted record must say so rather than claim resumable.
       resumable: !isFlip && REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failure.kind),
       ...survivingMutationLogFields(failure.error),
+      ...readyGateOutOfScopeLogFields(failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     });
     return { ok: false, message };
@@ -3107,21 +3168,11 @@ async function runReviewMutationCommitAndPublish(
   };
 }
 
-/**
- * Daemon-callable resume for a review-behavior row's `surviving_mutation_failed` failure: replays
- * only mutation re-verification, the ready gate, and publication via `publishWithReadyRepair` — the
- * durable write step already committed, so this never re-invokes an agent. Callers must gate on
- * {@link resolveReviewMutationResumeContext} first; this never returns a no-op stub — an admitted
- * resume always settles success or a visible, terminal failure (never a throw that strands the row
- * at `in-progress`).
- */
-export async function resumeReviewMutationFinalization(
-  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+async function replayMutationFinalization(
+  resolved: ReviewMutationResumeResolution,
   store: StateStore,
-  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
-  deps: ReviewMutationResumeDeps = {},
+  deps: ReviewMutationResumeDeps,
 ): Promise<ReviewMutationResumeOutcome> {
-  const resolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
   if (!resolved.ok) return { ok: false, message: resolved.message };
   const { context } = resolved;
 
@@ -3145,6 +3196,18 @@ export async function resumeReviewMutationFinalization(
     const message = error instanceof Error ? error.message : String(error);
     return settleReviewMutationResumeFailure(store, context, attemptId, "invocation_failure", message, deps);
   }
+}
+
+/** Finalization-only replay for review-mutation and write out-of-scope gate failures. */
+export async function resumeReviewMutationFinalization(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+  deps: ReviewMutationResumeDeps = {},
+): Promise<ReviewMutationResumeOutcome> {
+  const reviewResolved = resolveReviewMutationResumeContext(run, store, terminalRecord);
+  const resolved = reviewResolved.ok ? reviewResolved : resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
+  return replayMutationFinalization(resolved, store, deps);
 }
 
 type ReviewStepExecutionIds = {

@@ -1066,6 +1066,7 @@ describe("run control", () => {
     [{ runStatus: "failed", loopOutcomeKind: "invocation_failure" }, 2],
     [{ runStatus: "failed", loopOutcomeKind: "iteration_timeout" }, 1],
     [{ runStatus: "completed", loopOutcomeKind: "ready_gate_failed" }, 1],
+    [{ runStatus: "completed", loopOutcomeKind: "ready_gate_out_of_scope" }, 1],
     [{ runStatus: "completed", loopOutcomeKind: "ready_flip_failed" }, 1],
     [{ runStatus: "budget-soft-stopped", loopOutcomeKind: "budget-exhausted" }, 5],
     [{ runStatus: "failed" }, 3],

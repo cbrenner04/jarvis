@@ -79,6 +79,19 @@ describe("write command", () => {
     ],
     [
       {
+        kind: "ready_gate_out_of_scope",
+        runId: "run-oos",
+        iterationsConsumed: 1,
+        resumable: true,
+        readyGateError: "ready gate failing paths lie outside the run's touched set: v2/src/untouched.test.ts",
+        readyGateOutsidePaths: ["v2/src/untouched.test.ts"],
+        readyGateOutOfScopeDetail:
+          "ready gate failing paths lie outside the run's touched set: v2/src/untouched.test.ts",
+      },
+      1,
+    ],
+    [
+      {
         kind: "ready_flip_failed",
         runId: "run-flip",
         iterationsConsumed: 1,
@@ -97,9 +110,17 @@ describe("write command", () => {
     });
 
     expect(code).toBe(expectedExit);
-    expect(cap.read().stdout).toContain(`"kind": "${result.kind}"`);
-    if (result.kind === "ready_gate_failed") expect(cap.read().stdout).toContain('"readyGateError": "gate red"');
-    if (result.kind === "ready_flip_failed") expect(cap.read().stdout).toContain('"readyFlipError": "flip failed"');
+    const stdout = cap.read().stdout;
+    expect(stdout).toContain(`"kind": "${result.kind}"`);
+    if (result.kind === "ready_gate_failed") expect(stdout).toContain('"readyGateError": "gate red"');
+    if (result.kind === "ready_gate_out_of_scope") {
+      const parsed = JSON.parse(stdout) as Record<string, unknown>;
+      expect(parsed.readyGateOutsidePaths).toEqual(["v2/src/untouched.test.ts"]);
+      expect(parsed.readyGateOutOfScopeDetail).toBe(
+        "ready gate failing paths lie outside the run's touched set: v2/src/untouched.test.ts",
+      );
+    }
+    if (result.kind === "ready_flip_failed") expect(stdout).toContain('"readyFlipError": "flip failed"');
   });
 
   test("write stdout failureKind and bindingAttempts attach only on binding-chain invocation_failure", async () => {

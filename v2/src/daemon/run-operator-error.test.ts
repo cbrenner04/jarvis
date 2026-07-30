@@ -13,6 +13,7 @@ import {
   findTerminalLogRecord,
   isPostBoundaryStateStoreLockTimeout,
   resolveFailedBlockedAttemptPrecedence,
+  RUN_OPERATOR_ERROR_RECOVERY,
 } from "./run-operator-error.ts";
 
 function runWith(status: RunStatus, attempts: Attempt[] = []): { status: RunStatus; attempts: Attempt[] } {
@@ -266,6 +267,41 @@ test("composeRunOperatorError keeps landing_failed distinct from completion_comm
   expect(commitError).toEqual(err("completion_commit_failed", "resume", true));
 
   expect(landingError?.reason).not.toEqual(commitError?.reason);
+});
+
+test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths and retry-finalization recovery", () => {
+  const outsidePath = "v2/src/untouched.test.ts";
+  const detail = `ready gate failing paths lie outside the run's touched set: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: true,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: true,
+    nextAction: "resume",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), loopFinishedEvent("ready_gate_out_of_scope", {
+    resumable: true,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  }))).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: true,
+    nextAction: "resume",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+});
+
+test("ready_gate_out_of_scope recovery guides retry finalization instead of source repair", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).toContain("retry finalization");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("fix the ready gate failure");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_failed).toContain("fix the ready gate failure");
 });
 
 test("composeRunOperatorError prefers resumable ready_gate_failed over blocked last attempt", () => {

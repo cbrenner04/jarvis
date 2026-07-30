@@ -10,6 +10,7 @@ import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } fr
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
+import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -1230,6 +1231,168 @@ describe("write loop", () => {
       expect(result.iterationsConsumed).toBe(2);
       expect(gateCalls).toBe(1);
       expect(invocations).toBe(2);
+    });
+
+    describe("untouched-path gate settlement", () => {
+      test("settles ready_gate_out_of_scope without repair while in-scope failures enter bounded repair", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-out-of-scope";
+        const outOfScopeBranch = `${branchName}-oos`;
+        const { baseRef: outOfScopeBaseRef } = initGateScopeWorktree(jarvisRoot, outOfScopeBranch);
+        const logSink = new TestLogSink();
+        let inScopeGateCalls = 0;
+
+        const outOfScope = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName: outOfScopeBranch,
+          baseRef: outOfScopeBaseRef,
+          logSink,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          ...completionHooks,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
+          },
+        });
+
+        expect(outOfScope.kind).toBe("ready_gate_out_of_scope");
+        expect(outOfScope.resumable).toBe(true);
+        expect(outOfScope.iterationsConsumed).toBe(1);
+        expect(logSink.getEventsForRun(outOfScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual(
+          [],
+        );
+        expect(logSink.getEventsForRun(outOfScope.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          iterationsConsumed: 1,
+          resumable: true,
+        });
+
+        const inScopeBranch = `${branchName}-in-scope`;
+        const { baseRef: inScopeBaseRef } = initGateScopeWorktree(jarvisRoot, inScopeBranch);
+        const inScope = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName: inScopeBranch,
+          baseRef: inScopeBaseRef,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            inScopeGateCalls += 1;
+            if (inScopeGateCalls === 1) {
+              throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+            }
+          },
+        });
+
+        expect(inScope.kind).toBe("complete");
+        expect(inScopeGateCalls).toBe(2);
+        expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
+          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+        ]);
+      });
+
+      test("repairs once on an in-scope gate then settles ready_gate_out_of_scope on a later untouched gate", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-repair-then-out-of-scope";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+        let gateCalls = 0;
+        let invocations = 0;
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (gateCalls === 1) {
+              throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+            }
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        expect(result.resumable).toBe(true);
+        expect(gateCalls).toBe(2);
+        expect(invocations).toBe(2);
+        expect(result.iterationsConsumed).toBe(2);
+        const events = logSink.getEventsForRun(result.runId);
+        expect(events.filter((event) => event.kind === "ready_gate_repair")).toEqual([
+          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+        ]);
+        expect(events.at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          iterationsConsumed: 2,
+          resumable: true,
+        });
+      });
+
+      test("never invokes repair for a fully attributed untouched-path gate", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-out-of-scope-no-repair";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+        let invocations = 0;
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        expect(invocations).toBe(1);
+        expect(logSink.getEventsForRun(result.runId).some((event) => event.kind === "ready_gate_repair")).toBe(false);
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started")).toHaveLength(
+          1,
+        );
+      });
     });
 
     test("returns retryable ready_flip_failed when publication succeeded but flip fails without repair", async () => {

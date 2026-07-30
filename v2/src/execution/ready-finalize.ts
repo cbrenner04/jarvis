@@ -1,10 +1,19 @@
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
-import { DEADLINE_KILL_MARKER, TIMEOUT_EXIT_CODE } from "../../../scripts/ready.ts";
+import {
+  DEADLINE_KILL_MARKER,
+  READY_STEP_COMPLETION_MARKER,
+  type ReadyStepCompletion,
+  TIMEOUT_EXIT_CODE,
+} from "../../../scripts/ready.ts";
+import { FAILING_TEST_FILE_MARKER } from "../../../scripts/run-v2-tests.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
@@ -56,16 +65,354 @@ export class ReadyFlipError extends Error {
   }
 }
 
+export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope";
+
+export type ReadyGateClassification = {
+  kind: ReadyGateFailureKind;
+  outsidePaths?: readonly string[];
+};
+
+export type ReadyGateScopeInput = {
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+};
+
+export type ReadyGateScopeSeams = {
+  gitDiffNameStatus?: (worktreePath: string, baseRef: string) => Promise<string | null>;
+  gitUntracked?: (worktreePath: string) => Promise<string | null>;
+  listSpecTreePaths?: (worktreePath: string, specPath: string) => Promise<string[] | null>;
+};
+
 export class ReadyGateError extends Error {
+  readonly gateFailureKind: ReadyGateFailureKind;
+  readonly outsidePaths?: readonly string[];
+
   constructor(
     readonly command: string,
     readonly exitCode: number | undefined,
     readonly output: string,
     readonly timedOut: boolean = false,
+    classification?: ReadyGateClassification,
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
+    this.gateFailureKind = classification?.kind ?? "ready_gate_failed";
+    if (classification?.outsidePaths !== undefined) {
+      this.outsidePaths = classification.outsidePaths;
+    }
   }
+}
+
+/** Normalize and validate a repo-relative path; reject absolute, escaping, empty, or malformed values. */
+export function validateRepoRelativePath(path: string): string | undefined {
+  if (path.length === 0 || path.trim() !== path) {
+    return undefined;
+  }
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  for (const segment of path.replace(/\\/g, "/").split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      return undefined;
+    }
+    parts.push(segment);
+  }
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return parts.join("/");
+}
+
+function parseMarkerRecords<T>(output: string, marker: string, validate: (value: unknown) => value is T): T[] {
+  const records: T[] = [];
+  for (const line of output.split("\n")) {
+    if (!line.startsWith(marker)) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(line.slice(marker.length));
+      if (validate(parsed)) {
+        records.push(parsed);
+      }
+    } catch {
+      // malformed records are ignored at parse time
+    }
+  }
+  return records;
+}
+
+function isReadyStepCompletion(value: unknown): value is ReadyStepCompletion {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as ReadyStepCompletion;
+  return (
+    typeof record.stepId === "string" &&
+    typeof record.attemptId === "string" &&
+    typeof record.command === "string" &&
+    typeof record.status === "number"
+  );
+}
+
+function isFailingTestFileRecord(value: unknown): value is { attemptId: string; path: string } {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as { attemptId: string; path: string };
+  return typeof record.attemptId === "string" && typeof record.path === "string";
+}
+
+function isReadyTestCommand(command: string): boolean {
+  return /^bun run test(?::|$)/.test(command);
+}
+
+function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | undefined {
+  const seen = new Map<string, string>();
+  const result: string[] = [];
+  for (const raw of rawPaths) {
+    const normalized = validateRepoRelativePath(raw);
+    if (normalized === undefined) {
+      return undefined;
+    }
+    const prior = seen.get(normalized);
+    if (prior !== undefined && prior !== raw) {
+      return undefined;
+    }
+    if (prior === undefined) {
+      seen.set(normalized, raw);
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+/** Select validated failing paths from the terminal failed ready test step's final attempt. */
+export function selectTerminalFailingPaths(output: string): string[] | undefined {
+  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
+  const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
+  if (terminalFailed === undefined || !isReadyTestCommand(terminalFailed.command)) {
+    return undefined;
+  }
+  const fileRecords = parseMarkerRecords(output, FAILING_TEST_FILE_MARKER, isFailingTestFileRecord);
+  const matching = fileRecords.filter((record) => record.attemptId === terminalFailed.attemptId);
+  if (matching.length === 0) {
+    return undefined;
+  }
+  return validateAndDeduplicatePaths(matching.map((record) => record.path));
+}
+
+function parseNulDelimitedPaths(output: string): string[] | undefined {
+  if (output.length === 0) {
+    return [];
+  }
+  if (!output.endsWith("\0")) {
+    return undefined;
+  }
+  return output
+    .slice(0, -1)
+    .split("\0")
+    .filter(Boolean);
+}
+
+/** Parse NUL-delimited `git diff --name-status -z` output into changed paths. */
+export function parseGitNameStatusZ(output: string): string[] | undefined {
+  if (output.length === 0) {
+    return [];
+  }
+  if (!output.endsWith("\0")) {
+    return undefined;
+  }
+  const parts = output.slice(0, -1).split("\0");
+  const paths: string[] = [];
+  let index = 0;
+  while (index < parts.length) {
+    const status = parts[index];
+    if (status === undefined || status.length === 0) {
+      index += 1;
+      continue;
+    }
+    const kind = status[0];
+    if (kind === "R" || kind === "C") {
+      const oldPath = parts[index + 1];
+      const newPath = parts[index + 2];
+      if (oldPath === undefined || newPath === undefined) {
+        return undefined;
+      }
+      paths.push(oldPath, newPath);
+      index += 3;
+      continue;
+    }
+    const path = parts[index + 1];
+    if (path === undefined) {
+      return undefined;
+    }
+    paths.push(path);
+    index += 2;
+  }
+  return paths;
+}
+
+function listMarkdownFiles(dir: string): string[] {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listMarkdownFiles(path));
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+function resolveSpecScopeRoot(worktreePath: string, specPath: string): string | null {
+  const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  try {
+    if (statSync(resolvedSpecPath).isDirectory()) {
+      return resolvedSpecPath;
+    }
+  } catch {
+    // fall through to file-based resolution
+  }
+  if (basename(resolvedSpecPath).endsWith(".md")) {
+    return dirname(resolvedSpecPath);
+  }
+  return null;
+}
+
+function enumerateSpecTreePaths(worktreePath: string, specPath: string): string[] | null {
+  const scopeRoot = resolveSpecScopeRoot(worktreePath, specPath);
+  if (scopeRoot === null) {
+    const normalized = normalizePublicationSpecPath(worktreePath, specPath);
+    const validated = validateRepoRelativePath(normalized);
+    return validated === undefined ? null : [validated];
+  }
+  if (!existsSync(scopeRoot)) {
+    return null;
+  }
+  const files = listMarkdownFiles(scopeRoot);
+  if (files.length === 0) {
+    return null;
+  }
+  const paths: string[] = [];
+  for (const file of files) {
+    const rel = relative(worktreePath, file).replace(/\\/g, "/");
+    const validated = validateRepoRelativePath(rel);
+    if (validated === undefined) {
+      return null;
+    }
+    paths.push(validated);
+  }
+  return paths;
+}
+
+/** Derive the fail-closed allowed path set from base diff, untracked inventory, and spec tree. */
+export async function deriveGateAllowedPaths(
+  scope: ReadyGateScopeInput,
+  seams?: ReadyGateScopeSeams,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<Set<string> | undefined> {
+  let diffOutput: string | null;
+  try {
+    diffOutput =
+      seams?.gitDiffNameStatus !== undefined
+        ? await seams.gitDiffNameStatus(scope.worktreePath, scope.baseRef)
+        : await runner.runAsync(
+            "git",
+            ["diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", `${scope.baseRef}...HEAD`],
+            scope.worktreePath,
+            { maxBuffer: READY_GATE_MAX_BUFFER },
+          );
+  } catch {
+    return undefined;
+  }
+  if (diffOutput === null) {
+    return undefined;
+  }
+
+  let untrackedOutput: string | null;
+  try {
+    untrackedOutput =
+      seams?.gitUntracked !== undefined
+        ? await seams.gitUntracked(scope.worktreePath)
+        : await runner.runAsync(
+            "git",
+            ["ls-files", "--others", "--exclude-standard", "-z"],
+            scope.worktreePath,
+          );
+  } catch {
+    return undefined;
+  }
+  if (untrackedOutput === null) {
+    return undefined;
+  }
+
+  const specPaths =
+    seams?.listSpecTreePaths !== undefined
+      ? await seams.listSpecTreePaths(scope.worktreePath, scope.specPath)
+      : enumerateSpecTreePaths(scope.worktreePath, scope.specPath);
+  if (specPaths === null) {
+    return undefined;
+  }
+
+  const diffPaths = parseGitNameStatusZ(diffOutput);
+  if (diffPaths === undefined) {
+    return undefined;
+  }
+  const untrackedPaths = parseNulDelimitedPaths(untrackedOutput);
+  if (untrackedPaths === undefined) {
+    return undefined;
+  }
+
+  const allowed = new Set<string>();
+  for (const rawPath of [...diffPaths, ...untrackedPaths, ...specPaths]) {
+    const normalized = validateRepoRelativePath(rawPath);
+    if (normalized === undefined) {
+      return undefined;
+    }
+    allowed.add(normalized);
+  }
+  return allowed;
+}
+
+/** Classify a ready gate failure from terminal test evidence and the run's allowed path set. */
+export function classifyReadyGateFailure(
+  error: Pick<ReadyGateError, "command" | "output" | "timedOut">,
+  failingPaths: string[] | undefined,
+  allowedPaths: Set<string> | undefined,
+): ReadyGateClassification {
+  if (error.timedOut || error.command !== "bun run ready") {
+    return { kind: "ready_gate_failed" };
+  }
+  if (failingPaths === undefined || allowedPaths === undefined || failingPaths.length === 0) {
+    return { kind: "ready_gate_failed" };
+  }
+  const outsidePaths = failingPaths.filter((path) => !allowedPaths.has(path));
+  if (outsidePaths.length === 0 || outsidePaths.length < failingPaths.length) {
+    return { kind: "ready_gate_failed" };
+  }
+  return { kind: "ready_gate_out_of_scope", outsidePaths };
+}
+
+export async function classifyReadyGateError(
+  error: ReadyGateError,
+  scope: ReadyGateScopeInput,
+  seams?: ReadyGateScopeSeams,
+  runner?: AsyncSubprocessRunner,
+): Promise<ReadyGateError> {
+  const failingPaths = selectTerminalFailingPaths(error.output);
+  const allowedPaths = await deriveGateAllowedPaths(scope, seams, runner);
+  const classification = classifyReadyGateFailure(error, failingPaths, allowedPaths);
+  if (classification.kind === error.gateFailureKind && classification.outsidePaths === error.outsidePaths) {
+    return error;
+  }
+  return new ReadyGateError(error.command, error.exitCode, error.output, error.timedOut, classification);
 }
 
 export class SurvivingMutationError extends Error {
@@ -83,6 +430,40 @@ export class SurvivingMutationError extends Error {
     super(message);
     this.name = "SurvivingMutationError";
   }
+}
+
+export type ReadyGateOutOfScopeLogFields = {
+  readyGateOutsidePaths?: string[];
+  readyGateOutOfScopeDetail?: string;
+};
+
+export function formatReadyGateOutOfScopeDetail(paths: readonly string[]): string {
+  return `ready gate failing paths lie outside the run's touched set: ${paths.join(", ")}`;
+}
+
+export function readyGateOutOfScopeLogFields(
+  source: Error | ReadyGateOutOfScopeLogFields | undefined,
+): ReadyGateOutOfScopeLogFields {
+  if (source === undefined) return {};
+  if (
+    source instanceof ReadyGateError &&
+    source.gateFailureKind === "ready_gate_out_of_scope" &&
+    source.outsidePaths !== undefined
+  ) {
+    return {
+      readyGateOutsidePaths: [...source.outsidePaths],
+      readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail(source.outsidePaths),
+    };
+  }
+  if (source instanceof Error) return {};
+  const fields: ReadyGateOutOfScopeLogFields = {};
+  if (source.readyGateOutsidePaths !== undefined) {
+    fields.readyGateOutsidePaths = [...source.readyGateOutsidePaths];
+  }
+  if (source.readyGateOutOfScopeDetail !== undefined) {
+    fields.readyGateOutOfScopeDetail = source.readyGateOutOfScopeDetail;
+  }
+  return fields;
 }
 
 export type SurvivingMutationLogFields = {

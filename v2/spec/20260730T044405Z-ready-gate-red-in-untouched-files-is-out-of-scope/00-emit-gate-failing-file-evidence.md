@@ -37,15 +37,15 @@ machine-readable evidence rather than stale records from a recovered retry or pr
 
 ## Acceptance criteria
 
-- [ ] `scripts/run-v2-tests.test.ts` adds pre-fix-failing coverage that every non-zero, timed-out,
+- [x] `scripts/run-v2-tests.test.ts` adds pre-fix-failing coverage that every non-zero, timed-out,
       signal, or null-status settled file emits exactly one correlated marker-prefixed repo-relative
       record and healthy files emit none, including concurrent and isolated load-sensitive cases.
-- [ ] `scripts/ready.test.ts` adds pre-fix-failing coverage that the final failed ready step and
+- [x] `scripts/ready.test.ts` adds pre-fix-failing coverage that the final failed ready step and
       attempt are unambiguous: a retry gets a new identity, a recovered retry contributes no terminal
       failure, and a later non-test failure supersedes earlier test records.
-- [ ] Inverting per-settlement emission, attempt correlation, or a completion boundary turns its
+- [x] Inverting per-settlement emission, attempt correlation, or a completion boundary turns its
       corresponding test RED; a healthy-only run remains record-free when restored.
-- [ ] Existing `scripts/run-v2-tests.test.ts` attribution, fail-fast, timeout, pool, and
+- [x] Existing `scripts/run-v2-tests.test.ts` attribution, fail-fast, timeout, pool, and
       load-sensitive cases and `scripts/ready.test.ts` retry/timeout cases stay green.
 
 ## Documentation updates

@@ -1,8 +1,377 @@
 import { describe, expect, it } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
+import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import {
+  classifyReadyGateError,
+  classifyReadyGateFailure,
+  createReadyFinalizer,
+  deriveGateAllowedPaths,
+  parseGitNameStatusZ,
+  ReadyGateError,
+  selectTerminalFailingPaths,
+  SurvivingMutationError,
+  validateRepoRelativePath,
+} from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
+
+function gateOutput(parts: {
+  completions?: Array<{ stepId: string; attemptId: string; command: string; status: number }>;
+  failingFiles?: Array<{ attemptId: string; path: string }>;
+  extra?: string;
+}): string {
+  const lines: string[] = [];
+  for (const completion of parts.completions ?? []) {
+    lines.push(readyStepCompletionRecord(completion));
+  }
+  for (const file of parts.failingFiles ?? []) {
+    lines.push(failingTestFileRecord(file.path, file.attemptId));
+  }
+  if (parts.extra !== undefined) {
+    lines.push(parts.extra);
+  }
+  return `${lines.join("")}\n`;
+}
+
+export function gateFailureOutput(failingPath: string): string {
+  return gateOutput({
+    completions: [
+      { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
+      { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 1 },
+    ],
+    failingFiles: [{ attemptId: "2.2", path: failingPath }],
+  });
+}
+
+export function initGateScopeWorktree(
+  jarvisRoot: string,
+  branchName: string,
+): { worktreePath: string; baseRef: string } {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+  return { worktreePath, baseRef };
+}
+
+const scope = {
+  worktreePath: "/tmp/worktree",
+  baseRef: "main",
+  specPath: "v2/spec/demo/index.md",
+};
+
+const allowedSeams = {
+  gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+  gitUntracked: async () => "",
+  listSpecTreePaths: async () => ["v2/spec/demo/index.md", "v2/spec/demo/01-task.md"],
+};
+
+describe("ready gate untouched-path classification", () => {
+  it("includes sibling spec-tree markdown when specPath routes a direct subspec file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gate-allowed-"));
+    const specDir = join(root, "v2", "spec", "demo");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# index\n");
+    writeFileSync(join(specDir, "01-task.md"), "# task\n");
+    writeFileSync(join(specDir, "02-sibling.md"), "# sibling\n");
+    writeFileSync(join(root, "proof.txt"), "ok\n");
+    execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+    execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+    const baseRef = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    writeFileSync(join(root, "changed.ts"), "export {}\n");
+    execFileSync("git", ["-C", root, "add", "changed.ts"], { stdio: "pipe" });
+    execFileSync("git", ["-C", root, "commit", "-m", "iteration"], { stdio: "pipe" });
+
+    const directSubspecScope = {
+      worktreePath: root,
+      baseRef,
+      specPath: "v2/spec/demo/01-task.md",
+    };
+    const allowed = await deriveGateAllowedPaths(directSubspecScope, {
+      gitUntracked: async () => "",
+    });
+    expect(allowed?.has("v2/spec/demo/01-task.md")).toBe(true);
+    expect(allowed?.has("v2/spec/demo/02-sibling.md")).toBe(true);
+    expect(allowed?.has("v2/spec/demo/index.md")).toBe(true);
+
+    const siblingSpecPath = "v2/spec/demo/02-sibling.md";
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: siblingSpecPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, directSubspecScope, {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+
+    const singleFileEnumeration = await classifyReadyGateError(error, directSubspecScope, {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/01-task.md"],
+    });
+    expect(singleFileEnumeration.gateFailureKind).toBe("ready_gate_out_of_scope");
+  });
+
+  it("classifies fully attributed terminal failures outside the allowed set as out of scope", async () => {
+    const output = gateOutput({
+      completions: [
+        { stepId: "1", attemptId: "1.1", command: "bun run typecheck", status: 0 },
+        { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
+        { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 1 },
+      ],
+      failingFiles: [{ attemptId: "2.2", path: "v2/src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePaths).toEqual(["v2/src/untouched.test.ts"]);
+  });
+
+  it("keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", async () => {
+    const mixed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "v2/src/changed.ts" },
+            { attemptId: "2.1", path: "v2/src/untouched.test.ts" },
+          ],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(mixed.gateFailureKind).toBe("ready_gate_failed");
+
+    const absent = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(absent.gateFailureKind).toBe("ready_gate_failed");
+
+    const malformed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        `${READY_STEP_COMPLETION_MARKER}{not-json}\n${failingTestFileRecord("v2/src/untouched.test.ts", "2.1")}`,
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(malformed.gateFailureKind).toBe("ready_gate_failed");
+
+    const staleRetry = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [
+            { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
+            { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 1 },
+          ],
+          failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(staleRetry.gateFailureKind).toBe("ready_gate_failed");
+
+    const laterNonTest = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        3,
+        gateOutput({
+          completions: [
+            { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 0 },
+            { stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 3 },
+          ],
+          failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(laterNonTest.gateFailureKind).toBe("ready_gate_failed");
+
+    const partial = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "v2/src/untouched.test.ts" },
+            { attemptId: "2.1", path: "/absolute/path.test.ts" },
+          ],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(partial.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("fails closed for absolute, escaping, colliding, unusual-name, and unavailable scope inputs", async () => {
+    expect(validateRepoRelativePath("/absolute.test.ts")).toBeUndefined();
+    expect(validateRepoRelativePath("../escape.test.ts")).toBeUndefined();
+    expect(
+      selectTerminalFailingPaths(
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+          failingFiles: [
+            { attemptId: "2.1", path: "./same.test.ts" },
+            { attemptId: "2.1", path: "same.test.ts" },
+          ],
+        }),
+      ),
+    ).toBeUndefined();
+
+    const unusualName = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: "v2/src/file with space.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(unusualName.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(unusualName.outsidePaths).toEqual(["v2/src/file with space.test.ts"]);
+
+    const renameSeams = {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => `R100\0v2/src/old.ts\0v2/src/new.ts\0`,
+    };
+    const renameAllowed = await deriveGateAllowedPaths(scope, renameSeams);
+    expect(renameAllowed?.has("v2/src/old.ts")).toBe(true);
+    expect(renameAllowed?.has("v2/src/new.ts")).toBe(true);
+
+    const deleteSeams = {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => `D\0v2/src/removed.ts\0`,
+    };
+    const deleteAllowed = await deriveGateAllowedPaths(scope, deleteSeams);
+    expect(deleteAllowed?.has("v2/src/removed.ts")).toBe(true);
+
+    const untrackedSeams = {
+      ...allowedSeams,
+      gitUntracked: async () => `v2/src/new-file.ts\0`,
+    };
+    const untrackedAllowed = await deriveGateAllowedPaths(scope, untrackedSeams);
+    expect(untrackedAllowed?.has("v2/src/new-file.ts")).toBe(true);
+
+    const unavailableDiff = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => null,
+    });
+    expect(unavailableDiff).toBeUndefined();
+
+    const unavailableInventory = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitUntracked: async () => null,
+    });
+    expect(unavailableInventory).toBeUndefined();
+
+    const malformedDiff = await deriveGateAllowedPaths(scope, {
+      ...allowedSeams,
+      gitDiffNameStatus: async () => "M\0missing-trailing-nul",
+    });
+    expect(malformedDiff).toBeUndefined();
+  });
+
+  it("does not misclassify deadline-killed or requiredIntegrationScope failures", async () => {
+    const timedOut = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 124, "timeout\n", true),
+      scope,
+      allowedSeams,
+    );
+    expect(timedOut.gateFailureKind).toBe("ready_gate_failed");
+
+    const integration = await classifyReadyGateError(
+      new ReadyGateError(
+        "test:integration:v2",
+        1,
+        gateOutput({
+          completions: [{ stepId: "1", attemptId: "1.1", command: "bun run test:integration:v2", status: 1 }],
+          failingFiles: [{ attemptId: "1.1", path: "v2/src/untouched.test.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(integration.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("turns guard inversions red for parsing, validation, scope resolution, and classification", () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
+    });
+    const allowed = new Set(["v2/src/changed.ts", "v2/spec/demo/index.md"]);
+    const error = new ReadyGateError("bun run ready", 1, output);
+
+    expect(selectTerminalFailingPaths(output)).toEqual(["v2/src/untouched.test.ts"]);
+    expect(selectTerminalFailingPaths(output.replace(FAILING_TEST_FILE_MARKER, "INVERTED "))).toBeUndefined();
+
+    expect(validateRepoRelativePath("v2/src/ok.test.ts")).toBe("v2/src/ok.test.ts");
+    expect(validateRepoRelativePath("../bad.test.ts")).toBeUndefined();
+
+    expect(parseGitNameStatusZ("M\0v2/src/changed.ts\0")).toEqual(["v2/src/changed.ts"]);
+    expect(parseGitNameStatusZ("M\0broken")).toBeUndefined();
+
+    expect(
+      classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed),
+    ).toEqual({
+      kind: "ready_gate_out_of_scope",
+      outsidePaths: ["v2/src/untouched.test.ts"],
+    });
+    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed).kind).not.toBe(
+      "ready_gate_failed",
+    );
+    expect(classifyReadyGateFailure(error, undefined, allowed).kind).toBe("ready_gate_failed");
+    expect(
+      classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed).kind,
+    ).toBe("ready_gate_failed");
+  });
+});
 
 describe("createReadyFinalizer", () => {
   const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main" };

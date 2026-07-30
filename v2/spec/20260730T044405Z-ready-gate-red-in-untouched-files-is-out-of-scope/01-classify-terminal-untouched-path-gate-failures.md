@@ -32,14 +32,14 @@ either evidence or the run's touched set is ambiguous.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/ready-finalize.test.ts` adds pre-fix-failing coverage that fully attributed
+- [x] `v2/src/execution/ready-finalize.test.ts` adds pre-fix-failing coverage that fully attributed
       terminal test failures outside the base diff plus spec tree become `ready_gate_out_of_scope`
       with normalized outside paths, while mixed, absent, malformed, stale-retry, later-non-test, or
       partial attribution remains `ready_gate_failed`.
-- [ ] The same test proves path validation and scope derivation fail closed for absolute, escaping,
+- [x] The same test proves path validation and scope derivation fail closed for absolute, escaping,
       colliding, whitespace/newline unusual names, untracked paths, rename/copy/delete paths,
       normalization failures, and unavailable diff or inventory input.
-- [ ] The same test proves successful, deadline-killed, and `requiredIntegrationScope` failures are
+- [x] The same test proves successful, deadline-killed, and `requiredIntegrationScope` failures are
       not misclassified; inverting terminal-record parsing, complete-evidence validation,
       path validation, scope resolution, or all-paths-outside classification turns its corresponding
       test RED.

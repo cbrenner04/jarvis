@@ -38,6 +38,8 @@ export type LoopFinishedEvent = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  readyGateOutsidePaths?: string[];
+  readyGateOutOfScopeDetail?: string;
 };
 
 export type RuntimeSmokeOutcomeEvent =

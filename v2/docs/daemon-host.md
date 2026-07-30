@@ -265,10 +265,11 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `unsupported_resume_context` | stopped or publication-retry write run whose snapshot cannot reconstruct an executable step | `false` | `stop` |
 | `completion_commit_failed` | `loopOutcomeKind: "completion_commit_failed"` on a `failed` row | `true` | `resume` |
 | `ready_gate_failed` | `loopOutcomeKind: "ready_gate_failed"` on a `failed` row | `true` | `resume` |
+| `ready_gate_out_of_scope` | `loopOutcomeKind: "ready_gate_out_of_scope"` on a `failed` row | `true` | `resume` |
 | `surviving_mutation_failed` | `loopOutcomeKind: "surviving_mutation_failed"` on a `failed` row | `true` | `resume` |
 | `ready_flip_failed` | `loopOutcomeKind: "ready_flip_failed"` on a `completed` row | `false` | `stop` |
 
-For `completion_commit_failed`, `ready_gate_failed`, and `ready_flip_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row. `ready_flip_failed` is terminal non-resumable; `completion_commit_failed` and `ready_gate_failed` are retryable. For `surviving_mutation_failed`, `error` also carries `survivingMutation`, `survivingMutationSourceFile`, and `survivingMutationSourceLine` from the terminal `loop_finished` row. When `ready_flip_failed` occurs after the publisher returned a PR number, `error.prNumber` on `list` and `wait` identifies the PR for manual fixing; omitted when publication returned no PR.
+For `completion_commit_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row. `ready_flip_failed` is terminal non-resumable and also carries `error.publicationFailure` from that row; `completion_commit_failed`, `ready_gate_failed`, and `ready_gate_out_of_scope` are retryable. `ready_gate_failed` and `ready_gate_out_of_scope` do **not** populate `error.publicationFailure` — gate evidence lives on the terminal `loop_finished` row (`readyGateError` message; inspect with `jarvis run log`). For `ready_gate_out_of_scope`, `error` also carries `readyGateOutsidePaths` and `readyGateOutOfScopeDetail` from that row and guides retry finalization via `jarvis run resume` (not source repair). For `surviving_mutation_failed`, `error` also carries `survivingMutation`, `survivingMutationSourceFile`, and `survivingMutationSourceLine` from the terminal `loop_finished` row. When `ready_flip_failed` occurs after the publisher returned a PR number, `error.prNumber` on `list` and `wait` identifies the PR for manual fixing; omitted when publication returned no PR.
 
 A failed hidden shrink publication row remains `failed` and resumable; the workflow entry row rolls up to `failed` rather than `completed`.
 
@@ -289,7 +290,7 @@ terminal-selection rule.
 `loopOutcomeKind: "contract_miss"` and `resumable: true` composes to `contract_miss` /
 `resume` (post-commit shrink miss). Durable `runStatus` wins for resumable terminals (`killed`, `paused`,
 `budget-soft-stopped`). For `failed` / `blocked`, a terminal `loop_finished` with `resumable: true` and
-`loopOutcomeKind` in `ready_gate_failed`, `surviving_mutation_failed`, `completion_commit_failed`, or
+`loopOutcomeKind` in `ready_gate_failed`, `ready_gate_out_of_scope`, `surviving_mutation_failed`, `completion_commit_failed`, or
 `iteration_commit_failed` outranks last-attempt store detail; otherwise last-attempt detail wins over conflicting
 `loop_finished` (e.g. `runStatus: "failed"` + `loopOutcomeKind: "complete"` resolves from attempt detail). When
 `runStatus` is `failed` or `blocked` with no mappable attempt detail, resumable `loopOutcomeKind` values from stale

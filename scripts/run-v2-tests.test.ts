@@ -3,8 +3,11 @@ import {
   aggregateExitCode,
   defaultConcurrency,
   defaultSpawn,
+  FAILING_TEST_FILE_MARKER,
+  failingTestFileRecord,
   fileOutputHeader,
   isSpawnTimeout,
+  READY_ATTEMPT_ENV,
   resolveConcurrency,
   runV2TestFiles,
   SUPPORTED_HEALTHY_FILE_BUDGET_MS,
@@ -197,6 +200,99 @@ describe("runV2TestFiles", () => {
     await runV2TestFiles("agent", ["ok.test.ts"], spawn, "v2", 1);
 
     expect(stdout).toHaveBeenCalledWith(`${fileOutputHeader("ok.test.ts")}line one\nline two\n`);
+  });
+
+  test("emits one correlated record for every failed pooled settlement and none for a healthy co-runner", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const outcomes = new Map([
+      ["v2/nonzero.test.ts", { status: 2, signal: null, timedOut: false }],
+      ["v2/timeout.test.ts", { status: null, signal: "SIGKILL" as const, timedOut: true }],
+      ["v2/signal.test.ts", { status: 143, signal: "SIGTERM" as const, timedOut: false }],
+      ["v2/null-status.test.ts", { status: null, signal: null, timedOut: false }],
+      ["v2/healthy.test.ts", { status: 0, signal: null, timedOut: false }],
+    ]);
+    const files = [...outcomes.keys()];
+    const spawn = async (_cmd: string, args: string[]) => {
+      const outcome = outcomes.get(args[1] ?? "");
+      if (outcome === undefined) {
+        throw new Error(`missing outcome for ${args[1] ?? ""}`);
+      }
+      return { ...outcome, stdout: "", stderr: "" };
+    };
+
+    await runV2TestFiles("agent", files, spawn, "v2", files.length, "ready-3.1");
+
+    const records = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER));
+    expect(records).toEqual(files.slice(0, -1).map((file) => failingTestFileRecord(file, "ready-3.1")));
+  });
+
+  test.each([
+    {
+      name: "non-zero",
+      outcome: { status: 1, signal: null, timedOut: false },
+    },
+    {
+      name: "timed-out",
+      outcome: { status: null, signal: "SIGKILL" as const, timedOut: true },
+    },
+    {
+      name: "signal",
+      outcome: { status: 143, signal: "SIGTERM" as const, timedOut: false },
+    },
+    {
+      name: "null-status",
+      outcome: { status: null, signal: null, timedOut: false },
+    },
+  ])("emits one correlated record for a $name isolated settlement", async ({ outcome }) => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const healthy = "v2/healthy.sandbox-unrunnable.test.ts";
+    const failing = "v2/failing.sandbox-unrunnable.test.ts";
+    const spawn = async (_cmd: string, args: string[]) => ({
+      ...(args[1] === failing ? outcome : { status: 0, signal: null, timedOut: false }),
+      stdout: "",
+      stderr: "",
+    });
+
+    await runV2TestFiles("agent", [healthy, failing], spawn, "v2", 2, "ready-4.2");
+
+    const records = stderr.mock.calls
+      .map(([chunk]) => String(chunk))
+      .filter((chunk) => chunk.startsWith(FAILING_TEST_FILE_MARKER));
+    expect(records).toEqual([failingTestFileRecord(failing, "ready-4.2")]);
+  });
+
+  test("a healthy-only run emits no failing-file records", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const spawn = async () => ({ status: 0, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    await runV2TestFiles("agent", ["v2/healthy.test.ts"], spawn, "v2", 1, "ready-2.1");
+
+    expect(stderr.mock.calls.some(([chunk]) => String(chunk).startsWith(FAILING_TEST_FILE_MARKER))).toBe(false);
+  });
+
+  test("uses the forwarded ready attempt identity when no explicit correlation is supplied", async () => {
+    const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    const previous = process.env[READY_ATTEMPT_ENV];
+    process.env[READY_ATTEMPT_ENV] = "ready-5.2";
+    const spawn = async () => ({ status: 1, signal: null, stdout: "", stderr: "", timedOut: false });
+
+    try {
+      await runV2TestFiles("agent", ["v2/failing.test.ts"], spawn, "v2", 1);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[READY_ATTEMPT_ENV];
+      } else {
+        process.env[READY_ATTEMPT_ENV] = previous;
+      }
+    }
+
+    expect(stderr).toHaveBeenCalledWith(failingTestFileRecord("v2/failing.test.ts", "ready-5.2"));
   });
 
   test("emits a timed-out file's output captured before the kill instead of dropping it", async () => {

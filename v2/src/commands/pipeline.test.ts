@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PIPELINE_LIST_USAGE, PIPELINE_START_USAGE, PIPELINE_USAGE, PIPELINE_WAIT_USAGE } from "../cli/usage.ts";
+import { PIPELINE_APPROVE_USAGE, PIPELINE_LIST_USAGE, PIPELINE_REJECT_USAGE, PIPELINE_RESUME_USAGE, PIPELINE_START_USAGE, PIPELINE_USAGE, PIPELINE_WAIT_USAGE } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type CliRepoFixture,
@@ -16,8 +16,10 @@ import {
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {
   setInvertDetachClientWaitGuardForTest,
+  setInvertAppliedRefusedGuardForTest,
   setInvertListNonFollowGuardForTest,
   setInvertPreAdmissionResolutionGuardForTest,
+  setInvertResumedRefusedGuardForTest,
   setInvertWaitBoundaryGuardForTest,
 } from "./pipeline.ts";
 
@@ -34,6 +36,8 @@ afterAll(() => {
 afterEach(() => {
   setInvertPreAdmissionResolutionGuardForTest(false);
   setInvertDetachClientWaitGuardForTest(false);
+  setInvertAppliedRefusedGuardForTest(false);
+  setInvertResumedRefusedGuardForTest(false);
   setInvertListNonFollowGuardForTest(false);
   setInvertWaitBoundaryGuardForTest(false);
 });
@@ -663,6 +667,234 @@ describe("pipeline wait", () => {
   });
 });
 
+describe("pipeline approve and reject", () => {
+  test.each([
+    ["approve", "pipeline_approve", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" }],
+    ["reject", "pipeline_reject", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" }],
+  ] as const)("pipeline %s exits 0 on applied decision and sends both IDs", async (subcommand, method, result) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}`], () =>
+      main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}`, result)], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(ipcFramesWithMethod(sent, method)).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate" } }),
+    ]);
+  });
+
+  test("pipeline approve prints status_not_awaiting on stderr and exits non-zero", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-refused"], () =>
+      main(["pipeline", "approve", "pipe-1", "gate"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-approve-refused", {
+              kind: "refused",
+              pipelineId: "pipe-1",
+              stageId: "gate",
+              reason: "status_not_awaiting",
+            }),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "status_not_awaiting\n" });
+  });
+
+  test("pipeline reject prints invalid_decision on stderr with no success stdout", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-reject-refused"], () =>
+      main(["pipeline", "reject", "pipe-1", "gate"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-reject-refused", {
+              kind: "refused",
+              pipelineId: "pipe-1",
+              stageId: "gate",
+              reason: "invalid_decision",
+            }),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid_decision\n" });
+  });
+
+  test.each([
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "gate", "extra"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "   ", "gate"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "   "]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "gate", "extra"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "   ", "gate"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "   "]],
+  ] as const)("%s usage error %p prints usage before daemon connect", async (_subcommand, usage, argv) => {
+    const cap = captureIo();
+    let contacted = false;
+
+    const code = await main([...argv], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        contacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(contacted).toBe(false);
+    expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+  });
+
+  test.each(["approve", "reject"] as const)(
+    "pipeline %s prints invalid daemon response for malformed envelope",
+    async (subcommand) => {
+      const cap = captureIo();
+
+      const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}-bad`], () =>
+        main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}-bad`, { kind: "unknown" })]),
+        }),
+      );
+
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    },
+  );
+
+  test("inverting the applied-vs-refused guard reports applied decisions as failure", async () => {
+    setInvertAppliedRefusedGuardForTest(true);
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-guard"], () =>
+      main(["pipeline", "approve", "pipe-1", "gate"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-approve-guard", {
+              kind: "applied",
+              pipelineId: "pipe-1",
+              stageId: "gate",
+              decision: "approved",
+            }),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+  });
+});
+
+describe("pipeline resume", () => {
+  test.each([
+    ["pipe-resume-failed", "pipe-failed"],
+    ["pipe-resume-await", "pipe-await"],
+  ] as const)("pipeline resume exits 0 on resumed for %s", async (rpcId, pipelineId) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
+      main(["pipeline", "resume", pipelineId], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineWaitFrame(rpcId, { kind: "resumed", pipelineId })], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({ params: { pipelineId } }),
+    ]);
+  });
+
+  test.each([
+    ["pipe-resume-done", "pipe-done", "pipeline_terminal_succeeded"],
+    ["pipe-resume-rej", "pipe-rej", "pipeline_terminal_rejected"],
+  ] as const)("pipeline resume on terminal pipeline prints %s on stderr", async (rpcId, pipelineId, reason) => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
+      main(["pipeline", "resume", pipelineId], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineWaitFrame(rpcId, { kind: "refused", pipelineId, reason })]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: `${reason}\n` });
+  });
+
+  test.each([
+    [PIPELINE_RESUME_USAGE, ["pipeline", "resume"]],
+    [PIPELINE_RESUME_USAGE, ["pipeline", "resume", "pipe-1", "extra"]],
+    [PIPELINE_RESUME_USAGE, ["pipeline", "resume", "   "]],
+  ] as const)("resume usage error %p prints usage before daemon connect", async (usage, argv) => {
+    const cap = captureIo();
+    let contacted = false;
+
+    const code = await main([...argv], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        contacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(contacted).toBe(false);
+    expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+  });
+
+  test("pipeline resume prints invalid daemon response for malformed envelope", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-bad"], () =>
+      main(["pipeline", "resume", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-resume-bad", { kind: "unknown" })]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("inverting the resumed-vs-refused guard reports resumed outcomes as failure", async () => {
+    setInvertResumedRefusedGuardForTest(true);
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-guard"], () =>
+      main(["pipeline", "resume", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineWaitFrame("pipe-resume-guard", { kind: "resumed", pipelineId: "pipe-1" })]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+  });
+});
+
 describe("pipeline help", () => {
   test("help pipeline exposes the full family with list and wait semantics", async () => {
     const cap = captureIo();
@@ -675,6 +907,9 @@ describe("pipeline help", () => {
     expect(output).toContain("start\tStart a pipeline for a registered project.");
     expect(output).toContain("list\tSnapshot admitted pipelines and stage progress.");
     expect(output).toContain("wait\tBlock until a pipeline reaches a wait boundary.");
+    expect(output).toContain("approve\tAdmit an approval decision on a named gate.");
+    expect(output).toContain("reject\tReject an approval gate and settle the pipeline.");
+    expect(output).toContain("resume\tResume a failed or awaiting-approval pipeline.");
   });
 
   test("help pipeline list matches list usage", async () => {
@@ -693,6 +928,33 @@ describe("pipeline help", () => {
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain(PIPELINE_WAIT_USAGE.trim());
+  });
+
+  test("help pipeline approve matches approve usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "approve"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_APPROVE_USAGE.trim());
+  });
+
+  test("help pipeline reject matches reject usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "reject"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_REJECT_USAGE.trim());
+  });
+
+  test("help pipeline resume matches resume usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "resume"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_RESUME_USAGE.trim());
   });
 
   test("help pipeline start matches start usage and detach behavior", async () => {

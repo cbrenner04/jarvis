@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import { isOwnerAlive, type OwnerLivenessProbe, openStateStore, type StateStore } from "./state-store";
+import {
+  isOwnerAlive,
+  type OwnerLivenessProbe,
+  openStateStore,
+  type Pipeline,
+  type PipelineStageRecord,
+  type StateStore,
+} from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
@@ -483,6 +490,133 @@ describe("pipelines", () => {
   afterEach(() => {
     store.close();
     removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("listPipelines returns an empty collection for an empty store", () => {
+    expect(store.listPipelines()).toEqual([]);
+  });
+
+  test("listPipelines enumerates complete durable active and interrupted pipelines with ordered stages after reopen", () => {
+    const interruptedDefinition: PipelineDefinition = {
+      name: "interrupted-pipeline",
+      stages: [
+        { stageId: "approve", kind: "approval" },
+        { stageId: "ship", kind: "workflow", workflow: "implement", review: "debate" },
+      ],
+    };
+    store.close();
+    store = openStateStore(TEST_DB_PATH, { currentIdentity: "enumeration-owner:1" });
+    const activeId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const interruptedId = store.createPipeline({ definition: interruptedDefinition });
+
+    store.updateStage({
+      pipelineId: activeId,
+      stageId: "plan",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: "workflow-plan",
+        startedAt: 100,
+        endedAt: 200,
+        artifact: { specPath: "spec/plan.md" },
+      },
+    });
+    store.updateStage({
+      pipelineId: activeId,
+      stageId: "implement",
+      patch: {
+        status: "failed",
+        workflowInvocationId: "workflow-implement",
+        startedAt: 300,
+        endedAt: 400,
+        failureDetail: { code: "implementation_failed", message: "failed" },
+      },
+    });
+    store.updateStage({
+      pipelineId: interruptedId,
+      stageId: "ship",
+      patch: {
+        status: "interrupted",
+        workflowInvocationId: "workflow-ship",
+        startedAt: 500,
+        endedAt: 600,
+        artifact: { entryRunId: "run-ship", prNumber: 42 },
+        failureDetail: { message: "owner exited" },
+      },
+    });
+
+    const raw = new Database(TEST_DB_PATH);
+    let expectedById = new Map<string, Pipeline & { stages: PipelineStageRecord[] }>();
+    try {
+      raw.prepare("UPDATE pipelines SET owner_identity = NULL, status = 'interrupted' WHERE id = ?").run(interruptedId);
+      raw.prepare("UPDATE pipeline_stages SET position = position + 100 WHERE pipeline_id = ?").run(activeId);
+      raw
+        .prepare(
+          `UPDATE pipeline_stages SET position = CASE stage_id
+            WHEN 'implement' THEN 0 WHEN 'gate' THEN 1 WHEN 'plan' THEN 2 END
+           WHERE pipeline_id = ?`,
+        )
+        .run(activeId);
+
+      const expectedPipelines = raw
+        .prepare(
+          `SELECT id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition
+           FROM pipelines WHERE id IN (?, ?)`,
+        )
+        .all(activeId, interruptedId) as Array<{
+        id: string;
+        name: string;
+        createdAt: number;
+        ownerIdentity: string | null;
+        status: "active" | "interrupted";
+        definition: string;
+      }>;
+      const expectedStages = raw
+        .prepare(
+          `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
+                  workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
+                  artifact, failure_detail AS failureDetail
+           FROM pipeline_stages WHERE pipeline_id IN (?, ?) ORDER BY pipeline_id, position ASC`,
+        )
+        .all(activeId, interruptedId) as Array<{
+        id: string;
+        pipelineId: string;
+        stageId: string;
+        position: number;
+        status: string;
+        workflowInvocationId: string | null;
+        startedAt: number | null;
+        endedAt: number | null;
+        artifact: string | null;
+        failureDetail: string | null;
+      }>;
+      expectedById = new Map<string, Pipeline & { stages: PipelineStageRecord[] }>(
+        expectedPipelines.map((pipeline) => [
+          pipeline.id,
+          {
+            ...pipeline,
+            definition: JSON.parse(pipeline.definition) as PipelineDefinition,
+            stages: expectedStages
+              .filter((stage) => stage.pipelineId === pipeline.id)
+              .map((stage) => ({
+                ...stage,
+                artifact: stage.artifact === null ? null : (JSON.parse(stage.artifact) as unknown),
+                failureDetail: stage.failureDetail === null ? null : (JSON.parse(stage.failureDetail) as unknown),
+              })),
+          },
+        ]),
+      );
+      expect(expectedById.size).toBe(2);
+      expect(expectedStages).toHaveLength(5);
+    } finally {
+      raw.close();
+    }
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    const pipelines = store.listPipelines();
+    expect(pipelines).toHaveLength(2);
+    expect(pipelines.map((pipeline) => pipeline.id).sort()).toEqual([activeId, interruptedId].sort());
+    expect(new Map(pipelines.map((pipeline) => [pipeline.id, pipeline]))).toEqual(expectedById);
   });
 
   test("admits a validated multi-stage definition and reads one pending stage per authored stage in order", () => {

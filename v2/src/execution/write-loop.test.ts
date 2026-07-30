@@ -303,6 +303,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
     createPipeline: (args) => inner.createPipeline(args),
     loadPipeline: (pipelineId) => inner.loadPipeline(pipelineId),
+    listPipelines: () => inner.listPipelines(),
     updateStage: (args) => inner.updateStage(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),

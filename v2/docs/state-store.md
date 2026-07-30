@@ -53,6 +53,7 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `beginRunReconciliation` / `finishRunReconciliation` — restart sweep: mark orphan runs whose owner is gone as `killed` + `reconciliation_pending`, except a durable `review-debate` row becomes terminal `interrupted`; return pending run ids, then clear pending after the owed `run_reconciled` event is persisted.
 - `createPipeline` — admit an already-validated `PipelineDefinition`: one `pipelines` row (`owner_identity` stamped with the calling process's identity, `status = 'active'`) plus one `pending` `pipeline_stages` row per authored stage, atomically (all-or-nothing; a mid-admission fault rolls back the pipeline and every stage). Returns the generated pipeline ID.
 - `loadPipeline` — read an admitted pipeline plus its stages ordered by stored `position` (not insertion order); null when unknown.
+- `listPipelines` — read every admitted pipeline, including persisted `active` and `interrupted` rows, exactly once with every associated stage exactly once in stored authored-position order. It returns every persisted pipeline and stage field without interpreting lifecycle metadata. An empty store returns `[]`. Pipeline ordering, filtering, retention, and snapshot consistency against concurrent writes are unspecified and deferred until a consumer needs them.
 - `updateStage` — apply a targeted lifecycle patch (`StageLifecyclePatch`: optional `status`, `workflowInvocationId`, `startedAt`, `endedAt`, `artifact`, `failureDetail`) to one stage row in place. Omitted fields, and fields explicitly passed as `undefined`, are unchanged; an explicit `null` clears a nullable field. `artifact`/`failureDetail` round-trip losslessly only for JSON-representable values (no `undefined`, functions, or cyclic structures). Rejects a patch with no defined fields and an unknown `(pipelineId, stageId)`. Modifies only the targeted row — the row's `id`, `pipelineId`, `stageId`, and `position` and every sibling stage are untouched.
 - `reconcilePipelines` (async) — restart sweep for pipelines, mirroring `beginRunReconciliation`'s ownership/liveness predicate but scoped to `pipelines.status = 'active'` rows: a pipeline is a settlement candidate only when `owner_identity` is `NULL` or names a different process no longer alive (`isOwnerAlive`). A pipeline owned by the sweeping process, or by any other live process, is untouched. Settlement — one transaction per sweep — sets the pipeline `status = 'interrupted'` and marks each of its stages currently outside `pending`/`succeeded`/`failed`/`interrupted` (i.e. active) `interrupted` with `ended_at` set; every `pending` or already-terminal stage is left as-is. Idempotent: the `status = 'active'` scan excludes already-`interrupted` pipelines, so a re-sweep changes nothing and does not re-return their IDs. Returns the settled pipeline IDs. No pipeline log stream or pending-flag column exists yet (unlike `beginRunReconciliation`'s `run_reconciled`/`reconciliation_pending`) — deferred until a consumer needs one.
 
@@ -65,9 +66,10 @@ The current `artifact` envelope (written by `v2/src/daemon/pipeline-stage-dispat
 - `{ reason, retryable, nextAction }` — composed operator errors from `composeRunOperatorError` when the entry run row is missing at settlement.
 - The full operator-error object from `composeRunOperatorError` when the entry run row is present.
 
-No pipeline-level `status` column exists; overall pipeline state is derived
-from stage rows by `v2/src/daemon/pipeline-execution.ts`'s
-`derivePipelineState`, one of five states:
+The pipeline-level `status` stores only restart-reconciliation state:
+`active` or `interrupted`. It does not describe execution progress. Callers
+derive overall pipeline state from stage rows with
+`v2/src/daemon/pipeline-execution.ts`'s `derivePipelineState`, one of five states:
 
 - `succeeded` — every authored stage in order reads `succeeded` (workflow and approval rows alike); no undispatched approval gate remains.
 - `failed` — any workflow stage row reads `failed`.

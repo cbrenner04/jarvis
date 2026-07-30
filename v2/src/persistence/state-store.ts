@@ -227,6 +227,9 @@ export interface StateStore {
   /** Load an admitted pipeline and its stages, ordered by authored position; null when unknown. */
   loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null;
 
+  /** Every admitted pipeline with its stages ordered by authored position; pipeline order is unspecified. */
+  listPipelines(): Array<Pipeline & { stages: PipelineStageRecord[] }>;
+
   /**
    * Apply a targeted lifecycle patch to one stage row in place, preserving its
    * durable ID, pipeline ID, stage ID, and position. Rejects an empty patch and
@@ -663,13 +666,23 @@ class StateStoreImpl implements StateStore {
       .get(pipelineId) as PipelineRow | null;
     if (pipelineRow === null) return null;
 
-    const stages = (
+    return { ...mapPipelineRow(pipelineRow), stages: this.loadPipelineStages(pipelineId) };
+  }
+
+  listPipelines(): Array<Pipeline & { stages: PipelineStageRecord[] }> {
+    const pipelines = this.db.prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines`).all() as PipelineRow[];
+    return pipelines.map((pipelineRow) => ({
+      ...mapPipelineRow(pipelineRow),
+      stages: this.loadPipelineStages(pipelineRow.id),
+    }));
+  }
+
+  private loadPipelineStages(pipelineId: string): PipelineStageRecord[] {
+    return (
       this.db
         .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC`)
         .all(pipelineId) as StageRow[]
     ).map(mapStageRow);
-
-    return { ...mapPipelineRow(pipelineRow), stages };
   }
 
   updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void {

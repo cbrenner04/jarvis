@@ -1,0 +1,3 @@
+1. Align `v2/docs/daemon-host.md` with the new repository capability. It must no longer claim `loadPipeline` is the only stage-state inspection path. Clarify that `loadPipeline` and `listPipelines` are internal repository reads, while RPC/CLI pipeline inspection remains unavailable; cross-link `state-store.md` as the single contract home.
+
+2. Make the enumeration regression independently verify every persisted pipeline and stage field after reopen. Expected records must not come from `loadPipeline` or shared projections/mappers, since shared omissions could let both paths fail identically. This is required by the complete-record round-trip acceptance criterion.

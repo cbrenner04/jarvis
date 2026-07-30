@@ -7,7 +7,25 @@ import {
 } from "./pipeline-stage-dispatch.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
-export type PipelineDerivedState = "succeeded" | "failed" | "awaiting-approval" | "running" | "pending";
+export type PipelineDerivedState =
+  | "succeeded"
+  | "failed"
+  | "rejected"
+  | "interrupted"
+  | "awaiting-approval"
+  | "running"
+  | "pending";
+
+const TERMINAL_PIPELINE_STATES: ReadonlySet<PipelineDerivedState> = new Set([
+  "succeeded",
+  "failed",
+  "rejected",
+  "interrupted",
+]);
+
+export function isPipelineTerminal(state: PipelineDerivedState): boolean {
+  return TERMINAL_PIPELINE_STATES.has(state);
+}
 
 export type PipelineExecutionDeps = {
   store: StateStore;
@@ -197,33 +215,59 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
   }
 }
 
+export function isAuthoredStageSatisfied(stage: PipelineStage, record: PipelineStageRecord | undefined): boolean {
+  if (record === undefined) return false;
+  if (stage.kind === "workflow") return record.status === "succeeded";
+  return record.status === "approved";
+}
+
+/** Authored stages in durable `position` order — same walk `runPipeline` and `loadPipeline` use. */
+export function authoredStagesInPositionOrder(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): Array<{ stage: PipelineStage; record: PipelineStageRecord }> {
+  const ordered: Array<{ stage: PipelineStage; record: PipelineStageRecord }> = [];
+  for (const record of pipeline.stages) {
+    const stage = pipeline.definition.stages[record.position];
+    if (stage === undefined) continue;
+    ordered.push({ stage, record });
+  }
+  return ordered;
+}
+
 /**
- * Derive a pipeline's overall state from its stage rows: `failed` if any workflow stage row
- * reads `failed`; `running` if any workflow stage row reads `running`; otherwise walk the
- * authored stages in order and stop at the first one that has not succeeded — an undispatched
- * approval stage there yields `awaiting-approval`, an undispatched/unsettled workflow stage
- * yields `pending`. `succeeded` requires every stage in the walk to have succeeded, including
- * an approval gate reached at the very end — it is never returned merely because every workflow
- * stage row succeeded while a pending approval gate follows. `skipped` rows are never read as
- * `failed` — they only distinguish "will never run", and are never reached by the ordered walk
- * because a `failed` row always precedes them.
+ * Derive a pipeline's overall state from durable pipeline and stage rows — first match wins:
+ * `interrupted`, `rejected`, `failed`, `running`, then an authored-order walk for
+ * `awaiting-approval`/`pending`, else `succeeded`. A recovered pipeline row back to `active`
+ * with no `interrupted` stage rows resumes normal derivation. `skipped` rows are never
+ * satisfied and are never reached because `failed` always precedes them.
  */
 export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineDerivedState {
-  const { stages: stageRecords, definition } = pipeline;
-  const byStageId = new Map(stageRecords.map((record) => [record.stageId, record]));
-  const workflowStages = definition.stages.filter(
-    (stage): stage is Extract<PipelineStage, { kind: "workflow" }> => stage.kind === "workflow",
-  );
+  const { stages: stageRecords, status: pipelineStatus } = pipeline;
 
-  if (workflowStages.some((stage) => byStageId.get(stage.stageId)?.status === "failed")) {
-    return "failed";
-  }
-  if (workflowStages.some((stage) => byStageId.get(stage.stageId)?.status === "running")) {
-    return "running";
+  if (pipelineStatus === "interrupted" || stageRecords.some((record) => record.status === "interrupted")) {
+    return "interrupted";
   }
 
-  for (const stage of definition.stages) {
-    if (byStageId.get(stage.stageId)?.status === "succeeded") continue;
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (stage.kind === "approval" && record.status === "rejected") {
+      return "rejected";
+    }
+  }
+
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (stage.kind === "workflow" && record.status === "failed") {
+      return "failed";
+    }
+  }
+
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (stage.kind === "workflow" && record.status === "running") {
+      return "running";
+    }
+  }
+
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (isAuthoredStageSatisfied(stage, record)) continue;
     return stage.kind === "approval" ? "awaiting-approval" : "pending";
   }
 

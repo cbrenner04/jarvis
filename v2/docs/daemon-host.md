@@ -157,6 +157,9 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `kill` | `{ runId: string }` | `{ ok: true }` | Abort the run's signal immediately and record durable status `killed` when the row is not boundary-terminal (`completed`, `blocked`, `failed`). Leaves the worktree dirty. Accepts any live run, including workflow-started step rows (see [Live controls on workflow-started runs](#live-controls-on-workflow-started-runs)). Rejected `run_not_active` if run is unknown or not active. |
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resumes workflow write runs when shared snapshot reconstruction succeeds and the same admission predicate that projects `list`/`wait` `resumable` (`nextAction: "resume"` on the composed operator error; see [Operator error on list and wait](#operator-error-on-list-and-wait)). Rejected `daemon_superseded` if the daemon is retiring (see [Daemon retirement on supersession](#daemon-retirement-on-supersession)). The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Accepted reasons include every composition that yields `nextAction: "resume"` (e.g. `resumable_pause`, `resumable_budget`, `resumable_kill`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, `landing_failed`, `invalid_token`, `missing_blocker`, resumable `contract_miss` on `implement~shrink`); compositions yielding `nextAction: "stop"` / `"inspect_spec"` / `"fix_config"` / `"retry_later"` are rejected with `terminal_run` whose message names the owning recovery from `RUN_OPERATOR_ERROR_RECOVERY` (see `run-operator-error.ts`). Ad-hoc stopped runs remain unsupported. A row owned by a durable review-behavior step (a durable `implement-review`, or a durable `review-debate` last step — never a non-durable light `implement-review` sharing that step ID) whose terminal `loop_finished` names `surviving_mutation_failed`, `ready_gate_failed`, or `completion_commit_failed` does not go through this snapshot-field reconstruction — its own `stepRules`/`expectedArtifactPath` are review-shaped, not write-shaped. It resolves through completion-step / publication-tail reconstruction instead: the durable write step's completed sibling row is resolved by workflow `invocationId`, matching either the authored write stepId or a completed `<stepId>~link-N` row (the shape a linked-implement workflow's terminal pass persists), picking the terminal completed candidate when several exist. That selected row supplies the publication `worktreePath`, base ref, and `specPath`; conflicting fields recorded on the review row itself never override it. Resume then commits any uncommitted worktree changes and replays mutation re-verification, the ready gate, and publication without re-invoking the completed write step's agent. The other two outcome kinds are admitted for self-consistency — only this same resume path ever writes them onto a review-behavior row — not because a fresh review pass can settle them; `runtime_smoke_failed` from this same tail is excluded (retrying cannot change that outcome) and reports `unsupported_resume_context` instead, even when its own `loop_finished` record says `resumable: true`. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. On a workflow entry, whichever durable sibling row owns the rollup `surviving_mutation_failed` — a hidden `~shrink` row or a durable review row alike — supplies outcome fields and error detail (chronologically last terminal record wins among multiple candidates); entry resumability remains tied to the entry row. Unsupported stopped write context returns `error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" }` and forces `resumable: false`, even when the historical loop record was resumable. Otherwise behavior is unchanged; optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
+| `pipeline_start` | `{ definition: PipelineDefinition, context: PipelineContext }` | `{ pipelineId: string }` | Admit a validated pipeline definition plus execution context: create durable pipeline/stage rows, start the ordered daemon-owned loop (`runPipeline`), and return once rows exist — not when the pipeline finishes. Missing `definition` or `context` → `invalid_params`. The handler does not re-run `validatePipelineDefinition`; callers must validate before RPC. See [Ordered pipeline progression](#ordered-pipeline-progression). |
+| `pipeline_list` | — | `{ pipelines: Array<{ pipelineId, name, state, stages: Array<{ stageId, status, workflowInvocationId }> }> }` | Parameterless durable snapshot of every admitted pipeline without following live transitions. Empty store → `{ pipelines: [] }`. Stage order follows stored authored `position`. Derived `state` uses `derivePipelineState` (see [Pipeline snapshots](#pipeline-snapshots)). |
+| `pipeline_wait` | `{ pipelineId: string }` | `{ kind: "terminal", state } \| { kind: "awaiting-approval", stageId }` | Block until the named pipeline reaches a wait boundary or the request `AbortSignal` aborts. Returns immediately when already at a boundary. Missing/empty `pipelineId` → `invalid_params`; unknown ID → `unknown_pipeline` (no wait begins). Abort throws `pipeline_wait aborted` with no boundary payload. Other failures propagate without masking as abort. See [Pipeline wait](#pipeline-wait). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
@@ -900,16 +903,82 @@ recorded as that stage's failure. This slice adds no pipeline-level queueing
 beyond the existing registry; two pipelines targeting the same project
 concurrently is out of scope. Observability: pipeline stage runs are not yet
 attributable to their owning pipeline in `workflow.list`/CLI run listings —
-deferred. RPC and CLI pipeline inspection remain unavailable. Internal
-repository reads `loadPipeline` and `listPipelines` can inspect persisted
-pipeline and stage state; [`state-store.md`](./state-store.md) is their single
-contract home.
+deferred. RPC pipeline inspection is available through `pipeline_list`; CLI
+pipeline inspection remains unavailable. Internal repository reads
+`loadPipeline` and `listPipelines` can inspect persisted pipeline and stage
+state; [`state-store.md`](./state-store.md) is their single contract home.
 
-### Derived pipeline state
+### Pipeline snapshots
 
-`pipeline-execution.ts`'s `derivePipelineState` computes a pipeline's overall
-state from its stage rows only (no new column) — see
-[`state-store.md`](./state-store.md) for the five states.
+`pipeline_list` (parameterless) returns one durable enumeration of every
+admitted pipeline without following live transitions:
+
+```json
+{ "pipelines": [{ "pipelineId", "name", "state", "stages": [{ "stageId", "status", "workflowInvocationId" }] }] }
+```
+
+An empty store returns `{ "pipelines": [] }`. Stage snapshots preserve stored
+authored-position order; pipeline order is unspecified. The response promises
+no stronger cross-pipeline or concurrent-row isolation than that single
+`listPipelines` read — observation does not hold execution writes.
+
+`pipeline-execution.ts`'s `derivePipelineState` computes each `state` from
+durable pipeline and stage rows only (no new column), walking stages in stored
+`position` order — the same ordering `runPipeline` and `loadPipeline` use.
+First match wins:
+
+1. `interrupted` — pipeline row reads `interrupted`, or any stage row reads
+   `interrupted`.
+2. `rejected` — any approval stage row reads `rejected`.
+3. `failed` — any workflow stage row reads `failed`.
+4. `running` — any workflow stage row reads `running`.
+5. `awaiting-approval` — authored-position walk reaches the first unsatisfied
+   stage (`isAuthoredStageSatisfied`) and it is an approval stage.
+6. `pending` — the walk reaches the first unsatisfied workflow stage (including
+   undispatched rows).
+7. `succeeded` — every authored stage is satisfied in position order.
+
+Stage satisfaction for the walk: workflow stages satisfy on `succeeded`;
+approval stages satisfy on `approved`. Any unsatisfied approval row (for example
+`awaiting` or `pending`) is undecided; `rejected` is handled at step 2. `skipped` rows
+are never satisfied and are never reached because `failed` always precedes
+them. A recovered pipeline row back to `active` with no `interrupted` stage
+rows resumes normal derivation.
+
+Terminal states: `succeeded`, `failed`, `rejected`, `interrupted`.
+Non-terminal: `pending`, `running`, `awaiting-approval`. Callers must not
+infer terminality from raw stage vocabulary alone.
+
+### Pipeline wait
+
+`pipeline_wait { pipelineId }` blocks until the named pipeline reaches a
+wait boundary, or the request `AbortSignal` aborts. It reads durable
+pipeline and stage rows before blocking and returns immediately when the
+pipeline is already at a boundary — a new transition after subscription is
+not required.
+
+Wait boundaries:
+
+```json
+{ "kind": "terminal", "state": "succeeded" | "failed" | "rejected" | "interrupted" }
+{ "kind": "awaiting-approval", "stageId": "<first undecided approval after satisfied predecessors>" }
+```
+
+`pending` and `running` are not boundaries; a live wait keeps observing
+through workflow-stage transitions until the first durable terminal or
+`awaiting-approval` state. Boundary derivation reuses the same
+`derivePipelineState` precedence walk as `pipeline_list`.
+
+Observation substrate: re-read durable pipeline/stage rows after each
+in-process `updateStage` (via an in-daemon observer) and on bounded polling
+(`FOLLOW_POLL_MS`, same default as log follow) until `AbortSignal`.
+No run-log follow and no implicit `pipeline_list` follow loop.
+
+Refusals: missing or empty `pipelineId` → `invalid_params`; unknown durable
+ID → `unknown_pipeline` (no wait begins). Aborting a live wait throws
+`pipeline_wait aborted` at the handler boundary and does not return a
+boundary payload — same cancellation shape as run `wait`. Other wait-time
+failures propagate without conversion to abort.
 
 ## Library surface
 

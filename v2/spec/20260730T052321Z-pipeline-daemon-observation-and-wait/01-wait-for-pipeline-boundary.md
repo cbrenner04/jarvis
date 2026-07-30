@@ -23,13 +23,13 @@
 
 ## Acceptance criteria
 
-- [ ] The `pipeline_wait` regression in `v2/src/daemon/daemon-pipeline-observation.test.ts` fails against the baseline and then returns `{ kind: "terminal", state }` for each terminal state and `{ kind: "awaiting-approval", stageId }` for the first undecided approval after satisfied predecessors.
-- [ ] A live wait remains pending through `pending` and `running`, then resolves at the first durable terminal or awaiting-approval boundary; an already-boundary pipeline returns promptly.
-- [ ] Missing pipeline IDs return `invalid_params`, and unknown durable IDs return the named `unknown_pipeline` refusal without beginning a wait.
-- [ ] Aborting a live `pipeline_wait` ends without a boundary result.
-- [ ] Inverting any added boundary, identifier-validation, unknown-ID, observation-substrate, abort, or continue-wait guard makes `v2/src/daemon/daemon-pipeline-observation.test.ts` fail; negative cases prove pending/running work does not resolve and an awaiting response names the correct authored stage.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/daemon-host.md` documents `pipeline_wait`, its immediate and blocking behavior, durable-row observation substrate, `AbortSignal` cancellation, exact boundary results, and named errors.
+- [x] The `pipeline_wait` regression in `v2/src/daemon/daemon-pipeline-observation.test.ts` fails against the baseline and then returns `{ kind: "terminal", state }` for each terminal state and `{ kind: "awaiting-approval", stageId }` for the first undecided approval after satisfied predecessors.
+- [x] A live wait remains pending through `pending` and `running`, then resolves at the first durable terminal or awaiting-approval boundary; an already-boundary pipeline returns promptly.
+- [x] Missing pipeline IDs return `invalid_params`, and unknown durable IDs return the named `unknown_pipeline` refusal without beginning a wait.
+- [x] Aborting a live `pipeline_wait` ends without a boundary result.
+- [x] Inverting any added boundary, identifier-validation, unknown-ID, observation-substrate, abort, or continue-wait guard makes `v2/src/daemon/daemon-pipeline-observation.test.ts` fail; negative cases prove pending/running work does not resolve and an awaiting response names the correct authored stage.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/daemon-host.md` documents `pipeline_wait`, its immediate and blocking behavior, durable-row observation substrate, `AbortSignal` cancellation, exact boundary results, and named errors.
 
 ## Documentation updates
 

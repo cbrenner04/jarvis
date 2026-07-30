@@ -64,6 +64,14 @@ import {
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { runPipeline } from "./pipeline-execution.ts";
+import {
+  bindPipelineWaitObserver,
+  PIPELINE_WAIT_ABORTED,
+  PipelineWaitAbortedError,
+  PipelineWaitObserver,
+  projectPipelineSnapshot,
+  waitForPipelineBoundary,
+} from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
@@ -829,15 +837,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
   // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
-  const {
-    stateStore: store,
-    logReader,
-    writeLoopExecutor,
-    failureReporter,
-    logsPath,
-    operatorSessionId,
-    intentFinalizationResumeDeps,
-  } = deps;
+  const pipelineWaitObserver = new PipelineWaitObserver();
+  const store = bindPipelineWaitObserver(deps.stateStore, pipelineWaitObserver);
+  const { logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId, intentFinalizationResumeDeps } =
+    deps;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -1739,6 +1742,32 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: { pipelineId } };
   };
 
+  const handlePipelineListHandler: RpcHandler = () => {
+    return { kind: "response", result: { pipelines: store.listPipelines().map(projectPipelineSnapshot) } };
+  };
+
+  const handlePipelineWaitHandler: RpcHandler = async (frame, signal) => {
+    const params = frame.params as { pipelineId?: unknown } | undefined;
+    if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "Missing pipelineId" };
+    }
+
+    const pipelineId = params.pipelineId;
+    if (!store.loadPipeline(pipelineId)) {
+      return { kind: "error", code: "unknown_pipeline", message: `Pipeline ${pipelineId} not found` };
+    }
+
+    try {
+      const boundary = await waitForPipelineBoundary(store, pipelineId, signal, pipelineWaitObserver);
+      return { kind: "response", result: boundary };
+    } catch (error) {
+      if (signal.aborted || error instanceof PipelineWaitAbortedError) {
+        throw new Error(PIPELINE_WAIT_ABORTED);
+      }
+      throw error;
+    }
+  };
+
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
   const setRetiring = (): void => {
@@ -1757,6 +1786,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     kill: killHandler,
     wait: waitHandler,
     pipeline_start: handlePipelineStartHandler,
+    pipeline_list: handlePipelineListHandler,
+    pipeline_wait: handlePipelineWaitHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */

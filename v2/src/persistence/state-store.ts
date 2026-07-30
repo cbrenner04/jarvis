@@ -100,6 +100,13 @@ export type OutcomeKind =
   | "invalid_token"
   | "missing_blocker";
 
+/** Durable ready-gate repair fence provenance persisted across process restart and resume. */
+export type ReadyGateRepairFenceProvenance = {
+  allowedPaths: readonly string[];
+  offendingPath?: string;
+  outcomeKind: "frozen" | "completion_commit_failed";
+};
+
 /** A durable run record. */
 export type Run = {
   id: string;
@@ -118,6 +125,9 @@ export type Run = {
   prNumber?: number | null;
   prUrl?: string | null;
   reconciledAt?: number | null;
+  readyGateRepairFence?: ReadyGateRepairFenceProvenance | null;
+  /** True when a non-null fence column could not be parsed into a valid allowset. */
+  readyGateRepairFenceCorrupt?: boolean;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -303,6 +313,9 @@ export interface StateStore {
   /** Record the confirmed PR number and URL after successful publication. */
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
 
+  /** Persist ready-gate repair fence provenance for restart-safe recovery. */
+  setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -457,7 +470,8 @@ const SCHEMA = `
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
-  pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt`;
+  pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt,
+  ready_gate_repair_fence AS readyGateRepairFenceJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -544,6 +558,10 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "016-run-reconciled-at",
     up: "ALTER TABLE runs ADD COLUMN reconciled_at INTEGER",
+  },
+  {
+    id: "017-run-ready-gate-repair-fence",
+    up: "ALTER TABLE runs ADD COLUMN ready_gate_repair_fence TEXT",
   },
 ] as const;
 
@@ -660,14 +678,37 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
-type RunRow = Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null };
+type RunRow = Omit<Run, "workflowSnapshot" | "queuedInput" | "readyGateRepairFence" | "readyGateRepairFenceCorrupt"> & {
+  workflowSnapshotJson: string | null;
+  queuedInputJson: string | null;
+  readyGateRepairFenceJson: string | null;
+};
+
+function parseReadyGateRepairFenceProvenance(
+  json: string | null,
+): ReadyGateRepairFenceProvenance | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as ReadyGateRepairFenceProvenance;
+    if (!Array.isArray(parsed.allowedPaths)) return "invalid";
+    if (parsed.outcomeKind !== "frozen" && parsed.outcomeKind !== "completion_commit_failed") {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
 
 function mapRunRow(row: RunRow): Run {
-  const { workflowSnapshotJson, queuedInputJson, ...run } = row;
+  const { workflowSnapshotJson, queuedInputJson, readyGateRepairFenceJson, ...run } = row;
+  const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   return {
     ...run,
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
     queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
+    readyGateRepairFence: parsedFence === "invalid" || parsedFence === null ? null : parsedFence,
+    ...(parsedFence === "invalid" ? { readyGateRepairFenceCorrupt: true } : {}),
   };
 }
 
@@ -766,6 +807,10 @@ class StateStoreImpl implements StateStore {
 
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void {
     this.db.prepare("UPDATE runs SET pr_number = ?, pr_url = ? WHERE id = ?").run(prNumber, prUrl, runId);
+  }
+
+  setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void {
+    this.db.prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?").run(JSON.stringify(fence), runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

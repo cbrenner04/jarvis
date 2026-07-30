@@ -73,6 +73,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   appendRuntimeSmokeOutcome,
+  enforcePersistedReadyGateRepairFence,
   executeWriteLoop,
   getUncommittedPaths,
   MAX_MUTATION_REPAIR_ATTEMPTS,
@@ -2626,6 +2627,8 @@ export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
 export type ReviewMutationResumeContext = {
   runId: string;
+  /** Durable write-step row carrying persisted ready-gate repair fence provenance. */
+  writeSiblingRunId: string;
   worktreePath: string;
   project: string;
   branch: string;
@@ -2652,6 +2655,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
     ok: true,
     context: {
       runId: run.id,
+      writeSiblingRunId: writeRun.id,
       worktreePath: writeRun.worktreePath,
       project: run.project,
       branch: run.branch,
@@ -2718,6 +2722,7 @@ export function resolveWriteOutOfScopeResumeContext(
     ok: true,
     context: {
       runId: run.id,
+      writeSiblingRunId: run.id,
       worktreePath: run.worktreePath,
       project: run.project,
       branch: run.branch,
@@ -2741,6 +2746,8 @@ export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
     WriteLoopInput,
     "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
   >;
+  invertReadyGateRepairFenceForTest?: boolean;
+  bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
@@ -2782,6 +2789,29 @@ async function commitReviewMutationResumeChanges(
   creationTitle: string,
   deps: ReviewMutationResumeDeps,
 ): Promise<ReviewMutationResumeOutcome | undefined> {
+  const recoveryFenceError = await enforcePersistedReadyGateRepairFence(
+    {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+    },
+    store,
+    context.writeSiblingRunId,
+    {
+      bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
+      invertFence: deps.invertReadyGateRepairFenceForTest === true,
+    },
+  );
+  if (recoveryFenceError !== undefined) {
+    return settleReviewMutationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "completion_commit_failed",
+      recoveryFenceError.message,
+      deps,
+    );
+  }
   const committer = deps.completionCommitter ?? createCompletionCommitter();
   let published: Awaited<ReturnType<CompletionCommitter>>;
   try {
@@ -3093,6 +3123,30 @@ async function runReviewMutationCommitAndPublish(
   store.setCreationTitle(context.runId, creationTitle);
   const commitFailure = await commitReviewMutationResumeChanges(context, store, attemptId, creationTitle, deps);
   if (commitFailure !== undefined) return commitFailure;
+
+  const publishFenceError = await enforcePersistedReadyGateRepairFence(
+    {
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.specPath,
+    },
+    store,
+    context.writeSiblingRunId,
+    {
+      bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
+      invertFence: deps.invertReadyGateRepairFenceForTest === true,
+    },
+  );
+  if (publishFenceError !== undefined) {
+    return settleReviewMutationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "completion_commit_failed",
+      publishFenceError.message,
+      deps,
+    );
+  }
 
   const { bodySummary, specTemplate } = await deriveReviewMutationResumeBodySummary(context);
 

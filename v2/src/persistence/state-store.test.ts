@@ -624,6 +624,8 @@ describe("pipelines", () => {
             ...pipeline,
             definition: JSON.parse(pipeline.definition) as PipelineDefinition,
             context: pipeline.context === null ? null : (JSON.parse(pipeline.context) as PipelineContext),
+            terminalPublicationFailure: null,
+            terminalPublicationSucceededAt: null,
             stages: expectedStages
               .filter((stage) => stage.pipelineId === pipeline.id)
               .map((stage) => ({
@@ -1273,7 +1275,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(15);
+      expect(migrationCount.total).toBe(16);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -2026,5 +2028,104 @@ describe("failed pipeline reopen", () => {
       kind: "invalid",
       reason: "malformed_continuation",
     });
+  });
+});
+
+describe("terminal publication commits", () => {
+  let store: StateStore;
+
+  const TERMINAL_PIPELINE_DEFINITION: PipelineDefinition = {
+    name: "terminal-pipeline",
+    terminalAction: "ready",
+    stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+  };
+
+  const SAMPLE_FAILURE = {
+    operation: "gh pr ready" as const,
+    message: "flip failed",
+    exitCode: 1,
+  };
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function seedSettledPipeline(): string {
+    const pipelineId = store.createPipeline({ definition: TERMINAL_PIPELINE_DEFINITION });
+    store.updateStage({ pipelineId, stageId: "implement", patch: { status: "succeeded" } });
+    return pipelineId;
+  }
+
+  test("commitTerminalPublicationSuccess stamps first write and is idempotent", () => {
+    const pipelineId = seedSettledPipeline();
+    const before = Date.now();
+
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    const first = loadPipelineOrThrow(store, pipelineId);
+    expect(first.terminalPublicationSucceededAt).toBeGreaterThanOrEqual(before);
+    expect(first.terminalPublicationFailure).toBeNull();
+
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    expect(loadPipelineOrThrow(store, pipelineId).terminalPublicationSucceededAt).toBe(
+      first.terminalPublicationSucceededAt,
+    );
+  });
+
+  test("commitTerminalPublicationFailure stamps first write and is idempotent", () => {
+    const pipelineId = seedSettledPipeline();
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+      prNumber: 42,
+      prUrl: "https://example.com/pr/42",
+    });
+    const first = loadPipelineOrThrow(store, pipelineId);
+    expect(first.terminalPublicationFailure).toEqual({
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+      prNumber: 42,
+      prUrl: "https://example.com/pr/42",
+    });
+    expect(first.terminalPublicationSucceededAt).toBeNull();
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      terminalAction: "merge",
+      failure: { operation: "gh pr merge", message: "should not apply" },
+    });
+    expect(loadPipelineOrThrow(store, pipelineId).terminalPublicationFailure).toEqual(first.terminalPublicationFailure);
+  });
+
+  test("success and failure markers are mutually exclusive", () => {
+    const pipelineId = seedSettledPipeline();
+
+    store.commitTerminalPublicationFailure({
+      pipelineId,
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+    });
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    const afterFailure = loadPipelineOrThrow(store, pipelineId);
+    expect(afterFailure.terminalPublicationSucceededAt).toBeNull();
+    expect(afterFailure.terminalPublicationFailure?.failure).toEqual(SAMPLE_FAILURE);
+
+    const freshId = seedSettledPipeline();
+    store.commitTerminalPublicationSuccess({ pipelineId: freshId });
+    store.commitTerminalPublicationFailure({
+      pipelineId: freshId,
+      terminalAction: "ready",
+      failure: SAMPLE_FAILURE,
+    });
+    const afterSuccess = loadPipelineOrThrow(store, freshId);
+    expect(afterSuccess.terminalPublicationFailure).toBeNull();
+    expect(afterSuccess.terminalPublicationSucceededAt).not.toBeNull();
   });
 });

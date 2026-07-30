@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Cleanup eligibility across live sockets](./00-cleanup-eligibility-uses-live-socket-discovery.md)
+- [x] [00 - Cleanup eligibility across live sockets](./00-cleanup-eligibility-uses-live-socket-discovery.md)

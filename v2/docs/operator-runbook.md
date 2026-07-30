@@ -981,14 +981,19 @@ non-terminal-run, live-run, and other ineligibility skips retain exit `0`. Clean
 an established connection that never responds is outside this behavior. If the run store is inaccessible
 (`listRuns()` throws), cleanup aborts with that error rather than skipping individual worktrees.
 
-The CLI first connects to the digest-keyed socket for the invoking `jarvis`. If that connect proves
-no listener (`ENOENT` or `ECONNREFUSED`), one stderr line recommends `jarvis daemon start`, then bulk
-cleanup still reaps dead sockets and scans stranded open-home specs. Merged worktrees remain
-fail-closed with the preview and exit behavior above. Timeout, permission, and unexpected connect
-failures still abort before those phases. Until cross-digest discovery ships, a daemon listening on
-another executable digest does not satisfy this probe, so cleanup may skip merged worktrees and
-exit `1`. `jarvis cleanup --abandon <name>` refuses before preview when the keyed listener is absent.
-Worktrees ineligible for this session remain untouched; retry after restoring daemon reachability.
+The CLI queries every live daemon socket discovered under `JARVIS_HOME` plus the invoking
+digest's socket (same set as `jarvis run list`), issuing `list` on each and skipping sockets
+whose connect, `list`, or parse fails without aborting the command. A socket counts as
+answering only when connect + `list` + parse all succeed. Bulk cleanup unions `isLive` rows
+for each `(project, branch)` across answering daemons. When no socket in that query set
+answers, one stderr line recommends `jarvis daemon start`, then bulk cleanup still reaps dead
+sockets and scans stranded open-home specs. Merged worktrees remain fail-closed with the
+preview and exit behavior above. Timeout, permission, and unexpected connect failures on the
+invoking socket do not abort when another socket in the query set would answer; when no
+socket answers, non-`ENOENT`/`ECONNREFUSED` first errors still abort before those phases.
+`jarvis cleanup --abandon <name>` still connects only to the keyed digest socket and refuses
+before preview when that listener is absent. Worktrees ineligible for this session remain
+untouched; retry after restoring daemon reachability.
 
 Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
 is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;

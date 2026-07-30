@@ -6,6 +6,7 @@ import type { BuildImplementWorkflowStepsInput } from "../execution/implement-wo
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
@@ -319,5 +320,71 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.steps.some((step) => step.behavior === "review" || step.behavior === "review-debate")).toBe(false);
+  });
+
+  test("leave-draft pipeline implement completion skips ready finalization", async () => {
+    const publishWriteStep = { behavior: "write", publishCompletion: true } as never;
+    const builders = fakeBuilders({
+      implement: async () => ({ ok: true, steps: [publishWriteStep] }),
+    });
+    const leaveDraftDefinition: PipelineDefinition = {
+      name: "p",
+      terminalAction: "leave-draft",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const resolveDeps = {
+      builders,
+      resolveBaseRef: async () => "main",
+    };
+    const artifactSpecPaths = new Map([["plan", "spec/index.md"]]);
+
+    const leaveDraft = await resolveStageWorkflowSteps(
+      leaveDraftDefinition,
+      1,
+      baseContext,
+      artifactSpecPaths,
+      resolveDeps,
+    );
+    expect(leaveDraft.ok).toBe(true);
+    if (!leaveDraft.ok) return;
+    const leaveDraftStep = leaveDraft.steps.find(
+      (step): step is Extract<(typeof leaveDraft.steps)[number], { behavior: "write" }> =>
+        step.behavior === "write" && step.publishCompletion !== false,
+    );
+    if (!leaveDraftStep) throw new Error("expected publish write step");
+    expect(leaveDraftStep.skipReadyFinalization).toBe(true);
+
+    const readyDefinition: PipelineDefinition = { ...leaveDraftDefinition, terminalAction: "ready" };
+    const ready = await resolveStageWorkflowSteps(readyDefinition, 1, baseContext, artifactSpecPaths, resolveDeps);
+    expect(ready.ok).toBe(true);
+    if (!ready.ok) return;
+    const readyStep = ready.steps.find(
+      (step): step is Extract<(typeof ready.steps)[number], { behavior: "write" }> =>
+        step.behavior === "write" && step.publishCompletion !== false,
+    );
+    expect(readyStep?.skipReadyFinalization).toBeUndefined();
+
+    let finalizerCalled = false;
+    const outcome = await publishCompletionArtifacts(
+      {
+        skipReadyFinalization: true,
+        completionPublisher: async () => ({ prNumber: 1, prUrl: "https://example.com/pr/1" }),
+        readyFinalizer: async () => {
+          finalizerCalled = true;
+          return {};
+        },
+      },
+      {
+        worktreePath: "/repo",
+        baseRef: "main",
+        specPath: "spec/index.md",
+        branch: "feature",
+      },
+    );
+    expect(finalizerCalled).toBe(false);
+    expect(outcome.kind).toBe("success");
   });
 });

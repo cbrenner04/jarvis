@@ -254,6 +254,19 @@ describe("cleanup command through main", () => {
   // A daemon list-response reporting no runs for the queried branch (→ eligible).
   const noRunsFrame = { kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } };
 
+  function connectOlderDigestLive(invokingSocket: string, branch: string) {
+    return async (socketPath: string) => {
+      if (socketPath === invokingSocket) {
+        throw Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
+      }
+      return makeIpcClient([], {
+        staleResetPreflight: {
+          listRuns: [{ runId: "live-run", project: "project", branch, status: "in-progress", isLive: true }],
+        },
+      });
+    };
+  }
+
   beforeEach(async () => {
     cleanupTmp = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
     cleanupProjectRoot = join(cleanupTmp, "project");
@@ -399,6 +412,7 @@ describe("cleanup command through main", () => {
         jarvisRoot: cleanupJarvisRoot,
         subprocessRunner: mergedPrRunner(cleanupProjectRoot),
         socketPath: deadSocket,
+        socketDiscovery: async () => [],
         connectIpcClient: async () => {
           throw Object.assign(new Error(rawSocketError), { code: "ENOENT" });
         },
@@ -428,6 +442,90 @@ describe("cleanup command through main", () => {
     expect(stdout).toContain(`Skipped stranded artifact: ${stranded}`);
     expect(stdout).not.toContain(rawSocketError);
     expect(existsSync(deadSocket)).toBe(false);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("discovered older-digest daemon suppresses no-listener stderr and blocks live run", async () => {
+    const branch = "older-digest-cli-live";
+    const worktreePath = await materializeMergedWorktree(branch);
+    const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
+    const olderSocket = join(cleanupJarvisRoot, "daemon-older.sock");
+    const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+
+    const code = await cliMain(
+      ["cleanup", "--dry-run"],
+      {
+        stdout: (text) => events.push({ stream: "stdout", text }),
+        stderr: (text) => events.push({ stream: "stderr", text }),
+      },
+      {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        socketPath: invokingSocket,
+        socketDiscovery: async () => [olderSocket],
+        connectIpcClient: connectOlderDigestLive(invokingSocket, branch),
+      },
+    );
+
+    const stdout = events
+      .filter((event) => event.stream === "stdout")
+      .map((event) => event.text)
+      .join("");
+    const stderr = events
+      .filter((event) => event.stream === "stderr")
+      .map((event) => event.text)
+      .join("");
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).not.toContain("Daemon unreachable");
+    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).not.toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("invoking-socket hard error does not abort cleanup when discovered peer answers", async () => {
+    const branch = "peer-answers-eacces";
+    const worktreePath = await materializeMergedWorktree(branch);
+    const invokingSocket = join(cleanupJarvisRoot, "daemon-invoking.sock");
+    const peerSocket = join(cleanupJarvisRoot, "daemon-peer.sock");
+    const events: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+
+    const code = await cliMain(
+      ["cleanup", "--dry-run"],
+      {
+        stdout: (text) => events.push({ stream: "stdout", text }),
+        stderr: (text) => events.push({ stream: "stderr", text }),
+      },
+      {
+        readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
+        jarvisRoot: cleanupJarvisRoot,
+        subprocessRunner: mergedPrRunner(cleanupProjectRoot),
+        socketPath: invokingSocket,
+        socketDiscovery: async () => [peerSocket],
+        connectIpcClient: async (socketPath) => {
+          if (socketPath === invokingSocket) {
+            throw Object.assign(new Error("connect EACCES /private/daemon.sock"), { code: "EACCES" });
+          }
+          return makeIpcClient([], { staleResetPreflight: { listRuns: [] } });
+        },
+      },
+    );
+
+    const stdout = events
+      .filter((event) => event.stream === "stdout")
+      .map((event) => event.text)
+      .join("");
+    const stderr = events
+      .filter((event) => event.stream === "stderr")
+      .map((event) => event.text)
+      .join("");
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    expect(stderr).not.toContain("EACCES");
+    expect(stderr).not.toContain("No daemon is listening");
+    expect(stdout).toContain(worktreePath);
     expect(existsSync(worktreePath)).toBe(true);
   });
 

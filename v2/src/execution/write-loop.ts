@@ -160,6 +160,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   freshDispatch?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
+  /** When true, completion publication skips ready finalization (pipeline leave-draft). */
+  skipReadyFinalization?: boolean;
   /**
    * Test seam: when true, flips which settlement kind the abort/watchdog races produce, proving the
    * abort-vs-watchdog precedence guard is load-bearing rather than vacuous. Carried per-call so no
@@ -1520,7 +1522,10 @@ function withBoundaryTelemetry(
   };
 }
 
-export type CompletionPublicationSeams = Pick<WriteLoopInput, "completionPublisher" | "readyFinalizer">;
+export type CompletionPublicationSeams = Pick<
+  WriteLoopInput,
+  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization"
+>;
 
 export type CompletionPublishFailure = {
   kind:
@@ -2116,12 +2121,14 @@ export async function publishCompletionArtifacts(
     };
   }
   try {
-    runtimeSmokeOutcome = await runReadyFinalizer(seams, {
-      worktreePath: input.worktreePath,
-      baseRef: input.baseRef,
-      branch: input.branch,
-      ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
-    });
+    if (!seams.skipReadyFinalization) {
+      runtimeSmokeOutcome = await runReadyFinalizer(seams, {
+        worktreePath: input.worktreePath,
+        baseRef: input.baseRef,
+        branch: input.branch,
+        ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+      });
+    }
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));
     return buildFinalizationErrorResponse(err, publisherResult?.prNumber, publisherResult?.prUrl);

@@ -2783,16 +2783,16 @@ export function resolveExhaustedRedResumeContext(
   _store: StateStore,
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
-  if (!hasRetainedFinalizationCheckpoint(run)) {
+  const checkpoint = run.retainedFinalizationCheckpoint;
+  if (!hasRetainedFinalizationCheckpoint(run) || checkpoint === undefined || checkpoint === null) {
     return { ok: false, message: "retained finalization checkpoint is missing" };
   }
-  // `hasRetainedFinalizationCheckpoint` above proves the checkpoint exists, and its
-  // `completionAgent` is a required string — no sibling-step or attempt fallback is reachable.
-  const completionAgent = run.retainedFinalizationCheckpoint?.completionAgent;
+  // The checkpoint carries a required `completionAgent`, so no attempt or sibling-step
+  // fallback applies here.
   return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
     admit: isExhaustedRedTerminalEvidence,
     rejectMessage: "run did not fail with exhausted-red ready gate evidence",
-    ...(completionAgent !== undefined ? { completionAgent } : {}),
+    completionAgent: checkpoint.completionAgent,
   });
 }
 

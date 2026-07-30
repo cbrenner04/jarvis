@@ -8,7 +8,7 @@ import { CLEANUP_USAGE } from "../cli/usage.ts";
 import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
-  createAbsentDaemonClient,
+  createBulkCleanupDaemonClient,
   createStaleResetDaemonClient,
   type DaemonClient,
   runAbandonCommand,
@@ -94,35 +94,24 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
   const { dryRun, yes, abandonName } = parsedArgs;
 
   const registry = deps.readProjectRegistry();
-
-  // Use the real daemon client for both preview and removal so the dry-run
-  // preview reflects true eligibility (a fail-open `() => []` would show a
-  // worktree as eligible that a live daemon run actually protects).
-  let daemonClient: DaemonClient;
-  try {
-    const client = await deps.connectIpcClient(deps.socketPath);
-    daemonClient = createStaleResetDaemonClient(client);
-  } catch (error) {
-    if (isNoListenerError(error)) {
-      daemonClient = createAbsentDaemonClient();
-      if (abandonName !== undefined) {
-        io.stderr("Cannot abandon: no daemon is listening; run `jarvis daemon start`\n");
-        return 1;
-      }
-      io.stderr(
-        "No daemon is listening for this jarvis executable; continuing cleanup without daemon-backed worktree retirement. Run `jarvis daemon start`.\n",
-      );
-    } else {
-      io.stderr(formatConnectionError(error));
-      return 1;
-    }
-  }
-
   const options = dryRun
     ? { dryRun: true }
     : { promptConfirm: yes ? async () => true : (deps.promptConfirm ?? createPromptFunction()) };
 
   if (abandonName !== undefined) {
+    let daemonClient: DaemonClient;
+    try {
+      const client = await deps.connectIpcClient(deps.socketPath);
+      daemonClient = createStaleResetDaemonClient(client);
+    } catch (error) {
+      if (isNoListenerError(error)) {
+        io.stderr("Cannot abandon: no daemon is listening; run `jarvis daemon start`\n");
+        return 1;
+      }
+      io.stderr(formatConnectionError(error));
+      return 1;
+    }
+
     return runAbandonCommand(
       abandonName,
       options,
@@ -131,6 +120,18 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
       deps.subprocessRunner ?? realAsyncSubprocessRunner,
       daemonClient,
       io,
+    );
+  }
+
+  const { client: daemonClient, hasAnsweringDaemon, firstError } = await createBulkCleanupDaemonClient(deps);
+
+  if (!hasAnsweringDaemon) {
+    if (firstError !== undefined && !isNoListenerError(firstError)) {
+      io.stderr(formatConnectionError(firstError));
+      return 1;
+    }
+    io.stderr(
+      "No daemon is listening for this jarvis executable; continuing cleanup without daemon-backed worktree retirement. Run `jarvis daemon start`.\n",
     );
   }
 

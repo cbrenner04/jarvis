@@ -8,15 +8,15 @@ import {
   approvalBoundaryAllowsStatus,
   approvalDecisionAllowsStatus,
   isApprovalAuthoredStage,
+  isOwnerAlive,
+  type OwnerLivenessProbe,
+  openStateStore,
+  type Pipeline,
+  type PipelineContext,
+  type PipelineStageRecord,
   reconciliationStableStageStatus,
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
-  isOwnerAlive,
-  type OwnerLivenessProbe,
-  type PipelineContext,
-  openStateStore,
-  type Pipeline,
-  type PipelineStageRecord,
   type StateStore,
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
@@ -781,7 +781,9 @@ describe("pipelines", () => {
     const pipeline = store.loadPipeline(pipelineId);
     if (!pipeline) throw new Error("Pipeline should exist");
     expect(pipeline.context).toBeNull();
-    expect(pipeline.context).not.toEqual(expect.objectContaining({ cwd: expect.any(String), seed: expect.any(String) }));
+    expect(pipeline.context).not.toEqual(
+      expect.objectContaining({ cwd: expect.any(String), seed: expect.any(String) }),
+    );
   });
 
   test("retains the admitted definition name and snapshot after the live source definition is mutated, and stamps owner/status at admission", () => {
@@ -1357,13 +1359,7 @@ describe("pipeline reconciliation", () => {
   });
 
   test("restart reconciliation leaves awaiting, approved, and rejected approval rows unchanged alongside succeeded and pending siblings", async () => {
-    const pipelineId = seedPipeline(PRIOR_IDENTITY, [
-      "succeeded",
-      "awaiting",
-      "pending",
-      "approved",
-      "rejected",
-    ]);
+    const pipelineId = seedPipeline(PRIOR_IDENTITY, ["succeeded", "awaiting", "pending", "approved", "rejected"]);
     const before = seedStore.loadPipeline(pipelineId);
     if (!before) throw new Error("Pipeline should exist");
 
@@ -1733,10 +1729,7 @@ describe("failed pipeline reopen", () => {
   });
 
   test("refuses no-failure, multiple-failure, malformed-suffix, and unknown pipelines without mutation", () => {
-    const noFailureId = seedContinuationPipeline([
-      { status: "succeeded" },
-      { status: "pending" },
-    ]).pipelineId;
+    const noFailureId = seedContinuationPipeline([{ status: "succeeded" }, { status: "pending" }]).pipelineId;
     const noFailureBefore = loadPipelineOrThrow(store, noFailureId);
     expect(store.reopenFailedPipeline({ pipelineId: noFailureId })).toEqual({
       kind: "refused",
@@ -1745,10 +1738,7 @@ describe("failed pipeline reopen", () => {
     });
     expect(store.loadPipeline(noFailureId)).toEqual(noFailureBefore);
 
-    const multipleFailureId = seedContinuationPipeline([
-      { status: "failed" },
-      { status: "failed" },
-    ]).pipelineId;
+    const multipleFailureId = seedContinuationPipeline([{ status: "failed" }, { status: "failed" }]).pipelineId;
     const multipleFailureBefore = loadPipelineOrThrow(store, multipleFailureId);
     expect(store.reopenFailedPipeline({ pipelineId: multipleFailureId })).toEqual({
       kind: "refused",

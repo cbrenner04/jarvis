@@ -1,10 +1,10 @@
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import {
+  isOwnerAlive,
   type OwnerLivenessProbe,
   type Pipeline,
   type PipelineContext,
   type PipelineStageRecord,
-  isOwnerAlive,
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
@@ -166,17 +166,14 @@ export function approvalGateSettlesRejected(status: string): boolean {
 }
 
 function isDecidedApprovalStatus(status: string): boolean {
-  return approvalGateBlocksProgress(status) || approvalGatePermitsProgress(status) || approvalGateSettlesRejected(status);
+  return (
+    approvalGateBlocksProgress(status) || approvalGatePermitsProgress(status) || approvalGateSettlesRejected(status)
+  );
 }
 
 type ApprovalAdvanceOutcome = "continue" | "stop";
 
-function settleApprovalBoundaryFailure(
-  store: StateStore,
-  pipelineId: string,
-  stageId: string,
-  message: string,
-): void {
+function settleApprovalBoundaryFailure(store: StateStore, pipelineId: string, stageId: string, message: string): void {
   store.updateStage({
     pipelineId,
     stageId,

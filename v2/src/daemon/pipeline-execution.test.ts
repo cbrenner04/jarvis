@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
@@ -8,18 +8,18 @@ import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "
 import { openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {
-  continuePipeline,
-  derivePipelineState,
-  isPipelineContinuable,
-  persistedContextLoadPermitsContinuation,
-  recoverContinuablePipelines,
-  runPipeline,
   approvalGateBlocksProgress,
   approvalGatePermitsProgress,
   approvalGateSettlesRejected,
   approvalOutcomeBlocksActivation,
   approvalOutcomePermitsActivation,
+  continuePipeline,
+  derivePipelineState,
+  isPipelineContinuable,
+  persistedContextLoadPermitsContinuation,
+  recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
+  runPipeline,
 } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import type {
@@ -567,11 +567,7 @@ describe("continuePipeline", () => {
   });
 
   test("refuses continuation when the ownership claim is lost and dispatches nothing", async () => {
-    const { store, stages } = fakeStore(
-      definition,
-      {},
-      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
-    );
+    const { store, stages } = fakeStore(definition, {}, { context: persistedContext, ownerIdentity: PRIOR_OWNER });
     store.updateStage({
       pipelineId: PIPELINE_ID,
       stageId: "s1",

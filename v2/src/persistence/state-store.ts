@@ -155,11 +155,7 @@ export type ApprovalOperationOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; stageRecordId: string; reason: ApprovalRefusalReason };
 
-export type PipelineContinuationRefusalReason =
-  | "pipeline_not_found"
-  | "not_active"
-  | "stale_owner"
-  | "claim_lost";
+export type PipelineContinuationRefusalReason = "pipeline_not_found" | "not_active" | "stale_owner" | "claim_lost";
 
 export type PipelineContinuationOutcome =
   | { kind: "applied"; pipelineId: string }
@@ -361,10 +357,7 @@ export interface StateStore {
    * `rejected` by durable `PipelineStageRecord.id`. First writer wins; duplicates
    * and races are refused without mutation.
    */
-  commitApprovalDecision(args: {
-    stageRecordId: string;
-    decision: ApprovalDecision;
-  }): ApprovalOperationOutcome;
+  commitApprovalDecision(args: { stageRecordId: string; decision: ApprovalDecision }): ApprovalOperationOutcome;
 
   /**
    * Atomically claim an `active` or reconciled-`interrupted` pipeline for continuation by
@@ -560,9 +553,7 @@ const RECONCILIATION_STABLE_STAGE_STATUSES: ReadonlySet<string> = new Set([
   "skipped",
 ]);
 
-const NON_ACTIVE_STAGE_STATUSES = [...RECONCILIATION_STABLE_STAGE_STATUSES]
-  .map((status) => `'${status}'`)
-  .join(", ");
+const NON_ACTIVE_STAGE_STATUSES = [...RECONCILIATION_STABLE_STAGE_STATUSES].map((status) => `'${status}'`).join(", ");
 
 /** True when `reconcilePipelines` leaves a stage row untouched. */
 export function reconciliationStableStageStatus(status: string): boolean {
@@ -878,10 +869,7 @@ class StateStoreImpl implements StateStore {
     });
   }
 
-  commitApprovalDecision(args: {
-    stageRecordId: string;
-    decision: ApprovalDecision;
-  }): ApprovalOperationOutcome {
+  commitApprovalDecision(args: { stageRecordId: string; decision: ApprovalDecision }): ApprovalOperationOutcome {
     if (args.decision !== "approved" && args.decision !== "rejected") {
       return { kind: "refused", stageRecordId: args.stageRecordId, reason: "invalid_decision" };
     }

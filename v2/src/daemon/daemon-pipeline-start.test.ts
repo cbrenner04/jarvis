@@ -59,10 +59,7 @@ const SINGLE_STAGE_DEFINITION: PipelineDefinition = {
 };
 
 function createPipelineStartHandlers(
-  resolveStage: (
-    definition: PipelineDefinition,
-    stageIndex: number,
-  ) => Promise<PipelineStageResolutionResult>,
+  resolveStage: (definition: PipelineDefinition, stageIndex: number) => Promise<PipelineStageResolutionResult>,
 ) {
   return createRunControlHandlers({
     stateStore,

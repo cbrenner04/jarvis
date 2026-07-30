@@ -55,11 +55,9 @@ import {
   type PersistedRecord,
 } from "../persistence/log-stream.ts";
 import {
-  isOwnerAlive,
   type Attempt,
   isTerminalRunStatus,
   openStateStore,
-  type OwnerLivenessProbe,
   type Run,
   type RunStatus,
   type StateStore,

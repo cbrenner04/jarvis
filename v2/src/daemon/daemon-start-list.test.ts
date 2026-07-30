@@ -618,7 +618,6 @@ test("terminal review progress floors attemptCount at one while in_progress is s
   handlers.reportReviewDebateProgress("workflow-review-attempt-floor", "review-1", {
     status: "in_progress",
     role: "critic",
-    attemptCount: 0,
   });
   let runs = await listRunsDirect(handlers);
   expect(runs?.find((row) => row.runId === runId)?.workflow?.steps[1]?.attemptCount).toBe(0);

@@ -1,9 +1,6 @@
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { PipelineTerminalAction } from "./pipeline-definition.ts";
-import {
-  normalizePublicationFailure,
-  type PublicationFailure,
-} from "./publication-retry.ts";
+import { normalizePublicationFailure, type PublicationFailure } from "./publication-retry.ts";
 import { type GhReadyFlip, type ReadyGate, ReadyGateError } from "./ready-finalize.ts";
 
 export type TerminalPublicationInput = {
@@ -40,6 +37,14 @@ export type TerminalPublicationSeams = {
   ghDelete?: GhReadyFlip;
 };
 
+type PublicationDeps = {
+  runReadyGate: ReadyGate;
+  ghReadyFlip: GhReadyFlip;
+  ghMerge: GhReadyFlip;
+  ghClose: GhReadyFlip;
+  ghDelete: GhReadyFlip;
+};
+
 const OUTPUT_TAIL_MAX_CHARS = 4096;
 
 let invertLeaveDraftNoMutationGuardForTest = false;
@@ -66,11 +71,7 @@ function wrapReadyGateFailure(error: ReadyGateError): PublicationFailure {
   }
   const text = error.output.trim();
   const outputTail =
-    text.length === 0
-      ? undefined
-      : text.length > OUTPUT_TAIL_MAX_CHARS
-        ? text.slice(-OUTPUT_TAIL_MAX_CHARS)
-        : text;
+    text.length === 0 ? undefined : text.length > OUTPUT_TAIL_MAX_CHARS ? text.slice(-OUTPUT_TAIL_MAX_CHARS) : text;
   return {
     operation: error.command,
     message: messageParts.join("; "),
@@ -115,6 +116,85 @@ function successEvidence(input: TerminalPublicationInput): TerminalPublicationRe
   };
 }
 
+function requiresReadyOrMergePublication(input: TerminalPublicationInput): boolean {
+  return input.terminalAction === "ready" || input.terminalAction === "merge" || invertLeaveDraftNoMutationGuardForTest;
+}
+
+async function runReadyGateOrFail(
+  input: TerminalPublicationInput,
+  prNumber: number,
+  prUrl: string,
+  deps: PublicationDeps,
+): Promise<void> {
+  try {
+    await deps.runReadyGate(input.worktreePath, input.baseRef);
+  } catch (error) {
+    if (error instanceof ReadyGateError && !invertRedGateBeforeFlipGuardForTest) {
+      await failTerminalPublication(input, wrapReadyGateFailure(error), prNumber, prUrl, deps.ghClose, deps.ghDelete);
+    }
+    if (!(error instanceof ReadyGateError)) throw error;
+  }
+}
+
+async function runReadyFlipOrFail(
+  input: TerminalPublicationInput,
+  prNumber: number,
+  prUrl: string,
+  deps: PublicationDeps,
+): Promise<void> {
+  try {
+    await deps.ghReadyFlip(input.branch, input.worktreePath);
+  } catch (error) {
+    await failTerminalPublication(
+      input,
+      normalizePublicationFailure("gh pr ready", error),
+      prNumber,
+      prUrl,
+      deps.ghClose,
+      deps.ghDelete,
+    );
+  }
+}
+
+async function runMergeOrFail(
+  input: TerminalPublicationInput,
+  prNumber: number,
+  prUrl: string,
+  deps: PublicationDeps,
+): Promise<void> {
+  try {
+    await deps.ghMerge(input.branch, input.worktreePath);
+  } catch (error) {
+    await failTerminalPublication(
+      input,
+      normalizePublicationFailure("gh pr merge", error),
+      prNumber,
+      prUrl,
+      deps.ghClose,
+      deps.ghDelete,
+    );
+  }
+}
+
+async function executeReadyOrMergePublication(
+  input: TerminalPublicationInput,
+  deps: PublicationDeps,
+): Promise<TerminalPublicationResult> {
+  if (input.prNumber === undefined || input.prUrl === undefined) {
+    throw missingPrEvidenceFailure(input.terminalAction);
+  }
+  const { prNumber, prUrl } = input;
+
+  await runReadyGateOrFail(input, prNumber, prUrl, deps);
+  await runReadyFlipOrFail(input, prNumber, prUrl, deps);
+
+  if (input.terminalAction === "merge") {
+    await runMergeOrFail(input, prNumber, prUrl, deps);
+  }
+
+  return { prNumber, prUrl };
+}
+
 async function defaultGhPr(subcommand: "ready" | "merge", branch: string, worktreePath: string): Promise<void> {
   await realAsyncSubprocessRunner.runAsync("gh", ["pr", subcommand, branch], worktreePath);
 }
@@ -126,61 +206,21 @@ async function defaultRunReadyGate(): Promise<void> {
 const noopGh: GhReadyFlip = async () => {};
 
 export function createExecuteTerminalPublication(seams?: TerminalPublicationSeams) {
-  const runReadyGate = seams?.runReadyGate ?? defaultRunReadyGate;
-  const ghReadyFlip = seams?.ghReadyFlip ?? ((branch, worktreePath) => defaultGhPr("ready", branch, worktreePath));
-  const ghMerge = seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath));
-  const ghClose = seams?.ghClose ?? noopGh;
-  const ghDelete = seams?.ghDelete ?? noopGh;
+  const deps: PublicationDeps = {
+    runReadyGate: seams?.runReadyGate ?? defaultRunReadyGate,
+    ghReadyFlip: seams?.ghReadyFlip ?? ((branch, worktreePath) => defaultGhPr("ready", branch, worktreePath)),
+    ghMerge: seams?.ghMerge ?? ((branch, worktreePath) => defaultGhPr("merge", branch, worktreePath)),
+    ghClose: seams?.ghClose ?? noopGh,
+    ghDelete: seams?.ghDelete ?? noopGh,
+  };
 
   return async (input: TerminalPublicationInput): Promise<TerminalPublicationResult> => {
     if (input.terminalAction === "leave-draft" && !invertLeaveDraftNoMutationGuardForTest) {
       return successEvidence(input);
     }
 
-    if (input.terminalAction === "ready" || input.terminalAction === "merge" || invertLeaveDraftNoMutationGuardForTest) {
-      if (input.prNumber === undefined || input.prUrl === undefined) {
-        throw missingPrEvidenceFailure(input.terminalAction);
-      }
-      const { prNumber, prUrl } = input;
-
-      try {
-        await runReadyGate(input.worktreePath, input.baseRef);
-      } catch (error) {
-        if (error instanceof ReadyGateError && !invertRedGateBeforeFlipGuardForTest) {
-          await failTerminalPublication(input, wrapReadyGateFailure(error), prNumber, prUrl, ghClose, ghDelete);
-        }
-        if (!(error instanceof ReadyGateError)) throw error;
-      }
-
-      try {
-        await ghReadyFlip(input.branch, input.worktreePath);
-      } catch (error) {
-        await failTerminalPublication(
-          input,
-          normalizePublicationFailure("gh pr ready", error),
-          prNumber,
-          prUrl,
-          ghClose,
-          ghDelete,
-        );
-      }
-
-      if (input.terminalAction === "merge") {
-        try {
-          await ghMerge(input.branch, input.worktreePath);
-        } catch (error) {
-          await failTerminalPublication(
-            input,
-            normalizePublicationFailure("gh pr merge", error),
-            prNumber,
-            prUrl,
-            ghClose,
-            ghDelete,
-          );
-        }
-      }
-
-      return { prNumber, prUrl };
+    if (requiresReadyOrMergePublication(input)) {
+      return executeReadyOrMergePublication(input, deps);
     }
 
     return successEvidence(input);

@@ -404,10 +404,7 @@ const SCHEMA_MIGRATIONS = [
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
 /** Run-column finish timestamp when no in-progress attempt carries reconciliation time. */
-export function orphanSettlementReconciledAt(
-  inProgressAttemptId: string | undefined,
-  finishAt: number,
-): number | null {
+export function orphanSettlementReconciledAt(inProgressAttemptId: string | undefined, finishAt: number): number | null {
   return inProgressAttemptId === undefined ? finishAt : null;
 }
 

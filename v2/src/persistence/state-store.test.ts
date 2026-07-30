@@ -5,10 +5,10 @@ import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   isOwnerAlive,
-  orphanSettlementReconciledAt,
-  orphanSettlementShouldStampAttempt,
   type OwnerLivenessProbe,
   openStateStore,
+  orphanSettlementReconciledAt,
+  orphanSettlementShouldStampAttempt,
   type Pipeline,
   type PipelineStageRecord,
   type StateStore,
@@ -1105,7 +1105,9 @@ describe("pipeline reconciliation", () => {
     expect(noAttemptRun.status).toBe("killed");
     expect(noAttemptRun.reconciledAt).not.toBeNull();
     expect(noAttemptRun.attempts).toHaveLength(0);
-    expect(sweepStore.listRuns().find((run) => run.id === noAttemptRunId)?.reconciledAt).toBe(noAttemptRun.reconciledAt);
+    expect(sweepStore.listRuns().find((run) => run.id === noAttemptRunId)?.reconciledAt).toBe(
+      noAttemptRun.reconciledAt,
+    );
 
     const completedOnlyRun = loadRunOrThrow(sweepStore, completedOnlyRunId);
     expect(completedOnlyRun.reconciledAt).not.toBeNull();

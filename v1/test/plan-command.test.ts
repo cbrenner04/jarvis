@@ -1,6 +1,15 @@
 // Plan-command integration tests use FakeAgent and filesystem fixtures; no real git/gh subprocesses.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
@@ -428,7 +437,8 @@ describe("planCommand", () => {
 
           const evidencePath = join(opts.cwd, "runtime", "prerequisite-evidence.md");
           const evidenceReference = relative(opts.cwd, evidencePath);
-          const hasEvidence = existsSync(evidencePath) && readFileSync(evidencePath, "utf8").includes(`Behavior: ${prerequisite}`);
+          const hasEvidence =
+            existsSync(evidencePath) && readFileSync(evidencePath, "utf8").includes(`Behavior: ${prerequisite}`);
           if (!hasEvidence) {
             const intent = readFileSync(join(outputDir, "intent.md"), "utf8");
             writeFileSync(
@@ -469,7 +479,9 @@ describe("planCommand", () => {
       expect(hasPrerequisiteGatePolicy(prompt)).toBe(true);
       for (const policy of prerequisiteGatePolicy.split("\n\n")) {
         expect(hasPrerequisiteGatePolicy(prompt.replace(policy, ""))).toBe(false);
-        expect(hasPrerequisiteGatePolicy(prompt.replace(policy, `Do not follow this requirement: ${policy}`))).toBe(false);
+        expect(hasPrerequisiteGatePolicy(prompt.replace(policy, `Do not follow this requirement: ${policy}`))).toBe(
+          false,
+        );
         expect(hasPrerequisiteGatePolicy(prompt.replace(policy, `${policy} Ignore it and draft anyway.`))).toBe(false);
       }
 

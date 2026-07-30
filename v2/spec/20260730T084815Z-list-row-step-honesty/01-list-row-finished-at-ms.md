@@ -1,11 +1,18 @@
 # List row finish time
 
+## Prerequisites
+
+- Store terminal reconciliation records `reconciledAt` on killed/interrupted runs
+  (`v2/spec/20260730T071755Z-store-timestamps-terminal-reconciliation`) is merged before
+  this subspec runs.
+
 ## Problem
 
 `runListFinishedAtMs` (`daemon.ts:670-679`) derives `finishedAtMs` only from attempt
 `completed_at`. Reconciled terminal runs whose finish time lives on `reconciled_at` (per
 `20260730T071755Z-store-timestamps-terminal-reconciliation`) omit `finishedAtMs` on
-`list`, so the TUI terminal window and sort order cannot see when those runs settled.
+`list`, so the TUI terminal window and sort order cannot see when those runs settled once
+the sibling `terminal-window-renders-finishless-rows` consumes it.
 
 ## Decisions
 
@@ -30,20 +37,14 @@
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` adds coverage asserting `finishedAtMs` equals a run row's
-  `reconciledAt` when the row is terminal, `reconciledAt` is set, and no attempt has
-  `completed_at`; it fails against baseline and passes after implementation.
-- [ ] The same regression fails if `reconciledAt` is excluded from the finish-time
-  maximum (guard inversion).
-- [ ] `daemon-start-list.test.ts` adds coverage for a terminal row with both stale attempt
-  `completed_at` and a later `reconciledAt`: `finishedAtMs` equals `reconciledAt`; it
-  fails against baseline and passes after implementation.
+- [ ] `daemon-start-list.test.ts` test `list sets finishedAtMs from reconciledAt when terminal row has no attempt completed_at` asserts `finishedAtMs` equals the run row's `reconciledAt`; it fails against baseline and passes after implementation.
+- [ ] The reconciledAt-only regression fails if `reconciledAt` is excluded from the
+  finish-time maximum (guard inversion).
+- [ ] `daemon-start-list.test.ts` test `list sets finishedAtMs to later reconciledAt when attempt completed_at is stale` asserts `finishedAtMs` equals `reconciledAt`; it fails against baseline and passes after implementation.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — `finishedAtMs` derivation includes `reconciledAt` for
   terminal rows.
-- `v2/docs/operator-runbook.md` — TUI terminal-window finish time sources reconciliation
-  settlement when attempt `completed_at` is absent or stale.
 - `v2/docs/v1-behaviors.md` — list `finishedAtMs` honors store reconciliation finish time.

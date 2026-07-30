@@ -148,4 +148,15 @@ untracked files and refuses bulk retirement. It predates this session — inspec
 
 ## Cost
 
-Operator API: **(pending `/cost`)**. Agent-side telemetry: **$0.00** across 64 cursor invocations.
+Operator API: **$56.36** — 37m55s API time against 5h51m wall, 6.6k input / 134.3k output,
+92.1m cache read. Agent-side telemetry: **$0.00** across 64 cursor invocations (subscription-billed).
+
+Lowest absolute operator cost of the recent three ($56.36 vs $71.78 this morning and $107.91 on
+2026-07-27), but **not** the best per-PR rate: $4.34/PR here against $1.60/PR this morning, whose
+45-PR fan-out amortized the operator loop much further. This session ran 1–3 lanes and spent more
+operator time per landing on hand diagnosis — five mutation sites, three plan-draft rejections, and
+a hand-finished slice 6.
+
+Agent-side cost was zero because the order was cursor-only. Compare 2026-07-27 at $156.84
+agent-side on a claude-first order: the operator figure is the smaller half of the bill whenever
+metered agents are in the rotation.

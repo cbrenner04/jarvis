@@ -116,7 +116,10 @@ enumeration.
 `jarvis run list`, `jarvis run log`, and `jarvis run wait` union discovered live
 sockets with the invoking digest's socket, issue `list` on each (skipping sockets
 whose `list` fails), merge rows by run ID with `isLive` preference, and use the
-owning socket for log streams and `wait`. When no queried daemon lists the run,
+owning socket for log streams and `wait`. Bulk `jarvis cleanup` eligibility uses the
+same socket query set and skip-on-failure semantics for `list`-based live-run checks
+(not for `--abandon` or stale-reset claim probes, which remain keyed-socket only).
+When no queried daemon lists the run,
 `log` and `wait` fall back to the invoking socket (same as before a digest
 rotation).
 

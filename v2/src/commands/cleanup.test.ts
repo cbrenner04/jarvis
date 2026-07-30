@@ -13,9 +13,11 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   createAbsentDaemonClient,
+  createBulkCleanupDaemonClient,
   createStaleResetDaemonClient,
   type DaemonClient,
   type DiscoveredWorktree,
@@ -34,6 +36,8 @@ import {
   revalidateMergedBranchRefCandidate,
   runCleanupCommand,
   STALE_RESET_OVERRIDE_CLI_FLAG,
+  setInvertCleanupSocketDiscoveryForTest,
+  setInvertCleanupSocketSkipOnFailureForTest,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
 
@@ -44,6 +48,27 @@ function daemonClientWithFreeClaimProbe(
   const daemonClient = listRuns as DaemonClient;
   daemonClient.checkWorkflowStartClaim = claimProbe ?? (async () => ({ status: "free" }));
   return daemonClient;
+}
+
+function liveRunListIpcClient(branch: string) {
+  return makeIpcClient([], {
+    staleResetPreflight: {
+      listRuns: [{ runId: "live-run", project: "project", branch, status: "in-progress", isLive: true }],
+    },
+  });
+}
+
+function connectWithDeadSocket(
+  deadSocket: string,
+  deadCode: string,
+  branch: string,
+): (socketPath: string) => Promise<IpcClient> {
+  return async (socketPath) => {
+    if (socketPath === deadSocket) {
+      throw Object.assign(new Error(`connect ${deadCode}`), { code: deadCode });
+    }
+    return liveRunListIpcClient(branch);
+  };
 }
 
 describe("cleanup: end-to-end via runCleanupCommand", () => {
@@ -140,6 +165,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   });
 
   afterEach(() => {
+    setInvertCleanupSocketDiscoveryForTest(false);
+    setInvertCleanupSocketSkipOnFailureForTest(false);
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -1075,6 +1102,100 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     ).toBe(1);
     expect(existsSync(join(jarvisRoot, "worktrees", "project", skippedBranch))).toBe(true);
     expect(existsSync(join(jarvisRoot, "worktrees", "project", eligibleBranch))).toBe(false);
+  });
+
+  test("older-digest live daemon makes merged worktree ineligible", async () => {
+    const branch = "older-digest-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-invoking.sock");
+    const olderSocket = join(jarvisRoot, "daemon-older.sock");
+    const connect = connectWithDeadSocket(invokingSocket, "ENOENT", branch);
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [olderSocket],
+      connectIpcClient: connect,
+    };
+
+    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("Daemon unreachable");
+    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).not.toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+
+    setInvertCleanupSocketDiscoveryForTest(true);
+    let invertedStdout = "";
+    const { client: invertedClient } = await createBulkCleanupDaemonClient(bulkDeps);
+    await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      invertedClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (invertedStdout += text), stderr: () => {} },
+    );
+    expect(invertedStdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(invertedStdout).toContain("Daemon unreachable");
+  });
+
+  test("one dead socket in query set does not blank eligibility when another reports live run", async () => {
+    const branch = "dead-socket-peer-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-dead.sock");
+    const liveSocket = join(jarvisRoot, "daemon-live.sock");
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [liveSocket],
+      connectIpcClient: connectWithDeadSocket(invokingSocket, "ECONNREFUSED", branch),
+    };
+
+    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain("Daemon unreachable");
+    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).not.toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+
+    setInvertCleanupSocketSkipOnFailureForTest(true);
+    let invertedStdout = "";
+    await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (invertedStdout += text), stderr: () => {} },
+    );
+    expect(invertedStdout).toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(invertedStdout).toContain("Daemon unreachable");
   });
 
   test("non-daemon ineligibility keeps cleanup exit zero", async () => {

@@ -2,28 +2,28 @@
   "models": {
     "opencode": {
       "plan": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "implement": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "shrink": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "adversary": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "critic": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "advocate": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "adjudicator": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       },
       "actuator": {
-        "rungs": [{ "adapterModel": "github-copilot/claude-opus-5", "priceKey": "claude-opus-5" }]
+        "rungs": [{ "adapterModel": "github-copilot/claude-opus-4.8", "priceKey": "claude-opus-4-8" }]
       }
     }
   }

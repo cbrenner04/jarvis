@@ -2,21 +2,16 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  PIPELINE_LIST_USAGE,
-  PIPELINE_START_USAGE,
-  PIPELINE_USAGE,
-  PIPELINE_WAIT_USAGE,
-} from "../cli/usage.ts";
+import { PIPELINE_LIST_USAGE, PIPELINE_START_USAGE, PIPELINE_USAGE, PIPELINE_WAIT_USAGE } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  type CliRepoFixture,
   captureIo,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
   SESSION_UUID,
   writeMachineConfig,
-  type CliRepoFixture,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import {
@@ -77,9 +72,7 @@ function pipelineFrames(
   return frames;
 }
 
-function noDaemonDeps(
-  extra: NonNullable<Parameters<typeof main>[2]> = {},
-): NonNullable<Parameters<typeof main>[2]> {
+function noDaemonDeps(extra: NonNullable<Parameters<typeof main>[2]> = {}): NonNullable<Parameters<typeof main>[2]> {
   return {
     connectIpcClient: async () => {
       throw new Error("should not contact daemon");
@@ -169,7 +162,7 @@ describe("pipeline start", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
-      stdout: "pipe-abc\n{\"kind\":\"terminal\",\"state\":\"succeeded\"}\n",
+      stdout: 'pipe-abc\n{"kind":"terminal","state":"succeeded"}\n',
       stderr: "",
     });
     expect(ipcFramesWithMethod(sent, "pipeline_start")).toHaveLength(1);
@@ -246,11 +239,7 @@ describe("pipeline start", () => {
     expect(missingCap.read().stderr).toBe(PIPELINE_START_USAGE);
 
     const bothCap = captureIo();
-    const both = await main(
-      ["pipeline", "start", "demo", "--seed", "seed.md", "--seed-text", "x"],
-      bothCap.io,
-      deps,
-    );
+    const both = await main(["pipeline", "start", "demo", "--seed", "seed.md", "--seed-text", "x"], bothCap.io, deps);
     expect(both).toBe(1);
     expect(bothCap.read().stderr).toBe(PIPELINE_START_USAGE);
   });
@@ -263,8 +252,7 @@ describe("pipeline start", () => {
     const code = await withFixedUuid([SESSION_UUID, "pipe-detach"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
         ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(pipelineFrames("pipe-detach", [], "pipe-detach-1", []), { sent }),
+        connectIpcClient: async () => makeIpcClient(pipelineFrames("pipe-detach", [], "pipe-detach-1", []), { sent }),
       }),
     );
 
@@ -295,7 +283,7 @@ describe("pipeline start", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
-      stdout: "pipe-att-1\n{\"kind\":\"terminal\",\"state\":\"failed\"}\n",
+      stdout: 'pipe-att-1\n{"kind":"terminal","state":"failed"}\n',
       stderr: "",
     });
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(2);
@@ -330,8 +318,7 @@ describe("pipeline start", () => {
     const code = await withFixedUuid([SESSION_UUID, "pipe-guard"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
         ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(pipelineFrames("pipe-guard", [], "pipe-guard-1", []), { sent }),
+        connectIpcClient: async () => makeIpcClient(pipelineFrames("pipe-guard", [], "pipe-guard-1", []), { sent }),
       }),
     );
 
@@ -360,7 +347,7 @@ describe("pipeline start", () => {
 
     expect(code).toBe(0);
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(1);
-    expect(cap.read().stdout).toContain("{\"kind\":\"terminal\",\"state\":\"succeeded\"}");
+    expect(cap.read().stdout).toContain('{"kind":"terminal","state":"succeeded"}');
   });
 
   test("operator abort during attached start reports stderr detail without boundary JSON", async () => {
@@ -622,7 +609,12 @@ describe("pipeline wait", () => {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([
-            { kind: "error", id: "pipe-wait-miss", code: "unknown_pipeline", message: "Pipeline pipe-missing not found" },
+            {
+              kind: "error",
+              id: "pipe-wait-miss",
+              code: "unknown_pipeline",
+              message: "Pipeline pipe-missing not found",
+            },
           ]),
       }),
     );

@@ -6,8 +6,8 @@ import {
 import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
-  parityFlagsFromParseOptions,
   PIPELINE_START_PARSE_ARG_OPTIONS,
+  parityFlagsFromParseOptions,
   RUN_LIST_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";

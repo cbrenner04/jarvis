@@ -20,10 +20,7 @@ import { MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
-import {
-  formatProjectPipelineResolutionError,
-  resolveProjectPipeline,
-} from "./project-pipeline-resolution.ts";
+import { formatProjectPipelineResolutionError, resolveProjectPipeline } from "./project-pipeline-resolution.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,

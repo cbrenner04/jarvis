@@ -6,11 +6,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError, formatRpcError, request, withRunClient } from "../cli/ipc.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import {
-  PIPELINE_START_USAGE,
-  PIPELINE_USAGE,
-  PIPELINE_WAIT_USAGE,
-} from "../cli/usage.ts";
+import { PIPELINE_START_USAGE, PIPELINE_USAGE, PIPELINE_WAIT_USAGE } from "../cli/usage.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
@@ -144,12 +140,7 @@ function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
   return "errors" in value;
 }
 
-async function waitForPipelineTerminal(
-  client: IpcClient,
-  pipelineId: string,
-  io: Io,
-  deps: CliDeps,
-): Promise<number> {
+async function waitForPipelineTerminal(client: IpcClient, pipelineId: string, io: Io, deps: CliDeps): Promise<number> {
   const unregister = deps.onSigint(() => client.close());
   try {
     while (true) {
@@ -254,7 +245,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
     getPipelineDefinition,
     agentModelConfig,
   );
-  let definition;
+  let definition: PipelineDefinition;
   if (resolution.ok) {
     definition = resolution.definition;
   } else if (invertPreAdmissionResolutionGuardForTest) {
@@ -317,14 +308,10 @@ async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps)
         const listResult = await request(client, "pipeline_list");
         const pipeline = readPipelineListResult(listResult)?.pipelines.find(
           (row) =>
-            typeof row === "object" &&
-            row !== null &&
-            (row as { pipelineId?: unknown }).pipelineId === pipelineId,
+            typeof row === "object" && row !== null && (row as { pipelineId?: unknown }).pipelineId === pipelineId,
         );
         const state =
-          typeof pipeline === "object" && pipeline !== null
-            ? (pipeline as { state?: unknown }).state
-            : undefined;
+          typeof pipeline === "object" && pipeline !== null ? (pipeline as { state?: unknown }).state : undefined;
         if (state === "pending" || state === "running") {
           io.stdout(`${JSON.stringify({ kind: "intermediate", state })}\n`);
           return 0;

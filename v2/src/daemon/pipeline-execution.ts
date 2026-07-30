@@ -1,4 +1,11 @@
-import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
+import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
+import {
+  executeTerminalPublication,
+  TerminalPublicationError,
+  type TerminalPublicationInput,
+  type TerminalPublicationResult,
+} from "../execution/terminal-publication.ts";
 import {
   type ApprovalDecision,
   type ApprovalRefusalReason,
@@ -10,6 +17,7 @@ import {
   type PipelineStageRecord,
   type StateStore,
 } from "../persistence/state-store.ts";
+import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
@@ -43,6 +51,9 @@ export type PipelineExecutionDeps = {
   wait: PipelineWorkflowWait;
   context: PipelineContext;
   resolveStage?: typeof resolveStageWorkflowSteps;
+  executeTerminalPublication?: (
+    input: TerminalPublicationInput,
+  ) => Promise<TerminalPublicationResult>;
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -138,7 +149,16 @@ export async function continuePipeline(
     return { kind: "refused", pipelineId, reason: "claim_refused" };
   }
 
-  await runPipeline(pipelineId, { store, dispatch, wait, context, resolveStage });
+  await runPipeline(pipelineId, {
+    store,
+    dispatch,
+    wait,
+    context,
+    resolveStage,
+    ...(deps.executeTerminalPublication !== undefined
+      ? { executeTerminalPublication: deps.executeTerminalPublication }
+      : {}),
+  });
   return { kind: "continued", pipelineId };
 }
 
@@ -306,15 +326,208 @@ export function reopenedFailurePermitsActivation(pipeline: Pipeline & { stages: 
   return !pipeline.stages.some((record) => record.status === "failed");
 }
 
-/** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage. */
+/** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage or pending settlement. */
 export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
+  if (pipeline.status !== "active" && pipeline.status !== "interrupted") return false;
+  if (pipeline.context === null) return false;
+  if (isPipelineSettlementPending(pipeline)) return true;
   return (
-    (pipeline.status === "active" || pipeline.status === "interrupted") &&
-    pipeline.context !== null &&
     derivePipelineState(pipeline) === "pending" &&
     approvalOutcomePermitsActivation(pipeline) &&
     reopenedFailurePermitsActivation(pipeline)
   );
+}
+
+let invertPipelineTerminalPublicationFailureGuardForTest = false;
+
+export function setInvertPipelineTerminalPublicationFailureGuardForTest(value: boolean): void {
+  invertPipelineTerminalPublicationFailureGuardForTest = value;
+}
+
+/** True when the pipeline row carries a durable terminal-publication failure. */
+export function hasPipelineTerminalPublicationFailure(
+  pipeline: Pick<Pipeline, "terminalPublicationFailure">,
+): boolean {
+  if (invertPipelineTerminalPublicationFailureGuardForTest) return false;
+  return pipeline.terminalPublicationFailure !== null;
+}
+
+/** True when every authored stage is satisfied but terminal publication has not succeeded. */
+export function isPipelineSettlementPending(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
+  if (pipeline.definition.terminalAction === undefined) return false;
+  if (pipeline.terminalPublicationSucceededAt !== null) return false;
+  if (pipeline.terminalPublicationFailure !== null) return false;
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (!isAuthoredStageSatisfied(stage, record)) return false;
+  }
+  return true;
+}
+
+type ResolvedTerminalPublicationInput =
+  | { ok: true; input: TerminalPublicationInput }
+  | { ok: false; failure: PublicationFailure; prNumber?: number; prUrl?: string };
+
+function resolveTerminalPublicationInput(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  store: StateStore,
+): ResolvedTerminalPublicationInput {
+  const terminalAction = pipeline.definition.terminalAction;
+  if (terminalAction === undefined) {
+    return { ok: false, failure: { operation: "terminal-publication", message: "pipeline has no terminal action" } };
+  }
+
+  let lastStage: { stage: Extract<PipelineStage, { kind: "workflow" }>; record: PipelineStageRecord } | undefined;
+  for (const entry of authoredStagesInPositionOrder(pipeline)) {
+    if (entry.stage.kind === "workflow" && entry.record.status === "succeeded") {
+      lastStage = { stage: entry.stage, record: entry.record };
+    }
+  }
+  if (lastStage === undefined) {
+    return {
+      ok: false,
+      failure: { operation: terminalAction, message: "no succeeded workflow stage artifact available" },
+    };
+  }
+
+  const rawArtifact = lastStage.record.artifact;
+  const artifact =
+    rawArtifact !== null &&
+    typeof rawArtifact === "object" &&
+    typeof (rawArtifact as PipelineStageArtifact).entryRunId === "string" &&
+    typeof (rawArtifact as PipelineStageArtifact).specPath === "string"
+      ? (rawArtifact as PipelineStageArtifact)
+      : undefined;
+  if (artifact === undefined) {
+    return {
+      ok: false,
+      failure: {
+        operation: terminalAction,
+        message: `stage "${lastStage.stage.stageId}" is missing a valid workflow artifact`,
+      },
+    };
+  }
+
+  const entryRun = store.loadRun(artifact.entryRunId);
+  if (entryRun === null) {
+    return {
+      ok: false,
+      failure: {
+        operation: terminalAction,
+        message: `entry run ${artifact.entryRunId} not found for terminal publication`,
+      },
+      ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
+      ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),
+    };
+  }
+
+  return {
+    ok: true,
+    input: {
+      terminalAction,
+      worktreePath: entryRun.worktreePath,
+      branch: entryRun.branch,
+      baseRef: entryRun.specRef,
+      ...(artifact.prNumber !== undefined ? { prNumber: artifact.prNumber } : {}),
+      ...(artifact.prUrl !== undefined ? { prUrl: artifact.prUrl } : {}),
+    },
+  };
+}
+
+function commitTerminalPublicationFailureSafely(
+  store: StateStore,
+  args: Parameters<StateStore["commitTerminalPublicationFailure"]>[0],
+): void {
+  try {
+    store.commitTerminalPublicationFailure(args);
+  } catch {
+    try {
+      store.commitTerminalPublicationFailure({
+        pipelineId: args.pipelineId,
+        terminalAction: args.terminalAction,
+        failure: {
+          operation: args.terminalAction,
+          message: "terminal publication failure commit failed",
+        },
+      });
+    } catch {
+      // store unavailable — settlement cannot record further
+    }
+  }
+}
+
+function commitTerminalPublicationSuccessSafely(
+  store: StateStore,
+  pipelineId: string,
+  terminalAction: PipelineTerminalAction,
+): void {
+  try {
+    store.commitTerminalPublicationSuccess({ pipelineId });
+  } catch (error) {
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: normalizePublicationFailure(terminalAction, error),
+    });
+  }
+}
+
+async function settlePipelineTerminalPublication(
+  pipelineId: string,
+  deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication">,
+): Promise<void> {
+  const { store } = deps;
+  const pipeline = store.loadPipeline(pipelineId);
+  if (!pipeline || !isPipelineSettlementPending(pipeline)) return;
+
+  const terminalAction = pipeline.definition.terminalAction!;
+
+  if (pipeline.context === null) {
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: {
+        operation: terminalAction,
+        message: "missing pipeline admission context",
+      },
+    });
+    return;
+  }
+
+  const resolved = resolveTerminalPublicationInput(pipeline, store);
+  if (!resolved.ok) {
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: resolved.failure,
+      ...(resolved.prNumber !== undefined ? { prNumber: resolved.prNumber } : {}),
+      ...(resolved.prUrl !== undefined ? { prUrl: resolved.prUrl } : {}),
+    });
+    return;
+  }
+
+  const execute = deps.executeTerminalPublication ?? executeTerminalPublication;
+  try {
+    await execute(resolved.input);
+    commitTerminalPublicationSuccessSafely(store, pipelineId, terminalAction);
+  } catch (error) {
+    if (error instanceof TerminalPublicationError) {
+      commitTerminalPublicationFailureSafely(store, {
+        pipelineId,
+        terminalAction: error.terminalAction,
+        failure: error.failure,
+        ...(error.prNumber !== undefined ? { prNumber: error.prNumber } : {}),
+        ...(error.prUrl !== undefined ? { prUrl: error.prUrl } : {}),
+      });
+      return;
+    }
+    commitTerminalPublicationFailureSafely(store, {
+      pipelineId,
+      terminalAction,
+      failure: normalizePublicationFailure(terminalAction, error),
+      ...(resolved.input.prNumber !== undefined ? { prNumber: resolved.input.prNumber } : {}),
+      ...(resolved.input.prUrl !== undefined ? { prUrl: resolved.input.prUrl } : {}),
+    });
+  }
 }
 
 export async function recoverContinuablePipelines(
@@ -597,6 +810,8 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
       });
       if (outcome === "stop") return;
     }
+
+    await settlePipelineTerminalPublication(pipelineId, deps);
   } catch (error) {
     failStrandedPipelineStage(store, pipelineId, definition, error);
   }
@@ -623,10 +838,12 @@ export function authoredStagesInPositionOrder(
 
 /**
  * Derive a pipeline's overall state from durable pipeline and stage rows — first match wins:
- * `interrupted` (stage rows only), `rejected`, `failed`, `running`, then an authored-order
- * walk for `awaiting-approval`/`pending`, else `succeeded`. Pipeline-level `interrupted` is a
- * reconciliation marker and does not mask preserved stage evidence. `skipped` rows are never
- * satisfied and are never reached because `failed` always precedes them.
+ * `interrupted` (stage rows only), `rejected`, `failed`, `running` (workflow stage rows),
+ * authored-order walk for `awaiting-approval`/`pending`, settling `running` when every
+ * authored stage is satisfied but terminal publication has not succeeded, `failed` when a
+ * durable `terminalPublicationFailure` is present, else `succeeded`. Pipeline-level
+ * `interrupted` is a reconciliation marker and does not mask preserved stage evidence.
+ * `skipped` rows are never satisfied and are never reached because `failed` always precedes them.
  */
 export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineDerivedState {
   const { stages: stageRecords } = pipeline;
@@ -650,5 +867,7 @@ export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStage
       return stage.kind === "approval" ? "awaiting-approval" : "pending";
     }
   }
+  if (isPipelineSettlementPending(pipeline)) return "running";
+  if (hasPipelineTerminalPublicationFailure(pipeline)) return "failed";
   return "succeeded";
 }

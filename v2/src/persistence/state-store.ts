@@ -4,7 +4,8 @@ import { dirname, join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
 
@@ -141,6 +142,14 @@ export type PipelineContext = {
   seed: string;
 };
 
+/** Durable terminal-publication failure recorded on the pipeline row after stage success. */
+export type PipelineTerminalPublicationFailure = {
+  terminalAction: PipelineTerminalAction;
+  failure: PublicationFailure;
+  prNumber?: number;
+  prUrl?: string;
+};
+
 /** A durable admitted pipeline record: identity, source name, ownership, and immutable admitted-definition snapshot. */
 export type Pipeline = {
   id: string;
@@ -151,6 +160,10 @@ export type Pipeline = {
   definition: PipelineDefinition;
   /** Immutable admission context; `null` for pre-migration rows and admissions that omitted context. */
   context: PipelineContext | null;
+  /** Nullable durable terminal-publication failure; `null` when unset or pre-migration. */
+  terminalPublicationFailure: PipelineTerminalPublicationFailure | null;
+  /** Unix epoch ms when terminal publication succeeded; `null` until settled. */
+  terminalPublicationSucceededAt: number | null;
 };
 
 export type ApprovalDecision = "approved" | "rejected";
@@ -393,6 +406,21 @@ export interface StateStore {
    */
   reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome;
 
+  /**
+   * Atomically record a terminal-publication failure on the pipeline row without mutating
+   * stage rows. Idempotent when a failure or success marker is already present.
+   */
+  commitTerminalPublicationFailure(args: {
+    pipelineId: string;
+    terminalAction: PipelineTerminalAction;
+    failure: PublicationFailure;
+    prNumber?: number;
+    prUrl?: string;
+  }): void;
+
+  /** Atomically record terminal-publication success on the pipeline row. Idempotent when already set. */
+  commitTerminalPublicationSuccess(args: { pipelineId: string }): void;
+
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
 
@@ -477,7 +505,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
@@ -562,6 +590,11 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "017-run-ready-gate-repair-fence",
     up: "ALTER TABLE runs ADD COLUMN ready_gate_repair_fence TEXT",
+  },
+  {
+    id: "018-pipeline-terminal-publication",
+    up: `ALTER TABLE pipelines ADD COLUMN terminal_publication_failure TEXT;
+        ALTER TABLE pipelines ADD COLUMN terminal_publication_succeeded_at INTEGER`,
   },
 ] as const;
 
@@ -710,14 +743,23 @@ function mapRunRow(row: RunRow): Run {
   };
 }
 
-type PipelineRow = Omit<Pipeline, "definition" | "context"> & { definitionJson: string; contextJson: string | null };
+type PipelineRow = Omit<Pipeline, "definition" | "context" | "terminalPublicationFailure"> & {
+  definitionJson: string;
+  contextJson: string | null;
+  terminalPublicationFailureJson: string | null;
+};
 
 function mapPipelineRow(row: PipelineRow): Pipeline {
-  const { definitionJson, contextJson, ...pipeline } = row;
+  const { definitionJson, contextJson, terminalPublicationFailureJson, ...pipeline } = row;
   return {
     ...pipeline,
     definition: JSON.parse(definitionJson) as PipelineDefinition,
     context: contextJson === null ? null : (JSON.parse(contextJson) as PipelineContext),
+    terminalPublicationFailure:
+      terminalPublicationFailureJson === null
+        ? null
+        : (JSON.parse(terminalPublicationFailureJson) as PipelineTerminalPublicationFailure),
+    terminalPublicationSucceededAt: pipeline.terminalPublicationSucceededAt ?? null,
   };
 }
 
@@ -1033,6 +1075,42 @@ class StateStoreImpl implements StateStore {
       }
       throw error;
     }
+  }
+
+  commitTerminalPublicationFailure(args: {
+    pipelineId: string;
+    terminalAction: PipelineTerminalAction;
+    failure: PublicationFailure;
+    prNumber?: number;
+    prUrl?: string;
+  }): void {
+    const payload: PipelineTerminalPublicationFailure = {
+      terminalAction: args.terminalAction,
+      failure: args.failure,
+      ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
+      ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
+    };
+    this.db
+      .prepare(
+        `UPDATE pipelines
+         SET terminal_publication_failure = ?
+         WHERE id = ?
+           AND terminal_publication_failure IS NULL
+           AND terminal_publication_succeeded_at IS NULL`,
+      )
+      .run(JSON.stringify(payload), args.pipelineId);
+  }
+
+  commitTerminalPublicationSuccess(args: { pipelineId: string }): void {
+    this.db
+      .prepare(
+        `UPDATE pipelines
+         SET terminal_publication_succeeded_at = ?
+         WHERE id = ?
+           AND terminal_publication_succeeded_at IS NULL
+           AND terminal_publication_failure IS NULL`,
+      )
+      .run(Date.now(), args.pipelineId);
   }
 
   private commitApprovalTransition(args: {

@@ -147,7 +147,16 @@ export async function resolveStageWorkflowSteps(
 
   if (stage.workflow === "implement") {
     const resolveBaseRef = deps.resolveBaseRef ?? ((cwd: string) => getBaseBranch(cwd));
-    return resolveImplementStage(stage, context, priorSpecPath, builders, resolveBaseRef);
+    const result = await resolveImplementStage(stage, context, priorSpecPath, builders, resolveBaseRef);
+    if (!result.ok || definition.terminalAction !== "leave-draft") return result;
+    return {
+      ok: true,
+      steps: result.steps.map((step) =>
+        step.behavior === "write" && step.publishCompletion !== false
+          ? { ...step, skipReadyFinalization: true }
+          : step,
+      ),
+    };
   }
 
   const presetName = WORKFLOW_POSTURE_PRESETS[stage.workflow]?.[stage.review];

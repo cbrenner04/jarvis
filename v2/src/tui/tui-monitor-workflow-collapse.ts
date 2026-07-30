@@ -2,12 +2,6 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { rollupWorkflowRunStatus } from "../daemon/workflow-run-status-rollup.ts";
 import { isTerminalRunStatus, type Run, type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
 
-let invertWorkflowCollapseForTest = false;
-
-export function setInvertWorkflowCollapseForTest(value: boolean): void {
-  invertWorkflowCollapseForTest = value;
-}
-
 export function isActiveRunStatus(status: RunStatus): boolean {
   switch (status) {
     case "in-progress":
@@ -153,10 +147,6 @@ export function buildWorkflowTableRows(
   allRuns: readonly DaemonListRunRow[],
   expandedInvocationIds: ReadonlySet<string>,
 ): WorkflowTableRow[] {
-  if (invertWorkflowCollapseForTest) {
-    return orderedSelectable.map((run) => ({ kind: "standalone", run }));
-  }
-
   const { byInvocation: membersByInvocation } = partitionRunsByWorkflowInvocation(allRuns);
 
   const seenInvocations = new Set<string>();

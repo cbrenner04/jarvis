@@ -1,9 +1,8 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
-import { setInvertWorkflowCollapseForTest } from "./tui-monitor-workflow-collapse.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 
@@ -69,11 +68,10 @@ function tableBodyLines(state: TuiMonitorState): string[] {
 }
 
 describe("workflow collapse rendering", () => {
-  afterEach(() => {
-    setInvertWorkflowCollapseForTest(false);
-  });
-
   test("collapsed table shows one top-level row for a multi-run workflow", () => {
+    // Mutating `seenInvocations` dedup + `workflow-collapsed` emit in `buildWorkflowTableRows`
+    // turns this RED (one top-level row per selectable member — here run-implement + run-review;
+    // run-verify is queued/excluded via orderedSelectable); no test-only global.
     const runs = [
       workflowRun({
         runId: "run-implement",
@@ -100,12 +98,11 @@ describe("workflow collapse rendering", () => {
     ];
 
     const body = tableBodyLines(monitorState({ runs, selectedRunId: "run-review" }));
-    const workflowRows = body.filter((line) => line.includes(" demo ") && !line.includes("waiting: memory headroom"));
 
-    expect(workflowRows).toHaveLength(1);
-    expect(workflowRows[0]).toContain("run-review");
-    expect(workflowRows[0]).toContain("workflow-step:implement-review/actuator");
-    expect(workflowRows.some((line) => line.includes("run-implement"))).toBe(false);
+    expect(body).toHaveLength(1);
+    expect(body[0]).toContain("run-review");
+    expect(body[0]).toContain("workflow-step:implement-review/actuator");
+    expect(body.some((line) => line.includes("run-implement"))).toBe(false);
   });
 
   test("expanded rows show distinct role labels for each constituent run", () => {
@@ -233,28 +230,5 @@ describe("workflow collapse rendering", () => {
     const filtered = filterMonitorRunsForLiveWindow(runs, { nowMs: FILTER_NOW_MS });
     const body = tableBodyLines(monitorState({ runs: filtered, selectedRunId: "run-cap-0" }));
     expect(body.filter((line) => line.includes("workflow-status:"))).toHaveLength(20);
-  });
-
-  test("inverted collapse shows every constituent run as a top-level row", () => {
-    setInvertWorkflowCollapseForTest(true);
-    const runs = [
-      workflowRun({
-        runId: "run-implement",
-        stepId: "implement",
-        branch: "feature",
-        status: "completed",
-        isLive: false,
-      }),
-      workflowRun({
-        runId: "run-review",
-        stepId: "implement-review",
-        branch: "feature-review",
-        status: "in-progress",
-        isLive: true,
-      }),
-    ];
-
-    const body = tableBodyLines(monitorState({ runs, selectedRunId: "run-review" }));
-    expect(body.filter((line) => line.includes("run-implement") || line.includes("run-review"))).toHaveLength(2);
   });
 });

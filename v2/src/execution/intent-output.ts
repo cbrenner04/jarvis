@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { isGitRepoAsync } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -67,8 +67,37 @@ export function intentPublicationSpecPath(worktreePath: string, durableDir: stri
   return relative(worktreePath, resolve(worktreePath, durableDir)).replace(/\\/g, "/");
 }
 
-function worktreeRelativePath(worktreePath: string, absolutePath: string): string {
-  return relative(worktreePath, absolutePath).replace(/\\/g, "/");
+/** Worktree-relative handoff path: one landed file → file; otherwise the durable directory. */
+export function intentHandoffSpecPath(
+  worktreePath: string,
+  durableDir: string,
+  files: string[],
+  options?: { invertSingleFileGuardForTest?: boolean },
+): string {
+  const durableRel = intentPublicationSpecPath(worktreePath, durableDir);
+  const singleFile = options?.invertSingleFileGuardForTest ? files.length !== 1 : files.length === 1;
+  if (singleFile && files.length > 0) {
+    return `${durableRel.replace(/\/$/, "")}/${files[0]}`;
+  }
+  return durableRel;
+}
+
+/** Configured durable ready-intents directory from a file- or directory-shaped handoff path. */
+export function configuredIntentDurableDir(
+  worktreePath: string,
+  handoffSpecPath: string,
+  options?: { invertFileGuardForTest?: boolean },
+): string {
+  const resolved = resolve(worktreePath, handoffSpecPath);
+  let isFile = false;
+  try {
+    isFile = statSync(resolved).isFile();
+  } catch {
+    // missing path — treat as directory handoff
+  }
+  if (options?.invertFileGuardForTest) isFile = !isFile;
+  if (isFile) return relative(worktreePath, dirname(resolved)).replace(/\\/g, "/");
+  return handoffSpecPath;
 }
 
 async function ownershipPath(
@@ -120,7 +149,10 @@ export async function landIntentWorkflowOutput(input: {
   const ownership = readOwnership(ownershipFile);
   const ownedFiles = input.invocationId === undefined ? [] : (ownership[input.invocationId] ?? []);
   if (!existsSync(stageDir) && ownedFiles.length > 0) {
-    return { specPath: worktreeRelativePath(input.worktreePath, durableDir), files: ownedFiles };
+    return {
+      specPath: intentHandoffSpecPath(input.worktreePath, input.output.durableDir, ownedFiles),
+      files: ownedFiles,
+    };
   }
   if (!existsSync(stageDir) || !statSync(stageDir).isDirectory()) {
     failure("intent: .jarvis-intent-stage is missing");
@@ -179,7 +211,7 @@ export async function landIntentWorkflowOutput(input: {
     }
     rmSync(stageDir, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
-    return { specPath: worktreeRelativePath(input.worktreePath, durableDir), files };
+    return { specPath: intentHandoffSpecPath(input.worktreePath, input.output.durableDir, files), files };
   } catch (error) {
     for (const destination of created) rmSync(destination, { force: true });
     for (const [destination, backup] of backups) {

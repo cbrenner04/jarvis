@@ -107,8 +107,14 @@ directory changed, and lands every valid Markdown file transactionally under
 `intentOutput.durableDir`. Staging is removed only after landing succeeds.
 
 Landing runs before completion commit/push/PR publication; publication receives
-the durable directory as `specPath`. Validation, boundary, collision, and
-landing failures return `kind: "pre-publication"`, persist the completed step's
+the handoff `specPath` — the landed ready-intent **file** when this landing
+produced exactly one markdown file, otherwise the durable ready-intents
+**directory**. The step-0 entry/write run row's persisted `specPath` is updated
+to the same handoff value after landing (including review-last completion).
+Pipeline stage artifacts copy that persisted value unchanged into plan-stage
+`readyIntent` resolution.
+
+Landing failures return `kind: "pre-publication"`, persist the completed step's
 run as `failed`, retain staging, and include rerun guidance. Resume retries this
 boundary without another agent invocation. This seam also appends a
 `loop_finished` record with `loopOutcomeKind: "landing_failed"` (`resumable:
@@ -804,11 +810,12 @@ invocation. An empty or missing stage falls back to
 promote, so the operator must inspect the run manually.
 
 Resume reconstruction depends on state the persisted workflow snapshot does
-not carry directly: `durableDir` is recovered solely from the sibling durable
-write step's own row (`specPath`), not from the snapshot, and the staging
-directory is the hard-coded `.jarvis-intent-stage/` constant rather than a
-persisted value — the snapshot records neither the original landing nor
-whether the worktree is git-enabled. Admission is not gated on git-enablement: a git-disabled worktree with a
+not carry directly: the configured `durableDir` is recovered from the sibling
+durable write step's own row (`specPath`) — `dirname(specPath)` when that path
+names a landed file, otherwise the directory path itself — not from the
+snapshot, and the staging directory is the hard-coded `.jarvis-intent-stage/`
+constant rather than a persisted value — the snapshot records neither the
+original landing nor whether the worktree is git-enabled. Admission is not gated on git-enablement: a git-disabled worktree with a
 populated stage is admitted for resume the same as a git-enabled one. The
 commit/push/PR tail then runs its normal Git operations regardless, surfacing
 as a visible resume failure if the worktree isn't a real Git repository. This

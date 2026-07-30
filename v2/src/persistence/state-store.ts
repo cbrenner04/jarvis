@@ -334,6 +334,9 @@ export interface StateStore {
   /** Retain the title resolved at the publication boundary for retries. */
   setCreationTitle(runId: string, title: string): void;
 
+  /** Update the worktree-relative handoff path recorded on a run row after intent landing. */
+  setRunSpecPath(runId: string, specPath: string): void;
+
   /** Record the confirmed PR number and URL after successful publication. */
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
 
@@ -894,6 +897,10 @@ class StateStoreImpl implements StateStore {
 
   setCreationTitle(runId: string, title: string): void {
     this.db.prepare("UPDATE runs SET creation_title = ? WHERE id = ?").run(title, runId);
+  }
+
+  setRunSpecPath(runId: string, specPath: string): void {
+    this.db.prepare("UPDATE runs SET spec_path = ? WHERE id = ?").run(specPath, runId);
   }
 
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void {

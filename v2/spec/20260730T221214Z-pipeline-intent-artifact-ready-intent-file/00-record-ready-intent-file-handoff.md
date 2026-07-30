@@ -32,16 +32,16 @@ Git-enabled intent landing records `Run.specPath` as the durable ready-intents *
 
 ## Acceptance criteria
 
-- [ ] `intent-output.test.ts` — single-file landing records `specPath` as the landed file's worktree-relative path (not the durable directory alone); fails on baseline directory recording and when the single-file guard is inverted.
-- [ ] `intent-output.test.ts` — multi-file landing keeps `specPath` on the durable ready-intents directory; inverting the single-file guard makes the test fail.
-- [ ] `intent-output.test.ts` — idempotent re-land early-return applies the same single-file → file / multi-file → directory rule; inverting the single-file guard makes the test fail.
-- [ ] `workflow-runner.test.ts` — review-last intent completion (`review: "light"` / `intent-reviewed`, not only `reviewPasses: 0`) records the file handoff path on the step-0 entry run; fails on baseline directory recording and when the single-file handoff guard is inverted.
-- [ ] `workflow-runner.test.ts` — `resolveIntentFinalizationResumeContext` derives `durableDir` from `dirname(writeRun.specPath)` when the write sibling stores a file handoff path; `landing.output.durableDir` and commit/publish scope stay on the configured durable directory; inverting the file-vs-directory guard makes the test fail.
-- [ ] Pipeline resolution — after single-file intent completion, the stage artifact's `specPath` names a file and plan-stage resolution accepts it (`validateReadyIntent` passes or `resolvePlanStage` succeeds); fails on baseline directory handoff.
-- [ ] `publication-landing.test.ts` — single-file handoff `specPath` shape is reflected in publication landing expectations; fails on baseline directory recording.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `intent-output.test.ts` — single-file landing records `specPath` as the landed file's worktree-relative path (not the durable directory alone); fails on baseline directory recording and when the single-file guard is inverted.
+- [x] `intent-output.test.ts` — multi-file landing keeps `specPath` on the durable ready-intents directory; inverting the single-file guard makes the test fail.
+- [x] `intent-output.test.ts` — idempotent re-land early-return applies the same single-file → file / multi-file → directory rule; inverting the single-file guard makes the test fail.
+- [x] `workflow-runner.test.ts` — review-last intent completion (`review: "light"` / `intent-reviewed`, not only `reviewPasses: 0`) records the file handoff path on the step-0 entry run; fails on baseline directory recording and when the single-file handoff guard is inverted.
+- [x] `workflow-runner.test.ts` — `resolveIntentFinalizationResumeContext` derives `durableDir` from `dirname(writeRun.specPath)` when the write sibling stores a file handoff path; `landing.output.durableDir` and commit/publish scope stay on the configured durable directory; inverting the file-vs-directory guard makes the test fail.
+- [x] Pipeline resolution — after single-file intent completion, the stage artifact's `specPath` names a file and plan-stage resolution accepts it (`validateReadyIntent` passes or `resolvePlanStage` succeeds); fails on baseline directory handoff.
+- [x] `publication-landing.test.ts` — single-file handoff `specPath` shape is reflected in publication landing expectations; fails on baseline directory recording.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/workflow-runner.md` — correct intent publication `specPath` semantics (file handoff when single-file landing, not durable directory alone).
-- [ ] `v2/docs/v1-behaviors.md` — record new intent→plan handoff `specPath` behavior.
+- [x] `v2/docs/workflow-runner.md` — correct intent publication `specPath` semantics (file handoff when single-file landing, not durable directory alone).
+- [x] `v2/docs/v1-behaviors.md` — record new intent→plan handoff `specPath` behavior.

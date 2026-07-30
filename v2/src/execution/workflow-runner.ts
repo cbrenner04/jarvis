@@ -31,7 +31,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
-import { listLandedIntentFiles } from "./intent-output.ts";
+import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import {
   type InvocationFailureDetail,
@@ -879,6 +879,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
         publicationSpecPath = (await landPublication(completionStep.landing, worktreePath)).specPath;
+        persistIntentHandoff(
+          store,
+          completionStep.landing,
+          publicationSpecPath,
+          completionStep.worktree.projectName,
+          completionStep.worktree.branchName,
+          completionStep.stepId,
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         store.setRunStatus(lastResult.runId, "failed");
@@ -910,7 +918,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (completionStep) {
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
-        const publicationPath = publicationSpecPath ?? completionStep.specPath;
+        const publicationPath = publicationSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
         try {
           if (preImplementResetAnchor !== undefined) {
             await realAsyncSubprocessRunner.runAsync(
@@ -1856,9 +1864,27 @@ function commitReviewDebateOutcome(
   });
 }
 
+function persistIntentHandoff(
+  store: StateStore,
+  landing: PublicationLanding | undefined,
+  handoffSpecPath: string,
+  project: string,
+  branch: string,
+  writeTarget: string | { reviewRunId: string },
+): void {
+  if (landing?.kind !== "intent-stage") return;
+  const writeStepId =
+    typeof writeTarget === "string"
+      ? writeTarget
+      : findDurableWriteStepId(store.loadRun(writeTarget.reviewRunId)?.workflowSnapshot?.steps ?? []);
+  if (writeStepId === undefined) return;
+  const writeRun = store.findRunByProjectBranch({ project, branch, stepId: writeStepId });
+  if (writeRun !== null) store.setRunSpecPath(writeRun.id, handoffSpecPath);
+}
+
 /** Lands a review step's deferred publication output, failing the attempt on error. */
 async function landReviewedOutputOrFail(
-  step: Pick<ReviewDebateWorkflowStep, "cwd" | "verdictPath" | "branch">,
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch" | "project">,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
   runId: string,
@@ -1866,17 +1892,18 @@ async function landReviewedOutputOrFail(
   store: StateStore,
   logSink?: LogSink,
 ): Promise<ReviewDebateStepOutcome | undefined> {
-  const landingError = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
+  const landed = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
     logSink,
     runId,
     branch: step.branch,
+    persistHandoff: { store, project: step.project, branch: step.branch, writeTarget: { reviewRunId: runId } },
   });
-  if (landingError === undefined) return undefined;
+  if (landed.ok) return undefined;
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",
     outcomeKind: "invocation_failure",
-    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landed.message },
   });
   return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
 }
@@ -2088,15 +2115,25 @@ function restoreVerdictSidecars(
  * Intent landing excludes its reserved verdict. Plan landing carries its verdict verbatim.
  * This is the one promotion + verdict-cleanup entry shared by every review-landing call site
  * (light review, review-debate, and the non-durable profile review path); it always runs
- * regardless of whether the review step's actuator ran. Returns an error message on failure,
- * or undefined on success.
+ * regardless of whether the review step's actuator ran. Returns `{ ok: true, specPath }` on
+ * success or `{ ok: false, message }` on failure.
  */
 async function landReviewedPublicationOutput(
   worktreePath: string,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,
-  trace?: { logSink: LogSink | undefined; runId: string; branch: string },
-): Promise<string | undefined> {
+  trace?: {
+    logSink: LogSink | undefined;
+    runId: string;
+    branch: string;
+    persistHandoff?: {
+      store: StateStore;
+      project: string;
+      branch: string;
+      writeTarget: string | { reviewRunId: string };
+    };
+  },
+): Promise<{ ok: true; specPath: string } | { ok: false; message: string }> {
   const ownerPath = `${verdictPath}.owner`;
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
@@ -2107,14 +2144,24 @@ async function landReviewedPublicationOutput(
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
-    await landPublication(deferred, worktreePath);
+    const result = await landPublication(deferred, worktreePath);
+    if (trace?.persistHandoff) {
+      persistIntentHandoff(
+        trace.persistHandoff.store,
+        deferred,
+        result.specPath,
+        trace.persistHandoff.project,
+        trace.persistHandoff.branch,
+        trace.persistHandoff.writeTarget,
+      );
+    }
     if (trace) recordIntentFinalization(trace.logSink, trace.runId, "review_landing", trace.branch);
-    return undefined;
+    return { ok: true, specPath: result.specPath };
   } catch (error) {
     restoreVerdictSidecars(verdictPath, verdict, ownerPath, owner);
     const message = error instanceof Error ? error.message : String(error);
     if (trace) recordIntentFinalization(trace.logSink, trace.runId, "review_landing", trace.branch, message);
-    return message;
+    return { ok: false, message };
   }
 }
 
@@ -2127,7 +2174,7 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
 }
 
 async function finishReviewedLanding(
-  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch">,
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch" | "project">,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   runId: string,
   store: StateStore,
@@ -2136,17 +2183,18 @@ async function finishReviewedLanding(
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
   logSink?.append(runId, { kind: "iteration_started", attemptId });
-  const landingError = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath, {
+  const landed = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath, {
     logSink,
     runId,
     branch: step.branch,
+    persistHandoff: { store, project: step.project, branch: step.branch, writeTarget: { reviewRunId: runId } },
   });
-  if (landingError !== undefined) {
+  if (!landed.ok) {
     store.commitCompletionBoundary({
       attemptId,
       runStatus: "failed",
       outcomeKind: "invocation_failure",
-      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landingError },
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landed.message },
     });
     const outcome: ReviewStepOutcome = { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
     logSink?.append(runId, {
@@ -2368,6 +2416,8 @@ export function resolveIntentFinalizationResumeContext(
     return { ok: false, message: "the intent stage is empty or missing" };
   }
 
+  const configuredDurableDir = configuredIntentDurableDir(run.worktreePath, writeRun.specPath);
+
   return {
     ok: true,
     context: {
@@ -2377,11 +2427,11 @@ export function resolveIntentFinalizationResumeContext(
       branch: run.branch,
       baseRef: run.specRef,
       invocationId: snapshot.invocationId,
-      durableDir: writeRun.specPath,
+      durableDir: configuredDurableDir,
       verdictPath: join(run.worktreePath, VERDICT_FILE),
       landing: {
         kind: "intent-stage",
-        output: { durableDir: writeRun.specPath },
+        output: { durableDir: configuredDurableDir },
         stagingDir: INTENT_STAGE_DIR,
         invocationId: snapshot.invocationId,
         baseRef: run.specRef,
@@ -2607,18 +2657,19 @@ export async function resumePopulatedIntentPublication(
       );
     }
 
-    const landingError = await landReviewedPublicationOutput(
-      context.worktreePath,
-      context.landing,
-      context.verdictPath,
-      {
-        logSink: deps.logSink,
-        runId: context.runId,
+    const landed = await landReviewedPublicationOutput(context.worktreePath, context.landing, context.verdictPath, {
+      logSink: deps.logSink,
+      runId: context.runId,
+      branch: context.branch,
+      persistHandoff: {
+        store,
+        project: context.project,
         branch: context.branch,
+        writeTarget: { reviewRunId: context.runId },
       },
-    );
-    if (landingError !== undefined) {
-      return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landingError, deps);
+    });
+    if (!landed.ok) {
+      return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landed.message, deps);
     }
 
     return await runIntentResumeCommitAndPublish(context, store, attemptId, deps);
@@ -3761,14 +3812,14 @@ async function runProfileReviewStep(
   });
 
   if (kind === "complete" && step.landing !== undefined && step.landing.kind !== "none") {
-    const landingError = await landReviewedPublicationOutput(step.cwd, step.landing, reviewInput.verdictPath);
-    if (landingError !== undefined) {
+    const landed = await landReviewedPublicationOutput(step.cwd, step.landing, reviewInput.verdictPath);
+    if (!landed.ok) {
       return {
         kind: "invocation_failure",
         runId: ids.runId,
         iterationsConsumed: result.cycles.length,
         resumable: true,
-        invocationFailureMessage: landingError,
+        invocationFailureMessage: landed.message,
       };
     }
   }

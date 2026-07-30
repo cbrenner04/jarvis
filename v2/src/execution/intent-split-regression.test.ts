@@ -293,9 +293,7 @@ function assertSingleSurfaceStage(stage: string): void {
   const content = intents[0] ?? "";
   if (primarySurface(content) !== EXECUTION_LOOP_SURFACE)
     throw new Error(`expected primary implementation surface ${EXECUTION_LOOP_SURFACE}`);
-  const rationaleLines = content
-    .split("\n")
-    .filter((line) => line.startsWith("Unsplit rationale:"));
+  const rationaleLines = content.split("\n").filter((line) => line.startsWith("Unsplit rationale:"));
   if (rationaleLines.length !== 1 || rationaleLines[0]?.slice("Unsplit rationale:".length).trim().length === 0)
     throw new Error("expected one non-empty one-line unsplit rationale");
 }

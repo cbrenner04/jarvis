@@ -34,24 +34,24 @@ or single-surface output in `.jarvis-intent-stage/`.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/intent-split-regression.test.ts` test `multi-surface seed fans out by surface
+- [x] `v2/src/execution/intent-split-regression.test.ts` test `multi-surface seed fans out by surface
       through the production split write` drives a committed persistence → daemon → CLI behavior
       through the built split write step, completes the write, and finds ready-intent-valid staged
       intents with exactly one primary implementation surface each and distinct persistence, daemon,
       and CLI owners; it fails against the pre-change prompt.
-- [ ] `v2/src/execution/intent-split-regression.test.ts` test `single-surface seed stays whole through
+- [x] `v2/src/execution/intent-split-regression.test.ts` test `single-surface seed stays whole through
       the production split write` drives a committed seed with multiple related concerns in one
       boundary through the same harness, completes the write, and finds exactly one ready-intent-
       valid staged intent with a one-line body rationale explaining why splitting does not apply;
       it fails against the pre-change prompt.
-- [ ] The stub binding derives its staged output from the rendered split prompt: the pre-change
+- [x] The stub binding derives its staged output from the rendered split prompt: the pre-change
       contract produces rejected bundled multi-surface output and rejected single-surface output
       lacking the one-line rationale, while the revised contract alone satisfies both staging
       assertions.
-- [ ] Inverting the multi-surface fan-out contract to the pre-change one-intent path turns
+- [x] Inverting the multi-surface fan-out contract to the pre-change one-intent path turns
       `multi-surface seed fans out by surface through the production split write` RED through the
       same primary-surface staging oracle.
-- [ ] The regression uses only injected bindings and filesystem fixtures; it starts no live model,
+- [x] The regression uses only injected bindings and filesystem fixtures; it starts no live model,
       daemon, or OS subprocess.
 
 ## Documentation updates

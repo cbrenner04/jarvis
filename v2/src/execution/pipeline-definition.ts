@@ -4,6 +4,10 @@ export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
 
 const VALID_REVIEW_POSTURES = new Set(["none", "light", "debate"]);
 
+export function isUnrealizableWorkflowReview(workflow: string, review: string): boolean {
+  return workflow === "implement" && review === "none";
+}
+
 const POSTURE_REQUIRED_ROLES = {
   light: ["critic", "actuator"],
   debate: ["adversary", "advocate", "adjudicator", "actuator"],
@@ -97,7 +101,7 @@ function validateWorkflowStage(
     return;
   }
 
-  if (workflowKnown && workflow === "implement" && review === "none") {
+  if (workflowKnown && isUnrealizableWorkflowReview(workflow, review)) {
     errors.push({
       code: "unrealizable-review-posture",
       stageId,

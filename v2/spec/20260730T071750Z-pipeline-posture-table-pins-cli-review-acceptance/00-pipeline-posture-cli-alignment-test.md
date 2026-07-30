@@ -22,15 +22,15 @@ Pipeline admission (`isUnrealizableWorkflowReview`) and bare-workflow CLI parse 
 
 ## Task checklist
 
-- [ ] Export `isUnrealizableWorkflowReview` from `pipeline-definition.ts` and route the existing `implement` + `none` check on the `validatePipelineDefinition` admission path through it.
-- [ ] Add `pipeline-posture-cli-alignment.test.ts`: iterate `intent` | `plan` | `implement` × `none` | `light` | `debate`; assert pipeline realizability matches CLI parse acceptance under the mapping above.
+- [x] Export `isUnrealizableWorkflowReview` from `pipeline-definition.ts` and route the existing `implement` + `none` check on the `validatePipelineDefinition` admission path through it.
+- [x] Add `pipeline-posture-cli-alignment.test.ts`: iterate `intent` | `plan` | `implement` × `none` | `light` | `debate`; assert pipeline realizability matches CLI parse acceptance under the mapping above.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-posture-cli-alignment.test.ts` passes when pipeline realizability and CLI parse acceptance agree for all nine cells, and fails when they diverge; AC3 invert on `implement` + `none` proves the alignment loop is load-bearing.
-- [ ] The `describe("pipeline posture vs workflow CLI review acceptance")` block covers every `(intent|plan|implement) × (none|light|debate)` cell: all eight realizable cells invoke the corresponding `parse*WorkflowArgs` under mapped review flags; `implement` + `none` is unrealizable with no CLI argv construction.
-- [ ] Inverting the `implement` + `none` unrealizable assertion in `pipeline-posture-cli-alignment.test.ts` makes the test fail.
-- [ ] `pipeline-definition-validation.test.ts` `"implement under none is unrealizable; light on the same stage validates clean"` stays green.
+- [x] `pipeline-posture-cli-alignment.test.ts` passes when pipeline realizability and CLI parse acceptance agree for all nine cells, and fails when they diverge; AC3 invert on `implement` + `none` proves the alignment loop is load-bearing.
+- [x] The `describe("pipeline posture vs workflow CLI review acceptance")` block covers every `(intent|plan|implement) × (none|light|debate)` cell: all eight realizable cells invoke the corresponding `parse*WorkflowArgs` under mapped review flags; `implement` + `none` is unrealizable with no CLI argv construction.
+- [x] Inverting the `implement` + `none` unrealizable assertion in `pipeline-posture-cli-alignment.test.ts` makes the test fail.
+- [x] `pipeline-definition-validation.test.ts` `"implement under none is unrealizable; light on the same stage validates clean"` stays green.
 
 ## Documentation updates
 

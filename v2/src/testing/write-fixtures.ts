@@ -1,5 +1,5 @@
 import { afterEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
@@ -32,6 +32,12 @@ export function createFakeWithExternalWorktree(defaultJarvisRoot?: string) {
     const jarvisRoot = args.jarvisRoot ?? defaultJarvisRoot ?? join(tmpdir(), "jarvis-fake");
     const worktreePath = join(jarvisRoot, "worktrees", args.projectName, args.branchName);
     mkdirSync(worktreePath, { recursive: true });
+    const gitignorePath = join(worktreePath, ".gitignore");
+    if (!existsSync(gitignorePath)) {
+      writeFileSync(gitignorePath, ".reused\n", "utf8");
+    } else if (!readFileSync(gitignorePath, "utf8").includes(".reused")) {
+      writeFileSync(gitignorePath, `${readFileSync(gitignorePath, "utf8").trimEnd()}\n.reused\n`, "utf8");
+    }
     if (!existsSync(join(worktreePath, "spec.md"))) {
       writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
     }

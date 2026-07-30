@@ -20,14 +20,14 @@ A rejected repair must remain rejected after the process exits or a completed ru
 
 ## Acceptance criteria
 
-- [ ] Focused `v2/src/execution/write-loop.test.ts` and completed-run recovery coverage prove a
+- [x] Focused `v2/src/execution/write-loop.test.ts` and completed-run recovery coverage prove a
       process restart followed by completed-run retry cannot commit or publish the rejected dirty
       path, retaining the original frozen allowset and offending-path evidence.
-- [ ] A separate `jarvis run resume` regression proves resume cannot commit or publish that same
+- [x] A separate `jarvis run resume` regression proves resume cannot commit or publish that same
       rejected path after restart; it fails against a recovery path that recomputes or omits the
       persisted fence.
-- [ ] Recovery regression tests fail when the persisted-fence validation is inverted or bypassed.
-- [ ] `v2/docs/write-behavior.md` documents durable fence provenance, fail-closed reconstruction,
+- [x] Recovery regression tests fail when the persisted-fence validation is inverted or bypassed.
+- [x] `v2/docs/write-behavior.md` documents durable fence provenance, fail-closed reconstruction,
       and the completed-run retry/resume boundary.
 
 ## Documentation updates

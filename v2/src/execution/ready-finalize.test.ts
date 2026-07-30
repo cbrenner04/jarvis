@@ -59,6 +59,7 @@ export function initGateScopeWorktree(
   execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
   writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
   writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
   execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
   execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
   const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {

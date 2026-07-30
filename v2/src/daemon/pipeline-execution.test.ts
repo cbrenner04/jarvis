@@ -923,42 +923,6 @@ describe("activation eligibility guards", () => {
     expect(approvalOutcomePermitsActivation(pipelineWithGateStatus("rejected"))).toBe(false);
   });
 
-  test("a pending stage directly after an approved gate is not a reopened failed continuation", () => {
-    const gatedDefinition: PipelineDefinition = {
-      name: "p",
-      stages: [
-        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
-        { stageId: "gate", kind: "approval" },
-        { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
-      ],
-    };
-    const { store } = fakeStore(gatedDefinition, {}, { context: baseContext });
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "pending" } });
-    const gated = store.loadPipeline(PIPELINE_ID);
-    if (!gated) throw new Error("expected pipeline");
-
-    // The prior authored stage is the approval gate, so this pending stage is approval-gated
-    // progression, not an in-place reopen.
-    expect(isReopenedFailedContinuation(gated)).toBe(false);
-
-    const ungatedDefinition: PipelineDefinition = {
-      name: "p",
-      stages: [
-        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
-        { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
-      ],
-    };
-    const { store: ungatedStore } = fakeStore(ungatedDefinition, {}, { context: baseContext });
-    ungatedStore.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
-    ungatedStore.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "pending" } });
-    const ungated = ungatedStore.loadPipeline(PIPELINE_ID);
-    if (!ungated) throw new Error("expected pipeline");
-
-    expect(isReopenedFailedContinuation(ungated)).toBe(true);
-  });
-
   test("inverting reopen activation eligibility guard fails reopened activation regression", () => {
     const reopenDefinition: PipelineDefinition = {
       name: "p",
@@ -978,6 +942,30 @@ describe("activation eligibility guards", () => {
     const failed = store.loadPipeline(PIPELINE_ID);
     if (!failed) throw new Error("expected pipeline");
     expect(reopenedFailurePermitsActivation(failed)).toBe(false);
+  });
+
+  test("an approval stage immediately before the pending workflow stage blocks reopened continuation", () => {
+    const { store } = fakeStore(definition, {}, { context: baseContext });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "pending" } });
+    const gated = store.loadPipeline(PIPELINE_ID);
+    if (!gated) throw new Error("expected pipeline");
+    expect(isReopenedFailedContinuation(gated)).toBe(false);
+
+    const ungatedDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "s3", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const ungated = fakeStore(ungatedDefinition, {}, { context: baseContext });
+    ungated.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    ungated.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "pending" } });
+    const reopened = ungated.store.loadPipeline(PIPELINE_ID);
+    if (!reopened) throw new Error("expected pipeline");
+    expect(isReopenedFailedContinuation(reopened)).toBe(true);
   });
 });
 
@@ -1134,9 +1122,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    const rejectedReopened = reopenedStore.loadPipeline(pipelineId);
-    if (!rejectedReopened) throw new Error("expected pipeline");
-    expect(derivePipelineState(rejectedReopened)).toBe("awaiting-approval");
+    const rejectReopenedPipeline = reopenedStore.loadPipeline(pipelineId);
+    if (!rejectReopenedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(rejectReopenedPipeline)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const handlers = createRunControlHandlers({
@@ -1177,9 +1165,9 @@ describe("pipeline approval decisions", () => {
       isOwnerAlive: async () => false,
     });
     await reopenedStore.reconcilePipelines();
-    const approvedReopened = reopenedStore.loadPipeline(pipelineId);
-    if (!approvedReopened) throw new Error("expected pipeline");
-    expect(derivePipelineState(approvedReopened)).toBe("awaiting-approval");
+    const approveReopenedPipeline = reopenedStore.loadPipeline(pipelineId);
+    if (!approveReopenedPipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(approveReopenedPipeline)).toBe("awaiting-approval");
 
     const fakeExecutor = createFakeWriteLoopExecutor();
     const stage3Step: AnyWorkflowStep = createWriteStep("stage-3", "pipeline-branch", doneWithArtifactBindingFactory, {

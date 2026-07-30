@@ -1,9 +1,26 @@
-import { getBaseBranch } from "../../../shared/git.ts";
-import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
+import { join, resolve, sep } from "node:path";
+import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import {
+  buildImplementWorkflowSteps,
+  type BuildImplementWorkflowStepsInput,
+  type BuildImplementWorkflowStepsDeps,
+} from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
-import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
+import {
+  buildPlanWorkflowSteps,
+  buildReviewedPlanLightWorkflowSteps,
+  buildReviewedPlanWorkflowSteps,
+  type IntentWorkflowInput,
+  type PlanWorkflowDeps,
+  type PlanWorkflowInput,
+  type PlanWorkflowResult,
+} from "../execution/publication-workflow-steps.ts";
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import { jarvisHome } from "../paths.ts";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 
@@ -14,7 +31,7 @@ export type PipelineStageResolutionResult = { ok: true; steps: AnyWorkflowStep[]
 export type PipelineStageResolveDeps = {
   builders?: typeof WORKFLOW_PRESET_BUILDERS;
   resolveBaseRef?: (cwd: string) => Promise<string>;
-  loadRun?: (runId: string) => { worktreePath: string } | null;
+  loadRun?: (runId: string) => { worktreePath: string; branch: string } | null;
 };
 
 /** review posture -> preset name, for the two presets that consume a prior stage's artifact or the seed. */
@@ -57,10 +74,100 @@ function findPrecedingWorkflowArtifact(
   return undefined;
 }
 
+function isUnderPath(child: string, parent: string): boolean {
+  const resolvedChild = resolve(child);
+  const resolvedParent = resolve(parent);
+  const prefix = resolvedParent.endsWith(sep) ? resolvedParent : resolvedParent + sep;
+  return resolvedChild === resolvedParent || resolvedChild.startsWith(prefix);
+}
+
+function projectRegistryFromContext(context: PipelineContext): Record<string, ProjectRegistryEntry> {
+  if (context.projectRegistry !== undefined) return context.projectRegistry;
+  const projects = readMachineConfigDocument(context.configPath)?.projects;
+  return projects && typeof projects === "object" && !Array.isArray(projects)
+    ? (projects as Record<string, ProjectRegistryEntry>)
+    : {};
+}
+
+/** Pipeline chained stages match cwd under the admission root or jarvis external worktrees. */
+export function createChainedStageProjectMatch(context: PipelineContext): (path: string) => ProjectMatch | undefined {
+  const registry = projectRegistryFromContext(context);
+  const admissionRoot = context.cwd;
+  return (path: string) => {
+    const direct = findProjectMatch(path, registry);
+    if (direct !== undefined && isUnderPath(path, admissionRoot)) return direct;
+    const resolved = resolve(path);
+    const jarvisRoot = jarvisHome();
+    for (const [key, entry] of Object.entries(registry)) {
+      const externalRoot = join(jarvisRoot, "worktrees", key);
+      const nestedRoot = join(entry.root, ".jarvis-worktrees");
+      if (isUnderPath(resolved, externalRoot) || isUnderPath(resolved, nestedRoot)) {
+        return { key, root: admissionRoot };
+      }
+    }
+    return direct;
+  };
+}
+
+function chainedPlanWorkflowDeps(context: PipelineContext): PlanWorkflowDeps {
+  return { resolveProjectMatch: createChainedStageProjectMatch(context) };
+}
+
+function chainedImplementWorkflowDeps(context: PipelineContext): BuildImplementWorkflowStepsDeps {
+  const configPath = context.configPath;
+  return {
+    resolveProjectMatch: createChainedStageProjectMatch(context),
+    ...(configPath !== undefined
+      ? {
+          configPath,
+          loadWorkflowSteps: (steps) =>
+            realLoadWorkflowSteps(steps, { machineConfigPath: configPath, machineProfile: "home" }),
+        }
+      : {}),
+  };
+}
+
+async function invokePlanPresetBuilder(
+  presetName: CliWorkflowPresetName,
+  input: PlanWorkflowInput,
+  context: PipelineContext,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<PlanWorkflowResult> {
+  const customBuilder = builders[presetName];
+  const defaultBuilder = WORKFLOW_PRESET_BUILDERS[presetName];
+  if (customBuilder !== defaultBuilder) {
+    return (await customBuilder(input as unknown as BuildImplementWorkflowStepsInput)) as PlanWorkflowResult;
+  }
+  const deps = chainedPlanWorkflowDeps(context);
+  switch (presetName) {
+    case "plan":
+      return buildPlanWorkflowSteps(input, deps);
+    case "plan-reviewed":
+      return buildReviewedPlanWorkflowSteps(input, deps);
+    case "plan-reviewed-light":
+      return buildReviewedPlanLightWorkflowSteps(input, deps);
+    default:
+      return (await customBuilder(input as unknown as BuildImplementWorkflowStepsInput)) as PlanWorkflowResult;
+  }
+}
+
+async function invokeImplementPresetBuilder(
+  input: BuildImplementWorkflowStepsInput,
+  context: PipelineContext,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<Awaited<ReturnType<typeof buildImplementWorkflowSteps>>> {
+  const customBuilder = builders.implement;
+  if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
+    return customBuilder(input);
+  }
+  return buildImplementWorkflowSteps(input, chainedImplementWorkflowDeps(context));
+}
+
 type PriorArtifactContext = {
   artifact: PipelineStageArtifact;
   cwd: string;
   worktreePath: string;
+  branch: string;
   specPath: string;
 };
 
@@ -95,12 +202,19 @@ function resolvePriorArtifactContext(
       error: `pipeline-stage-resolve: entry run ${priorArtifact.entryRunId} is missing worktreePath`,
     };
   }
+  if (priorEntryRun.branch.length === 0) {
+    return {
+      ok: false,
+      error: `pipeline-stage-resolve: entry run ${priorArtifact.entryRunId} is missing branch`,
+    };
+  }
   return {
     ok: true,
     prior: {
       artifact: priorArtifact,
       cwd: selectChainedStageCwd(context.cwd, priorEntryRun.worktreePath),
       worktreePath: priorEntryRun.worktreePath,
+      branch: priorEntryRun.branch,
       specPath: priorArtifact.specPath,
     },
   };
@@ -119,18 +233,39 @@ async function resolveImplementStage(
   prior: PriorArtifactContext,
   context: PipelineContext,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
-  resolveBaseRef: (cwd: string) => Promise<string>,
 ): Promise<PipelineStageResolutionResult> {
+  const customBuilder = builders.implement;
+  if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
+    const input: BuildImplementWorkflowStepsInput = {
+      cwd: prior.cwd,
+      baseRef: prior.branch,
+      specPath: prior.specPath,
+      reviewPasses: FIXED_REVIEW_PASSES,
+      reviewBehavior: stage.review as ImplementReviewBehavior,
+    };
+    return toResolution(await customBuilder(input));
+  }
+
+  const projectMatch = createChainedStageProjectMatch(context)(prior.worktreePath);
+  if (projectMatch === undefined) {
+    return {
+      ok: false,
+      error: `pipeline-stage-resolve: no registered project matches prior worktree ${prior.worktreePath}`,
+    };
+  }
   const input: BuildImplementWorkflowStepsInput = {
     cwd: prior.cwd,
-    baseRef: await resolveBaseRef(prior.worktreePath),
+    baseRef: prior.branch,
     specPath: prior.specPath,
     reviewPasses: FIXED_REVIEW_PASSES,
-    reviewBehavior: stage.review,
+    reviewBehavior: stage.review as ImplementReviewBehavior,
+    projectRoot: projectMatch.root,
+    projectName: projectMatch.key,
+    preflightGitRoot: prior.worktreePath,
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
     ...(context.projectRegistry !== undefined ? { projectRegistry: context.projectRegistry } : {}),
   };
-  return toResolution(await builders.implement(input));
+  return toResolution(await invokeImplementPresetBuilder(input, context, builders));
 }
 
 async function resolveIntentStage(
@@ -178,7 +313,7 @@ async function resolvePlanStage(
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };
-  return toResolution(await builders[presetName](input as unknown as BuildImplementWorkflowStepsInput));
+  return toResolution(await invokePlanPresetBuilder(presetName, input, context, builders));
 }
 
 /**
@@ -211,8 +346,7 @@ export async function resolveStageWorkflowSteps(
     }
     const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
     if (!priorResult.ok) return priorResult;
-    const resolveBaseRef = deps.resolveBaseRef ?? ((cwd: string) => getBaseBranch(cwd));
-    const result = await resolveImplementStage(stage, priorResult.prior, context, builders, resolveBaseRef);
+    const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
     if (!result.ok || definition.terminalAction !== "leave-draft") return result;
     return {
       ok: true,

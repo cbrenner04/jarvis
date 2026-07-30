@@ -701,7 +701,7 @@ async function advanceWorkflowStage(args: {
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
       loadRun: (runId) => {
         const entryRun = store.loadRun(runId);
-        return entryRun === null ? null : { worktreePath: entryRun.worktreePath };
+        return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
       },
     });
     if (!resolution.ok) {

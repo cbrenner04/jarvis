@@ -13,7 +13,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { createChainedStageProjectMatch } from "../daemon/pipeline-stage-resolve.ts";
 import { openStateStore } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { WithExternalWorktreeResult } from "./external-worktree.ts";
 import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
@@ -723,5 +726,87 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain("Failed to load agent model config");
+  });
+
+  test("chained pipeline preflight uses prior worktree as git root and prior branch as baseRef", async () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-chained-preflight-"));
+    initGitRepo(root);
+    writeFileSync(join(root, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+
+    const planBranch = "plan/feature";
+    const planSpecRel = "spec/feature/index.md";
+    const planWorktree = join(root, ".jarvis-worktrees", planBranch);
+    mkdirSync(planWorktree, { recursive: true });
+    execFileSync("git", ["branch", planBranch], { cwd: root });
+    execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: root });
+    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+    writeFileSync(join(planWorktree, "spec/feature/00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+    execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+
+    const catFileCalls: Array<{ cwd: string; ref: string }> = [];
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (command, args, cwd, options) => {
+        if (command === "git" && args[0] === "cat-file" && args[1] === "-e") {
+          catFileCalls.push({ cwd: cwd ?? "", ref: args[2] ?? "" });
+        }
+        return realAsyncSubprocessRunner.runAsync(command, args, cwd, options);
+      },
+    };
+
+    const machineConfigPath = writeHomeMachineConfig({ projects: { registered: { root } } });
+    const machineProfile = "home";
+    const context = { cwd: root, seed: "unused", projectRegistry: { registered: { root } } };
+    const result = await buildImplementWorkflowSteps(
+      {
+        cwd: planWorktree,
+        baseRef: planBranch,
+        specPath: planSpecRel,
+        projectRoot: root,
+        projectName: "registered",
+        preflightGitRoot: planWorktree,
+        reviewPasses: 0,
+        configPath: machineConfigPath,
+        projectRegistry: { registered: { root } },
+      },
+      {
+        asyncSubprocessRunner: runner,
+        resolveProjectMatch: createChainedStageProjectMatch(context),
+        loadWorkflowSteps: (steps) =>
+          loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
+        resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(catFileCalls).toContainEqual({ cwd: planWorktree, ref: `${planBranch}:${planSpecRel}` });
+    expect(catFileCalls.some((call) => call.cwd === root && call.ref.startsWith("main:"))).toBe(false);
+
+    const wrongBaseRef = await buildImplementWorkflowSteps(
+      {
+        cwd: planWorktree,
+        baseRef: "main",
+        specPath: planSpecRel,
+        projectRoot: root,
+        projectName: "registered",
+        preflightGitRoot: planWorktree,
+        reviewPasses: 0,
+        configPath: machineConfigPath,
+        projectRegistry: { registered: { root } },
+      },
+      {
+        asyncSubprocessRunner: runner,
+        resolveProjectMatch: createChainedStageProjectMatch(context),
+        loadWorkflowSteps: (steps) =>
+          loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
+        resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
+      },
+    );
+    expect(wrongBaseRef.ok).toBe(false);
+    if (wrongBaseRef.ok) return;
+    expect(wrongBaseRef.error).toContain("Spec path unavailable in base ref main");
   });
 });

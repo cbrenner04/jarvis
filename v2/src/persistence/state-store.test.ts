@@ -8,8 +8,8 @@ import {
   analyzeFailedPipelineReopenShape,
   isOwnerAlive,
   isStageReconciliationStable,
-  openStateStore,
   type OwnerLivenessProbe,
+  openStateStore,
   type StateStore,
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
@@ -760,9 +760,7 @@ describe("pipelines", () => {
     if (!gate) throw new Error("gate stage should exist");
 
     const pendingSnapshot = store.loadPipeline(pipelineId);
-    expect(
-      store.decideApproval({ stageRecordId: gate.id, stageId: gate.stageId, decision: "approved" }),
-    ).toEqual({
+    expect(store.decideApproval({ stageRecordId: gate.id, stageId: gate.stageId, decision: "approved" })).toEqual({
       outcome: "refused",
       stageRecordId: gate.id,
       reason: "stage-not-awaiting",
@@ -1217,10 +1215,9 @@ describe("pipeline continuation claim", () => {
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });
     const raw = new Database(TEST_DB_PATH);
     try {
-      raw.prepare("UPDATE pipelines SET status = 'interrupted', owner_identity = ? WHERE id = ?").run(
-        "prior:1",
-        pipelineId,
-      );
+      raw
+        .prepare("UPDATE pipelines SET status = 'interrupted', owner_identity = ? WHERE id = ?")
+        .run("prior:1", pipelineId);
     } finally {
       raw.close();
     }
@@ -1235,10 +1232,9 @@ describe("pipeline continuation claim", () => {
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });
     const raw = new Database(TEST_DB_PATH);
     try {
-      raw.prepare("UPDATE pipelines SET status = 'interrupted', owner_identity = ? WHERE id = ?").run(
-        "prior:1",
-        pipelineId,
-      );
+      raw
+        .prepare("UPDATE pipelines SET status = 'interrupted', owner_identity = ? WHERE id = ?")
+        .run("prior:1", pipelineId);
     } finally {
       raw.close();
     }
@@ -1799,15 +1795,7 @@ describe("pipeline reconciliation", () => {
     if (!skippedBefore) throw new Error("Skipped stage should exist");
 
     expect(isStageReconciliationStable("skipped")).toBe(true);
-    const preFixStableStatuses = [
-      "pending",
-      "succeeded",
-      "failed",
-      "interrupted",
-      "awaiting",
-      "approved",
-      "rejected",
-    ];
+    const preFixStableStatuses = ["pending", "succeeded", "failed", "interrupted", "awaiting", "approved", "rejected"];
     expect(preFixStableStatuses.includes("skipped")).toBe(false);
 
     const sweepStore = openSweepStore(async () => false);

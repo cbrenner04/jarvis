@@ -1,17 +1,14 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
-import {
-  createBindingFactory,
-  writeStepFixtures,
-} from "../testing/workflow-step-fixtures.ts";
+import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
@@ -90,10 +87,9 @@ afterEach(async () => {
   }
 });
 
-function makeHandlers(resolveStage: (
-  definition: PipelineDefinition,
-  stageIndex: number,
-) => Promise<PipelineStageResolutionResult>) {
+function makeHandlers(
+  resolveStage: (definition: PipelineDefinition, stageIndex: number) => Promise<PipelineStageResolutionResult>,
+) {
   return createRunControlHandlers({
     stateStore,
     writeLoopExecutor: fakeExecutor.executor,
@@ -126,9 +122,13 @@ test("pipeline_decide_approval chains approved decisions into activation on an a
   );
   const pipelineId = (startResponse as { result: { pipelineId: string } }).result.pipelineId;
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running",
+  );
   stage1.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting",
+  );
   const gate = stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate");
   if (!gate) throw new Error("expected gate");
 
@@ -151,9 +151,13 @@ test("pipeline_decide_approval chains approved decisions into activation on an a
     },
   });
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running",
+  );
   stage3.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 });
 
@@ -228,9 +232,13 @@ test("pipeline_reopen_failed chains reopen into activation on an active pipeline
     },
   });
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "running",
+  );
   stage2.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 });
 
@@ -257,9 +265,13 @@ test("pipeline_continue resumes an interrupted pipeline through the handler seam
   );
 
   expect(response).toEqual({ kind: "response", result: { outcome: "applied" } });
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "running",
+  );
   stage2.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s2")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 });
 
@@ -290,9 +302,13 @@ test("pipeline_activate resumes an interrupted approved gate through the handler
     kind: "response",
     result: { outcome: "applied", eligibility: { eligible: true, reason: "approved-continuation" } },
   });
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running",
+  );
   stage3.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 });
 
@@ -330,6 +346,8 @@ test("pipeline_activate refuses a second activation while the pipeline loop is a
   expect(second).toEqual({ kind: "response", result: { outcome: "refused", reason: "claim-refused" } });
 
   stage3.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
 });

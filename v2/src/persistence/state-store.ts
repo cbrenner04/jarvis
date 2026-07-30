@@ -310,11 +310,7 @@ export interface StateStore {
   markApprovalAwaiting(args: { stageRecordId: string; stageId: string }): ApprovalOperationOutcome;
 
   /** First-writer-wins decision of one awaiting approval row, addressed by its durable row ID. */
-  decideApproval(args: {
-    stageRecordId: string;
-    stageId: string;
-    decision: string;
-  }): ApprovalOperationOutcome;
+  decideApproval(args: { stageRecordId: string; stageId: string; decision: string }): ApprovalOperationOutcome;
 
   /**
    * Claim a pipeline with persisted context for continuation: an `interrupted` row is
@@ -356,9 +352,7 @@ export type PipelineReopenOutcome =
     };
 
 /** Whether a pipeline's stage rows match the valid failed-plus-skipped-suffix reopen shape. */
-export function analyzeFailedPipelineReopenShape(
-  stages: readonly PipelineStageRecord[],
-): FailedPipelineReopenShape {
+export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
   const failedIndices = stages.flatMap((stage, index) => (stage.status === "failed" ? [index] : []));
   if (failedIndices.length === 0) {
     return { valid: false, reason: "no-failure" };
@@ -998,11 +992,7 @@ class StateStoreImpl implements StateStore {
     })();
   }
 
-  decideApproval(args: {
-    stageRecordId: string;
-    stageId: string;
-    decision: string;
-  }): ApprovalOperationOutcome {
+  decideApproval(args: { stageRecordId: string; stageId: string; decision: string }): ApprovalOperationOutcome {
     const refusal = this.approvalTargetRefusal(args, "awaiting");
     if (refusal !== null) return refusal;
     if (args.decision !== "approved" && args.decision !== "rejected") {

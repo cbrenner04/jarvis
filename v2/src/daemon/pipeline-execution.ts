@@ -1,8 +1,8 @@
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import type {
   Pipeline,
-  PipelineStageRecord,
   PipelineContinuationClaimOutcome,
+  PipelineStageRecord,
   StateStore,
 } from "../persistence/state-store.ts";
 import {
@@ -70,40 +70,38 @@ export function analyzePipelineActivationEligibility(
 
   for (const stage of pipeline.definition.stages) {
     const status = byStageId.get(stage.stageId)?.status;
-
-    if (stage.kind === "workflow") {
-      if (status === "succeeded") continue;
-      if (status === "pending") {
-        return {
-          eligible: true,
-          reason: sawApprovedGate ? "approved-continuation" : "reopened-continuation",
-        };
-      }
-      if (status === "interrupted") {
-        return { eligible: false, reason: "interrupted-stage" };
-      }
-      return { eligible: false, reason: "no-continuation" };
-    }
-
-    if (status === "approved") {
-      sawApprovedGate = true;
-      continue;
-    }
-    if (status === "awaiting") {
-      return { eligible: false, reason: "awaiting-approval" };
-    }
-    if (status === "rejected") {
-      return { eligible: false, reason: "rejected-approval" };
-    }
-    return { eligible: false, reason: "no-continuation" };
+    const verdict =
+      stage.kind === "workflow" ? workflowStageVerdict(status, sawApprovedGate) : approvalStageVerdict(status);
+    if (verdict !== "advance") return verdict;
+    if (stage.kind === "approval") sawApprovedGate = true;
   }
 
   return { eligible: false, reason: "no-continuation" };
 }
 
-function activationClaimRefusal(
-  eligibility: PipelineActivationEligibility,
-): PipelineContinuationClaimOutcome {
+/** Eligibility contribution of one workflow stage, or `advance` when the walk continues. */
+function workflowStageVerdict(
+  status: PipelineStageRecord["status"] | undefined,
+  sawApprovedGate: boolean,
+): PipelineActivationEligibility | "advance" {
+  if (status === "succeeded") return "advance";
+  if (status === "pending")
+    return { eligible: true, reason: sawApprovedGate ? "approved-continuation" : "reopened-continuation" };
+  if (status === "interrupted") return { eligible: false, reason: "interrupted-stage" };
+  return { eligible: false, reason: "no-continuation" };
+}
+
+/** Eligibility contribution of one approval stage, or `advance` when the gate is approved. */
+function approvalStageVerdict(
+  status: PipelineStageRecord["status"] | undefined,
+): PipelineActivationEligibility | "advance" {
+  if (status === "approved") return "advance";
+  if (status === "awaiting") return { eligible: false, reason: "awaiting-approval" };
+  if (status === "rejected") return { eligible: false, reason: "rejected-approval" };
+  return { eligible: false, reason: "no-continuation" };
+}
+
+function activationClaimRefusal(eligibility: PipelineActivationEligibility): PipelineContinuationClaimOutcome {
   if (!eligibility.eligible) {
     if (eligibility.reason === "pipeline-not-found") {
       return { outcome: "refused", reason: "pipeline-not-found" };
@@ -450,9 +448,7 @@ export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStage
     return "failed";
   }
   if (
-    definition.stages.some(
-      (stage) => stage.kind === "approval" && byStageId.get(stage.stageId)?.status === "rejected",
-    )
+    definition.stages.some((stage) => stage.kind === "approval" && byStageId.get(stage.stageId)?.status === "rejected")
   ) {
     return "failed";
   }

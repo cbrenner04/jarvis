@@ -1,12 +1,18 @@
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import { activateDurablePipeline, analyzePipelineActivationEligibility, continueDurablePipeline, derivePipelineState, runPipeline } from "./pipeline-execution.ts";
+import {
+  activateDurablePipeline,
+  analyzePipelineActivationEligibility,
+  continueDurablePipeline,
+  derivePipelineState,
+  runPipeline,
+} from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import type {
   PipelineContext,
@@ -275,7 +281,13 @@ describe("runPipeline", () => {
       return { ok: true, entryRunId: "run-0", invocationId: "inv-0" };
     };
 
-    await runPipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", context: baseContext, resolveStage: resolveStageStub() });
+    await runPipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      context: baseContext,
+      resolveStage: resolveStageStub(),
+    });
 
     expect(dispatchOrder).toEqual([0]);
     expect(stages().find((s) => s.stageId === "gate")?.status).toBe("awaiting");
@@ -306,7 +318,13 @@ describe("runPipeline", () => {
       return { ok: true, entryRunId: `run-${index}`, invocationId: `inv-${index}` };
     };
 
-    await runPipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", context: baseContext, resolveStage: resolveStageStub() });
+    await runPipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      context: baseContext,
+      resolveStage: resolveStageStub(),
+    });
 
     expect(dispatchOrder).toEqual([0, 2]);
     expect(stages().find((s) => s.stageId === "gate")?.status).toBe("approved");
@@ -333,7 +351,13 @@ describe("runPipeline", () => {
       return { ok: true, entryRunId: "run-0", invocationId: "inv-0" };
     };
 
-    await runPipeline(PIPELINE_ID, { store, dispatch, wait: async () => "completed", context: baseContext, resolveStage: resolveStageStub() });
+    await runPipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait: async () => "completed",
+      context: baseContext,
+      resolveStage: resolveStageStub(),
+    });
 
     expect(dispatchOrder).toEqual([0]);
     expect(stages().find((s) => s.stageId === "gate")?.status).toBe("rejected");
@@ -1011,9 +1035,42 @@ describe("analyzePipelineActivationEligibility", () => {
       analyzePipelineActivationEligibility({
         ...base,
         stages: [
-          { id: "r0", pipelineId: PIPELINE_ID, stageId: "s1", position: 0, status: "succeeded", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r1", pipelineId: PIPELINE_ID, stageId: "gate", position: 1, status: "approved", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r2", pipelineId: PIPELINE_ID, stageId: "s3", position: 2, status: "pending", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
+          {
+            id: "r0",
+            pipelineId: PIPELINE_ID,
+            stageId: "s1",
+            position: 0,
+            status: "succeeded",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r1",
+            pipelineId: PIPELINE_ID,
+            stageId: "gate",
+            position: 1,
+            status: "approved",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r2",
+            pipelineId: PIPELINE_ID,
+            stageId: "s3",
+            position: 2,
+            status: "pending",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
         ],
       }),
     ).toEqual({ eligible: true, reason: "approved-continuation" });
@@ -1022,9 +1079,42 @@ describe("analyzePipelineActivationEligibility", () => {
       analyzePipelineActivationEligibility({
         ...base,
         stages: [
-          { id: "r0", pipelineId: PIPELINE_ID, stageId: "s1", position: 0, status: "succeeded", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r1", pipelineId: PIPELINE_ID, stageId: "gate", position: 1, status: "awaiting", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r2", pipelineId: PIPELINE_ID, stageId: "s3", position: 2, status: "pending", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
+          {
+            id: "r0",
+            pipelineId: PIPELINE_ID,
+            stageId: "s1",
+            position: 0,
+            status: "succeeded",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r1",
+            pipelineId: PIPELINE_ID,
+            stageId: "gate",
+            position: 1,
+            status: "awaiting",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r2",
+            pipelineId: PIPELINE_ID,
+            stageId: "s3",
+            position: 2,
+            status: "pending",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
         ],
       }),
     ).toEqual({ eligible: false, reason: "awaiting-approval" });
@@ -1033,9 +1123,42 @@ describe("analyzePipelineActivationEligibility", () => {
       analyzePipelineActivationEligibility({
         ...base,
         stages: [
-          { id: "r0", pipelineId: PIPELINE_ID, stageId: "s1", position: 0, status: "succeeded", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r1", pipelineId: PIPELINE_ID, stageId: "gate", position: 1, status: "rejected", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
-          { id: "r2", pipelineId: PIPELINE_ID, stageId: "s3", position: 2, status: "skipped", workflowInvocationId: null, startedAt: null, endedAt: null, artifact: null, failureDetail: null },
+          {
+            id: "r0",
+            pipelineId: PIPELINE_ID,
+            stageId: "s1",
+            position: 0,
+            status: "succeeded",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r1",
+            pipelineId: PIPELINE_ID,
+            stageId: "gate",
+            position: 1,
+            status: "rejected",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
+          {
+            id: "r2",
+            pipelineId: PIPELINE_ID,
+            stageId: "s3",
+            position: 2,
+            status: "skipped",
+            workflowInvocationId: null,
+            startedAt: null,
+            endedAt: null,
+            artifact: null,
+            failureDetail: null,
+          },
         ],
       }),
     ).toEqual({ eligible: false, reason: "rejected-approval" });
@@ -1194,8 +1317,7 @@ describe("derivePipelineState", () => {
         pipelineId: PIPELINE_ID,
         stageId: stage.stageId,
         position: index,
-        status:
-          stage.stageId === "gate" ? "approved" : stage.stageId === "s3" ? "succeeded" : "succeeded",
+        status: stage.stageId === "gate" ? "approved" : stage.stageId === "s3" ? "succeeded" : "succeeded",
         workflowInvocationId: null,
         startedAt: null,
         endedAt: null,

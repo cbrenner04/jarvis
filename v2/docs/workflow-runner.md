@@ -194,7 +194,9 @@ handling, CLI admission, execution loop, comparable seams), in dependency
 order, not one intent per symptom. A seed touching only one surface still
 emits exactly one intent. Later intents list earlier-surface behaviors in
 their `## Prerequisites` section so plan runs consuming them one at a time see
-the cross-surface dependency.
+the cross-surface dependency. The shared plan policy blocks drafting until
+repository evidence makes each behavior observable. `jarvis1 plan` exits
+non-zero; v2 returns its own blocked workflow result.
 
 **CLI usage:** `jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light]`
 

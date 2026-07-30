@@ -32,11 +32,11 @@ its prompt can regress while split intents still draft against missing foundatio
 
 ## Acceptance criteria
 
-- [ ] `v1/test/plan-command.test.ts` test `dependent split intent blocks while prerequisite behavior is absent` uses a dedicated fixture repository file as the only prerequisite evidence. Without that file, `jarvis1 plan` exits non-zero, appends `## Blocker` naming the missing behavior, retains the ready-intent, and writes neither `index.md` nor a numbered subspec; with that file, it exits successfully and drafts both files.
-- [ ] `dependent split intent blocks while prerequisite behavior is absent` fails when the production draft instruction to inspect repository files, evaluate the named prerequisite, block without drafting when absent, or proceed when observable is removed or reversed.
-- [ ] Inverting the fake agent's absent-evidence block/present-evidence draft branch makes `dependent split intent blocks while prerequisite behavior is absent` fail.
-- [ ] `v2/docs/workflow-runner.md` states that later surface intents encode order as prerequisite behaviors and the shared plan policy blocks until those behaviors are observable rather than drafting against them, without assigning a v2-only signal to `jarvis1 plan`.
-- [ ] `bun run typecheck` and `bun run test:v1` pass.
+- [x] `v1/test/plan-command.test.ts` test `dependent split intent blocks while prerequisite behavior is absent` uses a dedicated fixture repository file as the only prerequisite evidence. Without that file, `jarvis1 plan` exits non-zero, appends `## Blocker` naming the missing behavior, retains the ready-intent, and writes neither `index.md` nor a numbered subspec; with that file, it exits successfully and drafts both files.
+- [x] `dependent split intent blocks while prerequisite behavior is absent` fails when the production draft instruction to inspect repository files, evaluate the named prerequisite, block without drafting when absent, or proceed when observable is removed or reversed.
+- [x] Inverting the fake agent's absent-evidence block/present-evidence draft branch makes `dependent split intent blocks while prerequisite behavior is absent` fail.
+- [x] `v2/docs/workflow-runner.md` states that later surface intents encode order as prerequisite behaviors and the shared plan policy blocks until those behaviors are observable rather than drafting against them, without assigning a v2-only signal to `jarvis1 plan`.
+- [x] `bun run typecheck` and `bun run test:v1` pass.
 
 ## Documentation updates
 

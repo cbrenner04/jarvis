@@ -63,7 +63,7 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
-import { runPipeline } from "./pipeline-execution.ts";
+import { activateDurablePipeline, continueDurablePipeline, runPipeline } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
@@ -809,6 +809,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
   const activeRuns = new Map<string, ActiveRun>();
+  const activePipelineLoops = new Set<string>();
   const waitAbortControllers = new Set<AbortController>();
   let retiring = false;
   /**
@@ -1715,6 +1716,53 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
 
+  const pipelineExecDeps = {
+    store,
+    dispatch: pipelineDispatch,
+    wait: pipelineWait,
+    resolveStage,
+  };
+
+  const startPipelineLoop = (pipelineId: string, run: Promise<void>): void => {
+    activePipelineLoops.add(pipelineId);
+    void run
+      .catch((err: unknown) => {
+        console.error(`Pipeline ${pipelineId} execution failed:`, err);
+      })
+      .finally(() => {
+        activePipelineLoops.delete(pipelineId);
+      });
+  };
+
+  const refuseActivePipelineLoop = (pipelineId: string): { outcome: "refused"; reason: "claim-refused" } | null => {
+    if (activePipelineLoops.has(pipelineId)) {
+      return { outcome: "refused", reason: "claim-refused" };
+    }
+    return null;
+  };
+
+  const chainPipelineActivation = (
+    pipelineId: string,
+    prefix: Record<string, unknown>,
+  ): { kind: "response"; result: Record<string, unknown> } => {
+    const loopRefusal = refuseActivePipelineLoop(pipelineId);
+    if (loopRefusal !== null) {
+      return { kind: "response", result: { ...prefix, activation: loopRefusal } };
+    }
+    const activation = activateDurablePipeline(pipelineId, pipelineExecDeps);
+    if (activation.claim.outcome === "refused") {
+      return {
+        kind: "response",
+        result: { ...prefix, activation: activation.claim, eligibility: activation.eligibility },
+      };
+    }
+    startPipelineLoop(pipelineId, activation.run);
+    return {
+      kind: "response",
+      result: { ...prefix, activation: { outcome: "applied" }, eligibility: activation.eligibility },
+    };
+  };
+
   /**
    * Admit an already-validated pipeline definition: create its durable rows, start the
    * ordered daemon-owned loop, and resolve once those rows exist — not once the pipeline
@@ -1726,17 +1774,114 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "invalid_params", message: "definition and context required" };
     }
     const { definition, context } = params;
-    const pipelineId = store.createPipeline({ definition });
-    void runPipeline(pipelineId, {
-      store,
-      dispatch: pipelineDispatch,
-      wait: pipelineWait,
-      context,
-      resolveStage,
-    }).catch((err: unknown) => {
-      console.error(`Pipeline ${pipelineId} execution failed:`, err);
-    });
+    const pipelineId = store.createPipeline({ definition, context });
+    startPipelineLoop(
+      pipelineId,
+      runPipeline(pipelineId, {
+        ...pipelineExecDeps,
+        context,
+      }),
+    );
     return { kind: "response", result: { pipelineId } };
+  };
+
+  /**
+   * Claim and resume an interrupted pipeline from persisted context and stage rows.
+   * Competing continuations are refused at the store claim and via the in-memory loop guard.
+   */
+  const handlePipelineContinueHandler: RpcHandler = (frame) => {
+    const params = frame.params as { pipelineId?: string } | undefined;
+    if (!params?.pipelineId) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    const { pipelineId } = params;
+    const loopRefusal = refuseActivePipelineLoop(pipelineId);
+    if (loopRefusal !== null) {
+      return { kind: "response", result: loopRefusal };
+    }
+
+    const continuation = continueDurablePipeline(pipelineId, pipelineExecDeps);
+    if (continuation.claim.outcome === "refused") {
+      return { kind: "response", result: continuation.claim };
+    }
+
+    startPipelineLoop(pipelineId, continuation.run);
+    return { kind: "response", result: { outcome: "applied" } };
+  };
+
+  /**
+   * Claim and run an eligible approved gate or reopened failure from persisted context.
+   * Awaiting, rejected, and ineligible pipelines are refused without stage-row mutation.
+   */
+  const handlePipelineActivateHandler: RpcHandler = (frame) => {
+    const params = frame.params as { pipelineId?: string } | undefined;
+    if (!params?.pipelineId) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    const { pipelineId } = params;
+    const loopRefusal = refuseActivePipelineLoop(pipelineId);
+    if (loopRefusal !== null) {
+      return { kind: "response", result: loopRefusal };
+    }
+
+    const activation = activateDurablePipeline(pipelineId, pipelineExecDeps);
+    if (activation.claim.outcome === "refused") {
+      return { kind: "response", result: { ...activation.claim, eligibility: activation.eligibility } };
+    }
+
+    startPipelineLoop(pipelineId, activation.run);
+    return { kind: "response", result: { outcome: "applied", eligibility: activation.eligibility } };
+  };
+
+  const handlePipelineDecideApprovalHandler: RpcHandler = (frame) => {
+    const params = frame.params as
+      | { pipelineId?: string; stageRecordId?: string; stageId?: string; decision?: string }
+      | undefined;
+    if (!params?.pipelineId || !params.stageRecordId || !params.stageId || !params.decision) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: "pipelineId, stageRecordId, stageId, and decision required",
+      };
+    }
+    const { pipelineId, stageRecordId, stageId, decision } = params;
+    const pipeline = store.loadPipeline(pipelineId);
+    const stageRecord = pipeline?.stages.find((record) => record.id === stageRecordId);
+    if (!pipeline || !stageRecord || stageRecord.stageId !== stageId) {
+      return {
+        kind: "response",
+        result: {
+          decision: {
+            outcome: "refused",
+            stageRecordId,
+            reason: "pipeline-id-mismatch",
+          },
+        },
+      };
+    }
+    const decisionOutcome = store.decideApproval({ stageRecordId, stageId, decision });
+    if (decisionOutcome.outcome === "refused") {
+      return { kind: "response", result: { decision: decisionOutcome } };
+    }
+    if (decision !== "approved") {
+      return { kind: "response", result: { decision: decisionOutcome } };
+    }
+
+    return chainPipelineActivation(pipelineId, { decision: decisionOutcome });
+  };
+
+  const handlePipelineReopenFailedHandler: RpcHandler = (frame) => {
+    const params = frame.params as { pipelineId?: string } | undefined;
+    if (!params?.pipelineId) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    const { pipelineId } = params;
+    const reopenOutcome = store.reopenFailedPipeline(pipelineId);
+    if (reopenOutcome.outcome === "refused") {
+      return { kind: "response", result: { reopen: reopenOutcome } };
+    }
+
+    return chainPipelineActivation(pipelineId, { reopen: reopenOutcome });
   };
 
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
@@ -1757,6 +1902,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     kill: killHandler,
     wait: waitHandler,
     pipeline_start: handlePipelineStartHandler,
+    pipeline_continue: handlePipelineContinueHandler,
+    pipeline_activate: handlePipelineActivateHandler,
+    pipeline_decide_approval: handlePipelineDecideApprovalHandler,
+    pipeline_reopen_failed: handlePipelineReopenFailedHandler,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */

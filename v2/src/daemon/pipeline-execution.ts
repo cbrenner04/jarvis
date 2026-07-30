@@ -1,5 +1,10 @@
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
-import type { Pipeline, PipelineStageRecord, StateStore } from "../persistence/state-store.ts";
+import type {
+  Pipeline,
+  PipelineStageRecord,
+  PipelineContinuationClaimOutcome,
+  StateStore,
+} from "../persistence/state-store.ts";
 import {
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
@@ -8,6 +13,175 @@ import {
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 export type PipelineDerivedState = "succeeded" | "failed" | "awaiting-approval" | "running" | "pending";
+
+export type ContinueDurablePipelineDeps = Omit<PipelineExecutionDeps, "context"> & {
+  /** When false, refuse before loading persisted context (guard-inversion tests). Defaults to true. */
+  loadPersistedContext?: boolean;
+  /** When false, refuse before claiming continuation ownership (guard-inversion tests). Defaults to true. */
+  claimContinuation?: boolean;
+};
+
+export type ContinueDurablePipelineResult = {
+  claim: PipelineContinuationClaimOutcome;
+  run: Promise<void>;
+};
+
+export type PipelineActivationEligibility =
+  | { eligible: true; reason: "approved-continuation" | "reopened-continuation" }
+  | {
+      eligible: false;
+      reason:
+        | "pipeline-not-found"
+        | "missing-context"
+        | "awaiting-approval"
+        | "rejected-approval"
+        | "interrupted-stage"
+        | "no-continuation";
+    };
+
+export type ActivateDurablePipelineDeps = ContinueDurablePipelineDeps & {
+  /** When false, skip approval/reopen eligibility before claiming (guard-inversion tests). Defaults to true. */
+  checkActivationEligibility?: boolean;
+};
+
+export type ActivateDurablePipelineResult = {
+  eligibility: PipelineActivationEligibility;
+  claim: PipelineContinuationClaimOutcome;
+  run: Promise<void>;
+};
+
+/**
+ * Whether an interrupted pipeline has an approved gate or reopened failure ready for
+ * daemon activation. Awaiting and rejected gates, an interrupted workflow stage, and
+ * pipelines with no eligible pending continuation are ineligible.
+ */
+export function analyzePipelineActivationEligibility(
+  pipeline: (Pipeline & { stages: PipelineStageRecord[]; context?: PipelineContext | null }) | null,
+): PipelineActivationEligibility {
+  if (pipeline === null) {
+    return { eligible: false, reason: "pipeline-not-found" };
+  }
+  if (pipeline.context === null || pipeline.context === undefined) {
+    return { eligible: false, reason: "missing-context" };
+  }
+
+  const byStageId = new Map(pipeline.stages.map((record) => [record.stageId, record]));
+  let sawApprovedGate = false;
+
+  for (const stage of pipeline.definition.stages) {
+    const status = byStageId.get(stage.stageId)?.status;
+
+    if (stage.kind === "workflow") {
+      if (status === "succeeded") continue;
+      if (status === "pending") {
+        return {
+          eligible: true,
+          reason: sawApprovedGate ? "approved-continuation" : "reopened-continuation",
+        };
+      }
+      if (status === "interrupted") {
+        return { eligible: false, reason: "interrupted-stage" };
+      }
+      return { eligible: false, reason: "no-continuation" };
+    }
+
+    if (status === "approved") {
+      sawApprovedGate = true;
+      continue;
+    }
+    if (status === "awaiting") {
+      return { eligible: false, reason: "awaiting-approval" };
+    }
+    if (status === "rejected") {
+      return { eligible: false, reason: "rejected-approval" };
+    }
+    return { eligible: false, reason: "no-continuation" };
+  }
+
+  return { eligible: false, reason: "no-continuation" };
+}
+
+function activationClaimRefusal(
+  eligibility: PipelineActivationEligibility,
+): PipelineContinuationClaimOutcome {
+  if (!eligibility.eligible) {
+    if (eligibility.reason === "pipeline-not-found") {
+      return { outcome: "refused", reason: "pipeline-not-found" };
+    }
+    if (eligibility.reason === "missing-context") {
+      return { outcome: "refused", reason: "missing-context" };
+    }
+  }
+  return { outcome: "refused", reason: "claim-refused" };
+}
+
+/**
+ * Restart-safe activation for an approved gate or reopened failure: verify eligibility,
+ * atomically claim one live owner and runnable pipeline state, then resume the ordered loop.
+ */
+export function activateDurablePipeline(
+  pipelineId: string,
+  deps: ActivateDurablePipelineDeps,
+): ActivateDurablePipelineResult {
+  const checkEligibility = deps.checkActivationEligibility ?? true;
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  const eligibility = analyzePipelineActivationEligibility(pipeline);
+
+  if (checkEligibility && !eligibility.eligible) {
+    return {
+      eligibility,
+      claim: activationClaimRefusal(eligibility),
+      run: Promise.resolve(),
+    };
+  }
+
+  const continuation = continueDurablePipeline(pipelineId, deps);
+  return { eligibility, claim: continuation.claim, run: continuation.run };
+}
+
+/**
+ * Restart-safe production continuation: load persisted admission context, claim one live
+ * owner and runnable pipeline state, then resume the ordered loop. Caller-supplied
+ * context is intentionally unsupported — resolution input comes from the repository.
+ */
+export function continueDurablePipeline(
+  pipelineId: string,
+  deps: ContinueDurablePipelineDeps,
+): ContinueDurablePipelineResult {
+  const loadPersistedContext = deps.loadPersistedContext ?? true;
+  const shouldClaim = deps.claimContinuation ?? true;
+
+  if (!loadPersistedContext) {
+    return { claim: { outcome: "refused", reason: "missing-context" }, run: Promise.resolve() };
+  }
+
+  const pipeline = deps.store.loadPipeline(pipelineId);
+  if (!pipeline) {
+    return { claim: { outcome: "refused", reason: "pipeline-not-found" }, run: Promise.resolve() };
+  }
+  if (pipeline.context === null || pipeline.context === undefined) {
+    return { claim: { outcome: "refused", reason: "missing-context" }, run: Promise.resolve() };
+  }
+
+  if (!shouldClaim) {
+    return { claim: { outcome: "refused", reason: "claim-refused" }, run: Promise.resolve() };
+  }
+
+  const claim = deps.store.claimPipelineContinuation(pipelineId);
+  if (claim.outcome === "refused") {
+    return { claim, run: Promise.resolve() };
+  }
+
+  const context = pipeline.context;
+  const run = runPipeline(pipelineId, {
+    store: deps.store,
+    dispatch: deps.dispatch,
+    wait: deps.wait,
+    context,
+    ...(deps.resolveStage !== undefined ? { resolveStage: deps.resolveStage } : {}),
+  });
+  return { claim, run };
+}
 
 export type PipelineExecutionDeps = {
   store: StateStore;
@@ -48,6 +222,43 @@ function carryForwardArtifact(artifactSpecPaths: Map<string, string>, stageId: s
 }
 
 type StageStepOutcome = "continue" | "stop";
+
+/**
+ * Apply one approval row's durable status during ordered progression. A pending row
+ * requests `awaiting` before stopping; a refused boundary write reloads only that row
+ * and follows its authoritative meaning.
+ */
+function advanceApprovalStage(args: {
+  store: StateStore;
+  pipelineId: string;
+  stage: Extract<PipelineStage, { kind: "approval" }>;
+  stageRecord: PipelineStageRecord;
+  stageRecords: readonly PipelineStageRecord[];
+  position: number;
+}): StageStepOutcome {
+  const { store, pipelineId, stage, stageRecord, stageRecords, position } = args;
+
+  const resolve = (record: PipelineStageRecord): StageStepOutcome => {
+    if (record.status === "approved") return "continue";
+    if (record.status === "awaiting") return "stop";
+    skipRemainingStages(store, pipelineId, stageRecords, position + 1);
+    return "stop";
+  };
+
+  if (stageRecord.status !== "pending") return resolve(stageRecord);
+
+  if (store.markApprovalAwaiting({ stageRecordId: stageRecord.id, stageId: stage.stageId }).outcome === "applied") {
+    return "stop";
+  }
+
+  const reloaded = store.loadPipeline(pipelineId);
+  const reloadedRecord = reloaded ? findStageRecord(reloaded.stages, stage.stageId) : undefined;
+  if (!reloadedRecord) {
+    skipRemainingStages(store, pipelineId, stageRecords, position + 1);
+    return "stop";
+  }
+  return resolve(reloadedRecord);
+}
 
 /**
  * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
@@ -158,7 +369,8 @@ function failStrandedPipelineStage(
 /**
  * Walk a pipeline's authored stages in order, resolving and dispatching each workflow stage
  * only once the immediately preceding workflow stage's row reads `succeeded`. An approval
- * stage stops the loop with no dispatch and no settlement.
+ * stage records `awaiting` when reached, blocks while awaiting, continues past `approved`,
+ * and settles deterministically at `rejected` without later dispatch.
  */
 export async function runPipeline(pipelineId: string, deps: PipelineExecutionDeps): Promise<void> {
   const { store, dispatch, wait, context } = deps;
@@ -172,11 +384,31 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
   try {
     // Walk the durable stage rows (ordered by their stored `position`) rather than the authored
     // definition array, so the loop's ordering cannot drift from what `loadPipeline` reports.
-    for (const stageRecord of pipeline.stages) {
+    for (const stageOutline of pipeline.stages) {
+      const current = store.loadPipeline(pipelineId);
+      if (!current) return;
+      const stageRecord = findStageRecord(current.stages, stageOutline.stageId);
+      if (!stageRecord) return;
+
       const index = stageRecord.position;
       const stage = definition.stages[index];
       if (stage === undefined) continue;
-      if (stage.kind === "approval") return;
+
+      if (stage.kind === "approval") {
+        if (
+          advanceApprovalStage({
+            store,
+            pipelineId,
+            stage,
+            stageRecord,
+            stageRecords: current.stages,
+            position: index,
+          }) === "stop"
+        ) {
+          return;
+        }
+        continue;
+      }
 
       const outcome = await advanceWorkflowStage({
         pipelineId,
@@ -200,13 +432,12 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
 /**
  * Derive a pipeline's overall state from its stage rows: `failed` if any workflow stage row
  * reads `failed`; `running` if any workflow stage row reads `running`; otherwise walk the
- * authored stages in order and stop at the first one that has not succeeded — an undispatched
- * approval stage there yields `awaiting-approval`, an undispatched/unsettled workflow stage
- * yields `pending`. `succeeded` requires every stage in the walk to have succeeded, including
- * an approval gate reached at the very end — it is never returned merely because every workflow
- * stage row succeeded while a pending approval gate follows. `skipped` rows are never read as
- * `failed` — they only distinguish "will never run", and are never reached by the ordered walk
- * because a `failed` row always precedes them.
+ * authored stages in order and stop at the first one that has not passed — an approval row
+ * reading `awaiting` yields `awaiting-approval`, `approved` counts as passed, `rejected` yields
+ * `failed`, and an undispatched/unsettled workflow stage yields `pending`. `succeeded` requires
+ * every stage in the walk to have passed, including an approval gate reached at the very end.
+ * `skipped` rows are never read as `failed` — they only distinguish "will never run", and are
+ * never reached by the ordered walk because a `failed` row always precedes them.
  */
 export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineDerivedState {
   const { stages: stageRecords, definition } = pipeline;
@@ -218,13 +449,27 @@ export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStage
   if (workflowStages.some((stage) => byStageId.get(stage.stageId)?.status === "failed")) {
     return "failed";
   }
+  if (
+    definition.stages.some(
+      (stage) => stage.kind === "approval" && byStageId.get(stage.stageId)?.status === "rejected",
+    )
+  ) {
+    return "failed";
+  }
   if (workflowStages.some((stage) => byStageId.get(stage.stageId)?.status === "running")) {
     return "running";
   }
 
   for (const stage of definition.stages) {
-    if (byStageId.get(stage.stageId)?.status === "succeeded") continue;
-    return stage.kind === "approval" ? "awaiting-approval" : "pending";
+    const status = byStageId.get(stage.stageId)?.status;
+    if (stage.kind === "workflow") {
+      if (status === "succeeded") continue;
+      return "pending";
+    }
+    if (status === "approved") continue;
+    if (status === "awaiting") return "awaiting-approval";
+    if (status === "rejected") return "failed";
+    return "pending";
   }
 
   return "succeeded";

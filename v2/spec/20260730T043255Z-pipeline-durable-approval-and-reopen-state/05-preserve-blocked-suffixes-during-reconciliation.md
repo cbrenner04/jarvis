@@ -18,14 +18,14 @@
 
 ## Acceptance criteria
 
-- [ ] Restart reconciliation leaves a failed stage and its following skipped rows unchanged, including each durable
+- [x] Restart reconciliation leaves a failed stage and its following skipped rows unchanged, including each durable
       row ID, authored `stageId`, and blocked-suffix status.
-- [ ] A new or updated `v2/src/persistence/state-store.test.ts` regression for skipped-suffix reconciliation fails
+- [x] A new or updated `v2/src/persistence/state-store.test.ts` regression for skipped-suffix reconciliation fails
       against the pre-fix store behavior.
-- [ ] Inverting the skipped-stability guard makes its targeted regression fail; the negative case proves no
+- [x] Inverting the skipped-stability guard makes its targeted regression fail; the negative case proves no
       interrupted rewrite is persisted.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/state-store.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document skipped-suffix
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/state-store.md`, `v2/docs/daemon-host.md`, and `v2/docs/v1-behaviors.md` document skipped-suffix
       reconciliation behavior.
 
 ## Documentation updates

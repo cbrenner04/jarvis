@@ -44,7 +44,8 @@ pending flag cleared with no reconcile event.
 The same pre-IPC block also settles orphaned pipelines: an `active` pipeline
 owned by a dead or absent prior incarnation is marked `interrupted`, and each of
 its active stages (`pipeline_stages.status` outside `pending` and outside the
-terminal set `succeeded`/`failed`/`interrupted`) is marked `interrupted`
+terminal/decided/blocked-suffix set `succeeded`/`failed`/`interrupted`/`awaiting`/`approved`/`rejected`/`skipped`)
+is marked `interrupted`
 alongside it, preserving completed stages and leaving undispatched (`pending`)
 later stages untouched. A pipeline owned by the sweeping process or another
 still-live process is left unchanged, and an already-`interrupted` pipeline is
@@ -754,12 +755,20 @@ structured stream is the durable run timeline once records exist. See
 [`invocation-liveness.md`](./invocation-liveness.md) and
 [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md).
 
+## Pipeline admission
+
+`pipeline_start` requires a validated definition and `PipelineContext`. The
+daemon writes the definition, pending stage rows, and an immutable context
+snapshot in one state-store transaction, then returns the pipeline ID. Missing
+context returns `invalid_params`; a failed transaction returns no successful
+admission.
+
 ## Pipeline stage resolution
 
 `v2/src/daemon/pipeline-stage-resolve.ts` turns one `pipeline_stages` row plus
-pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission holds a
-`PipelineContext` in daemon memory for the pipeline loop's lifetime (not
-persisted): `{ cwd, configPath?, targetDir?, projectRegistry?, seed }`.
+pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission passes
+the supplied `PipelineContext` to the live pipeline loop after durably
+snapshotting it: `{ cwd, configPath?, targetDir?, projectRegistry?, seed }`.
 
 Posture → preset (`validatePipelineDefinition` in
 `v2/src/execution/pipeline-definition.ts` is the sole admission authority on
@@ -884,9 +893,13 @@ order. For each workflow stage it re-reads the stage's own row before acting
 re-dispatched — a defensive guard, since the daemon only ever starts one loop
 per `pipeline_start` call. It then resolves the stage
 (`pipeline-stage-resolve.ts`) and dispatches it (`pipeline-stage-dispatch.ts`).
-An approval stage stops the loop immediately: no dispatch, no settlement,
-every later stage stays `pending` (deferred to a future approval slice). A
-stage that settles `failed` — a resolution failure or a dispatch/settlement
+An approval stage records `awaiting` when reached after succeeded predecessors
+(`markApprovalAwaiting` on its durable row ID — see
+[`state-store.md`](./state-store.md)); blocks while `awaiting`; continues past
+`approved`; and settles deterministically at `rejected` by skipping every later
+stage without dispatch. A refused boundary write reloads only the addressed row
+and follows its authoritative approval meaning; otherwise the suffix is skipped
+and the pipeline settles `failed`. A stage that settles `failed` — a resolution failure or a dispatch/settlement
 failure per `pipeline-stage-dispatch.ts` (including a start-time dispatch
 refusal) — settles the pipeline `failed` by writing `status: "skipped"` to
 every later stage via `updateStage` and dispatching none of them; there is no
@@ -902,6 +915,52 @@ concurrently is out of scope. Observability: pipeline stage runs are not yet
 attributable to their owning pipeline in `workflow.list`/CLI run listings —
 deferred; `loadPipeline` is the only way to inspect stage-level state in this
 slice.
+
+### Continuation after daemon restart
+
+`pipeline_continue` (`handlePipelineContinue` in `daemon.ts`) resumes an
+`interrupted` pipeline whose persisted context and stage rows survived restart
+reconciliation. The production path is
+`pipeline-execution.ts`'s `continueDurablePipeline`: it loads the immutable
+`PipelineContext` snapshot from the repository (caller-supplied reconstruction
+is unsupported), atomically claims one live owner via
+`StateStore.claimPipelineContinuation` (`owner_identity` stamped,
+`status` restored to `active` for `interrupted` rows; `active` rows already
+owned by this process are admitted without a status change), then re-enters
+`runPipeline` with that context and predecessor artifacts carried forward from
+succeeded stage rows. A refused claim (`missing-context`, `claim-refused`, or
+an in-memory loop guard for a pipeline whose loop is already running on this
+daemon) changes no stage row and dispatches no workflow. Competing
+`pipeline_continue` calls for the same pipeline ID are first-writer-wins at the
+store claim; losers receive `{ outcome: "refused", reason: "claim-refused" }`
+without a second dispatch.
+
+### Durable activation after approval or reopen
+
+`pipeline_activate` (`handlePipelineActivate` in `daemon.ts`) resumes an
+`interrupted` pipeline, or an `active` pipeline already owned by the admitting
+daemon, when its stage rows show an eligible approved gate or reopened failure.
+The production path is
+`pipeline-execution.ts`'s `activateDurablePipeline`: it evaluates
+`analyzePipelineActivationEligibility` (approved continuation or reopened
+continuation only — `awaiting`, `rejected`, interrupted workflow stages, and
+pipelines with no pending continuation are refused), then loads persisted
+context, claims one live owner via `claimPipelineContinuation` (restores
+`interrupted` rows to `active` and stamps `owner_identity`; admits `active`
+rows already owned by this process without a status change), and re-enters
+`runPipeline`. A refused eligibility or claim changes no stage row and
+dispatches no workflow.
+
+`pipeline_decide_approval` records one `decideApproval` outcome for the
+supplied `pipelineId` and stage row; a `stageRecordId` that does not belong to
+that pipeline is refused without mutation. When the decision is `approved`, the
+daemon immediately runs the same activation path.
+`pipeline_reopen_failed` applies `reopenFailedPipeline` and, on application,
+activates so only the reopened failed stage is dispatched while succeeded
+predecessor evidence is preserved. Competing activation requests for the same
+pipeline ID are first-writer-wins at the store claim and in-memory loop guard;
+losers receive `{ outcome: "refused", reason: "claim-refused" }` without a
+second dispatch.
 
 ### Derived pipeline state
 

@@ -65,6 +65,65 @@ afterEach(async () => {
   }
 });
 
+test("pipeline_start durably admits an immutable context snapshot before returning its pipeline ID", async () => {
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+  const definition: PipelineDefinition = {
+    name: "durable-context",
+    stages: [{ stageId: "approve", kind: "approval" }],
+  };
+  const context = {
+    cwd: "/repo",
+    configPath: "/repo/jarvis.json",
+    targetDir: "v2/spec",
+    projectRegistry: { jarvis: { root: "/repo" } },
+    seed: "durable seed",
+  };
+
+  const response = await handlers.pipeline_start(
+    requestFrame("durable-context", "pipeline_start", { definition, context }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  const pipelineId = (response as { result: { pipelineId: string } }).result.pipelineId;
+
+  context.cwd = "/mutated";
+  context.seed = "mutated";
+  context.projectRegistry.jarvis.root = "/mutated";
+  expect(stateStore.loadPipeline(pipelineId)?.context).toEqual({
+    cwd: "/repo",
+    configPath: "/repo/jarvis.json",
+    targetDir: "v2/spec",
+    projectRegistry: { jarvis: { root: "/repo" } },
+    seed: "durable seed",
+  });
+});
+
+test("pipeline_start returns no pipeline ID when durable context is absent", async () => {
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+  const definition: PipelineDefinition = {
+    name: "missing-context",
+    stages: [{ stageId: "approve", kind: "approval" }],
+  };
+
+  const response = await handlers.pipeline_start(
+    requestFrame("missing-context", "pipeline_start", { definition }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({ kind: "error", code: "invalid_params", message: "definition and context required" });
+  expect("result" in response).toBe(false);
+});
+
 test("pipeline_start admits a pipeline, keeps running after the client disconnects, and progresses in order to succeeded", async () => {
   const stage1 = controllableBindingFactory();
   const stage1Step: AnyWorkflowStep = createWriteStep("stage-1", "pipeline-branch", stage1.factory, {

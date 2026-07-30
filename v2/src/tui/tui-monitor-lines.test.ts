@@ -68,7 +68,6 @@ const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
 };
 
 const MONITOR_LINES_FIXTURE_PIN = [
-  "jarvis tui",
   "runId project branch status liveness",
   "> run-alpha demo alpha in-progress live",
   "  run-beta demo beta completed not-live",

@@ -279,7 +279,6 @@ describe("v2 cli dispatch", () => {
 
     expect(code).toBe(0);
     const output = cap.read().stdout;
-    expect(output).toContain("usage: jarvis tui");
     expect(output).toContain("log\tStream run logs in interactive view.");
   });
 

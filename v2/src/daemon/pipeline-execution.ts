@@ -153,7 +153,10 @@ export function isReopenedFailedContinuation(pipeline: Pipeline & { stages: Pipe
     if (index > 0 && ordered[index - 1]!.stage.kind === "approval") return false;
     return ordered
       .slice(0, index)
-      .some(({ stage: priorStage, record: priorRecord }) => priorStage.kind === "workflow" && priorRecord.status === "succeeded");
+      .some(
+        ({ stage: priorStage, record: priorRecord }) =>
+          priorStage.kind === "workflow" && priorRecord.status === "succeeded",
+      );
   }
   return false;
 }

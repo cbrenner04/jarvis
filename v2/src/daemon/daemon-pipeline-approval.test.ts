@@ -60,7 +60,9 @@ let fakeExecutor: FakeWriteLoopExecutor;
 let handlers: ReturnType<typeof createRunControlHandlers>;
 
 beforeEach(() => {
-  stateStore = openStateStore(join(tmpdir(), `jarvis-pipeline-approval-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  stateStore = openStateStore(
+    join(tmpdir(), `jarvis-pipeline-approval-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
   fakeExecutor = createFakeWriteLoopExecutor();
   handlers = createRunControlHandlers({
     stateStore,
@@ -89,10 +91,16 @@ test("missing or empty pipelineId or stageId returns invalid_params", async () =
     { pipelineId: "", stageId: "gate" },
     { pipelineId: "p1", stageId: "" },
   ]) {
-    const approve = await handlers.pipeline_approve(requestFrame("a", "pipeline_approve", params), new AbortController().signal);
+    const approve = await handlers.pipeline_approve(
+      requestFrame("a", "pipeline_approve", params),
+      new AbortController().signal,
+    );
     expect(approve).toEqual({ kind: "error", code: "invalid_params", message: "pipelineId and stageId required" });
 
-    const reject = await handlers.pipeline_reject(requestFrame("r", "pipeline_reject", params), new AbortController().signal);
+    const reject = await handlers.pipeline_reject(
+      requestFrame("r", "pipeline_reject", params),
+      new AbortController().signal,
+    );
     expect(reject).toEqual({ kind: "error", code: "invalid_params", message: "pipelineId and stageId required" });
   }
 });
@@ -154,9 +162,13 @@ test("pipeline_approve returns after the durable write before async continuation
   expect(startResponse.kind).toBe("response");
   const pipelineId = (startResponse as { result: { pipelineId: string } }).result.pipelineId;
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running",
+  );
   stage1.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting",
+  );
 
   const approveResponse = await approvalHandlers.pipeline_approve(
     requestFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate" }),
@@ -169,9 +181,13 @@ test("pipeline_approve returns after the durable write before async continuation
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status).toBe("approved");
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status).toBe("pending");
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "running",
+  );
   stage3.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status).toBe("succeeded");
 });
@@ -207,9 +223,13 @@ test("pipeline_reject returns refused envelope for non-awaiting gate", async () 
   expect(startResponse.kind).toBe("response");
   const pipelineId = (startResponse as { result: { pipelineId: string } }).result.pipelineId;
 
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running",
+  );
   stage1.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting",
+  );
 
   const approveResponse = await approvalHandlers.pipeline_approve(
     requestFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate" }),

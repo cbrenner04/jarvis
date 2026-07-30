@@ -64,7 +64,12 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
-import { applyPipelineApprovalDecision, recoverContinuablePipelines, resumePipeline, runPipeline } from "./pipeline-execution.ts";
+import {
+  applyPipelineApprovalDecision,
+  recoverContinuablePipelines,
+  resumePipeline,
+  runPipeline,
+} from "./pipeline-execution.ts";
 import {
   bindPipelineWaitObserver,
   PIPELINE_WAIT_ABORTED,

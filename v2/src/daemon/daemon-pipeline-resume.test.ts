@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,7 +76,10 @@ beforeEach(() => {
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
-    resolveStage: async (_definition, stageIndex) => ({ ok: true, steps: [{ behavior: "write", stageIndex }] as never }),
+    resolveStage: async (_definition, stageIndex) => ({
+      ok: true,
+      steps: [{ behavior: "write", stageIndex }] as never,
+    }),
   });
 });
 
@@ -91,7 +94,10 @@ afterEach(async () => {
 
 test("missing or empty pipelineId returns invalid_params", async () => {
   for (const params of [{}, { pipelineId: "" }]) {
-    const response = await handlers.pipeline_resume(requestFrame("r", "pipeline_resume", params), new AbortController().signal);
+    const response = await handlers.pipeline_resume(
+      requestFrame("r", "pipeline_resume", params),
+      new AbortController().signal,
+    );
     expect(response).toEqual({ kind: "error", code: "invalid_params", message: "pipelineId required" });
   }
 });
@@ -142,7 +148,9 @@ test("resume returns after admission before async continuation runs", async () =
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status).toBe("pending");
 
   stage2.settle();
-  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status === "succeeded");
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status === "succeeded",
+  );
   await flushBackgroundRuns();
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status).toBe("succeeded");
 });
@@ -204,6 +212,8 @@ test("pipeline_resume on awaiting-approval returns claim_refused without dispatc
     kind: "response",
     result: { kind: "refused", pipelineId, reason: "claim_refused" },
   });
-  expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "gate")?.status).toBe("awaiting");
+  expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "gate")?.status).toBe(
+    "awaiting",
+  );
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.status).toBe("pending");
 });

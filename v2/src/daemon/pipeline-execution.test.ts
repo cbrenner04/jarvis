@@ -5,8 +5,12 @@ import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
-import { openStateStore, analyzeFailedPipelineReopenShape } from "../persistence/state-store.ts";
+import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 import {
   applyPipelineApprovalDecision,
   approvalGateBlocksProgress,
@@ -36,10 +40,6 @@ import type {
   PipelineStageResolutionResult,
   PipelineStageResolveDeps,
 } from "./pipeline-stage-resolve.ts";
-import { createRunControlHandlers } from "./daemon.ts";
-import { flushBackgroundRuns } from "../testing/run-control.ts";
-import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -62,7 +62,11 @@ function pipelineTestDeps(store: StateStore, dispatchOrder: number[]) {
     store,
     dispatch: (async (steps: AnyWorkflowStep[]) => {
       dispatchOrder.push(stageIndexOf(steps));
-      return { ok: true as const, entryRunId: `run-${stageIndexOf(steps)}`, invocationId: `inv-${stageIndexOf(steps)}` };
+      return {
+        ok: true as const,
+        entryRunId: `run-${stageIndexOf(steps)}`,
+        invocationId: `inv-${stageIndexOf(steps)}`,
+      };
     }) as PipelineWorkflowDispatch,
     wait: (async () => "completed") as PipelineWorkflowWait,
     resolveStage: resolveStageStub(),
@@ -1638,7 +1642,11 @@ describe("resumePipeline", () => {
   });
 
   test("returns reopen refusal for ineligible failed shapes without stage dispatch", async () => {
-    const { store, stages } = fakeStore(reopenDefinition, {}, { context: persistedContext, ownerIdentity: PRIOR_OWNER });
+    const { store, stages } = fakeStore(
+      reopenDefinition,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "failed" } });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "failed" } });
@@ -1677,11 +1685,7 @@ describe("resumePipeline", () => {
   });
 
   test("on awaiting-approval returns missing_context and claim_refused without stage dispatch", async () => {
-    const missingContext = fakeStore(
-      APPROVAL_GATE_DEFINITION,
-      {},
-      { context: null, ownerIdentity: PRIOR_OWNER },
-    );
+    const missingContext = fakeStore(APPROVAL_GATE_DEFINITION, {}, { context: null, ownerIdentity: PRIOR_OWNER });
     missingContext.store.updateStage({
       pipelineId: PIPELINE_ID,
       stageId: "s1",
@@ -1689,10 +1693,7 @@ describe("resumePipeline", () => {
     });
     missingContext.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "awaiting" } });
     const missingDispatch: number[] = [];
-    const missingOutcome = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(missingContext.store, missingDispatch),
-    );
+    const missingOutcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(missingContext.store, missingDispatch));
     expect(missingOutcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "missing_context" });
     expect(missingDispatch).toEqual([]);
 
@@ -1713,10 +1714,7 @@ describe("resumePipeline", () => {
       reason: "claim_lost",
     });
     const claimDispatch: number[] = [];
-    const claimOutcome = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(claimRefused.store, claimDispatch),
-    );
+    const claimOutcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(claimRefused.store, claimDispatch));
     expect(claimOutcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "claim_refused" });
     expect(claimDispatch).toEqual([]);
   });
@@ -1751,7 +1749,11 @@ describe("resumePipeline", () => {
     removeOrchestrationStore(dbPath);
     const failedSeed = openStateStore(dbPath, { currentIdentity: PRIOR_OWNER });
     const failedPipelineId = failedSeed.createPipeline({ definition: reopenDefinition, context: persistedContext });
-    failedSeed.updateStage({ pipelineId: failedPipelineId, stageId: "s1", patch: { status: "succeeded", artifact: { specPath: "spec/s1.md" }, workflowInvocationId: "inv-1" } });
+    failedSeed.updateStage({
+      pipelineId: failedPipelineId,
+      stageId: "s1",
+      patch: { status: "succeeded", artifact: { specPath: "spec/s1.md" }, workflowInvocationId: "inv-1" },
+    });
     failedSeed.updateStage({ pipelineId: failedPipelineId, stageId: "s2", patch: { status: "failed" } });
     failedSeed.updateStage({ pipelineId: failedPipelineId, stageId: "s3", patch: { status: "skipped" } });
     failedSeed.close();
@@ -1790,9 +1792,9 @@ describe("resumePipeline", () => {
       await Promise.resolve();
     }
     expect(failedDispatch).toEqual([1]);
-    expect(failedStore.loadPipeline(failedPipelineId)?.stages.find((stage) => stage.stageId === "s1")?.workflowInvocationId).toBe(
-      "inv-1",
-    );
+    expect(
+      failedStore.loadPipeline(failedPipelineId)?.stages.find((stage) => stage.stageId === "s1")?.workflowInvocationId,
+    ).toBe("inv-1");
     failedStageWait.resolve("completed");
     const failedOutcome = await failedResume;
     expect(failedOutcome).toEqual({ kind: "resumed", pipelineId: failedPipelineId });
@@ -1800,7 +1802,10 @@ describe("resumePipeline", () => {
 
     removeOrchestrationStore(dbPath);
     const awaitingSeed = openStateStore(dbPath, { currentIdentity: PRIOR_OWNER });
-    const awaitingPipelineId = awaitingSeed.createPipeline({ definition: APPROVAL_GATE_DEFINITION, context: persistedContext });
+    const awaitingPipelineId = awaitingSeed.createPipeline({
+      definition: APPROVAL_GATE_DEFINITION,
+      context: persistedContext,
+    });
     awaitingSeed.updateStage({
       pipelineId: awaitingPipelineId,
       stageId: "s1",
@@ -1823,9 +1828,9 @@ describe("resumePipeline", () => {
     });
     expect(awaitingOutcome).toEqual({ kind: "resumed", pipelineId: awaitingPipelineId });
     expect(awaitingDispatch).toEqual([]);
-    expect(awaitingStore.loadPipeline(awaitingPipelineId)?.stages.find((stage) => stage.stageId === "gate")?.status).toBe(
-      "awaiting",
-    );
+    expect(
+      awaitingStore.loadPipeline(awaitingPipelineId)?.stages.find((stage) => stage.stageId === "gate")?.status,
+    ).toBe("awaiting");
     expect(awaitingStore.loadPipeline(awaitingPipelineId)?.ownerIdentity).toBe(CURRENT_OWNER);
     awaitingStore.close();
   });

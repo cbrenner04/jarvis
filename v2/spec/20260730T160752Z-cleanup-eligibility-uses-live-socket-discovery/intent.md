@@ -10,11 +10,12 @@ After cleanup stops aborting on a missing current-digest socket, eligibility sti
 
 ## Decisions
 
-- Eligibility and live-run checks query every live socket from `discoverLiveDaemonSockets` ∪ invoking digest socket (same query set as `jarvis run list`); empty discovery still probes only the invoking socket — rules out discovery-only behavior that skips the invoking socket.
+- Bulk cleanup `list`-based eligibility queries every live socket from `discoverLiveDaemonSockets` ∪ invoking digest socket (same query set as `jarvis run list`); empty discovery still probes only the invoking socket — rules out discovery-only behavior that skips the invoking socket.
 - Reuse `discoverLiveDaemonSockets`; rules out a second discovery implementation.
 - Skip a socket that fails to answer without failing the whole command — rules out one dead socket blanking eligibility for all worktrees.
 - A live run reported by any queried daemon makes the worktree ineligible — rules out ignoring older-digest daemons when the invoking key has no listener.
 - When only the invoking digest's daemon is live, eligibility matches today — rules out regressing the existing matching-key cleanup path.
+- `--abandon` and stale-reset claim probes stay keyed-socket only in this slice; multi-socket `checkWorkflowStartClaim` is deferred to a later consumer.
 
 ## Acceptance criteria
 

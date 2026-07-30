@@ -18,8 +18,8 @@ After cleanup stops aborting on a missing current-digest socket, eligibility sti
 
 ## Acceptance criteria
 
-- [ ] With only a live daemon on an older digest key, `jarvis cleanup` consults it via socket discovery and honors a live run it reports; a regression test in `v2/src/commands/cleanup.test.ts` or `cleanup-cli.test.ts` fails if that daemon is ignored.
-- [ ] Matching-key-only daemon: existing cleanup eligibility tests in `cleanup.test.ts` and `cleanup-cli.test.ts` stay green without behavior change.
+- [ ] With only a live daemon on an older digest key, `jarvis cleanup` consults it via socket discovery and honors a live run it reports; a regression test in `v2/src/commands/cleanup.test.ts` fails if that daemon is ignored.
+- [ ] Matching-key-only daemon: existing cleanup eligibility tests in `v2/src/commands/cleanup.test.ts` stay green without behavior change.
 - [ ] Inverting the discovery merge guard turns the older-digest regression test RED.
 
 ## Documentation updates

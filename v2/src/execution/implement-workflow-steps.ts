@@ -20,7 +20,10 @@ import { MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
-import { type ProjectPipelineResolutionResult, resolveProjectPipeline } from "./project-pipeline-resolution.ts";
+import {
+  formatProjectPipelineResolutionError,
+  resolveProjectPipeline,
+} from "./project-pipeline-resolution.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,
@@ -373,19 +376,6 @@ function loadImplementWorkflowSteps(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-function formatProjectPipelineResolutionError(
-  resolution: Extract<ProjectPipelineResolutionResult, { ok: false }>,
-): string {
-  const { error } = resolution;
-  if (error.code === "invalid-project-pipeline-config") {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error.code === "unknown-pipeline") {
-    return `${error.code}: ${error.name}`;
-  }
-  return `${error.code}: ${error.errors.map((item) => item.message).join("; ")}`;
 }
 
 function admitProjectPipeline(

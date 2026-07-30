@@ -36,12 +36,12 @@ Operators cannot launch daemon-owned pipelines from the CLI.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/pipeline.test.ts` fails on baseline and then shows valid `pipeline start` printing its admitted ID, while invalid project pipeline configuration exits non-zero before daemon connection or durable effects.
-- [ ] The attach/detach regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves `--detach` exits `0` after admission while attached start remains blocked until terminal, including through an `awaiting-approval` boundary, and emits terminal JSON plus the exit code contract above.
-- [ ] Inverting the pre-admission resolution guard or the detach client-wait guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove invalid configuration reaches the operator before daemon IPC and detach performs no `pipeline_wait`.
-- [ ] Failed daemon admission exits non-zero with stderr detail and no pipeline ID on stdout.
-- [ ] A registered project with no `pipeline` key is refused before daemon connect with non-zero exit and stderr detail.
-- [ ] Operator abort during attached start follows existing `run wait` / workflow attach patterns: stderr detail, non-zero exit, and no boundary JSON on stdout.
+- [x] `v2/src/commands/pipeline.test.ts` fails on baseline and then shows valid `pipeline start` printing its admitted ID, while invalid project pipeline configuration exits non-zero before daemon connection or durable effects.
+- [x] The attach/detach regression in `v2/src/commands/pipeline.test.ts` fails on baseline and then proves `--detach` exits `0` after admission while attached start remains blocked until terminal, including through an `awaiting-approval` boundary, and emits terminal JSON plus the exit code contract above.
+- [x] Inverting the pre-admission resolution guard or the detach client-wait guard makes `v2/src/commands/pipeline.test.ts` fail; negative cases prove invalid configuration reaches the operator before daemon IPC and detach performs no `pipeline_wait`.
+- [x] Failed daemon admission exits non-zero with stderr detail and no pipeline ID on stdout.
+- [x] A registered project with no `pipeline` key is refused before daemon connect with non-zero exit and stderr detail.
+- [x] Operator abort during attached start follows existing `run wait` / workflow attach patterns: stderr detail, non-zero exit, and no boundary JSON on stdout.
 
 ## Documentation updates
 

@@ -131,6 +131,8 @@ describe("daemon (real process)", () => {
         branch: "b",
         status: "killed",
         isLive: false,
+        // Reconciliation stamps a finish time on killed rows (see store-timestamps work).
+        finishedAtMs: expect.any(Number),
         error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" },
       },
     ]);

@@ -17,9 +17,9 @@ import { request } from "../cli/ipc.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import {
+  type QueryDaemonListsDeps,
   queryDaemonListsFromSocketPaths,
   queryDaemonListsFromSockets,
-  type QueryDaemonListsDeps,
 } from "../daemon/query-daemon-lists-from-sockets.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";

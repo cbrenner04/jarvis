@@ -13,6 +13,7 @@ import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { StateStore } from "../persistence/state-store.ts";
+import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
   createAbsentDaemonClient,
@@ -34,12 +35,11 @@ import {
   resolveExactRefOid,
   revalidateMergedBranchRefCandidate,
   runCleanupCommand,
+  STALE_RESET_OVERRIDE_CLI_FLAG,
   setInvertCleanupSocketDiscoveryForTest,
   setInvertCleanupSocketSkipOnFailureForTest,
-  STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
-import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 
 function daemonClientWithFreeClaimProbe(
   listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],

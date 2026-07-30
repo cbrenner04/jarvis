@@ -1,5 +1,5 @@
-import { request } from "../cli/ipc.ts";
 import type { CliDeps } from "../cli/deps.ts";
+import { request } from "../cli/ipc.ts";
 import type { ListRpcParams } from "../commands/run-list-rpc.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";

@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
@@ -6790,8 +6791,17 @@ describe("executeWorkflow review dispatch", () => {
         let finalizerCalls = 0;
         let commits = 0;
         const prompts: string[] = [];
+        const gitRepairCommitter = async ({ worktreePath }: { worktreePath: string }) => {
+          execFileSync("git", ["add", "-A"], { cwd: worktreePath });
+          execFileSync("git", ["commit", "-qm", "repair"], { cwd: worktreePath });
+          commits += 1;
+          return {
+            commitSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim(),
+            filesChanged: 1,
+          };
+        };
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
-          completionCommitter: async () => ({ commitSha: `deadbeef-${++commits}`, filesChanged: 1 }),
+          completionCommitter: gitRepairCommitter,
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async (input) => {
             finalizerCalls += 1;
@@ -6829,6 +6839,316 @@ describe("executeWorkflow review dispatch", () => {
         expect(prompts[0]).toContain("Mutation: operator-flip: === → !==");
         expect(prompts[0]).not.toContain("patch.prompt.body");
         expect(prompts[1]).toContain("The ready gate failed:");
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("review-mutation recovery cannot commit or publish a rejected ready-gate repair path", async () => {
+    const workspace = initGitWorkspace("review-mutation-repair-fence-");
+    const logsPath = join(workspace, "resume.jsonl");
+    const outsidePath = "README.md";
+    try {
+      writeFileSync(join(workspace, outsidePath), "seed\n", "utf8");
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "seed"], { cwd: workspace });
+      writeFileSync(join(workspace, "proof.txt"), "ok\n", "utf8");
+      execFileSync("git", ["add", "proof.txt"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "iteration"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      appendFileSync(join(workspace, outsidePath), "repair touch\n", "utf8");
+
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-repair-fence", "implement: fence");
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/repair-fence",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        store.setReadyGateRepairFence(writeRunId, {
+          exactPaths: ["proof.txt", "spec.md"],
+          specScopePrefixes: [],
+          rejectedPath: outsidePath,
+          outcomeKind: "completion_commit_failed",
+        });
+
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+        const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+        store.commitCompletionBoundary({
+          attemptId: reviewAttemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior attempt" },
+        });
+
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 1,
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        let commits = 0;
+        let publishCalls = 0;
+        const fenced = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: async () => ({ commitSha: `deadbeef-${++commits}`, filesChanged: 1 }),
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
+          },
+          readyFinalizer: async () => undefined,
+        });
+
+        expect(fenced).toMatchObject({ ok: false });
+        expect(fenced.ok === false && fenced.message).toContain(JSON.stringify(outsidePath));
+        expect(commits).toBe(0);
+        expect(publishCalls).toBe(0);
+        expect(store.loadRun(reviewRunId)?.status).toBe("failed");
+
+        let bypassCommits = 0;
+        let bypassPublishCalls = 0;
+        const bypassed = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          invertReviewMutationRepairFenceForTest: true,
+          completionCommitter: async () => ({ commitSha: `bypass-${++bypassCommits}`, filesChanged: 1 }),
+          completionPublisher: async () => {
+            bypassPublishCalls += 1;
+            return { pushSha: "bypass", prNumber: 4, prUrl: "https://example.test/pr/4" };
+          },
+          readyFinalizer: async () => undefined,
+        });
+
+        expect(bypassed).toMatchObject({ ok: true });
+        expect(bypassCommits).toBeGreaterThan(0);
+        expect(bypassPublishCalls).toBeGreaterThan(0);
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("review-mutation recovery fails closed when persisted ready-gate repair fence JSON is corrupt", async () => {
+    const workspace = initGitWorkspace("review-mutation-repair-fence-corrupt-");
+    const logsPath = join(workspace, "resume.jsonl");
+    const dbPath = join(workspace, "state.db");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      writeFileSync(join(workspace, "proof.txt"), "ok\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "seed"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+
+      const store = openStateStore(dbPath);
+      try {
+        const snapshot = reviewMutationWorkflowSnapshot(
+          "review-mutation-repair-fence-corrupt",
+          "implement: fence corrupt",
+        );
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/repair-fence-corrupt",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+        const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+        store.commitCompletionBoundary({
+          attemptId: reviewAttemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior attempt" },
+        });
+
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 1,
+        });
+        seedSink.close();
+
+        const db = new Database(dbPath);
+        db.prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?").run(
+          '{"exactPaths":["proof.txt"]}',
+          writeRunId,
+        );
+        db.close();
+        expect(store.loadRun(writeRunId)?.readyGateRepairFenceInvalid).toBe(true);
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        let commits = 0;
+        let publishCalls = 0;
+        const fenced = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: async () => ({ commitSha: `deadbeef-${++commits}`, filesChanged: 1 }),
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return { pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" };
+          },
+          readyFinalizer: async () => undefined,
+        });
+
+        expect(fenced).toMatchObject({ ok: false });
+        expect(fenced.ok === false && fenced.message).toContain("could not reconstruct persisted allowset");
+        expect(commits).toBe(0);
+        expect(publishCalls).toBe(0);
+        expect(store.loadRun(reviewRunId)?.status).toBe("failed");
+      } finally {
+        store.close();
+      }
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("mutation repair commits paths outside a persisted ready-gate fence without rejection provenance", async () => {
+    const workspace = initGitWorkspace("review-mutation-fence-no-rejection-");
+    const logsPath = join(workspace, "resume.jsonl");
+    const outsidePath = "repair-proof.txt";
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      writeFileSync(join(workspace, "proof.txt"), "ok\n", "utf8");
+      execFileSync("git", ["add", "proof.txt"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "iteration"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-fence-no-rejection", "implement: no rejection");
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "review-mutation/no-rejection-fence",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        store.setReadyGateRepairFence(writeRunId, {
+          exactPaths: ["proof.txt", "spec.md"],
+          specScopePrefixes: [],
+        });
+
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+        const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+        store.commitCompletionBoundary({
+          attemptId: reviewAttemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior attempt" },
+        });
+
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 1,
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        let commits = 0;
+        const gitRepairCommitter = async ({ worktreePath }: { worktreePath: string }) => {
+          execFileSync("git", ["add", "-A"], { cwd: worktreePath });
+          execFileSync("git", ["commit", "-qm", "repair"], { cwd: worktreePath });
+          commits += 1;
+          return {
+            commitSha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim(),
+            filesChanged: 1,
+          };
+        };
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: gitRepairCommitter,
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          readyFinalizer: async (input) => {
+            finalizerCalls += 1;
+            if (finalizerCalls === 1) {
+              throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 1);
+            }
+            expect(input.worktreePath).toBe(workspace);
+            expect(input.baseRef).toBe("main");
+            return undefined;
+          },
+          mutationRepair: {
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ prompt, cwd }) => {
+                  writeFileSync(join(cwd, outsidePath), "repaired\n", "utf8");
+                  return { kind: "ok", stdout: "done", stderr: "" };
+                },
+              },
+            ],
+            stepRules: "repair rules",
+            iterationTimeoutMs: 1_000,
+            iterationCeilingMs: 2_000,
+          },
+        });
+
+        expect(outcome).toMatchObject({ ok: true });
+        expect(commits).toBeGreaterThan(0);
+        expect(existsSync(join(workspace, outsidePath))).toBe(true);
+        expect(store.loadRun(reviewRunId)?.status).toBe("completed");
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });

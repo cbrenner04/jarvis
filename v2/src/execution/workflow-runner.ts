@@ -73,6 +73,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   appendRuntimeSmokeOutcome,
+  enforcePersistedRepairFenceOnRecovery,
   executeWriteLoop,
   getUncommittedPaths,
   MAX_MUTATION_REPAIR_ATTEMPTS,
@@ -2626,6 +2627,8 @@ export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
 export type ReviewMutationResumeContext = {
   runId: string;
+  /** Completed write-step sibling row carrying the persisted ready-gate repair fence. */
+  writeSiblingRunId: string;
   worktreePath: string;
   project: string;
   branch: string;
@@ -2652,6 +2655,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
     ok: true,
     context: {
       runId: run.id,
+      writeSiblingRunId: writeRun.id,
       worktreePath: writeRun.worktreePath,
       project: run.project,
       branch: run.branch,
@@ -2718,6 +2722,7 @@ export function resolveWriteOutOfScopeResumeContext(
     ok: true,
     context: {
       runId: run.id,
+      writeSiblingRunId: run.id,
       worktreePath: run.worktreePath,
       project: run.project,
       branch: run.branch,
@@ -2741,6 +2746,8 @@ export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
     WriteLoopInput,
     "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
   >;
+  /** Test seam: allow ready-gate repair completion paths outside the write sibling's frozen allowset. */
+  invertReviewMutationRepairFenceForTest?: boolean;
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
@@ -2782,6 +2789,23 @@ async function commitReviewMutationResumeChanges(
   creationTitle: string,
   deps: ReviewMutationResumeDeps,
 ): Promise<ReviewMutationResumeOutcome | undefined> {
+  const fenceError = await enforcePersistedRepairFenceOnRecovery(
+    store,
+    context.writeSiblingRunId,
+    context.worktreePath,
+    deps.invertReviewMutationRepairFenceForTest,
+  );
+  if (fenceError !== undefined) {
+    return settleReviewMutationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "completion_commit_failed",
+      fenceError.message,
+      deps,
+    );
+  }
+
   const committer = deps.completionCommitter ?? createCompletionCommitter();
   let published: Awaited<ReturnType<CompletionCommitter>>;
   try {

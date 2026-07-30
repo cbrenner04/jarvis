@@ -5,6 +5,10 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import {
+  type PersistedReadyGateRepairFence,
+  parsePersistedReadyGateRepairFence,
+} from "../execution/ready-gate-repair-fence.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
 
@@ -117,6 +121,9 @@ export type Run = {
   queuedInput?: WriteLoopInput | null;
   prNumber?: number | null;
   prUrl?: string | null;
+  readyGateRepairFence?: PersistedReadyGateRepairFence | null;
+  /** True when `ready_gate_repair_fence` holds JSON that cannot be parsed or validated. */
+  readyGateRepairFenceInvalid?: boolean;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -193,6 +200,9 @@ export interface StateStore {
 
   /** Record the confirmed PR number and URL after successful publication. */
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
+
+  /** Persist the frozen ready-gate repair fence and optional rejection provenance for recovery. */
+  setReadyGateRepairFence(runId: string, fence: PersistedReadyGateRepairFence): void;
 
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
@@ -314,7 +324,7 @@ const SCHEMA = `
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
-  pr_number AS prNumber, pr_url AS prUrl`;
+  pr_number AS prNumber, pr_url AS prUrl, ready_gate_repair_fence AS readyGateRepairFenceJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -393,6 +403,10 @@ const SCHEMA_MIGRATIONS = [
     id: "014-pipeline-owner-identity-and-status",
     up: `ALTER TABLE pipelines ADD COLUMN owner_identity TEXT;
         ALTER TABLE pipelines ADD COLUMN status TEXT NOT NULL DEFAULT 'active';`,
+  },
+  {
+    id: "015-run-ready-gate-repair-fence",
+    up: "ALTER TABLE runs ADD COLUMN ready_gate_repair_fence TEXT",
   },
 ] as const;
 
@@ -480,14 +494,30 @@ function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | nu
   };
 }
 
-type RunRow = Run & { workflowSnapshotJson: string | null; queuedInputJson: string | null };
+type RunRow = Run & {
+  workflowSnapshotJson: string | null;
+  queuedInputJson: string | null;
+  readyGateRepairFenceJson: string | null;
+};
 
 function mapRunRow(row: RunRow): Run {
-  const { workflowSnapshotJson, queuedInputJson, ...run } = row;
+  const { workflowSnapshotJson, queuedInputJson, readyGateRepairFenceJson, ...run } = row;
+  let readyGateRepairFence: PersistedReadyGateRepairFence | null = null;
+  let readyGateRepairFenceInvalid = false;
+  if (readyGateRepairFenceJson !== null) {
+    const parsed = parsePersistedReadyGateRepairFence(readyGateRepairFenceJson);
+    if (parsed === null) {
+      readyGateRepairFenceInvalid = true;
+    } else {
+      readyGateRepairFence = parsed;
+    }
+  }
   return {
     ...run,
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
     queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
+    readyGateRepairFence,
+    ...(readyGateRepairFenceInvalid ? { readyGateRepairFenceInvalid: true } : {}),
   };
 }
 
@@ -575,6 +605,12 @@ class StateStoreImpl implements StateStore {
 
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void {
     this.db.prepare("UPDATE runs SET pr_number = ?, pr_url = ? WHERE id = ?").run(prNumber, prUrl, runId);
+  }
+
+  setReadyGateRepairFence(runId: string, fence: PersistedReadyGateRepairFence): void {
+    this.db
+      .prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?")
+      .run(JSON.stringify(fence), runId);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

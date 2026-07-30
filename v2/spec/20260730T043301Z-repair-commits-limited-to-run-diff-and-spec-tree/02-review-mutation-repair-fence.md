@@ -19,14 +19,14 @@ later completion commit.
 
 ## Acceptance criteria
 
-- [ ] A focused `v2/src/execution/workflow-runner.test.ts` review-mutation recovery regression
+- [x] A focused `v2/src/execution/workflow-runner.test.ts` review-mutation recovery regression
       proves a rejected path cannot be swept into a later commit or publish, while the preserved
       fence reports `completion_commit_failed`; it fails against the unfenced recovery baseline.
-- [ ] The review-mutation regression turns red when its recovered-fence guard is inverted or
+- [x] The review-mutation regression turns red when its recovered-fence guard is inverted or
       bypassed.
-- [ ] `v2/docs/write-behavior.md` documents review-mutation recovery's preserved-fence boundary,
+- [x] `v2/docs/write-behavior.md` documents review-mutation recovery's preserved-fence boundary,
       and `v2/docs/v1-behaviors.md` records the v2 behavior in the parity catalog.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

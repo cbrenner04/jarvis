@@ -26,20 +26,20 @@ Ready-gate repair must not turn an unfenced dirty worktree into a completion com
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` test `rejects ready-gate repairs outside the run diff
+- [x] `v2/src/execution/write-loop.test.ts` test `rejects ready-gate repairs outside the run diff
       and spec tree` edits a previously untouched file, returns `completion_commit_failed` before
       repair republish, names that path, and fails against the unfenced baseline.
-- [ ] Representative `write-loop.test.ts` regressions prove the candidate set includes additions,
+- [x] Representative `write-loop.test.ts` regressions prove the candidate set includes additions,
       deletions, type changes, tracked ignored changes, submodules, and both rename sides; excludes
       paths completion would not stage; and handles unusual filenames through NUL-safe path handling.
-- [ ] The same regressions prove first-offender evidence is stable by normalized repository-relative
+- [x] The same regressions prove first-offender evidence is stable by normalized repository-relative
       byte ordering, including when Git reports candidates in another order.
-- [ ] Distinct `write-loop.test.ts` positive cases prove a repair limited to an existing run-diff
+- [x] Distinct `write-loop.test.ts` positive cases prove a repair limited to an existing run-diff
       path and a repair limited to the resolved spec tree each complete the bounded repair loop;
       existing ready-gate repair coverage stays green.
-- [ ] Inverting the fence makes the untouched-file regression red; removing the run-diff or
+- [x] Inverting the fence makes the untouched-file regression red; removing the run-diff or
       spec-tree allowset membership independently makes its corresponding positive case red.
-- [ ] `v2/docs/write-behavior.md` documents the frozen allowset, exact candidate-path contract,
+- [x] `v2/docs/write-behavior.md` documents the frozen allowset, exact candidate-path contract,
       deterministic path evidence, pre-commit failure boundary, and unchanged in-scope repair loop.
 
 ## Documentation updates

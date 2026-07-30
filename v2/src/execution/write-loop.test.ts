@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
@@ -12,6 +14,14 @@ import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-
 import { renderAttribution } from "./pr-attribution.ts";
 import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
 import { ReadyFlipError, ReadyGateError, RuntimeSmokeFailedError, SurvivingMutationError } from "./ready-finalize.ts";
+import {
+  compareRepoRelativePathsByteOrder,
+  deriveRepairAllowset,
+  findFirstOutOfScopeRepairCandidate,
+  formatReadyGateRepairFenceFailure,
+  isRepairPathAllowed,
+  listRepairCompletionCandidatePaths,
+} from "./ready-gate-repair-fence.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
@@ -206,6 +216,7 @@ async function runLoop(args: {
   completionCommitter?: WriteLoopInput["completionCommitter"];
   completionPublisher?: WriteLoopInput["completionPublisher"];
   readyFinalizer?: WriteLoopInput["readyFinalizer"];
+  invertReadyGateRepairFenceForTest?: boolean;
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -232,6 +243,9 @@ async function runLoop(args: {
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
+    ...(args.invertReadyGateRepairFenceForTest === true
+      ? { invertReadyGateRepairFenceForTest: true }
+      : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -309,6 +323,12 @@ function loadRunOnce(stateDbPath: string, runId: string) {
   }
 }
 
+function setRawReadyGateRepairFenceJson(stateDbPath: string, runId: string, json: string) {
+  const db = new Database(stateDbPath);
+  db.prepare("UPDATE runs SET ready_gate_repair_fence = ? WHERE id = ?").run(json, runId);
+  db.close();
+}
+
 function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
   if (!existsSync(path)) {
     return [];
@@ -339,6 +359,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
+    setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -1738,6 +1759,589 @@ describe("write loop", () => {
         expect(
           logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started"),
         ).toHaveLength(1);
+      });
+    });
+
+    describe("ready-gate repair fence", () => {
+      function ignoreJarvisTestSidecars(worktreePath: string): void {
+        const gitignorePath = join(worktreePath, ".gitignore");
+        const lines = [".reused", "spec.md"];
+        const existing = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+        const merged = `${existing}${lines.filter((line) => !existing.includes(`${line}\n`)).map((line) => `${line}\n`).join("")}`;
+        writeFileSync(gitignorePath, merged, "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", ".gitignore"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "ignore jarvis test sidecars"], { stdio: "pipe" });
+      }
+
+      function initRepairFenceWorktree(jarvisRoot: string, branchName: string): { worktreePath: string; baseRef: string } {
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        mkdirSync(join(worktreePath, "v2/spec/demo"), { recursive: true });
+        execFileSync("git", ["init", "-b", "main", worktreePath], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        writeFileSync(join(worktreePath, "v2/spec/demo/index.md"), "# spec\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+        ignoreJarvisTestSidecars(worktreePath);
+        return { worktreePath, baseRef };
+      }
+
+      function initSpecTreeRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string } {
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        mkdirSync(join(worktreePath, "spec"), { recursive: true });
+        execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+        writeFileSync(join(worktreePath, "spec", "index.md"), "# spec\n", "utf8");
+        writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+        ignoreJarvisTestSidecars(worktreePath);
+        return { worktreePath, baseRef };
+      }
+
+      function initProductionRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string; projectRoot: string } {
+        const projectRoot = join(jarvisRoot, "repos", "demo");
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        mkdirSync(projectRoot, { recursive: true });
+        mkdirSync(join(projectRoot, "v2/spec/demo"), { recursive: true });
+        execFileSync("git", ["init", "-b", "main", projectRoot], { stdio: "pipe" });
+        execFileSync("git", ["-C", projectRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", projectRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(projectRoot, "README.md"), "seed\n", "utf8");
+        writeFileSync(join(projectRoot, "v2/spec/demo/index.md"), "# spec\n", "utf8");
+        execFileSync("git", ["-C", projectRoot, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", projectRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", projectRoot, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        execFileSync("git", ["-C", projectRoot, "branch", branchName], { stdio: "pipe" });
+        mkdirSync(join(worktreePath, ".."), { recursive: true });
+        execFileSync("git", ["-C", projectRoot, "worktree", "add", worktreePath, branchName], { stdio: "pipe" });
+        expect(statSync(join(worktreePath, ".git")).isFile()).toBe(true);
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+        const gitignorePath = join(worktreePath, ".gitignore");
+        writeFileSync(gitignorePath, ".reused\nspec.md\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", ".gitignore"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "ignore jarvis test sidecars"], { stdio: "pipe" });
+        return { worktreePath, baseRef, projectRoot };
+      }
+
+      async function runRepairFenceLoop(args: {
+        jarvisRoot: string;
+        stateDbPath: string;
+        branchName: string;
+        baseRef: string;
+        specPath?: string;
+        repairEdit: (cwd: string) => void;
+        invertReadyGateRepairFenceForTest?: boolean;
+      }) {
+        let repairCommits = 0;
+        let publishCalls = 0;
+        let gateCalls = 0;
+        const result = await runLoop({
+          jarvisRoot: args.jarvisRoot,
+          stateDbPath: args.stateDbPath,
+          branchName: args.branchName,
+          baseRef: args.baseRef,
+          ...(args.specPath !== undefined ? { specPath: args.specPath } : {}),
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ prompt, cwd }) => {
+                if (prompt.includes("Command: bun run ready")) {
+                  args.repairEdit(cwd);
+                  return { kind: "ok", stdout: "repaired", stderr: "" } as const;
+                }
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: async () => {
+            repairCommits += 1;
+            return { commitSha: `commit-${repairCommits}`, filesChanged: 1 };
+          },
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return {};
+          },
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (gateCalls === 1) {
+              throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
+            }
+          },
+          ...(args.invertReadyGateRepairFenceForTest === true
+            ? { invertReadyGateRepairFenceForTest: true }
+            : {}),
+        });
+        return { result, repairCommits, publishCalls, gateCalls };
+      }
+
+      test("rejects ready-gate repairs outside the run diff and spec tree", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-outside";
+        const outsidePath = "README.md";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain(JSON.stringify(outsidePath));
+        expect(fenced.publishCalls).toBe(1);
+        expect(fenced.gateCalls).toBe(1);
+
+        const unfencedBranch = `${branchName}-unfenced`;
+        const unfenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName: unfencedBranch,
+          baseRef: initRepairFenceWorktree(jarvisRoot, unfencedBranch).baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+          invertReadyGateRepairFenceForTest: true,
+        });
+
+        expect(unfenced.result.kind).not.toBe("completion_commit_failed");
+        expect(unfenced.repairCommits).toBeGreaterThan(fenced.repairCommits);
+        expect(fenced.result.kind).not.toBe(unfenced.result.kind);
+      });
+
+      test("repair completion candidate contract covers staged path kinds and NUL-safe filenames", async () => {
+        const root = join(tmpdir(), `repair-candidates-${Date.now()}`);
+        mkdirSync(root, { recursive: true });
+        roots.push(root);
+        execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(root, "tracked.txt"), "tracked\n", "utf8");
+        writeFileSync(join(root, ".gitignore"), "ignored-but-tracked.txt\n", "utf8");
+        writeFileSync(join(root, "ignored-but-tracked.txt"), "keep\n", "utf8");
+        execFileSync("git", ["-C", root, "add", ".gitignore", "tracked.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "add", "-f", "ignored-but-tracked.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+
+        writeFileSync(join(root, "tracked.txt"), "changed\n", "utf8");
+        writeFileSync(join(root, "added.txt"), "new\n", "utf8");
+        writeFileSync(join(root, "ignored-but-tracked.txt"), "changed ignored\n", "utf8");
+        mkdirSync(join(root, "v2", "src"), { recursive: true });
+        writeFileSync(join(root, "v2/src/file with space.test.ts"), "export {}\n", "utf8");
+        writeFileSync(join(root, "deleted.txt"), "gone\n", "utf8");
+        execFileSync("git", ["-C", root, "add", "deleted.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "track deleted"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "rm", "deleted.txt"], { stdio: "pipe" });
+        writeFileSync(join(root, "rename-old.ts"), "export {}\n", "utf8");
+        execFileSync("git", ["-C", root, "add", "rename-old.ts"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "track rename"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "mv", "rename-old.ts", "rename-new.ts"], { stdio: "pipe" });
+        writeFileSync(join(root, "typed.txt"), "regular\n", "utf8");
+        execFileSync("git", ["-C", root, "add", "typed.txt"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "track typed"], { stdio: "pipe" });
+        rmSync(join(root, "typed.txt"));
+        symlinkSync("tracked.txt", join(root, "typed.txt"));
+        execFileSync("git", ["-C", root, "add", "typed.txt"], { stdio: "pipe" });
+        const subRepo = join(dirname(root), `sub-repo-${Date.now()}`);
+        mkdirSync(subRepo, { recursive: true });
+        execFileSync("git", ["init", "-b", "main", subRepo], { stdio: "pipe" });
+        execFileSync("git", ["-C", subRepo, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", subRepo, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(subRepo, "README"), "sub\n", "utf8");
+        execFileSync("git", ["-C", subRepo, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", subRepo, "commit", "-m", "sub seed"], { stdio: "pipe" });
+        execFileSync(
+          "git",
+          ["-c", "protocol.file.allow=always", "-C", root, "submodule", "add", subRepo, "vendor/lib"],
+          { stdio: "pipe" },
+        );
+        execFileSync("git", ["-C", root, "reset", "HEAD~1"], { stdio: "pipe" });
+        writeFileSync(join(root, "added.txt"), "refreshed new\n", "utf8");
+        writeFileSync(join(root, "ignored-but-tracked.txt"), "changed ignored again\n", "utf8");
+        writeFileSync(join(root, ".git", "COMMIT_EDITMSG"), "metadata-only\n", "utf8");
+
+        const candidates = await listRepairCompletionCandidatePaths(root);
+        expect(candidates).toEqual(
+          expect.arrayContaining([
+            "tracked.txt",
+            "added.txt",
+            "ignored-but-tracked.txt",
+            "v2/src/file with space.test.ts",
+            "rename-new.ts",
+            "typed.txt",
+            "vendor/lib",
+          ]),
+        );
+        expect(candidates).toContain("rename-old.ts");
+        expect(candidates).not.toContain(".git/COMMIT_EDITMSG");
+        expect(candidates).not.toContain(".git/index");
+      });
+
+      test("first-offender evidence is stable by repository-relative byte ordering", () => {
+        const allowset = {
+          exactPaths: new Set(["proof.txt"]),
+          specScopePrefixes: ["spec"],
+        };
+        const shuffled = ["spec/z.md", "README.md", "spec/a.md", "proof.txt"];
+        expect(findFirstOutOfScopeRepairCandidate(shuffled, allowset)).toBe("README.md");
+        expect(findFirstOutOfScopeRepairCandidate([...shuffled].reverse(), allowset)).toBe("README.md");
+        expect(compareRepoRelativePathsByteOrder("README.md", "spec/a.md")).toBeLessThan(0);
+        expect(formatReadyGateRepairFenceFailure("README.md")).toBe(
+          'ready-gate repair completion stages path outside the run diff and spec tree: "README.md"',
+        );
+      });
+
+      test("completes bounded repair when changes stay inside the run diff", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-run-diff";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const { result, repairCommits, gateCalls } = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, "proof.txt"), "\nmore proof\n", "utf8");
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(repairCommits).toBeGreaterThanOrEqual(1);
+        expect(gateCalls).toBe(2);
+      });
+
+      test("completes bounded repair when changes stay inside the resolved spec tree", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-spec-tree";
+        const { baseRef } = initSpecTreeRepairFenceWorktree(jarvisRoot, branchName);
+
+        const { result, repairCommits } = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "spec/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, "spec", "index.md"), "\n- [ ] more\n", "utf8");
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(repairCommits).toBeGreaterThanOrEqual(1);
+      });
+
+      test("allowset membership guards are load-bearing for run-diff and spec-tree repairs", async () => {
+        const { jarvisRoot } = createJarvisHome();
+        const branchName = "repair-fence-allowset";
+        const { worktreePath, baseRef } = initSpecTreeRepairFenceWorktree(jarvisRoot, branchName);
+
+        const allowset = await deriveRepairAllowset({
+          worktreePath,
+          baseRef,
+          specPath: "spec/index.md",
+        });
+        expect(allowset).toBeDefined();
+        if (allowset === undefined) {
+          throw new Error("expected repair allowset");
+        }
+
+        expect(isRepairPathAllowed("proof.txt", allowset)).toBe(true);
+        expect(isRepairPathAllowed("spec/notes.md", allowset)).toBe(true);
+        expect(isRepairPathAllowed("README.md", allowset)).toBe(false);
+
+        const withoutRunDiff: typeof allowset = {
+          exactPaths: new Set([...allowset.exactPaths].filter((path) => path !== "proof.txt")),
+          specScopePrefixes: allowset.specScopePrefixes,
+        };
+        expect(findFirstOutOfScopeRepairCandidate(["proof.txt"], withoutRunDiff)).toBe("proof.txt");
+
+        const withoutSpecTree: typeof allowset = {
+          exactPaths: allowset.exactPaths,
+          specScopePrefixes: [],
+        };
+        expect(findFirstOutOfScopeRepairCandidate(["spec/notes.md"], withoutSpecTree)).toBe("spec/notes.md");
+        expect(isRepairPathAllowed("spec/notes.md", withoutSpecTree)).not.toBe(
+          isRepairPathAllowed("spec/notes.md", allowset),
+        );
+      });
+
+      test("persists the frozen allowset and rejects the dirty path after process restart on completed-run retry", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-restart-retry";
+        const outsidePath = "README.md";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        let repairCommits = 0;
+        let publishCalls = 0;
+        const first = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+
+        expect(first.result.kind).toBe("completion_commit_failed");
+        expect(first.result.completionCommitError).toContain(JSON.stringify(outsidePath));
+        expect(first.publishCalls).toBe(1);
+        expect(first.repairCommits).toBe(2);
+
+        const persisted = loadRunOnce(stateDbPath, first.result.runId)?.readyGateRepairFence;
+        expect(persisted).toMatchObject({
+          exactPaths: expect.arrayContaining(["proof.txt"]),
+          specScopePrefixes: ["v2/spec/demo"],
+          rejectedPath: outsidePath,
+          outcomeKind: "completion_commit_failed",
+        });
+
+        let retryCommits = 0;
+        let retryPublishCalls = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          bindings: [],
+          completionCommitter: async () => {
+            retryCommits += 1;
+            return { commitSha: `retry-commit-${retryCommits}`, filesChanged: 1 };
+          },
+          completionPublisher: async () => {
+            retryPublishCalls += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+
+        expect(retry.kind).toBe("completion_commit_failed");
+        expect(retry.runId).toBe(first.result.runId);
+        expect(retry.completionCommitError).toContain(JSON.stringify(outsidePath));
+        expect(retryCommits).toBe(0);
+        expect(retryPublishCalls).toBe(0);
+        expect(loadRunOnce(stateDbPath, retry.runId)?.readyGateRepairFence).toEqual(persisted);
+      });
+
+      test("completed-run retry fails closed when persisted fence validation is inverted or bypassed", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-recovery-guard";
+        const outsidePath = "README.md";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+
+        const bypassed = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          bindings: [],
+          completionCommitter: async () => ({ commitSha: "retry-commit", filesChanged: 1 }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+          invertReadyGateRepairFenceForTest: true,
+        });
+        expect(bypassed.kind).not.toBe("completion_commit_failed");
+        expect(bypassed.kind).toBe("complete");
+      });
+
+      test("rejects ready-gate repairs outside scope on git worktree add production paths", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-worktree-add";
+        const outsidePath = "README.md";
+        const { baseRef } = initProductionRepairFenceWorktree(jarvisRoot, branchName);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain(JSON.stringify(outsidePath));
+        expect(fenced.publishCalls).toBe(1);
+        expect(loadRunOnce(stateDbPath, fenced.result.runId)?.readyGateRepairFence?.rejectedPath).toBe(outsidePath);
+      });
+
+      test("standalone spec.md allows only itself, not sibling files or the repo root", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-standalone-spec";
+        const outsidePath = "README.md";
+        const { baseRef } = initSpecTreeRepairFenceWorktree(jarvisRoot, branchName);
+
+        const inSpec = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "spec.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, "spec.md"), "\n- [ ] more\n", "utf8");
+          },
+        });
+        expect(inSpec.result.kind).toBe("complete");
+
+        const outsideBranch = `${branchName}-outside`;
+        const outside = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName: outsideBranch,
+          baseRef: initSpecTreeRepairFenceWorktree(jarvisRoot, outsideBranch).baseRef,
+          specPath: "spec.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+        expect(outside.result.kind).toBe("completion_commit_failed");
+        expect(outside.result.completionCommitError).toContain(JSON.stringify(outsidePath));
+      });
+
+      test("completed-run retry fails closed when persisted fence JSON is corrupt", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-corrupt-json";
+        const outsidePath = "README.md";
+        const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
+
+        const first = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, outsidePath), "\nrepair touch\n", "utf8");
+          },
+        });
+        expect(first.result.kind).toBe("completion_commit_failed");
+        setRawReadyGateRepairFenceJson(stateDbPath, first.result.runId, '{"exactPaths":["proof.txt"]}');
+        expect(loadRunOnce(stateDbPath, first.result.runId)?.readyGateRepairFenceInvalid).toBe(true);
+
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          bindings: [],
+          completionCommitter: async () => ({ commitSha: "retry-commit", filesChanged: 1 }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+        expect(retry.kind).toBe("completion_commit_failed");
+        expect(retry.completionCommitError).toContain("could not reconstruct persisted allowset");
+
+        const bypassed = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "v2/spec/demo/index.md",
+          bindings: [],
+          completionCommitter: async () => ({ commitSha: "bypass-commit", filesChanged: 1 }),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+          invertReadyGateRepairFenceForTest: true,
+        });
+        expect(bypassed.kind).toBe("complete");
+      });
+
+      test("completed-run retry after successful repair does not enforce a stale frozen allowset", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-stale-allowset";
+        const { baseRef } = initSpecTreeRepairFenceWorktree(jarvisRoot, branchName);
+
+        const first = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "spec.md",
+          repairEdit: (cwd) => {
+            appendFileSync(join(cwd, "proof.txt"), "\nmore proof\n", "utf8");
+          },
+        });
+        expect(first.result.kind).toBe("complete");
+        const persisted = loadRunOnce(stateDbPath, first.result.runId)?.readyGateRepairFence;
+        expect(persisted?.rejectedPath).toBeUndefined();
+        expect(persisted?.outcomeKind).toBeUndefined();
+
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        writeFileSync(join(worktreePath, "spec", "notes.md"), "# notes\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "spec/notes.md"], { stdio: "pipe" });
+
+        let retryCommits = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          specPath: "spec.md",
+          bindings: [],
+          completionCommitter: async () => {
+            retryCommits += 1;
+            return { commitSha: `retry-${retryCommits}`, filesChanged: 1 };
+          },
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+        expect(retry.kind).toBe("complete");
+        expect(retryCommits).toBeGreaterThan(0);
       });
     });
 

@@ -31,7 +31,8 @@ describe("publication landing hooks", () => {
       },
       root,
     );
-    expect(result.specPath).toBe("ready-intents");
+    expect(result.specPath).toBe("ready-intents/one.md");
+    expect(result.specPath).not.toBe("ready-intents");
     expect(existsSync(join(root, ".jarvis-intent-stage"))).toBe(false);
   });
 
@@ -46,7 +47,7 @@ describe("publication landing hooks", () => {
     writeFileSync(join(root, ".jarvis-intent-stage", "one.md"), "---\nname: one\n---\n\n## Prerequisites\n");
     writeFileSync(join(root, ".jarvis-intent-stage", "two.md"), "---\nname: two\n---\n\n## Prerequisites\n");
 
-    await landPublication(
+    const result = await landPublication(
       {
         kind: "intent-stage",
         output: { durableDir: "ready-intents" },
@@ -62,6 +63,7 @@ describe("publication landing hooks", () => {
       root,
     );
 
+    expect(result.specPath).toBe("ready-intents");
     expect(existsSync(join(root, "ready-intents/one.md"))).toBe(true);
     expect(existsSync(join(root, "ready-intents/two.md"))).toBe(true);
     expect(existsSync(join(root, "queue/one.md"))).toBe(false);

@@ -41,8 +41,11 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
+import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
+import type { PipelineDefinition } from "./pipeline-definition.ts";
+import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-output.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
-import { buildPlanWorkflowSteps } from "./publication-workflow-steps.ts";
+import { buildPlanWorkflowSteps, validateReadyIntent } from "./publication-workflow-steps.ts";
 import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
@@ -6608,6 +6611,229 @@ describe("executeWorkflow review dispatch", () => {
       const settled = store.loadRun(reviewRunId);
       expect(settled?.status).toBe("failed");
       expect(settled?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("completion agent");
+    });
+  });
+
+  test("review-last light intent completion records file handoff on the step-0 entry run", async () => {
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-file-handoff-review-last");
+    const invocationId = "intent-file-handoff-review-last";
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-file-handoff-review-last",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
+      creationTitle: "intent: handoff-review-last",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "handoff.md"),
+          "---\nname: handoff\n---\n\n# Handoff\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "intent-file-handoff-review-last",
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const intentRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent-file-handoff-review-last",
+        stepId: "intent",
+      });
+      expect(intentRun?.specPath).toBe("ready-intents/handoff.md");
+      expect(intentRun?.specPath).not.toBe("ready-intents");
+      expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"])).toBe("ready-intents/handoff.md");
+      expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"], { invertSingleFileGuardForTest: true })).toBe(
+        "ready-intents",
+      );
+    });
+  });
+
+  test("resolveIntentFinalizationResumeContext derives durableDir from a file handoff path", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-file-handoff-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(workspace, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+    writeFileSync(
+      join(workspace, "ready-intents", "example.md"),
+      "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch: "intent/file-handoff",
+        workflowSnapshot: {
+          invocationId: "intent-file-handoff",
+          creationTitle: "intent: file-handoff",
+          steps: [
+            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
+            { stepId: "review", role: "", durable: true, behavior: "review" as const },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents/example.md", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      store.setRunStatus(reviewRunId, "failed");
+      const attemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const writeRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent/file-handoff",
+        stepId: "intent",
+      });
+      if (!writeRun) throw new Error("expected write run");
+      const resolved = resolveIntentFinalizationResumeContext(run, store);
+      expect(resolved).toMatchObject({
+        ok: true,
+        context: {
+          durableDir: "ready-intents",
+          landing: { output: { durableDir: "ready-intents" } },
+        },
+      });
+      if (!resolved.ok) throw new Error("expected resolved resume context");
+      expect(resolved.context.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
+      expect(resolved.context.landing.output.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
+      expect(resolved.context.durableDir).not.toBe(
+        configuredIntentDurableDir(workspace, writeRun.specPath, { invertFileGuardForTest: true }),
+      );
+    });
+  });
+
+  test("single-file intent handoff specPath passes plan-stage ready-intent validation", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-pipeline-handoff-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-pipeline-handoff",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-pipeline-handoff",
+        baseRef: "none",
+      },
+      creationTitle: "intent: pipeline-handoff",
+      withExternalWorktree,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "pipeline.md"),
+          "---\nname: pipeline\n---\n\n# Pipeline\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const entryRun = store.loadRun(result.runId);
+      expect(entryRun?.specPath).toBe("ready-intents/pipeline.md");
+      expect(entryRun?.specPath).not.toBe("ready-intents");
+      expect(validateReadyIntent(join(workspace, entryRun?.specPath ?? ""))).toMatchObject({ ok: true });
+
+      const definition: PipelineDefinition = {
+        name: "p",
+        stages: [
+          { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+          { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        ],
+      };
+      const planResolution = await resolveStageWorkflowSteps(
+        definition,
+        1,
+        { cwd: workspace, seed: "seed" },
+        new Map([["intent", entryRun?.specPath ?? ""]]),
+        {
+          builders: {
+            implement: async () => ({ ok: false as const, error: "unexpected" }),
+            intent: async () => ({ ok: false as const, error: "unexpected" }),
+            "intent-reviewed": async () => ({ ok: false as const, error: "unexpected" }),
+            plan: async () => ({ ok: true, steps: [{ behavior: "write" } as never], identity: {} as never }),
+            "plan-reviewed": async () => ({ ok: false as const, error: "unexpected" }),
+            "plan-reviewed-light": async () => ({ ok: false as const, error: "unexpected" }),
+          },
+        },
+      );
+      expect(planResolution.ok).toBe(true);
+      expect(validateReadyIntent(join(workspace, "ready-intents"))).toMatchObject({ ok: false });
     });
   });
 

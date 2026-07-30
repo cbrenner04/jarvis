@@ -269,6 +269,18 @@ test("composeRunOperatorError keeps landing_failed distinct from completion_comm
   expect(landingError?.reason).not.toEqual(commitError?.reason);
 });
 
+test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate_failed without origin on the operator error", () => {
+  const event = loopFinished("ready_gate_failed", {
+    resumable: true,
+    readyGateOrigin: "repair_budget_exhausted",
+    readyGateRepairCount: 3,
+  });
+  const error = composeRunOperatorError(runWith("failed"), event);
+  expect(error).toEqual(err("ready_gate_failed", "resume", true));
+  expect(error).not.toHaveProperty("readyGateOrigin");
+  expect(error).not.toHaveProperty("readyGateRepairCount");
+});
+
 test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths and retry-finalization recovery", () => {
   const outsidePath = "v2/src/untouched.test.ts";
   const detail = `ready gate failing paths lie outside the run's touched set: ${outsidePath}`;

@@ -41,6 +41,7 @@ import {
   escapeRepoPathForEvidence,
   executeWriteLoop,
   findFirstRepairFenceViolation,
+  persistRetainedFinalizationCheckpoint,
   resolveIterationSettlementKind,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
@@ -374,6 +375,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
+    setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
+      inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
@@ -5637,5 +5640,33 @@ describe("write loop", () => {
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
       }
     });
+  });
+});
+
+describe("persistRetainedFinalizationCheckpoint", () => {
+  test("returns false without a done attempt and does not persist", () => {
+    const stateDbPath = join(tmpdir(), `jarvis-checkpoint-${process.pid}-${Date.now()}.db`);
+    const store = openStateStore(stateDbPath);
+    try {
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath: "/tmp/wt",
+        branch: "branch",
+        specPath: "spec.md",
+      });
+      const persisted = persistRetainedFinalizationCheckpoint(store, runId, {
+        runId,
+        kind: "ready_gate_failed",
+        iterationsConsumed: 4,
+        resumable: true,
+        completionAgent: "agent-1",
+      });
+      expect(persisted).toBe(false);
+      expect(store.loadRun(runId)?.retainedFinalizationCheckpoint ?? null).toBeNull();
+    } finally {
+      store.close();
+      rmSync(stateDbPath, { force: true });
+    }
   });
 });

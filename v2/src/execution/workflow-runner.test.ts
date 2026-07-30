@@ -2634,6 +2634,28 @@ describe("executeWorkflow completion publication", () => {
       expect(gateCalls).toBe(4);
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+      const run = store.loadRun(result.runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.retainedFinalizationCheckpoint?.completionAgent).toBeTruthy();
+      expect(events.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        resumable: true,
+        readyGateOrigin: "repair_budget_exhausted",
+        readyGateRepairCount: 3,
+      });
+      expect(run).not.toBeNull();
+      if (!run) return;
+      const terminalRecord = events.at(-1);
+      if (terminalRecord?.kind === "loop_finished") {
+        const operatorError = composeRunOperatorError(run, {
+          runId: result.runId,
+          seq: 1,
+          ts: "",
+          event: terminalRecord,
+        });
+        expect(operatorError).toMatchObject({ reason: "ready_gate_failed", nextAction: "resume" });
+      }
     });
   });
 

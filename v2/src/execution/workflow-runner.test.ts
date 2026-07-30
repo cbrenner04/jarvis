@@ -28,6 +28,7 @@ import {
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
 } from "../daemon/daemon.ts";
+import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
@@ -40,10 +41,9 @@ import {
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
-import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
-import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-output.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
+import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { buildPlanWorkflowSteps, validateReadyIntent } from "./publication-workflow-steps.ts";
 import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
@@ -6693,9 +6693,9 @@ describe("executeWorkflow review dispatch", () => {
       expect(intentRun?.specPath).toBe("ready-intents/handoff.md");
       expect(intentRun?.specPath).not.toBe("ready-intents");
       expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"])).toBe("ready-intents/handoff.md");
-      expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"], { invertSingleFileGuardForTest: true })).toBe(
-        "ready-intents",
-      );
+      expect(
+        intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"], { invertSingleFileGuardForTest: true }),
+      ).toBe("ready-intents");
     });
   });
 

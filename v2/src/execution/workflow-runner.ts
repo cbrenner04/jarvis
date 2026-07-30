@@ -2657,22 +2657,17 @@ export async function resumePopulatedIntentPublication(
       );
     }
 
-    const landed = await landReviewedPublicationOutput(
-      context.worktreePath,
-      context.landing,
-      context.verdictPath,
-      {
-        logSink: deps.logSink,
-        runId: context.runId,
+    const landed = await landReviewedPublicationOutput(context.worktreePath, context.landing, context.verdictPath, {
+      logSink: deps.logSink,
+      runId: context.runId,
+      branch: context.branch,
+      persistHandoff: {
+        store,
+        project: context.project,
         branch: context.branch,
-        persistHandoff: {
-          store,
-          project: context.project,
-          branch: context.branch,
-          writeTarget: { reviewRunId: context.runId },
-        },
+        writeTarget: { reviewRunId: context.runId },
       },
-    );
+    });
     if (!landed.ok) {
       return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landed.message, deps);
     }

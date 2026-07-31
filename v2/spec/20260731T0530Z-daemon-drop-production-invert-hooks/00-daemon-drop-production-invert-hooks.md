@@ -47,3 +47,11 @@ daemon exports only — CLI spec restores comment-checkpoint coverage on daemon 
 ## Documentation updates
 
 - None — `write-step-rules-forbid-production-invert-hooks` owns operator-facing guard-inversion doc.
+
+## Blocker
+
+Artifact contract check failed: Unticked non-human-only acceptance criteria:
+- (Manual) In `daemon-pipeline-start.test.ts`, the documented admission-context mutation turns `pipeline_start persists supplied context before returning pipelineId` RED.
+- (Manual) In `pipeline-stage-resolve.test.ts`, the documented `selectChainedStageCwd` mutation turns its chained-resolution pinning tests RED.
+- (Manual) In `pipeline-end-to-end.sandbox-unrunnable.test.ts`, the documented `resumeFailedRequiresReopen` mutation turns its resume-and-settle test RED.
+- (Manual) In `pipeline-execution.test.ts`, the documented `hasPipelineTerminalPublicationFailure` mutation turns `fails a pipeline when its terminal action fails` RED.

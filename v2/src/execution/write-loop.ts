@@ -32,8 +32,8 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
@@ -669,14 +669,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       });
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
-      const settled = await awaitIteration(
-        args,
-        runId,
-        attemptId,
-        sessionLog,
-        "bounded",
-        pendingLandingReprompt,
-      );
+      const settled = await awaitIteration(args, runId, attemptId, sessionLog, "bounded", pendingLandingReprompt);
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
         return finishControlledLoss(

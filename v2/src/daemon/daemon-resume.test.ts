@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
-import { resolveExhaustedRedResumeContext, resolveIntentFinalizationResumeContext } from "../execution/workflow-runner.ts";
+import {
+  resolveExhaustedRedResumeContext,
+  resolveIntentFinalizationResumeContext,
+} from "../execution/workflow-runner.ts";
 import {
   executeWriteLoop,
   MAX_READY_GATE_REPAIRS,
@@ -2428,11 +2431,7 @@ test("resumes paused intent-split write loop with landing-contract reprompt cont
   const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
   const stageFile = join(worktreePath, ".jarvis-intent-stage", "bad-intent.md");
   mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-  writeFileSync(
-    stageFile,
-    "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\nStill prose.\n",
-    "utf8",
-  );
+  writeFileSync(stageFile, "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\nStill prose.\n", "utf8");
 
   const runId = stateStore.createRun({
     project: "demo",

@@ -302,10 +302,7 @@ export async function evaluateIntentSplitLandingGate(input: {
   stagingDir: string;
   durableDir: string;
   warn?: (message: string) => void;
-}): Promise<
-  | { ok: true }
-  | { ok: false; error: string; offendingFile: string; repromptable: boolean }
-> {
+}): Promise<{ ok: true } | { ok: false; error: string; offendingFile: string; repromptable: boolean }> {
   const rogue = await findIntentLandingRoguePaths({
     worktreePath: input.worktreePath,
     baseRef: input.baseRef,

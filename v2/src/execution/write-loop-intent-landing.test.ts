@@ -6,6 +6,7 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
@@ -19,19 +20,16 @@ function seedGitBaseline(worktreePath: string): void {
   execFileSync("git", ["commit", "-qm", "baseline"], { cwd: worktreePath });
 }
 
-function createGitAwareFakeWithExternalWorktree(jarvisRoot: string) {
+function createGitAwareFakeWithExternalWorktree(jarvisRoot: string): typeof withExternalWorktree {
   const base = createFakeWithExternalWorktree(jarvisRoot);
-  return async <T>(
-    args: Parameters<typeof base>[0],
-    run: Parameters<typeof base>[1],
-    signal?: Parameters<typeof base>[2],
-  ) => {
-    const wrappedRun = async (worktree: { path: string; reused: boolean }) => {
+  const gitAware: typeof withExternalWorktree = async (args, run, _runner?, _signal?) => {
+    const wrappedRun = async (worktree: ExternalWorktree) => {
       seedGitBaseline(worktree.path);
       return run(worktree);
     };
-    return base(args, wrappedRun, signal);
+    return base(args, wrappedRun);
   };
+  return gitAware;
 }
 
 class TestLogSink implements LogSink {

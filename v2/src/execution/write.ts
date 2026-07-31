@@ -302,7 +302,8 @@ async function executeIntentSplitWrite(
 
   const reprompt = args.landingContractReprompt;
   const preserveStage =
-    reprompt !== undefined || (existsSync(expectedArtifactPath) && listIntentStageMarkdownFiles(expectedArtifactPath).length > 0);
+    reprompt !== undefined ||
+    (existsSync(expectedArtifactPath) && listIntentStageMarkdownFiles(expectedArtifactPath).length > 0);
   if (!preserveStage) {
     rmSync(expectedArtifactPath, { recursive: true, force: true });
   }

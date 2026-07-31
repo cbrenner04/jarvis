@@ -30,11 +30,7 @@ describe("landIntentWorkflowOutput", () => {
     const repo = createRepo();
     const dir = join(repo, ".jarvis-intent-stage");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "01-example.md"),
-      "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
-      "utf8",
-    );
+    writeFileSync(join(dir, "01-example.md"), "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n", "utf8");
     const result = await landIntentWorkflowOutput({
       worktreePath: repo,
       baseRef: "HEAD",

@@ -95,7 +95,9 @@ Some files are known to flake under concurrent load though they pass reliably al
 green idle and red under load is a candidate for this list. `isLoadSensitive` in
 `scripts/test-slice.ts` covers two declaration mechanisms: every `*.sandbox-unrunnable.test.ts` file
 by default, plus an exported explicit `LOAD_SENSITIVE_FILES` list for files outside that suffix
-convention. Each explicit-list entry carries a comment naming the observed failure. This predicate is
+convention. Each explicit-list entry carries a comment naming the observed failure. Changes to
+`LOAD_SENSITIVE_FILES` are operator decisions about suite execution policy — not ready-gate repair
+time. This predicate is
 distinct from `isSandboxUnrunnable` (the slice-partition key deciding which `test:*` script runs a
 file) — a suffix-matched file is always both, but a file can be load-sensitive without being
 sandbox-unrunnable.

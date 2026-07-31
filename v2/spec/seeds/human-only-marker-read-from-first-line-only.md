@@ -2,7 +2,7 @@
 name: human-only-marker-read-from-first-line-only
 ---
 
-# Human-only criterion marker is read from the first line only
+# Human-only criterion marker is missed by position and by wrapping
 
 ## Problem
 
@@ -19,6 +19,18 @@ three of four criteria ticked. Unblocked only by an operator spec edit moving th
 first line (#2321). Markdown line-wrapping is normal in this repo's specs, so marker placement
 is invisible to the author.
 
+**Second, larger failure mode (2026-07-31): the marker is trailing-anchored, and plan agents
+write it leading.** `isHumanOnlyCriterion` (`shared/spec-parser.ts:300`) lowercases the text and
+calls `.endsWith(marker)`, so `(Manual)` only counts at the **end** of the criterion. Every plan
+drafted this session put it at the front — `- [ ] (Manual) Inverting the …` — and every one of
+those was therefore classified automated. It settled the CLI hook-removal implement at
+`contract_miss` with the criterion the agent could not possibly satisfy (#2392, hand-finished),
+and the daemon plan emitted four more leading-marker bullets. Nothing in the injected write-step
+rules or `spec-guidance` states the anchor, so the author cannot know.
+
+The two modes share one cause: marker recognition depends on a position the spec author is never
+told about.
+
 ## Decisions
 
 - Human-only detection reads the criterion's full bullet block — first line plus every
@@ -27,6 +39,11 @@ is invisible to the author.
 - The same block-aware text is used by both consumers (`spec.criteria-ticked` completion contract
   and `implement.already_complete` preflight) — rules out fixing one path and leaving the other
   disagreeing about the same criterion.
+- A marker is recognized **anywhere** in the criterion's bullet block — leading, trailing, or on a
+  continuation line — rules out the current trailing anchor, which no author-facing document states.
+- The plan and implement write-step rules state where a human-only marker may appear and name the
+  accepted markers, so drafts stop depending on undocumented placement — rules out fixing the
+  parser while leaving the prompt silent. A rendered-prompt test pins that text.
 - Marker vocabulary is unchanged — rules out widening the accepted markers as part of this fix.
 
 ## Acceptance criteria
@@ -38,10 +55,18 @@ is invisible to the author.
       both consume that helper: a spec whose only unchecked criterion is a wrapped human-only one
       exits `implement.already_complete`, and an implement run over the same spec completes
       instead of settling `contract_miss`.
-- [ ] Inverting the continuation-line inclusion turns both regressions RED.
+- [ ] A criterion whose `(Manual)` marker **leads** the bullet (`- [ ] (Manual) …`) is classified
+      human-only; a regression covers leading, trailing, and continuation-line placement plus a
+      criterion with no marker, and fails against the pre-fix trailing-anchored code.
+- [ ] The plan and implement write-step rules name the accepted human-only markers and state that
+      placement within the criterion is free; a rendered-prompt test pins that text.
+- [ ] Source-mutating the position-independent match back to a trailing anchor turns the leading-
+      marker regression RED, with a comment checkpoint naming the mutation. Do **not** add a
+      production test flag.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/workflow-runner.md` — human-only markers are matched across a criterion's whole bullet
-  block, not its first line.
+- `v2/docs/workflow-runner.md` — human-only markers are matched anywhere in a criterion's whole
+  bullet block: any position on any line, not trailing-anchored and not first-line-only.
+- `v1/docs/spec-guidance.md` — state the accepted markers and that placement is free.

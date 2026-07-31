@@ -5,8 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import { buildIntentWorkflowSteps, type IntentWorkflowInput, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { landPublication } from "../execution/publication-landing.ts";
+import {
+  buildIntentWorkflowSteps,
+  type IntentWorkflowInput,
+  type PlanWorkflowInput,
+} from "../execution/publication-workflow-steps.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
@@ -159,13 +163,9 @@ async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate"
     name: "p",
     stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review }],
   };
-  return resolveStageWorkflowSteps(
-    definition,
-    0,
-    { cwd, configPath, seed },
-    new Map(),
-    { builders: WORKFLOW_PRESET_BUILDERS },
-  );
+  return resolveStageWorkflowSteps(definition, 0, { cwd, configPath, seed }, new Map(), {
+    builders: WORKFLOW_PRESET_BUILDERS,
+  });
 }
 
 async function resolveQueueWidgetIntent(repoRoot: string, configPath: string): Promise<IntentWriteStep> {

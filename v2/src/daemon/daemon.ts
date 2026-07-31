@@ -969,11 +969,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     // review-step owner is always no and would blank out the mutation reason/detail below.
     // Entry resumability is projected separately via `entryCanResume`, so that masking
     // does not apply here.
-    const ownerError = composeRunOperatorError(
-      owner.run,
-      owner.terminalRecord,
-      logReader?.tail(owner.run.id) ?? [],
-    );
+    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, logReader?.tail(owner.run.id) ?? []);
     const entryResult: WaitRunCompletionResult = {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,

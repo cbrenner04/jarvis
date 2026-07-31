@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +14,6 @@ import {
   type PipelineContext,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
-  setInvertPriorWorktreeRootGuardForTest,
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 
@@ -114,10 +113,6 @@ async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate"
   };
   return resolveStageWorkflowSteps(definition, 0, context, new Map(), { builders: WORKFLOW_PRESET_BUILDERS });
 }
-
-afterEach(() => {
-  setInvertPriorWorktreeRootGuardForTest(false);
-});
 
 describe("resolveStageWorkflowSteps", () => {
   test("first workflow stage builds with PipelineContext.seed as the seed input", async () => {
@@ -531,29 +526,9 @@ describe("resolveStageWorkflowSteps", () => {
       deps,
     );
     expect(result.ok).toBe(true);
+    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(seenInput?.cwd).toBe(intentWorktree);
     expect(seenInput?.readyIntent).toBe(readyIntentRel);
-
-    setInvertPriorWorktreeRootGuardForTest(true);
-    let invertedInput: PlanWorkflowInput | undefined;
-    const inverted = await resolveStageWorkflowSteps(
-      definition,
-      1,
-      { cwd: operatorCwd, seed: "seed" },
-      stageArtifacts,
-      {
-        ...deps,
-        builders: fakeBuilders({
-          plan: async (input) => {
-            invertedInput = input as unknown as PlanWorkflowInput;
-            return { ok: true, steps: [okStep], identity: {} as never };
-          },
-        }),
-      },
-    );
-    expect(inverted.ok).toBe(true);
-    expect(invertedInput?.cwd).not.toBe(intentWorktree);
-    expect(invertedInput?.cwd).toBe(operatorCwd);
   });
 
   test("implement stage resolves chained specPath from the plan entry-run worktree with prior branch as baseRef", async () => {
@@ -590,30 +565,10 @@ describe("resolveStageWorkflowSteps", () => {
       deps,
     );
     expect(result.ok).toBe(true);
+    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(seenInput?.cwd).toBe(planWorktree);
     expect(seenInput?.specPath).toBe(planSpecRel);
     expect(seenInput?.baseRef).toBe(planBranch);
-
-    setInvertPriorWorktreeRootGuardForTest(true);
-    let invertedInput: BuildImplementWorkflowStepsInput | undefined;
-    const inverted = await resolveStageWorkflowSteps(
-      definition,
-      1,
-      { cwd: operatorCwd, seed: "seed" },
-      stageArtifacts,
-      {
-        ...deps,
-        builders: fakeBuilders({
-          implement: async (input) => {
-            invertedInput = input;
-            return { ok: true, steps: [okStep] };
-          },
-        }),
-      },
-    );
-    expect(inverted.ok).toBe(true);
-    expect(invertedInput?.cwd).not.toBe(planWorktree);
-    expect(invertedInput?.cwd).toBe(operatorCwd);
   });
 
   test("missing prior artifact, entryRunId, entry run, or worktreePath returns resolution failure without falling back to context.cwd", async () => {
@@ -687,13 +642,8 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
-
-    setInvertPriorWorktreeRootGuardForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
-    expect(inverted.ok).toBe(false);
-    if (inverted.ok) return;
-    expect(inverted.error).toContain("ready-intent");
   });
 
   test("implement stage resolves through real preset builders when plan spec exists only on plan worktree branch", async () => {
@@ -720,13 +670,8 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
-
-    setInvertPriorWorktreeRootGuardForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
-    expect(inverted.ok).toBe(false);
-    if (inverted.ok) return;
-    expect(inverted.error).toMatch(/Spec path unavailable|path does not exist|link_unreadable/);
   });
 
   test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {

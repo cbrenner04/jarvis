@@ -45,7 +45,6 @@ import {
   resumeReopenedPendingContinuation,
   resumeTerminalRefusalReason,
   runPipeline,
-  setInvertPipelineTerminalPublicationFailureGuardForTest,
 } from "./pipeline-execution.ts";
 import type {
   PipelineStageArtifact,
@@ -2371,10 +2370,8 @@ describe("pipeline terminal publication settlement", () => {
     });
     expect(stages().every((stage) => stage.status === "succeeded")).toBe(true);
     expect(derivePipelineState(pipeline)).toBe("failed");
+    // In `hasPipelineTerminalPublicationFailure`, delete the `terminalPublicationFailure !== null` check or force `return false` turns this test RED.
     expect(hasPipelineTerminalPublicationFailure(pipeline)).toBe(true);
-    setInvertPipelineTerminalPublicationFailureGuardForTest(true);
-    expect(hasPipelineTerminalPublicationFailure(pipeline)).toBe(false);
-    setInvertPipelineTerminalPublicationFailureGuardForTest(false);
   });
 
   test("does not merge a pipeline after a red ready gate", async () => {

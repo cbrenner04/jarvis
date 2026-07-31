@@ -112,16 +112,9 @@ export function resumeAwaitingClaimsOnly(derivedState: PipelineDerivedState): bo
   return derivedState === "awaiting-approval";
 }
 
-let invertResumeFailedRequiresReopenForTest = false;
-
-export function setInvertResumeFailedRequiresReopenForTest(value: boolean): void {
-  invertResumeFailedRequiresReopenForTest = value;
-}
-
 /** True when derived state requires `reopenFailedPipeline` before continuation. */
 export function resumeFailedRequiresReopen(derivedState: PipelineDerivedState): boolean {
-  const requires = derivedState === "failed";
-  return invertResumeFailedRequiresReopenForTest ? !requires : requires;
+  return derivedState === "failed";
 }
 
 /** True when derived state refuses resume without a reopened failed continuation. */
@@ -425,15 +418,8 @@ export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineSta
   );
 }
 
-let invertPipelineTerminalPublicationFailureGuardForTest = false;
-
-export function setInvertPipelineTerminalPublicationFailureGuardForTest(value: boolean): void {
-  invertPipelineTerminalPublicationFailureGuardForTest = value;
-}
-
 /** True when the pipeline row carries a durable terminal-publication failure. */
 export function hasPipelineTerminalPublicationFailure(pipeline: Pick<Pipeline, "terminalPublicationFailure">): boolean {
-  if (invertPipelineTerminalPublicationFailureGuardForTest) return false;
   return pipeline.terminalPublicationFailure !== null;
 }
 

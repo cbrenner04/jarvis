@@ -102,6 +102,16 @@ describe("StateStore", () => {
     expect(run.attempts).toEqual([]);
   });
 
+  test("clearRunDownstreamInputs removes a persisted multi-file handoff from the run row", () => {
+    const runId = seedRun(store, { specPath: "ready-intents/one.md" });
+    store.setRunDownstreamInputs(runId, ["ready-intents/one.md", "ready-intents/two.md"]);
+    expect(loadRunOrThrow(store, runId).downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+
+    store.clearRunDownstreamInputs(runId);
+    // Mutation checkpoint: state-store.test.ts clearRunDownstreamInputs
+    expect(loadRunOrThrow(store, runId).downstreamInputs).toBeUndefined();
+  });
+
   test("schema bootstrap is idempotent on re-open", () => {
     const runId = seedRun(store);
     store.close();
@@ -1524,7 +1534,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(17);
+      expect(migrationCount.total).toBe(18);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });

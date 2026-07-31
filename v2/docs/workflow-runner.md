@@ -109,10 +109,15 @@ directory changed, and lands every valid Markdown file transactionally under
 Landing runs before completion commit/push/PR publication; publication receives
 the handoff `specPath` — the landed ready-intent **file** when this landing
 produced exactly one markdown file, otherwise the durable ready-intents
-**directory**. The step-0 entry/write run row's persisted `specPath` is updated
+**directory**. Multi-file landing also records one `downstreamInputs` entry per
+landed ready-intent file on the step-0 entry/write run row and on the pipeline
+stage artifact; publication/commit scope stays on the configured durable
+directory. The step-0 entry/write run row's persisted `specPath` is updated
 to the same handoff value after landing (including review-last completion).
-Pipeline stage artifacts copy that persisted value unchanged into plan-stage
-`readyIntent` resolution.
+Single-file landing records the file path on `specPath` with no
+`downstreamInputs`. Pipeline stage artifacts copy the persisted handoff unchanged
+into plan-stage `readyIntent` resolution (single-file only until fan-out
+consumes `downstreamInputs`).
 
 Standalone `jarvis run workflow plan --ready-intent <path>` reads the ready-intent
 from operator invocation `cwd`. Pipeline plan and implement stage resolution

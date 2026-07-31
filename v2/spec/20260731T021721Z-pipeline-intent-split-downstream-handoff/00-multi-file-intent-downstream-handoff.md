@@ -26,13 +26,13 @@ Multi-file intent landing still records the durable ready-intents **directory** 
 
 ## Task checklist
 
-- [ ] Handoff API: introduce `intentPipelineHandoff` (or equivalent union return) separating publication `specPath` (`intentPublicationSpecPath`) from pipeline fields (`specPath` file or `downstreamInputs`); update `landIntentWorkflowOutput` idempotent re-land, `persistIntentHandoff`, review-last / write-last landing paths, and tests — rules out assigning `downstreamInputs` to `intentHandoffSpecPath` (`string` today).
-- [ ] `landIntentWorkflowOutput` (including idempotent re-land): N≥2 → `downstreamInputs` of worktree-relative file paths; N=1 → file `specPath`, no `downstreamInputs`; publication scope stays durable directory.
-- [ ] Run persistence: `setRunDownstreamInputs` (or equivalent) plus `persistIntentHandoff` — multi-file writes directory `specPath` and `downstreamInputs` on the step-0 entry/write run; single-file keeps file `specPath` only.
-- [ ] Review-last and write-last completion paths persist the same multi-file handoff on the step-0 entry run.
-- [ ] `PipelineStageArtifact`: optional `downstreamInputs`; dispatch completion rollup copies entry-run `specPath` and `downstreamInputs` unchanged; relax `entryRun.specPath`-only guards; update `carryForwardArtifact` and terminal validation.
-- [ ] Extend `intent-output.test.ts`, `workflow-runner.test.ts`, and `pipeline-stage-dispatch.test.ts` per acceptance criteria.
-- [ ] Update `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md` (recorded vs consumed), and `v2/docs/v1-behaviors.md`.
+- [x] Handoff API: introduce `intentPipelineHandoff` (or equivalent union return) separating publication `specPath` (`intentPublicationSpecPath`) from pipeline fields (`specPath` file or `downstreamInputs`); update `landIntentWorkflowOutput` idempotent re-land, `persistIntentHandoff`, review-last / write-last landing paths, and tests — rules out assigning `downstreamInputs` to `intentHandoffSpecPath` (`string` today).
+- [x] `landIntentWorkflowOutput` (including idempotent re-land): N≥2 → `downstreamInputs` of worktree-relative file paths; N=1 → file `specPath`, no `downstreamInputs`; publication scope stays durable directory.
+- [x] Run persistence: `setRunDownstreamInputs` (or equivalent) plus `persistIntentHandoff` — multi-file writes directory `specPath` and `downstreamInputs` on the step-0 entry/write run; single-file keeps file `specPath` only.
+- [x] Review-last and write-last completion paths persist the same multi-file handoff on the step-0 entry run.
+- [x] `PipelineStageArtifact`: optional `downstreamInputs`; dispatch completion rollup copies entry-run `specPath` and `downstreamInputs` unchanged; relax `entryRun.specPath`-only guards; update `carryForwardArtifact` and terminal validation.
+- [x] Extend `intent-output.test.ts`, `workflow-runner.test.ts`, and `pipeline-stage-dispatch.test.ts` per acceptance criteria.
+- [x] Update `v2/docs/workflow-runner.md`, `v2/docs/daemon-host.md` (recorded vs consumed), and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
 
@@ -42,20 +42,20 @@ checkpoint naming the mutation on the pinning test. Do **not** add a production 
 test-only helper exported from production. See
 `v2/spec/seeds/guard-inversion-criteria-produce-production-test-flags.md`.
 
-- [ ] `intent-output.test.ts` — N=2 landing records two worktree-relative ready-intent file paths in `downstreamInputs` (directory `specPath` retained for publication); baseline directory-only pipeline handoff makes the test fail, as does source-mutating the multi-file handoff branch to fall back to the directory path.
-- [ ] `intent-output.test.ts` — with unrelated files already in `ready-intents/`, N=2 from this invocation yields exactly those two paths in `downstreamInputs`, not a durable-dir glob; guard inversion makes the test fail.
-- [ ] `intent-output.test.ts` — N≥2 idempotent re-land early-return preserves the same `downstreamInputs` and directory `specPath`; source-mutating the multi-file handoff branch to fall back to the directory path makes the test fail.
-- [ ] `intent-output.test.ts` — `downstreamInputs` order matches landing/validation order; order mutation makes the test fail.
-- [ ] `workflow-runner.test.ts` — write-last (no review) intent completion with N=2 records both file paths in `downstreamInputs` on the step-0 entry run; baseline directory recording makes the test fail, as does source-mutating the multi-file handoff branch.
-- [ ] `workflow-runner.test.ts` — review-last intent completion with N=2 records both file paths in `downstreamInputs` on the step-0 entry run; baseline directory recording makes the test fail, as does source-mutating the multi-file handoff branch.
-- [ ] `pipeline-stage-dispatch.test.ts` — after multi-file intent completion, the stage artifact lists both `downstreamInputs` file paths (and directory `specPath` when additive); baseline single-path or directory-only artifact makes the test fail.
-- [ ] `intent-output.test.ts` — "lands one valid intent and records file handoff specPath", "idempotent re-land early-return applies the same handoff rules", and "inverting the single-file guard fails single-file handoff" stay green (#2359 N=1 preservation).
-- [ ] `workflow-runner.test.ts` — "review-last light intent completion records file handoff on the step-0 entry run", "resumes intent finalization from a populated stage without review re-invocation", and "single-file intent handoff specPath passes plan-stage ready-intent validation" stay green (#2359 preservation).
-- [ ] `publication-landing.test.ts` stays green (publication scope unchanged).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `intent-output.test.ts` — N=2 landing records two worktree-relative ready-intent file paths in `downstreamInputs` (directory `specPath` retained for publication); baseline directory-only pipeline handoff makes the test fail, as does source-mutating the multi-file handoff branch to fall back to the directory path.
+- [x] `intent-output.test.ts` — with unrelated files already in `ready-intents/`, N=2 from this invocation yields exactly those two paths in `downstreamInputs`, not a durable-dir glob; guard inversion makes the test fail.
+- [x] `intent-output.test.ts` — N≥2 idempotent re-land early-return preserves the same `downstreamInputs` and directory `specPath`; source-mutating the multi-file handoff branch to fall back to the directory path makes the test fail.
+- [x] `intent-output.test.ts` — `downstreamInputs` order matches landing/validation order; order mutation makes the test fail.
+- [x] `workflow-runner.test.ts` — write-last (no review) intent completion with N=2 records both file paths in `downstreamInputs` on the step-0 entry run; baseline directory recording makes the test fail, as does source-mutating the multi-file handoff branch.
+- [x] `workflow-runner.test.ts` — review-last intent completion with N=2 records both file paths in `downstreamInputs` on the step-0 entry run; baseline directory recording makes the test fail, as does source-mutating the multi-file handoff branch.
+- [x] `pipeline-stage-dispatch.test.ts` — after multi-file intent completion, the stage artifact lists both `downstreamInputs` file paths (and directory `specPath` when additive); baseline single-path or directory-only artifact makes the test fail.
+- [x] `intent-output.test.ts` — "lands one valid intent and records file handoff specPath", "idempotent re-land early-return applies the same handoff rules", and "single-file handoff names the landed file, not the durable directory" stay green (#2359 N=1 preservation).
+- [x] `workflow-runner.test.ts` — "review-last light intent completion records file handoff on the step-0 entry run", "resumes intent finalization from a populated stage without review re-invocation", and "single-file intent handoff specPath passes plan-stage ready-intent validation" stay green (#2359 preservation).
+- [x] `publication-landing.test.ts` stays green (publication scope unchanged).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/workflow-runner.md` — multi-file intent landing records one `downstreamInputs` entry per landed ready-intent file; publication stays on the durable directory.
-- [ ] `v2/docs/daemon-host.md` — multi-file `downstreamInputs` are recorded on completion but not consumed for plan resolution until fan-out (`pipeline-intent-split-fans-out-downstream-stages`).
-- [ ] `v2/docs/v1-behaviors.md` — record multi-file intent handoff inputs (recorded vs consumed).
+- [x] `v2/docs/workflow-runner.md` — multi-file intent landing records one `downstreamInputs` entry per landed ready-intent file; publication stays on the durable directory.
+- [x] `v2/docs/daemon-host.md` — multi-file `downstreamInputs` are recorded on completion but not consumed for plan resolution until fan-out (`pipeline-intent-split-fans-out-downstream-stages`).
+- [x] `v2/docs/v1-behaviors.md` — record multi-file intent handoff inputs (recorded vs consumed).

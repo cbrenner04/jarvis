@@ -127,6 +127,7 @@ export type Run = {
   worktreePath: string;
   branch: string;
   specPath: string;
+  downstreamInputs?: readonly string[] | null;
   creationTitle?: string | null;
   stepId?: string | null;
   workflowSnapshot?: WorkflowSnapshot | null;
@@ -342,6 +343,12 @@ export interface StateStore {
   /** Update the worktree-relative handoff path recorded on a run row after intent landing. */
   setRunSpecPath(runId: string, specPath: string): void;
 
+  /** Record per-file pipeline handoff inputs after multi-file intent landing. */
+  setRunDownstreamInputs(runId: string, downstreamInputs: readonly string[]): void;
+
+  /** Clear per-file pipeline handoff inputs after single-file intent landing. */
+  clearRunDownstreamInputs(runId: string): void;
+
   /** Record the confirmed PR number and URL after successful publication. */
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
 
@@ -517,7 +524,8 @@ const SCHEMA = `
 `;
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
-  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath, step_id AS stepId,
+  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath,
+  downstream_inputs AS downstreamInputsJson, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
@@ -659,6 +667,10 @@ const SCHEMA_MIGRATIONS = [
       ALTER TABLE pipeline_stages_new RENAME TO pipeline_stages;
     `,
   },
+  {
+    id: "021-run-downstream-inputs",
+    up: "ALTER TABLE runs ADD COLUMN downstream_inputs TEXT",
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -792,11 +804,13 @@ type RunRow = Omit<
   | "readyGateRepairFenceCorrupt"
   | "retainedFinalizationCheckpoint"
   | "retainedFinalizationCheckpointCorrupt"
+  | "downstreamInputs"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
   readyGateRepairFenceJson: string | null;
   retainedFinalizationCheckpointJson: string | null;
+  downstreamInputsJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -832,12 +846,23 @@ function mapRunRow(row: RunRow): Run {
     queuedInputJson,
     readyGateRepairFenceJson,
     retainedFinalizationCheckpointJson,
+    downstreamInputsJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
+  let downstreamInputs: readonly string[] | null | undefined;
+  if (downstreamInputsJson !== null) {
+    try {
+      const parsed = JSON.parse(downstreamInputsJson) as unknown;
+      downstreamInputs = Array.isArray(parsed) ? (parsed as string[]) : null;
+    } catch {
+      downstreamInputs = null;
+    }
+  }
   return {
     ...run,
+    ...(downstreamInputs !== undefined ? { downstreamInputs } : {}),
     workflowSnapshot: workflowSnapshotJson === null ? null : (JSON.parse(workflowSnapshotJson) as WorkflowSnapshot),
     queuedInput: queuedInputJson === null ? null : (JSON.parse(queuedInputJson) as WriteLoopInput),
     readyGateRepairFence: parsedFence === "invalid" || parsedFence === null ? null : parsedFence,
@@ -952,6 +977,14 @@ class StateStoreImpl implements StateStore {
 
   setRunSpecPath(runId: string, specPath: string): void {
     this.db.prepare("UPDATE runs SET spec_path = ? WHERE id = ?").run(specPath, runId);
+  }
+
+  setRunDownstreamInputs(runId: string, downstreamInputs: readonly string[]): void {
+    this.db.prepare("UPDATE runs SET downstream_inputs = ? WHERE id = ?").run(JSON.stringify(downstreamInputs), runId);
+  }
+
+  clearRunDownstreamInputs(runId: string): void {
+    this.db.prepare("UPDATE runs SET downstream_inputs = NULL WHERE id = ?").run(runId);
   }
 
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void {

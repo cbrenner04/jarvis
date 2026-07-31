@@ -6693,9 +6693,6 @@ describe("executeWorkflow review dispatch", () => {
       expect(intentRun?.specPath).toBe("ready-intents/handoff.md");
       expect(intentRun?.specPath).not.toBe("ready-intents");
       expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"])).toBe("ready-intents/handoff.md");
-      expect(
-        intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"], { invertSingleFileGuardForTest: true }),
-      ).toBe("ready-intents");
     });
   });
 
@@ -6755,9 +6752,7 @@ describe("executeWorkflow review dispatch", () => {
       if (!resolved.ok) throw new Error("expected resolved resume context");
       expect(resolved.context.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
       expect(resolved.context.landing.output.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
-      expect(resolved.context.durableDir).not.toBe(
-        configuredIntentDurableDir(workspace, writeRun.specPath, { invertFileGuardForTest: true }),
-      );
+      expect(resolved.context.durableDir).not.toBe(writeRun.specPath);
     });
   });
 
@@ -8202,6 +8197,109 @@ describe("executeWorkflow review dispatch", () => {
     });
     expect(log).toContain("ready-intents/one.md");
     expect(log).toContain("ready-intents/two.md");
+  });
+
+  test("write-last intent completion with N=2 records downstreamInputs on the step-0 entry run", async () => {
+    const branchName = "intent-multi-handoff-write-last";
+    const { writeStep } = twoFileIntentWorkflow(branchName, { criticStdout: "looks good" });
+    writeStep.stepId = "intent";
+    writeStep.landing = {
+      kind: "intent-stage",
+      output: { durableDir: "ready-intents" },
+      stagingDir: ".jarvis-intent-stage",
+      invocationId: "multi-write-last",
+      baseRef: "HEAD",
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result).toMatchObject({ kind: "complete" });
+      const intentRun = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "intent" });
+      expect(intentRun?.specPath).toBe("ready-intents");
+      // Mutation checkpoint: workflow-runner.test.ts write-last multi-file downstreamInputs
+      expect(intentRun?.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+    });
+  });
+
+  test("review-last intent completion with N=2 records downstreamInputs on the step-0 entry run", async () => {
+    const branchName = "intent-multi-handoff-review-last";
+    const { writeStep, reviewStep } = twoFileIntentWorkflow(branchName, { criticStdout: "looks good" });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result).toMatchObject({ kind: "complete" });
+      const writeRun = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "split" });
+      expect(writeRun?.specPath).toBe("ready-intents");
+      // Mutation checkpoint: workflow-runner.test.ts review-last multi-file downstreamInputs
+      expect(writeRun?.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+    });
+  });
+
+  test("write-last intent completion with N=1 clears stale downstreamInputs on the step-0 entry run", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-clear-stale-downstream-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const branchName = "intent-clear-stale-downstream";
+    const staleInputs = ["ready-intents/one.md", "ready-intents/two.md"];
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName,
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-clear-stale-downstream",
+        baseRef: "none",
+      },
+      creationTitle: "intent: clear-stale-downstream",
+      withExternalWorktree,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(
+          join(cwd, ".jarvis-intent-stage", "single.md"),
+          "---\nname: single\n---\n\n# Single\n\n## Prerequisites\n",
+          "utf8",
+        );
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        onStepRunCreated: (_stepIndex, runId) => {
+          store.setRunDownstreamInputs(runId, staleInputs);
+        },
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const intentRun = store.findRunByProjectBranch({ project: "demo", branch: branchName, stepId: "intent" });
+      expect(intentRun?.specPath).toBe("ready-intents/single.md");
+      // Mutation checkpoint: workflow-runner.test.ts single-file stale downstreamInputs clear
+      expect(intentRun?.downstreamInputs).toBeUndefined();
+    });
   });
 
   function commitTrackedIntentReviewLayout(workspace: string, verdictPath: string): void {

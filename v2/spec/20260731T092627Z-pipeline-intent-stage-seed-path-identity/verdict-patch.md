@@ -1,0 +1,12 @@
+Reviewing the implementation and spec alignment to issue a verdict.
+## Verdict: required outcomes
+
+1. **Align `intent.md` with the completed subspec.** The subspec is authoritative for mutation-guard detail, but `intent.md` still carries pre-refinement drift: wrong symbol (`resolveIntentSeed`), stale problem wording (seed “on `main`” vs intent-worktree consumption), missing decisions (first-stage-only scope, chained stages, dispatch edge cases), unchecked acceptance criteria that do not reflect landed outcomes, the `intent-split-regression.test.ts` escape hatch, and a documentation section that does not match the four durable doc touchpoints. Future readers who start from intent get a contract that disagrees with the implemented and checked subspec.
+
+2. **Fix the path-seed mutation checkpoint comment so it matches what the test actually proves.** Routing admitted `seedPath` through `seedText` fails AC1 via slug/name/label/`paths` parity (path-string slugification), not necessarily a `name-`-prefixed slug from frontmatter-bearing inline content. The comment should describe the observable failure the assertions catch, consistent with the subspec fixture contract.
+
+3. **Close the inline-seed AC3 mutation checkpoint gap at the resolution seam.** Subspec AC3 requires a guard that erroneous `seedPath` involvement on the inline dispatch path turns the inline test RED. The inline test asserts `seed` is undefined and documents the inverse mutation only. Add an explicit mutation-checkpoint note or assertion at that seam so AC3’s `seedPath`-on-text-branch guard is documented the same way as the path-branch guard—not only the `seedText`-on-path-branch case.
+
+**Rationale:** Core dispatch, identity parity, consumption wiring, inline preservation, and `v2/docs/` updates satisfy the checked subspec acceptance criteria and implementation scope. Remaining gaps are spec-tree hygiene (`intent.md`), and test-comment fidelity to pinned AC mutation language—low code risk, but they prevent spec/contract drift and misleading regression guidance without reopening the dispatch fix itself.
+
+**Not required:** dual-field/neither-field/resume pinning tests, empty-`seedPath` corrupt-row hardening, fake-builder symmetry for path seeds, full pipeline-runner E2E, or `workflow-runner.md` inline symmetry—these are out of scope or adequately covered elsewhere (admission, inline legacy path, `landPublication` wiring test).

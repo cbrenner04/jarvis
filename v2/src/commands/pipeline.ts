@@ -233,7 +233,8 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
   }
 
   const registry = deps.readProjectRegistry();
-  if (registry[parsed.projectKey] === undefined) {
+  const projectEntry = registry[parsed.projectKey];
+  if (projectEntry === undefined) {
     io.stderr(`unregistered project: ${parsed.projectKey}\n`);
     return 1;
   }
@@ -256,7 +257,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
   }
 
   if (parsed.seedIsPath) {
-    const resolvedSeed = resolvePipelineSeed(deps.cwd(), parsed.seed, registry[parsed.projectKey]!.root);
+    const resolvedSeed = resolvePipelineSeed(deps.cwd(), parsed.seed, projectEntry.root);
     if (!resolvedSeed.ok) {
       io.stderr(`${resolvedSeed.message}\n`);
       return 1;

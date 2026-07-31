@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Pipeline intent stage seed path dispatch](./00-pipeline-intent-stage-seed-path-dispatch.md)
+- [x] [00 - Pipeline intent stage seed path dispatch](./00-pipeline-intent-stage-seed-path-dispatch.md)

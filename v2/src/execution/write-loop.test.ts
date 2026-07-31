@@ -2581,32 +2581,29 @@ describe("write loop", () => {
           "v1/test/sample.test.ts",
           (cwd: string) => writeFileSync(join(cwd, "v1/test/sample.test.ts"), "changed\n", "utf8"),
         ],
-      ])(
-        "rejects ready-gate repair staging a %s-path edit on intent workflow",
-        async (_surface, branchName, offendingPath, repairEdit) => {
-          // Mutation checkpoint: remove `.endsWith(".md")` / under-root rejection in
-          // `findFirstMarkdownOnlyFenceViolation`.
-          const { jarvisRoot, stateDbPath } = createJarvisHome();
-          const { baseRef } = initIntentRepairFenceWorktree(jarvisRoot, branchName);
+      ])("rejects ready-gate repair staging a %s-path edit on intent workflow", async (_surface, branchName, offendingPath, repairEdit) => {
+        // Mutation checkpoint: remove `.endsWith(".md")` / under-root rejection in
+        // `findFirstMarkdownOnlyFenceViolation`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const { baseRef } = initIntentRepairFenceWorktree(jarvisRoot, branchName);
 
-          const fenced = await runRepairFenceLoop({
-            jarvisRoot,
-            stateDbPath,
-            branchName,
-            baseRef,
-            ...intentRepairLoopDefaults,
-            repairEdit,
-          });
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          ...intentRepairLoopDefaults,
+          repairEdit,
+        });
 
-          expect(fenced.result.kind).toBe("completion_commit_failed");
-          expect(fenced.result.completionCommitError).toContain(
-            "Ready-gate repair stages path outside markdown workflow output roots:",
-          );
-          expect(fenced.result.completionCommitError).toContain(offendingPath);
-          expect(fenced.publishCalls).toBe(1);
-          expect(fenced.gateCalls).toBe(1);
-        },
-      );
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain(
+          "Ready-gate repair stages path outside markdown workflow output roots:",
+        );
+        expect(fenced.result.completionCommitError).toContain(offendingPath);
+        expect(fenced.publishCalls).toBe(1);
+        expect(fenced.gateCalls).toBe(1);
+      });
 
       test("rejects ready-gate repair staging a source-path edit on plan workflow", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();

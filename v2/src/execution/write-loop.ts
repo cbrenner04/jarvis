@@ -35,8 +35,8 @@ import { type CompletionPublisher, createCompletionPublisher } from "./completio
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
-import type { PublicationLanding } from "./publication-landing.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
   classifyReadyGateError,
@@ -488,9 +488,7 @@ export function findFirstMarkdownOnlyFenceViolation(
     if (!normalized.endsWith(".md")) {
       return escapeRepoPathForEvidence(normalized);
     }
-    const underRoot = normalizedRoots.some(
-      (root) => normalized === root || normalized.startsWith(`${root}/`),
-    );
+    const underRoot = normalizedRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`));
     if (!underRoot) {
       return escapeRepoPathForEvidence(normalized);
     }
@@ -522,10 +520,7 @@ export async function validateReadyGateRepairCompletion(
       error: new Error(`${REPAIR_FENCE_FAILURE_MESSAGE}${violation}`),
     };
   }
-  if (
-    markdownOnlyRequired &&
-    (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)
-  ) {
+  if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
     return { error: new Error(REPAIR_FENCE_MISSING_MARKDOWN_PROVENANCE_MESSAGE) };
   }
   if (markdownOutputRoots !== undefined && markdownOutputRoots.length > 0) {
@@ -2018,8 +2013,7 @@ async function initializeFrozenRepairAllowset(
       },
     };
   }
-  const markdownOnly =
-    resolveMarkdownOnlyWorkflowPromptId(loopArgs.promptId, loopArgs.landing) !== undefined;
+  const markdownOnly = resolveMarkdownOnlyWorkflowPromptId(loopArgs.promptId, loopArgs.landing) !== undefined;
   const markdownOutputRoots = deriveMarkdownOutputRoots({
     promptId: loopArgs.promptId,
     specPath: loopArgs.specPath,
@@ -2149,13 +2143,7 @@ async function runReadyGateRepairLoop(
     }
     if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     if (allowset === undefined) {
-      const initialized = await initializeFrozenRepairAllowset(
-        store,
-        result.runId,
-        input,
-        args,
-        currentIterations,
-      );
+      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, args, currentIterations);
       if ("failure" in initialized) return { kind: "early", result: initialized.failure };
       allowset = initialized.allowset;
     }

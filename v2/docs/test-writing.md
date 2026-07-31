@@ -316,7 +316,7 @@ When a guard inside a `setInterval` callback changes, extract it into a pure exp
 
 Guard-inversion ACs require a **source mutation on the real guard** and a **comment checkpoint on the pinning test** naming that mutation (documents what to flip so the pin turns RED; not a substitute for mutating the guard).
 
-Injected write-step rules carry the guard-inversion evidence contract and invert-hook prohibition into agent prompts — necessary but not sufficient to stop production invert hooks. Static enforcement is owned by the `guard-production-test-flags` ready intent ([`v2/spec/ready-intents/guard-production-test-flags.md`](../spec/ready-intents/guard-production-test-flags.md)); `scripts/guard-production-test-flags.ts` is not wired into `bun run check` yet.
+Injected write-step rules carry the guard-inversion evidence contract and invert-hook prohibition into agent prompts — necessary but not sufficient to stop production invert hooks. Static enforcement runs under `bun run check` via `scripts/guard-production-test-flags.ts`.
 
 Forbidden production invert hooks: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, `invert*ForTest` type members.
 

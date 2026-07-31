@@ -6,4 +6,4 @@
 - **Shared, CLI, daemon, execution-loop/TUI** invert-hook removal specs merged; production modules under `v2/src/**`, `v1/src/**`, and `shared/**` (excluding `*.test.ts` and `*.test.tsx`) carry no `setInvert*ForTest` export, `invert*ForTest` module variable, `invert*` function parameter, or `invert*ForTest` type member.
 - **Ordering:** this spec lands **last** in the mutant-fix chain (`implement-queue.md`); do not implement until every hook-removal sibling is merged — residual forbidden shapes fail `bun run check`.
 
-- [ ] [00 - Guard production invert-for-test hooks](./00-guard-production-test-flags.md)
+- [x] [00 - Guard production invert-for-test hooks](./00-guard-production-test-flags.md)

@@ -2300,14 +2300,11 @@ describe("implement preflight stale workspace reset", () => {
   test.each([
     ["missing terminalAction", { name: "fast" }],
     ["invalid reviewOverrides", { name: "fast", terminalAction: "leave-draft", reviewOverrides: [] }],
-  ])(
-    "jarvis run workflow implement admits stale pipeline config (%s) through durable admission effects",
-    async (_label, pipeline) => {
-      const effects = emptyPipelineAdmissionEffects();
-      const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot, pipeline } }, effects);
-      expectPipelineAdmissionSuccess(effects, code);
-    },
-  );
+  ])("jarvis run workflow implement admits stale pipeline config (%s) through durable admission effects", async (_label, pipeline) => {
+    const effects = emptyPipelineAdmissionEffects();
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot, pipeline } }, effects);
+    expectPipelineAdmissionSuccess(effects, code);
+  });
 
   test("admits implement without pipelineDefinition when projects.demo omits pipeline", async () => {
     const effects = emptyPipelineAdmissionEffects();

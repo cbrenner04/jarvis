@@ -48,8 +48,9 @@ event path operators read alongside stdout.
 - [x] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`) asserts
       `contract_miss_detail` is assignable with optional `failureReason`; it fails against the
       pre-fix code.
-- [x] Inverting the `write-loop.ts` guard that copies `failureReason` onto `contract_miss_detail`
-      turns the log-detail test RED.
+- [x] Source-mutating `write-loop.ts` to drop the `failureReason` spread on
+      `contract_miss_detail` turns the log-detail test RED; a comment checkpoint at that line
+      names the mutation. No production test flag exists for this.
 
 ## Documentation updates
 

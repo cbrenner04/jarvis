@@ -3,7 +3,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSyn
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { executeWrite, setInvertPlanDraftNormalizerReasonForTest } from "./write.ts";
+import { executeWrite } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
@@ -99,9 +99,7 @@ async function runPlanDraftWrite(args: {
 }
 
 describe("write behavior", () => {
-  afterEach(() => {
-    setInvertPlanDraftNormalizerReasonForTest(false);
-  });
+  afterEach(() => {});
   test("happy path: done plus artifact contract pass returns complete", async () => {
     const { jarvisRoot } = createJarvisHome();
     const bindings: InvocationBinding[] = [
@@ -518,6 +516,17 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
     expect(validationCalls).toBeGreaterThan(0);
     expect(readdirSync(stagePath).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+    // Shape validation now runs before normalization, so these assert the normalized output
+    // after the call rather than inside completionValidator.
+    expect(readFileSync(join(stagePath, "index.md"), "utf8")).toBe(
+      "# Staged plan\n\n- [ ] [00 - Persistence](./00-persistence.md)\n- [ ] [01 - CLI](./01-cli.md)\n",
+    );
+    const criteriaOf = (file: string): string[] =>
+      readFileSync(join(stagePath, file), "utf8")
+        .split("\n")
+        .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
+    expect(criteriaOf("00-persistence.md")).toEqual(["- [ ] The state-store persists completed runs atomically."]);
+    expect(criteriaOf("01-cli.md")).toEqual(["- [ ] The CLI validates run flags before dispatch."]);
   });
 
   test("plan-draft completion normalizes durable output before recovery", async () => {
@@ -711,49 +720,6 @@ describe("write behavior", () => {
       expect(result.result.failureReason).toBe("plan.draft.shape");
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
-    }
-  });
-
-  test("inverting normalizer-reason guard fails multi-surface propagation regression", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    setInvertPlanDraftNormalizerReasonForTest(true);
-
-    const multiSurface = await runPlanDraftWrite({
-      jarvisRoot,
-      branchName: "plan-multi-surface-invert",
-      agentSetup: (_cwd, stagePath) => {
-        mkdirSync(stagePath, { recursive: true });
-        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [00 - One](./00-one.md)\n", "utf8");
-        writeFileSync(
-          join(stagePath, "00-one.md"),
-          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
-          "utf8",
-        );
-      },
-    });
-
-    expect(multiSurface.result.kind).toBe("contract_miss");
-    if (multiSurface.result.kind === "contract_miss") {
-      expect(multiSurface.result.failureReason).toBe("plan.draft.shape");
-      expect(multiSurface.result.failureReason).not.toContain("multi-surface");
-    }
-
-    const missingLink = await runPlanDraftWrite({
-      jarvisRoot,
-      branchName: "plan-missing-index-link-invert",
-      agentSetup: (_cwd, stagePath) => {
-        mkdirSync(stagePath, { recursive: true });
-        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
-        writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
-      },
-    });
-
-    expect(missingLink.result.kind).toBe("contract_miss");
-    if (missingLink.result.kind === "contract_miss") {
-      expect(missingLink.result.failureReason).toBe("plan.draft.shape");
-      expect(missingLink.result.failureReason).not.toContain("Plan index links unknown subspec");
     }
   });
 

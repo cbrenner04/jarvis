@@ -41,12 +41,9 @@ import {
   escapeRepoPathForEvidence,
   executeWriteLoop,
   findFirstRepairFenceViolation,
-  getContractMissStepFailureReasonForTest,
   persistRetainedFinalizationCheckpoint,
-  resetContractMissStepFailureReasonForTest,
   resolveIterationSettlementKind,
   runMutationRepairIteration,
-  setInvertContractMissDetailFailureReasonForTest,
   shouldFailTerminalCompletionForDirtyWorktree,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -466,8 +463,6 @@ describe("write loop", () => {
 
   afterEach(() => {
     mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-    setInvertContractMissDetailFailureReasonForTest(false);
-    resetContractMissStepFailureReasonForTest();
   });
 
   test("calls executeWrite repeatedly until terminal", async () => {
@@ -661,9 +656,9 @@ describe("write loop", () => {
       failedContractId: "artifact.exists",
       responseText: agentStdout,
     });
-    const stepFailureReason = getContractMissStepFailureReasonForTest();
-    expect(stepFailureReason).toBeDefined();
-    expect(detail && "failureReason" in detail ? detail.failureReason : undefined).toBe(stepFailureReason);
+    const loggedFailureReason = detail && "failureReason" in detail ? detail.failureReason : undefined;
+    expect(loggedFailureReason).toContain("multi-surface");
+    expect(loggedFailureReason).toContain(MULTI_SURFACE_BULLET);
     expect(detail && "responseText" in detail ? detail.responseText : "").not.toContain("multi-surface");
   });
 
@@ -708,36 +703,6 @@ describe("write loop", () => {
     if (existsSync(specPath)) {
       expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
     }
-  });
-
-  test("inverting contract_miss_detail failureReason guard fails plan-draft log-detail regression", async () => {
-    setInvertContractMissDetailFailureReasonForTest(true);
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      branchName: "plan-draft-normalizer-log-invert",
-      artifactPath: ".jarvis-plan-stage",
-      specPath: PLAN_DRAFT_SPEC_PATH,
-      promptId: "plan.prompt.draft",
-      intentSeed: PLAN_DRAFT_INTENT_SEED,
-      bindings: [
-        {
-          id: "agent",
-          invoke: async ({ cwd }) => {
-            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"));
-            return { kind: "ok", stdout: "done", stderr: "" };
-          },
-        },
-      ],
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("contract_miss");
-    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
-    expect(detail && "failureReason" in detail ? detail.failureReason : undefined).toBeUndefined();
   });
 
   test("blocked with blocker text stops immediately with distinct outcome", async () => {

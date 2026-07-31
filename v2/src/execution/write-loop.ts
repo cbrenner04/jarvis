@@ -184,21 +184,6 @@ export type WriteLoopInput = WriteExecuteInput & {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
 
-let invertContractMissDetailFailureReasonForTest = false;
-let capturedContractMissStepFailureReasonForTest: string | undefined;
-
-export function setInvertContractMissDetailFailureReasonForTest(value: boolean): void {
-  invertContractMissDetailFailureReasonForTest = value;
-}
-
-export function getContractMissStepFailureReasonForTest(): string | undefined {
-  return capturedContractMissStepFailureReasonForTest;
-}
-
-export function resetContractMissStepFailureReasonForTest(): void {
-  capturedContractMissStepFailureReasonForTest = undefined;
-}
-
 /**
  * Attaches `operatorSessionId` to `input.telemetry`, whether or not the input already
  * carries a `telemetry` block. Merge policy: the given `operatorSessionId` always
@@ -861,15 +846,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
       }
       if (result.kind === "contract_miss") {
-        capturedContractMissStepFailureReasonForTest = result.failureReason;
+        // Mutation checkpoint: dropping the `failureReason` spread below must turn
+        // "plan-draft normalizer contract_miss carries the normalizer message in the log detail" RED.
         args.logSink?.append(runId, {
           kind: "contract_miss_detail",
           attemptId,
           failedContractId: result.failedContractId,
           responseText: truncateLogText(stepResponseTextForLog(result)),
-          ...(result.failureReason !== undefined && !invertContractMissDetailFailureReasonForTest
-            ? { failureReason: result.failureReason }
-            : {}),
+          ...(result.failureReason !== undefined ? { failureReason: result.failureReason } : {}),
         });
       }
       if (result.kind === "blocked" && result.blockerText !== undefined) {

@@ -56,8 +56,9 @@ missing index links, cross-boundary decisions) are discarded; the operator sees
       normalizer wording; it fails against the pre-fix code.
 - [x] Plan-draft normalizer `contract_miss` rows keep `failedContractId` `"artifact.exists"`; a
       regression test in `write.test.ts` fails against the pre-fix code.
-- [x] Inverting the guard that propagates the normalizer throw message through `validatePlanDraft`
-      turns the first two tests RED.
+- [x] Source-mutating `validatePlanDraft` to return `PLAN_DRAFT_SHAPE_REASON` instead of the
+      normalizer throw message turns the first two tests RED; a comment checkpoint at that line
+      names the mutation. No production test flag exists for this.
 
 ## Documentation updates
 

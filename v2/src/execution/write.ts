@@ -118,12 +118,6 @@ function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: str
   return { valid: true };
 }
 
-let invertPlanDraftNormalizerReasonForTest = false;
-
-export function setInvertPlanDraftNormalizerReasonForTest(value: boolean): void {
-  invertPlanDraftNormalizerReasonForTest = value;
-}
-
 function validatePlanDraft(
   draftDir: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
@@ -136,9 +130,8 @@ function validatePlanDraft(
   try {
     normalizePlanDraftSpecDir(draftDir);
   } catch (err) {
-    if (invertPlanDraftNormalizerReasonForTest) {
-      return { ok: false, reason: PLAN_DRAFT_SHAPE_REASON };
-    }
+    // Mutation checkpoint: replacing `message` with PLAN_DRAFT_SHAPE_REASON here must turn
+    // "plan-draft normalizer contract_miss carries the normalizer message" RED.
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, reason: message };
   }

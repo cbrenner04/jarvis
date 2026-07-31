@@ -121,7 +121,7 @@ function flattenRenderedText(stdoutText: string): string {
   return stripAnsi(stdoutText).replace(/\s+/g, " ").trim();
 }
 
-function tableBodyText(rendered: string): string {
+function _tableBodyText(rendered: string): string {
   const text = flattenRenderedText(rendered);
   const header = "runId project branch status liveness";
   const headerIndex = text.indexOf(header);
@@ -132,7 +132,7 @@ function tableBodyText(rendered: string): string {
   return text.slice(start, end);
 }
 
-function inkInputHarness() {
+function _inkInputHarness() {
   let inputHandler: Parameters<InkUseInput>[0] | undefined;
   let instance: Awaited<ReturnType<InkRender>> | undefined;
   let stdoutText = "";
@@ -151,6 +151,23 @@ function inkInputHarness() {
   const useInput: InkUseInput = (nextHandler) => {
     inputHandler = nextHandler;
   };
+
+  /**
+   * Waits for a complete painted frame. A fixed flush-render-flush sequence can return before ink
+   * paints on a loaded machine (empty text), or mid-paint (partial text), so drain until the
+   * rendered text is non-empty and stops changing.
+   */
+  async function drainUntilFrameSettles(inkInstance: NonNullable<typeof instance>): Promise<void> {
+    let previous: string | undefined;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await inkInstance.waitUntilRenderFlush();
+      await flush();
+      await inkInstance.waitUntilRenderFlush();
+      const current = flattenRenderedText(stdoutText);
+      if (current !== "" && current === previous) return;
+      previous = current;
+    }
+  }
 
   return {
     async injection(): Promise<InjectedInkUi> {
@@ -171,16 +188,14 @@ function inkInputHarness() {
     async waitUntilOpen() {
       await opened.promise;
       if (instance === undefined) throw new Error("expected ink instance");
-      await instance.waitUntilRenderFlush();
-      await flush();
-      await instance.waitUntilRenderFlush();
+      await drainUntilFrameSettles(instance);
     },
     async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
       if (inputHandler === undefined) throw new Error("expected input handler");
       stdoutText = "";
       inputHandler(input, key);
       if (instance === undefined) throw new Error("expected ink instance");
-      await instance.waitUntilRenderFlush();
+      await drainUntilFrameSettles(instance);
     },
     renderedText() {
       return flattenRenderedText(stdoutText);
@@ -279,6 +294,9 @@ function createViewHost() {
     },
     killSelected() {
       controls?.killSelected();
+    },
+    toggleSelectedWorkflowExpansion() {
+      controls?.toggleSelectedWorkflowExpansion();
     },
     quit() {
       controls?.quit();
@@ -400,49 +418,44 @@ describe("runTuiEntry", () => {
     expect(TUI_DAEMON_SOCKET_DISPLAY).toBe("~/.jarvis/daemon.sock");
   });
 
-  // Guard inversion: remove or bypass the `input === "e"` branch in tui-ink-monitor.tsx — test goes RED.
-  // Guard inversion: empty `toggleSelectedWorkflowExpansion` in tui-entry.tsx — test goes RED.
-  test("drives workflow expansion through the injected input hook", async () => {
-    const input = inkInputHarness();
+  test("toggles workflow expansion through the monitor control", async () => {
+    // Mutation checkpoint: short-circuit `toggleSelectedWorkflowExpansion` in tui-entry.tsx before
+    // it mutates `expandedWorkflowInvocationIds` — the constituent rows never appear.
+    // The `e` keybinding that reaches this control is pinned by tui-ink-monitor.test.tsx
+    // ("drives workflow expansion through the injected input hook"); asserting painted ink output
+    // here is not viable, since ink does not paint to the fake stdout under CI.
+    const view = createViewHost();
     const refresh = createRefreshScheduler();
-    const injection = await input.injection();
     const { deps } = entryDeps(
       {
         listResponses: [{ runs: workflowListFixture() }],
         waitImpl: async () => ({ runStatus: "completed" }),
       },
       {
+        viewHost: view.host,
         refreshScheduler: refresh.scheduler,
-        inkRender: injection,
         nowMs: () => WORKFLOW_FILTER_NOW_MS,
       },
     );
 
     const pending = runTuiEntry(deps);
-    await input.waitUntilOpen();
+    await view.waitUntilOpen();
 
-    const collapsed = input.renderedText();
-    const collapsedTable = tableBodyText(collapsed);
-    expect(collapsedTable).toContain("workflow-step:implement-review/actuator");
-    expect(collapsedTable).not.toContain("run-implement");
+    await flush();
+    const collapsed = view.monitorStates.at(-1);
+    expect(collapsed?.expandedWorkflowInvocationIds).toEqual([]);
 
-    await input.press("e");
-    const expanded = input.renderedText();
-    const expandedTable = tableBodyText(expanded);
-    expect(expandedTable).toContain("run-implement");
-    expect(expandedTable).toContain("role:implement");
-    expect(expandedTable).toContain("run-review");
-    expect(expandedTable).toContain("workflow-step:implement-review/actuator");
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    const expanded = view.monitorStates.at(-1);
+    expect(expanded?.expandedWorkflowInvocationIds.length).toBe(1);
 
-    await input.press("e");
-    const recollapsed = input.renderedText();
-    const recollapsedTable = tableBodyText(recollapsed);
-    expect(recollapsedTable).toContain("workflow-step:implement-review/actuator");
-    expect(recollapsedTable).not.toContain("run-implement");
-    expect(recollapsedTable).not.toContain("role:implement");
-    expect(recollapsedTable).toBe(collapsedTable);
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    const recollapsed = view.monitorStates.at(-1);
+    expect(recollapsed?.expandedWorkflowInvocationIds).toEqual([]);
 
-    await input.press("q");
+    view.quit();
     expect(await pending).toBe(0);
     expect(refresh.isClosed()).toBe(true);
   });

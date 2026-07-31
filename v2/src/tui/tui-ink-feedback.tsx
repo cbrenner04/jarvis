@@ -1,13 +1,13 @@
 import { createElement, type ReactElement } from "react";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
-import { loadInkUi } from "./tui-ink-runtime.ts";
+import { loadInkUi, type InjectedInkUi } from "./tui-ink-runtime.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
 
 /** Injectable ink `render` seam for tests. */
 export type InkRender = typeof import("ink").render;
 
 /** Render operator-visible non-monitor TUI feedback through ink. */
-export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender): Promise<void> {
+export async function showTuiInkFeedback(state: TuiViewState, inkRender?: InkRender | InjectedInkUi): Promise<void> {
   const { renderFn, Text } = await loadInkUi(inkRender);
 
   const element: ReactElement =

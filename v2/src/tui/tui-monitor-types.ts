@@ -2,6 +2,7 @@ import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { ConnectTuiDaemonOptions, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
+import type { InjectedInkUi } from "./tui-ink-runtime.ts";
 
 /** Operator-visible non-monitor feedback states. */
 export type TuiViewState = { kind: "rpc-error"; code: string; message: string } | { kind: "unavailable" };
@@ -86,7 +87,7 @@ export type RunTuiEntryDeps = {
   /** When set, skips production ink rendering. */
   viewHost?: TuiViewHost;
   /** Injectable ink render; defaults to production `render`. */
-  inkRender?: InkRender;
+  inkRender?: InkRender | InjectedInkUi;
   /** Discover live daemon sockets; defaults to {@link discoverLiveDaemonSockets}. */
   socketDiscovery?: SocketDiscovery;
   /** Injectable clock for the terminal live window; defaults to `Date.now`. */

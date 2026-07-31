@@ -16,6 +16,7 @@ intent write-step prompt injection all sit on the execution-loop surface.
 
 ## Decisions
 
+- Contract validation and reprompt complete before the write loop accepts completion so review-last landing inherits already-valid staging — rules out reprompt only at deferred `landPublication` time.
 - Landing-contract violation reprompts the write agent with violation text and offending file within the existing iteration budget — rules out settling `landing_failed` on first violation.
 - Only after the reprompt budget is spent does the run settle `landing_failed` with stage contents intact and `resumable: true` / `nextAction: "resume"` — rules out removing the operator resume path.
 - Emitted-filename and prerequisites contracts are stated in injected intent write-step rules — rules out recovery-only changes with a silent prompt.
@@ -25,7 +26,7 @@ intent write-step prompt injection all sit on the execution-loop surface.
 ## Acceptance criteria
 
 - [ ] An intent landing that violates the prerequisites one-bullet-per-line contract reprompts the write agent with the violation message and the offending file rather than settling; a test pins the reprompt and fails against the pre-fix code (which settles `landing_failed` immediately).
-- [ ] After the reprompt budget is exhausted with the violation unfixed, the run settles `landing_failed` with today's `resumable: true` / `nextAction: "resume"` and the stage contents intact; a regression covers it.
+- [ ] After the reprompt budget is exhausted with the violation unfixed, the run settles `landing_failed` with `resumable: true` / `nextAction: "resume"` and the stage contents intact; a regression covers it.
 - [ ] An emitted ready-intent filename carrying an `NN-` ordering prefix is normalized by the harness to the unprefixed name and lands without a reprompt; a test pins the landed name and fails against the pre-fix code.
 - [ ] The injected intent write-step rules state the emitted-filename and prerequisites contracts; a rendered-prompt test pins both.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

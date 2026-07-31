@@ -16,6 +16,8 @@ automated — every consumer of `parseSpec` inherits the miss.
 - Assemble each acceptance criterion from its full bullet block (first `- [ ]` / `- [x]` line plus
   continuation lines until the next checklist item or `##` heading) before `humanOnly`
   classification — rules out first-line-only matching.
+- `AcceptanceCriterion.text` remains the first checklist line body — assembled block is used only
+  for `humanOnly` classification (preserves shrink `afterByText` and other consumers).
 - Recognize `(Manual)`, `visual inspection only`, and `no automated guard` anywhere in that
   assembled text (case-insensitive, whole-phrase) — rules out trailing `.endsWith` anchoring.
 - Marker vocabulary unchanged — rules out widening accepted markers.
@@ -24,15 +26,13 @@ automated — every consumer of `parseSpec` inherits the miss.
 
 ## Acceptance criteria
 
-- [ ] A criterion whose `(Manual)` marker appears on a continuation line is classified human-only
-      by the same helper as a first-line marker; a pre-fix-failing regression covers both
-      placements and a criterion with no marker.
-- [ ] A criterion whose `(Manual)` marker leads the bullet (`- [ ] (Manual) …`) is classified
-      human-only; a regression covers leading, trailing, and continuation-line placement plus a
-      criterion with no marker, and fails against pre-fix trailing-anchored code.
-- [ ] Source-mutating the position-independent match back to a trailing anchor turns the leading-
-      marker regression RED, with a comment checkpoint naming the mutation. Do **not** add a
-      production test flag.
+- [ ] A criterion whose `(Manual)` marker leads, trails, or sits on a continuation line is
+      classified human-only; a pre-fix-failing regression in `spec-parser.test.ts` covers all three
+      placements plus a criterion with no marker.
+- [ ] Source-mutating each guard independently turns the matching regression RED: reverting
+      position-independent match to a trailing anchor REDs leading/trailing cases; reverting block
+      assembly to first-line-only REDs continuation-line placement. Comment checkpoint names each
+      mutation. Do **not** add a production test flag.
 - [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2`
       pass.
 

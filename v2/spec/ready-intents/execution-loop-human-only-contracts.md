@@ -7,24 +7,24 @@ name: execution-loop-human-only-contracts
 ## Problem
 
 `spec.criteria-ticked` (`v2/src/execution/write.ts`) and `implement.already_complete`
-(`v2/src/execution/implement-workflow-steps.ts`) both call `parseSpec`, but until block-aware
-human-only classification lands, a spec whose only unchecked criterion is a wrapped or
-leading-marker human-only bullet still strands implement at `contract_miss` or rejects launch
-incorrectly.
+(`v2/src/execution/implement-workflow-steps.ts`) already filter on `parseSpec(...).humanOnly`, but
+until block-aware classification lands, a wrapped or leading-marker human-only bullet is
+misclassified as automated — stranding implement at `contract_miss` or rejecting launch at
+`already_complete`.
 
 ## Decisions
 
-- Both contracts derive `humanOnly` solely from `parseSpec` on the worktree spec — rules out
-  duplicate marker logic in the execution loop.
+- Contract code may need no change — both paths already derive `humanOnly` from `parseSpec`; this
+  subspec proves the stranding paths unblock once the parser classifies block-aware markers.
 - Integration coverage uses a wrapped human-only criterion as the only unchecked item — rules out
   unit-parser-only proof that leaves the stranding paths unexercised.
 
 ## Acceptance criteria
 
-- [ ] `implement.already_complete` preflight and the `spec.criteria-ticked` completion contract
-      both consume `parseSpec` human-only classification: a spec whose only unchecked criterion is
-      a wrapped human-only one exits `implement.already_complete`, and an implement run over the
-      same spec completes instead of settling `contract_miss`.
+- [ ] Regressions in `implement-workflow-steps.test.ts` and `write.test.ts` use a wrapped human-only
+      criterion as the only unchecked item: `implement.already_complete` preflight exits, and an
+      implement write completes instead of `contract_miss`; both fail against pre-fix parser
+      classification.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

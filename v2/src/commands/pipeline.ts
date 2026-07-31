@@ -92,11 +92,7 @@ export function parsePipelineDecisionArgs(
   const stageId = argv[1];
   const branchKey = argv[2];
   if (pipelineId === undefined || stageId === undefined || branchKey === undefined) return { ok: false };
-  if (
-    pipelineId.trim().length === 0 ||
-    stageId.trim().length === 0 ||
-    branchKey.trim().length === 0
-  ) {
+  if (pipelineId.trim().length === 0 || stageId.trim().length === 0 || branchKey.trim().length === 0) {
     return { ok: false };
   }
   return { ok: true, pipelineId, stageId, branchKey };

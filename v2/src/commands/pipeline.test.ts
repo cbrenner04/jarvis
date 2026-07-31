@@ -537,7 +537,7 @@ describe("pipeline list", () => {
     );
 
     expect(code).toBe(0);
-    const snapshot = JSON.parse(cap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_PIPELINE_SNAPSHOT[] };
+    const snapshot = JSON.parse(cap.read().stdout.trim()) as { pipelines: (typeof TWO_BRANCH_PIPELINE_SNAPSHOT)[] };
     const stages = snapshot.pipelines[0]?.stages ?? [];
     expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
     expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([
@@ -717,9 +717,7 @@ describe("pipeline approve and reject", () => {
     expect(params).toEqual({ pipelineId: "pipe-fan", stageId: "gate", branchKey: "alpha" });
     const { branchKey: _omit, ...withoutBranchKey } = params;
     expect(withoutBranchKey).not.toHaveProperty("branchKey");
-    expect(expect.objectContaining({ params: withoutBranchKey })).not.toEqual(
-      expect.objectContaining({ params }),
-    );
+    expect(expect.objectContaining({ params: withoutBranchKey })).not.toEqual(expect.objectContaining({ params }));
     expect(
       TWO_BRANCH_AWAITING_SNAPSHOT.stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status,
     ).toBe("awaiting");
@@ -732,11 +730,8 @@ describe("pipeline approve and reject", () => {
     );
     expect(applied).toEqual({ kind: "applied" });
     expect(pipelineMutationCommandExitCode({ kind: "applied" }, "applied")).toBe(0);
-    expect(
-      pipelineMutationCommandExitCode({ kind: "refused", reason: "status_not_awaiting" }, "applied"),
-    ).toBe(1);
-    const invertExit = (outcome: { kind: string }, successKind: string) =>
-      outcome.kind === successKind ? 1 : 0;
+    expect(pipelineMutationCommandExitCode({ kind: "refused", reason: "status_not_awaiting" }, "applied")).toBe(1);
+    const invertExit = (outcome: { kind: string }, successKind: string) => (outcome.kind === successKind ? 1 : 0);
     expect(invertExit({ kind: "applied" }, "applied")).toBe(1);
     expect(invertExit({ kind: "refused" }, "applied")).toBe(0);
   });
@@ -780,9 +775,7 @@ describe("pipeline approve and reject", () => {
               {
                 ...TWO_BRANCH_AWAITING_SNAPSHOT,
                 stages: TWO_BRANCH_AWAITING_SNAPSHOT.stages.map((row) =>
-                  row.stageId === "gate" && row.branchKey === "alpha"
-                    ? { ...row, status: "approved" }
-                    : row,
+                  row.stageId === "gate" && row.branchKey === "alpha" ? { ...row, status: "approved" } : row,
                 ),
               },
             ]),
@@ -791,9 +784,9 @@ describe("pipeline approve and reject", () => {
     );
 
     expect(listCode).toBe(0);
-    const stages = (
-      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
-    ).pipelines[0]?.stages ?? [];
+    const stages =
+      (JSON.parse(listCap.read().stdout.trim()) as { pipelines: (typeof TWO_BRANCH_AWAITING_SNAPSHOT)[] }).pipelines[0]
+        ?.stages ?? [];
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("awaiting");
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("approved");
   });
@@ -835,9 +828,7 @@ describe("pipeline approve and reject", () => {
               {
                 ...TWO_BRANCH_AWAITING_SNAPSHOT,
                 stages: TWO_BRANCH_AWAITING_SNAPSHOT.stages.map((row) =>
-                  row.stageId === "gate" && row.branchKey === "beta"
-                    ? { ...row, status: "rejected" }
-                    : row,
+                  row.stageId === "gate" && row.branchKey === "beta" ? { ...row, status: "rejected" } : row,
                 ),
               },
             ]),
@@ -846,9 +837,9 @@ describe("pipeline approve and reject", () => {
     );
 
     expect(listCode).toBe(0);
-    const stages = (
-      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
-    ).pipelines[0]?.stages ?? [];
+    const stages =
+      (JSON.parse(listCap.read().stdout.trim()) as { pipelines: (typeof TWO_BRANCH_AWAITING_SNAPSHOT)[] }).pipelines[0]
+        ?.stages ?? [];
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("awaiting");
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("rejected");
   });
@@ -891,9 +882,9 @@ describe("pipeline approve and reject", () => {
     );
 
     expect(listCode).toBe(0);
-    const stages = (
-      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
-    ).pipelines[0]?.stages ?? [];
+    const stages =
+      (JSON.parse(listCap.read().stdout.trim()) as { pipelines: (typeof TWO_BRANCH_AWAITING_SNAPSHOT)[] }).pipelines[0]
+        ?.stages ?? [];
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("awaiting");
     expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("awaiting");
   });

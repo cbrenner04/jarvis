@@ -714,34 +714,55 @@ function suffixStagesForBranch(
   return ordered;
 }
 
+function defaultBranchPredecessorsSatisfied(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  record: PipelineStageRecord,
+): boolean {
+  for (const pred of pipeline.stages) {
+    if (pred.position >= record.position) continue;
+    if (pred.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    const predStage = pipeline.definition.stages[pred.position];
+    if (predStage === undefined) continue;
+    if (!isAuthoredStageSatisfied(predStage, pred)) return false;
+  }
+  return true;
+}
+
+function preSplitPredecessorsSatisfied(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  splitPosition: number,
+): boolean {
+  for (let index = 0; index <= splitPosition; index += 1) {
+    const predStage = pipeline.definition.stages[index];
+    if (predStage === undefined) continue;
+    const predRecord = findStageRecord(pipeline.stages, predStage.stageId);
+    if (!isAuthoredStageSatisfied(predStage, predRecord)) return false;
+  }
+  return true;
+}
+
+function branchSuffixPredecessorsBeforeRecordSatisfied(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  record: PipelineStageRecord,
+  splitPosition: number,
+): boolean {
+  for (const { stage, record: pred } of suffixStagesForBranch(pipeline, splitPosition, record.branchKey)) {
+    if (pred.position >= record.position) continue;
+    if (!isAuthoredStageSatisfied(stage, pred)) return false;
+  }
+  return true;
+}
+
 export function branchSuffixPredecessorsSatisfied(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   record: PipelineStageRecord,
   split: FanOutSplit | null,
 ): boolean {
   if (split === null || record.position <= split.splitPosition) {
-    for (const pred of pipeline.stages) {
-      if (pred.position >= record.position) continue;
-      if (pred.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
-      const predStage = pipeline.definition.stages[pred.position];
-      if (predStage === undefined) continue;
-      if (!isAuthoredStageSatisfied(predStage, pred)) return false;
-    }
-    return true;
+    return defaultBranchPredecessorsSatisfied(pipeline, record);
   }
-
-  for (let index = 0; index <= split.splitPosition; index += 1) {
-    const predStage = pipeline.definition.stages[index];
-    if (predStage === undefined) continue;
-    const predRecord = findStageRecord(pipeline.stages, predStage.stageId);
-    if (!isAuthoredStageSatisfied(predStage, predRecord)) return false;
-  }
-
-  for (const { stage, record: pred } of suffixStagesForBranch(pipeline, split.splitPosition, record.branchKey)) {
-    if (pred.position >= record.position) continue;
-    if (!isAuthoredStageSatisfied(stage, pred)) return false;
-  }
-  return true;
+  if (!preSplitPredecessorsSatisfied(pipeline, split.splitPosition)) return false;
+  return branchSuffixPredecessorsBeforeRecordSatisfied(pipeline, record, split.splitPosition);
 }
 
 type AdmitFanOutBranchesResult = { ok: true; branchKeys: string[] } | { ok: false; error: string };

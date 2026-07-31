@@ -441,7 +441,11 @@ test("pipeline_wait returns promptly when the pipeline is already at a boundary"
   const response = await pipelineWaitDirect(handlers(), "w-immediate", pipelineId);
   expect(Date.now() - startedAt).toBeLessThan(500);
   expect(response.kind).toBe("response");
-  expect((response as { result: unknown }).result).toEqual({ kind: "awaiting-approval", stageId: "gate", branchKey: "default" });
+  expect((response as { result: unknown }).result).toEqual({
+    kind: "awaiting-approval",
+    stageId: "gate",
+    branchKey: "default",
+  });
 });
 
 test("live pipeline_wait remains pending through pending and running then resolves at the first boundary", async () => {
@@ -576,7 +580,11 @@ test("awaiting-approval boundary names the first unsatisfied approval stage in p
     { s1: { status: "succeeded" }, gate: { status: "awaiting" }, later: { status: "pending" } },
   );
 
-  expect(derivePipelineBoundary(pipeline)).toEqual({ kind: "awaiting-approval", stageId: "gate", branchKey: "default" });
+  expect(derivePipelineBoundary(pipeline)).toEqual({
+    kind: "awaiting-approval",
+    stageId: "gate",
+    branchKey: "default",
+  });
 });
 
 test("pending and running durable rows yield no wait boundary", () => {
@@ -629,7 +637,8 @@ function fanOutObservationPipeline(
     ["implement", 3],
   ] as const) {
     for (const branchKey of ["default", "alpha", "beta"] as const) {
-      const patch = branchKey === "default" ? { status: "skipped" as const } : (rowStatuses[`${stageId}/${branchKey}`] ?? {});
+      const patch =
+        branchKey === "default" ? { status: "skipped" as const } : (rowStatuses[`${stageId}/${branchKey}`] ?? {});
       stages.push({
         id: `r-${stageId}-${branchKey}`,
         pipelineId,
@@ -686,7 +695,10 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
   stateStore.updateStage({ pipelineId, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
   stateStore.updateStage({ pipelineId, stageId: "plan", branchKey: "beta", patch: { status: "running" } });
 
-  const response = await handlers().pipeline_list(requestFrame("l-fan-out", "pipeline_list"), new AbortController().signal);
+  const response = await handlers().pipeline_list(
+    requestFrame("l-fan-out", "pipeline_list"),
+    new AbortController().signal,
+  );
   const pipelines = (response as { result: { pipelines: Array<Record<string, unknown>> } }).result.pipelines;
   const snapshot = pipelines.find((pipeline) => pipeline.pipelineId === pipelineId) as {
     stages: Array<{ stageId: string; branchKey: string; status: string; workflowInvocationId: string | null }>;
@@ -746,9 +758,7 @@ test("branch-row projection guard inversion: collapsed projection and omitted br
 
   expect(rowsNameBranchKey(snapshot.stages)).toBe(true);
   expect(snapshot.stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
-  expect(rowsNameBranchKey(omitBranchKeyFromRows(snapshot.stages) as Array<{ branchKey?: string }>)).toBe(
-    false,
-  );
+  expect(rowsNameBranchKey(omitBranchKeyFromRows(snapshot.stages) as Array<{ branchKey?: string }>)).toBe(false);
   const collapsed = collapseToOneRowPerStageId(snapshot.stages);
   expect(collapsed.filter((row) => row.stageId === "gate")).toHaveLength(1);
   expect(collapsed.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toHaveLength(0);
@@ -764,14 +774,12 @@ test("awaiting-approval branchKey guard inversion: anonymous boundaries are abse
   const namesBranchKey = (
     value: ReturnType<typeof derivePipelineBoundary>,
   ): value is { kind: "awaiting-approval"; stageId: string; branchKey: string } =>
-    value?.kind === "awaiting-approval" &&
-    typeof value.branchKey === "string" &&
-    value.branchKey.length > 0;
+    value?.kind === "awaiting-approval" && typeof value.branchKey === "string" && value.branchKey.length > 0;
 
   expect(namesBranchKey(boundary)).toBe(true);
-  expect(namesBranchKey({ kind: "awaiting-approval", stageId: "gate" } as ReturnType<typeof derivePipelineBoundary>)).toBe(
-    false,
-  );
+  expect(
+    namesBranchKey({ kind: "awaiting-approval", stageId: "gate" } as ReturnType<typeof derivePipelineBoundary>),
+  ).toBe(false);
   expect(derivePipelineBoundary(pipeline)).not.toEqual({
     kind: "awaiting-approval",
     stageId: "gate",

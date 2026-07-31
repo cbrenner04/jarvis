@@ -39,17 +39,18 @@ event path operators read alongside stdout.
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` drives a plan-draft normalizer `contract_miss` and asserts
+- [x] `write-loop.test.ts` drives a plan-draft normalizer `contract_miss` and asserts
       `contract_miss_detail.failureReason` matches the step `failureReason`; `responseText`
       remains agent stdout; it fails against the pre-fix code.
-- [ ] `write-loop.test.ts` drives a plan-draft normalizer `contract_miss` and asserts the
+- [x] `write-loop.test.ts` drives a plan-draft normalizer `contract_miss` and asserts the
       harness-appended `## Blocker` at `join(worktreePath, expectedArtifactPath, "intent.md")`
       contains the normalizer message in its body; it fails against the pre-fix code.
-- [ ] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`) asserts
+- [x] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`) asserts
       `contract_miss_detail` is assignable with optional `failureReason`; it fails against the
       pre-fix code.
-- [ ] Inverting the `write-loop.ts` guard that copies `failureReason` onto `contract_miss_detail`
-      turns the log-detail test RED.
+- [x] Source-mutating `write-loop.ts` to drop the `failureReason` spread on
+      `contract_miss_detail` turns the log-detail test RED; a comment checkpoint at that line
+      names the mutation. No production test flag exists for this.
 
 ## Documentation updates
 

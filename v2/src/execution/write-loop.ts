@@ -757,11 +757,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
-        const targetSpecPath =
+        const blockerPath =
           result.failedContractId === "spec.criteria-ticked"
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : resolveSpecPath(worktreePath, args.specPath);
-        appendBlockerToSpec(targetSpecPath, reason);
+            : args.promptId === "plan.prompt.draft" && result.failedContractId === "artifact.exists"
+              ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
+              : resolveSpecPath(worktreePath, args.specPath);
+        appendBlockerToSpec(blockerPath, reason);
       }
 
       // Run coverage advisory for completing implement writes before terminal boundary
@@ -844,11 +846,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
       }
       if (result.kind === "contract_miss") {
+        // Mutation checkpoint: dropping the `failureReason` spread below must turn
+        // "plan-draft normalizer contract_miss carries the normalizer message in the log detail" RED.
         args.logSink?.append(runId, {
           kind: "contract_miss_detail",
           attemptId,
           failedContractId: result.failedContractId,
           responseText: truncateLogText(stepResponseTextForLog(result)),
+          ...(result.failureReason !== undefined ? { failureReason: result.failureReason } : {}),
         });
       }
       if (result.kind === "blocked" && result.blockerText !== undefined) {

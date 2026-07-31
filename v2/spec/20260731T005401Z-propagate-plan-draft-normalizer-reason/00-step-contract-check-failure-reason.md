@@ -26,9 +26,9 @@ per-check dynamic message that `write.ts` cannot supply through `reason: "plan.d
 
 ## Acceptance criteria
 
-- [ ] `step-runner.test.ts` drives `contract_miss` where `check` returns `{ ok: false, reason: "dynamic" }` with static `reason: "static"` and asserts `failureReason` is `"dynamic"`; it fails against the pre-fix code.
-- [ ] `step-runner.test.ts` `no-work with failing contract returns contract miss` stays green (boolean `false` checks still classify as `contract_miss` with static `contract.reason` when present).
-- [ ] Inverting the `evaluateContracts` guard that prefers a check-returned `reason` over static `contract.reason` turns the dynamic-reason test RED.
+- [x] `step-runner.test.ts` drives `contract_miss` where `check` returns `{ ok: false, reason: "dynamic" }` with static `reason: "static"` and asserts `failureReason` is `"dynamic"`; it fails against the pre-fix code.
+- [x] `step-runner.test.ts` `no-work with failing contract returns contract miss` stays green (boolean `false` checks still classify as `contract_miss` with static `contract.reason` when present).
+- [x] Inverting the `evaluateContracts` guard that prefers a check-returned `reason` over static `contract.reason` turns the dynamic-reason test RED.
 
 ## Documentation updates
 

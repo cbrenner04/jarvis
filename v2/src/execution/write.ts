@@ -26,7 +26,7 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
-import { type BlockerTextContract, runStep, type StepRunResult } from "./step-runner.ts";
+import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
@@ -96,24 +96,63 @@ function assembleWriteStepPlaceholders(
   return { ...resolved, ...(callerPlaceholders ?? {}) };
 }
 
+const PLAN_DRAFT_SHAPE_REASON = "plan.draft.shape";
+
 function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
   if (!existsSync(specDir)) {
-    return { valid: false, reason: "plan.draft.shape" };
+    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
   }
 
   const indexPath = join(specDir, "index.md");
   if (!existsSync(indexPath)) {
-    return { valid: false, reason: "plan.draft.shape" };
+    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
   }
 
   const files = readdirSync(specDir);
   const subspecCount = files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
 
   if (subspecCount === 0) {
-    return { valid: false, reason: "plan.draft.shape" };
+    return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
   }
 
   return { valid: true };
+}
+
+function validatePlanDraft(
+  draftDir: string,
+  shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
+): { ok: true } | { ok: false; reason: string } {
+  const shape = shapeValidator(draftDir);
+  if (!shape.valid) {
+    return { ok: false, reason: shape.reason ?? PLAN_DRAFT_SHAPE_REASON };
+  }
+
+  try {
+    normalizePlanDraftSpecDir(draftDir);
+  } catch (err) {
+    // Mutation checkpoint: replacing `message` with PLAN_DRAFT_SHAPE_REASON here must turn
+    // "plan-draft normalizer contract_miss carries the normalizer message" RED.
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: message };
+  }
+
+  return { ok: true };
+}
+
+function composePlanDraftArtifactCheck(
+  stagingDir: string,
+  durableDir: string,
+  shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
+): boolean | { ok: false; reason: string } {
+  const staging = validatePlanDraft(stagingDir, shapeValidator);
+  if (staging.ok) return true;
+
+  if (staging.reason !== PLAN_DRAFT_SHAPE_REASON) {
+    return staging;
+  }
+
+  const durable = validatePlanDraft(durableDir, shapeValidator);
+  return durable.ok ? true : { ok: false, reason: staging.reason };
 }
 
 export type WriteExecuteInput = {
@@ -148,7 +187,7 @@ function runWriteStep(
   worktreePath: string,
   step: {
     prompt: string;
-    contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }>;
+    contracts: readonly StepContract[];
     blockerTextContract?: BlockerTextContract;
   },
 ): Promise<StepRunResult> {
@@ -212,18 +251,10 @@ async function executePlanDraftWrite(
     throw err;
   }
 
-  const validator = args.completionValidator ?? validatePlanDraftShape;
-  const validatePlanDraft = (draftDir: string): boolean => {
-    if (!existsSync(join(draftDir, "index.md"))) return false;
-    try {
-      normalizePlanDraftSpecDir(draftDir);
-    } catch {
-      return false;
-    }
-    return validator(draftDir).valid;
-  };
+  const shapeValidator = args.completionValidator ?? validatePlanDraftShape;
+  const durable = resolveInWorktree(worktreePath, args.specPath);
   const intentBefore = args.intentBefore ?? args.intentSeed;
-  const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [];
+  const contracts: StepContract[] = [];
 
   if (intentBefore !== undefined) {
     contracts.push({
@@ -241,16 +272,18 @@ async function executePlanDraftWrite(
 
   contracts.push({
     id: "artifact.exists",
-    reason: "plan.draft.shape",
-    check: () => validatePlanDraft(specDir) || validatePlanDraft(resolveInWorktree(worktreePath, args.specPath)),
+    reason: PLAN_DRAFT_SHAPE_REASON,
+    check: () => composePlanDraftArtifactCheck(specDir, durable, shapeValidator),
   });
 
   const result = await runWriteStep(args, worktreePath, { prompt, contracts });
-  const durable = resolveInWorktree(worktreePath, args.specPath);
-  if (result.kind === "complete" && !validatePlanDraft(specDir) && validatePlanDraft(durable)) {
-    for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
-    rmSync(durable, { recursive: true, force: true });
-    validatePlanDraft(specDir);
+  if (result.kind === "complete") {
+    const staging = validatePlanDraft(specDir, shapeValidator);
+    if (!staging.ok && validatePlanDraft(durable, shapeValidator).ok) {
+      for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
+      rmSync(durable, { recursive: true, force: true });
+      validatePlanDraft(specDir, shapeValidator);
+    }
   }
   return result;
 }
@@ -330,7 +363,7 @@ async function executeDefaultWrite(
     throw err;
   }
 
-  const contracts: Array<{ id: string; reason?: string; check: () => boolean | Promise<boolean> }> = [
+  const contracts: StepContract[] = [
     {
       id: "artifact.exists",
       check: () => existsSync(expectedArtifactPath),

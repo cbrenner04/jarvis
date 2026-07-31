@@ -162,13 +162,35 @@ describe("step runner classification", () => {
       prompt: "p",
       cwd: "/tmp",
       bindings: [okBinding("no-work")],
-      contracts: [{ id: "artifact", check: () => false }],
+      contracts: [{ id: "artifact", reason: "static", check: () => false }],
     });
 
     expect(result.kind).toBe("contract_miss");
     if (result.kind === "contract_miss") {
       expect(result.failedContractId).toBe("artifact");
       expect(result.token).toBe("no-work");
+      expect(result.failureReason).toBe("static");
+    }
+  });
+
+  test("contract miss prefers check-returned reason over static contract reason", async () => {
+    const result = await runStep({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [okBinding("done")],
+      contracts: [
+        {
+          id: "artifact",
+          reason: "static",
+          check: () => ({ ok: false, reason: "dynamic" }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    if (result.kind === "contract_miss") {
+      expect(result.failedContractId).toBe("artifact");
+      expect(result.failureReason).toBe("dynamic");
     }
   });
 

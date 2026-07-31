@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -7,6 +7,9 @@ import { executeWrite } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
+
+const MULTI_SURFACE_BULLET =
+  "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
 
 function runWrite(args: {
   jarvisRoot: string;
@@ -61,7 +64,42 @@ function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding
   };
 }
 
+async function runPlanDraftWrite(args: {
+  jarvisRoot: string;
+  branchName: string;
+  agentSetup: (cwd: string, stagePath: string) => void | Promise<void>;
+}) {
+  roots.push(join(args.jarvisRoot, ".."));
+  const specPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
+  return executeWrite({
+    worktree: {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName: args.branchName,
+      baseRef: "HEAD",
+      jarvisRoot: args.jarvisRoot,
+    },
+    specPath,
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: ".jarvis-plan-stage",
+    promptId: "plan.prompt.draft",
+    intentSeed: "---\nname: test\n---\n\n## Prerequisites\n\nnone\n",
+    bindings: [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          const stagePath = join(cwd, ".jarvis-plan-stage");
+          await args.agentSetup(cwd, stagePath);
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ],
+    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+  });
+}
+
 describe("write behavior", () => {
+  afterEach(() => {});
   test("happy path: done plus artifact contract pass returns complete", async () => {
     const { jarvisRoot } = createJarvisHome();
     const bindings: InvocationBinding[] = [
@@ -467,18 +505,9 @@ describe("write behavior", () => {
       completionValidator: (stagingDir) => {
         validationCalls += 1;
         expect(stagingDir).toBe(stagePath);
-        expect(readdirSync(stagingDir).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
-        expect(readFileSync(join(stagingDir, "index.md"), "utf8")).toBe(
-          "# Staged plan\n\n- [ ] [00 - Persistence](./00-persistence.md)\n- [ ] [01 - CLI](./01-cli.md)\n",
-        );
-        const persistenceCriteria = readFileSync(join(stagingDir, "00-persistence.md"), "utf8")
-          .split("\n")
-          .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
-        const cliCriteria = readFileSync(join(stagingDir, "01-cli.md"), "utf8")
-          .split("\n")
-          .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
-        expect(persistenceCriteria).toEqual(["- [ ] The state-store persists completed runs atomically."]);
-        expect(cliCriteria).toEqual(["- [ ] The CLI validates run flags before dispatch."]);
+        if (validationCalls === 1) {
+          expect(readdirSync(stagingDir).sort()).toEqual(["00-phase-1-state-cli.md", "index.md", "intent.md"]);
+        }
         return { valid: true };
       },
       withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
@@ -486,6 +515,18 @@ describe("write behavior", () => {
 
     expect(result.result.kind).toBe("complete");
     expect(validationCalls).toBeGreaterThan(0);
+    expect(readdirSync(stagePath).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+    // Shape validation now runs before normalization, so these assert the normalized output
+    // after the call rather than inside completionValidator.
+    expect(readFileSync(join(stagePath, "index.md"), "utf8")).toBe(
+      "# Staged plan\n\n- [ ] [00 - Persistence](./00-persistence.md)\n- [ ] [01 - CLI](./01-cli.md)\n",
+    );
+    const criteriaOf = (file: string): string[] =>
+      readFileSync(join(stagePath, file), "utf8")
+        .split("\n")
+        .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
+    expect(criteriaOf("00-persistence.md")).toEqual(["- [ ] The state-store persists completed runs atomically."]);
+    expect(criteriaOf("01-cli.md")).toEqual(["- [ ] The CLI validates run flags before dispatch."]);
   });
 
   test("plan-draft completion normalizes durable output before recovery", async () => {
@@ -547,6 +588,139 @@ describe("write behavior", () => {
     });
 
     expect(result.result.kind).toBe("contract_miss");
+  });
+
+  test("plan-draft contract_miss on staging normalizer failure does not pass via durable fallback", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-staging-normalizer-durable-pass",
+      agentSetup: (cwd, stagePath) => {
+        const durablePath = join(cwd, durableSpecPath);
+        mkdirSync(durablePath, { recursive: true });
+        writeFileSync(join(durablePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(
+          join(durablePath, subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] Single-surface criterion.\n`,
+          "utf8",
+        );
+
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(
+          join(stagePath, subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+          "utf8",
+        );
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("multi-surface ## Acceptance criteria bullet");
+      expect(result.result.failureReason).toContain(subspecFile);
+      expect(result.result.failureReason).toContain(MULTI_SURFACE_BULLET);
+      expect(result.result.failureReason).not.toBe("plan.draft.shape");
+    }
+  });
+
+  test("plan-draft contract_miss on multi-surface acceptance bullet carries normalizer message", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-multi-surface",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(
+          join(stagePath, subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+          "utf8",
+        );
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("multi-surface ## Acceptance criteria bullet");
+      expect(result.result.failureReason).toContain(subspecFile);
+      expect(result.result.failureReason).toContain(MULTI_SURFACE_BULLET);
+    }
+  });
+
+  test("plan-draft contract_miss on missing index link carries normalizer message", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-missing-index-link",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
+        writeFileSync(join(stagePath, subspecFile), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("Plan index links unknown subspec 01-wrong.md");
+    }
+  });
+
+  test("plan-draft contract_miss on stage without index.md settles plan.draft.shape", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-missing-index",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).not.toContain("Plan index");
+      expect(result.result.failureReason).not.toContain("multi-surface");
+    }
+  });
+
+  test("plan-draft contract_miss on stage with index but zero subspecs settles plan.draft.shape", async () => {
+    const { jarvisRoot } = createJarvisHome();
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-zero-subspecs",
+      agentSetup: (_cwd, stagePath) => {
+        mkdirSync(stagePath, { recursive: true });
+        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+        writeFileSync(join(stagePath, "index.md"), "# Index\n\n", "utf8");
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toBe("plan.draft.shape");
+      expect(result.result.failureReason).not.toContain("Plan index");
+      expect(result.result.failureReason).not.toContain("multi-surface");
+    }
   });
 
   test("intentSeed branch: delimiter-violating intent seed fails as model_config", async () => {

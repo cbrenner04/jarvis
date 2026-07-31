@@ -494,9 +494,15 @@ When a `blocked` token misses the blocker-text contract after one
 the re-prompt response text, truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after
 `blocker_reprompt` — same truncation and ellipsis as `token_reprompt` /
 `invalid_token_detail`. Every write-loop `contract_miss` boundary appends
-`contract_miss_detail` (attempt id, `failedContractId`, and the final agent
-response body used for contract evaluation at that boundary, truncated to
-`INVALID_TOKEN_LOG_MAX_CHARS`) after `boundary_committed`.
+`contract_miss_detail` (attempt id, `failedContractId`, optional
+`failureReason` when the settled contract carried a dynamic reason, and the
+final agent response body used for contract evaluation at that boundary,
+truncated to `INVALID_TOKEN_LOG_MAX_CHARS`) after `boundary_committed`.
+Plan-draft shape `contract_miss` from the normalizer carries the deterministic
+rejection message in `failureReason`, `contract_miss_detail.failureReason`, and
+the harness-appended `## Blocker` on staged `join(expectedArtifactPath,
+"intent.md")`; bare missing-tree failures still settle `plan.draft.shape`.
+`contract_miss_detail.responseText` remains agent stdout, not the normalizer text.
 
 ## Coverage advisory
 
@@ -606,7 +612,11 @@ commit + draft-PR completion publish proceeds unchanged. When it fails, the
 workflow stops with `contract_miss` outcome and opens no draft PR. The failure
 reason `plan.draft.shape` is carried as a distinct field in the contract-miss
 result (distinct from the contract `id`), preserving the distinction between
-blocker detection failures and shape failures.
+blocker detection failures and shape failures. When normalization rejects a
+staged tree (for example a multi-surface acceptance bullet or a broken index
+link), the normalizer message propagates through `failureReason`,
+`contract_miss_detail.failureReason`, and the harness-appended `## Blocker` on
+staged `intent.md`; `contract_miss_detail.responseText` stays agent stdout.
 
 ## Intent review cycle
 

@@ -57,9 +57,12 @@ confusing projection failure, not as a composition bug.
       keeps today's row shape).
 - [ ] `run-operator-error.test.ts` adds a case where the log tail contains `contract_miss_detail`
       without `failureReason` and the composed error keeps today's shape (no `contractMissDetail`).
-- [ ] Inverting the guard in the shared list/wait composition path that projects
-      `contract_miss_detail.failureReason` onto `contractMissDetail` turns the daemon regression
-      RED.
+- [ ] Source-mutating the shared list/wait composition path to drop the
+      `contract_miss_detail.failureReason` projection onto `contractMissDetail` turns the daemon
+      regression RED, with a comment checkpoint at that line naming the mutation. Satisfy this by
+      mutating the real guard — do **not** add a production test flag (no `setInvert*ForTest`
+      export, module variable, function parameter, or input-type member); see
+      `v2/spec/seeds/guard-inversion-criteria-produce-production-test-flags.md`.
 
 ## Documentation updates
 

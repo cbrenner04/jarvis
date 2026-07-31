@@ -19,7 +19,7 @@ import {
 } from "../../../shared/prompts/intent-split.ts";
 import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { PromptRenderingError } from "../../../shared/prompts/render.ts";
+import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
 import {
   type ExternalWorktreeInput,
@@ -173,6 +173,7 @@ export type WriteExecuteInput = {
   onInvocationOutputProgress?: () => void;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  landingContractReprompt?: { violation: string; offendingFile: string };
 };
 
 type WriteExecuteResult = {
@@ -299,16 +300,27 @@ async function executeIntentSplitWrite(
     throw new Error("intent split write requires SEED_LABEL and SEED_CONTENT placeholders");
   }
 
-  rmSync(expectedArtifactPath, { recursive: true, force: true });
+  const reprompt = args.landingContractReprompt;
+  const preserveStage =
+    reprompt !== undefined || (existsSync(expectedArtifactPath) && listIntentStageMarkdownFiles(expectedArtifactPath).length > 0);
+  if (!preserveStage) {
+    rmSync(expectedArtifactPath, { recursive: true, force: true });
+  }
   mkdirSync(expectedArtifactPath, { recursive: true });
-
-  const prompt = buildIntentSplitPrompt({
-    workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-    seedLabel,
-    seedContent,
-    stagingDir: args.expectedArtifactPath,
-    stepRules: args.stepRules,
-  });
+  const prompt =
+    reprompt !== undefined
+      ? renderArtifactTemplate(loadPromptRegistry().getById("write.landing-contract-reprompt"), {
+          VIOLATION: reprompt.violation,
+          OFFENDING_FILE: reprompt.offendingFile,
+          STAGING_DIR: args.expectedArtifactPath,
+        })
+      : buildIntentSplitPrompt({
+          workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+          seedLabel,
+          seedContent,
+          stagingDir: args.expectedArtifactPath,
+          stepRules: args.stepRules,
+        });
 
   return runWriteStep(args, worktreePath, {
     prompt,

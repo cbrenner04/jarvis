@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "./markdownlint-repair.ts";
 
@@ -185,6 +185,30 @@ export async function repairIntentStageContent(
   });
 }
 
+const ORDERING_PREFIX_FILENAME_RE = /^(\d+)-(.+)\.md$/;
+
+function unprefixedIntentFilename(name: string): string {
+  const match = ORDERING_PREFIX_FILENAME_RE.exec(name);
+  return match?.[2] ? `${match[2]}.md` : name;
+}
+
+export function normalizeIntentStageFilenames(stagingDir: string): void {
+  for (const entry of readdirSync(stagingDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const targetName = unprefixedIntentFilename(entry.name);
+    if (entry.name === targetName) continue;
+    renameSync(join(stagingDir, entry.name), join(stagingDir, targetName));
+  }
+}
+
+function intentStageNormalizedPaths(stagingDir: string): string[] {
+  return listIntentStageMarkdownFiles(stagingDir).map((path) => {
+    const name = basename(path);
+    const targetName = unprefixedIntentFilename(name);
+    return targetName !== name ? join(stagingDir, targetName) : path;
+  });
+}
+
 export function validateIntentFilenames(files: string[]): Result {
   if (files.length === 0) return { ok: false, error: "intent: splitter produced no intent files" };
   const seen = new Set<string>();
@@ -232,9 +256,13 @@ export async function validateIntentStage(
   for (const entry of entries)
     if (!entry.isFile() || !entry.name.endsWith(".md"))
       return { ok: false, error: `intent: invalid splitter output ${entry.name}; expected only markdown files` };
+  const normalizedPaths = intentStageNormalizedPaths(stagingDir);
+  const duplicateCheck = validateIntentFilenames(normalizedPaths);
+  if (!duplicateCheck.ok) return duplicateCheck;
+  normalizeIntentStageFilenames(stagingDir);
+  await repairIntentStageContent(stagingDir, warn, harnessRootOverride);
   const filenames = validateIntentFilenames(listIntentStageMarkdownFiles(stagingDir));
   if (!filenames.ok) return filenames;
-  await repairIntentStageContent(stagingDir, warn, harnessRootOverride);
   return validateIntentStageContent(filenames.intents);
 }
 

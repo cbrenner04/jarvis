@@ -622,6 +622,38 @@ link), the normalizer message propagates through `failureReason`,
 `contract_miss_detail.failureReason`, and the harness-appended `## Blocker` on
 staged `intent.md`; `contract_miss_detail.responseText` stays agent stdout.
 
+## Intent split landing contracts
+
+`intent.prompt.split` write loops validate staged ready-intent shape before
+accepting `done`, using the same `validateIntentStage` pipeline as deferred
+landing (prefix normalize → content repair → filename validation → content
+validation), the same rogue-path source (`findIntentLandingRoguePaths` over
+`listWorktreeChangedPaths`) as `landIntentWorkflowOutput`, and the same
+`.jarvis-intent-stage/` modified-path subset for shape validation.
+
+Violation taxonomy:
+
+- `NN-` ordering prefix, `name:`/slug alignment, H1 repair, and other harness
+  silent content repairs — applied inside `validateIntentStage` without a
+  `write.landing-contract-reprompt` iteration.
+- Agent-fixable shape the harness does not repair (prerequisites prose, missing
+  `## Prerequisites`, one-bullet-per-line prerequisites, etc.) — one write-loop
+  iteration reprompt via `write.landing-contract-reprompt` carrying the validation
+  message and offending staged file; consumes `maxIterations` across separate loop
+  iterations. Valid sibling staged files are preserved across reprompt iterations.
+- Non-repromptable (rogue path, duplicate/collision after normalize, I/O) —
+  immediate terminal write-loop `landing_failed` without spending reprompt budget.
+- Empty `.jarvis-intent-stage/` when the agent emits `done` — `artifact.exists`
+  `contract_miss` on the write step, not the landing gate above.
+
+After the reprompt budget is spent with the violation unfixed, the write loop
+settles `landing_failed` with `.jarvis-intent-stage/` bytes intact,
+`resumable: true`, and operator `nextAction: "resume"`. Resume and in-loop
+reprompt iterations preserve populated stage bytes (no stage wipe). A paused run
+after a repromptable miss restores violation/offending-file context from the
+last `landing_contract_reprompt` log event. Workflow-tail `landing_failed` for
+non-repromptable faults during deferred landing is unchanged.
+
 ## Intent review cycle
 
 Intent review is a specialized read-only-critic / write-actuator cycle that

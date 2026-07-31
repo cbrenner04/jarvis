@@ -39,7 +39,12 @@ function listFiles(worktreePath: string, dir: string = worktreePath, out: string
   return out;
 }
 
-async function changedPaths(
+export function intentStageModifiedPaths(allPaths: readonly string[]): string[] {
+  return allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));
+}
+
+/** Worktree-relative paths changed since `baseRef` (or full listing when git is unavailable). */
+export async function listWorktreeChangedPaths(
   worktreePath: string,
   baseRef: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
@@ -150,6 +155,46 @@ export async function listLandedIntentFiles(
   return [...owned].sort();
 }
 
+const INTENT_REVIEW_VERDICT_PATH = ".jarvis-intent-review-verdict.md";
+const INTENT_REVIEW_VERDICT_OWNER_PATH = `${INTENT_REVIEW_VERDICT_PATH}.owner`;
+
+/** Worktree-relative paths changed outside the intent stage that deferred landing rejects. */
+export async function findIntentLandingRoguePaths(input: {
+  worktreePath: string;
+  baseRef: string;
+  stagingDir: string;
+  durableDir: string;
+  invocationId?: string;
+  runner?: AsyncSubprocessRunner;
+}): Promise<string[]> {
+  const runner = input.runner ?? realAsyncSubprocessRunner;
+  const stageRel = input.stagingDir.replace(/\/$/, "");
+  const stageDir = join(input.worktreePath, stageRel);
+  if (!existsSync(stageDir) || !statSync(stageDir).isDirectory()) {
+    return [];
+  }
+  const stagedNames = readdirSync(stageDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => entry.name);
+  const durableResolved = resolve(input.worktreePath, input.durableDir);
+  const durablePrefix = `${relative(input.worktreePath, durableResolved).replace(/\\/g, "/").replace(/\/$/, "")}/`;
+  const ownershipFile = await ownershipPath(input.worktreePath, runner);
+  const ownership = readOwnership(ownershipFile);
+  const ownedFiles = input.invocationId === undefined ? [] : (ownership[input.invocationId] ?? []);
+  const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
+  const allPaths = await listWorktreeChangedPaths(input.worktreePath, input.baseRef, runner);
+  return allPaths.filter((path) => {
+    if (path === stageRel || path.startsWith(`${stageRel}/`)) return false;
+    if (path === ownershipRelPath) return false;
+    if (path === INTENT_REVIEW_VERDICT_PATH || path === INTENT_REVIEW_VERDICT_OWNER_PATH) return false;
+    if (path.startsWith(durablePrefix)) {
+      const name = path.slice(durablePrefix.length);
+      return !(stagedNames.includes(name) || ownedFiles.includes(name));
+    }
+    return true;
+  });
+}
+
 /** Validate and transactionally land an intent step's complete staged output. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: validation and rollback are one filesystem boundary.
 export async function landIntentWorkflowOutput(input: {
@@ -173,26 +218,17 @@ export async function landIntentWorkflowOutput(input: {
     failure("intent: .jarvis-intent-stage is missing");
   }
 
-  const stagedNames = readdirSync(stageDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => entry.name);
-  const durablePrefix = `${relative(input.worktreePath, durableDir).replace(/\\/g, "/").replace(/\/$/, "")}/`;
-  const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
-  const reviewVerdictPath = ".jarvis-intent-review-verdict.md";
-  const reviewOwnerPath = `${reviewVerdictPath}.owner`;
-  const allPaths = await changedPaths(input.worktreePath, input.baseRef, runner);
-  const rogue = allPaths.filter((path) => {
-    if (path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/")) return false;
-    if (path === ownershipRelPath) return false;
-    if (path === reviewVerdictPath || path === reviewOwnerPath) return false;
-    if (path.startsWith(durablePrefix)) {
-      const name = path.slice(durablePrefix.length);
-      return !(stagedNames.includes(name) || ownedFiles.includes(name));
-    }
-    return true;
+  const rogue = await findIntentLandingRoguePaths({
+    worktreePath: input.worktreePath,
+    baseRef: input.baseRef,
+    stagingDir: ".jarvis-intent-stage",
+    durableDir: input.output.durableDir,
+    ...(input.invocationId !== undefined ? { invocationId: input.invocationId } : {}),
+    runner,
   });
   if (rogue.length > 0) failure(`intent: splitter wrote outside .jarvis-intent-stage/: ${rogue.join(", ")}`);
-  const paths = allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));
+  const allPaths = await listWorktreeChangedPaths(input.worktreePath, input.baseRef, runner);
+  const paths = intentStageModifiedPaths(allPaths);
   const validation = await validateIntentStage(stageDir, paths, input.warn ?? (() => undefined));
   if (!validation.ok) failure(validation.error);
 
@@ -241,4 +277,60 @@ export async function landIntentWorkflowOutput(input: {
 
 function writeOwnership(path: string, ownership: Record<string, string[]>): void {
   writeFileSync(path, `${JSON.stringify(ownership)}\n`, "utf8");
+}
+
+function intentLandingOffendingFile(error: string): string {
+  const match = /^intent: ([^\s]+) /.exec(error);
+  return match?.[1] ?? "";
+}
+
+function isRepromptableIntentLandingError(error: string): boolean {
+  return !(
+    error.includes("splitter wrote outside") ||
+    error.includes("invalid splitter output") ||
+    error.includes("invalid emitted filename") ||
+    error.includes("duplicate emitted name") ||
+    error.includes("splitter produced no intent files") ||
+    error.includes("failed to read stage directory")
+  );
+}
+
+/** Post-normalize, post-repair landing validation for intent-split write-loop completion. */
+export async function evaluateIntentSplitLandingGate(input: {
+  worktreePath: string;
+  baseRef: string;
+  stagingDir: string;
+  durableDir: string;
+  warn?: (message: string) => void;
+}): Promise<
+  | { ok: true }
+  | { ok: false; error: string; offendingFile: string; repromptable: boolean }
+> {
+  const rogue = await findIntentLandingRoguePaths({
+    worktreePath: input.worktreePath,
+    baseRef: input.baseRef,
+    stagingDir: input.stagingDir,
+    durableDir: input.durableDir,
+  });
+  if (rogue.length > 0) {
+    const stageRel = input.stagingDir.replace(/\/$/, "");
+    return {
+      ok: false,
+      error: `intent: splitter wrote outside ${stageRel}/: ${rogue.join(", ")}`,
+      offendingFile: "",
+      repromptable: false,
+    };
+  }
+  const stageDir = join(input.worktreePath, input.stagingDir);
+  const modifiedPaths = intentStageModifiedPaths(await listWorktreeChangedPaths(input.worktreePath, input.baseRef));
+  const validation = await validateIntentStage(stageDir, modifiedPaths, input.warn ?? (() => undefined));
+  if (validation.ok) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error: validation.error,
+    offendingFile: intentLandingOffendingFile(validation.error),
+    repromptable: isRepromptableIntentLandingError(validation.error),
+  };
 }

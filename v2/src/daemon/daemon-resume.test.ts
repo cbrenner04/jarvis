@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
-import { resolveExhaustedRedResumeContext } from "../execution/workflow-runner.ts";
+import { resolveExhaustedRedResumeContext, resolveIntentFinalizationResumeContext } from "../execution/workflow-runner.ts";
 import {
   executeWriteLoop,
   MAX_READY_GATE_REPAIRS,
@@ -2352,6 +2352,148 @@ test.each(EXHAUSTED_RED_ELIGIBILITY_CASES)("exhausted-red eligibility matrix: $l
     expect(resumeRefusedTerminal(resumeResponse) || resumeResponse.kind === "error").toBe(true);
   }
   rmSync(logsPath, { force: true });
+});
+
+test("resumes write-step intent-split landing_failed via reconstructWriteResume", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "intent-split-write-landing-failed";
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  const stageFile = join(worktreePath, ".jarvis-intent-stage", "bad-intent.md");
+  const violationBytes = `---
+name: bad-intent
+---
+
+# Bad Intent
+
+## Prerequisites
+
+Still prose after budget exhaustion.
+`;
+  mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+  writeFileSync(stageFile, violationBytes, "utf8");
+
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "ready-intents",
+    stepId: "intent-split",
+    workflowSnapshot: {
+      invocationId: "intent-split-landing-failed",
+      steps: [
+        {
+          stepId: "intent-split",
+          role: "plan",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: ".jarvis-intent-stage",
+          promptId: "intent.prompt.split",
+          promptPlaceholders: {
+            SEED_LABEL: "inline",
+            SEED_CONTENT: "Resume after landing_failed",
+          },
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "landing_failed" });
+  stateStore.setRunStatus(runId, "failed");
+
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "landing_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+  const response = await resumeDirect(createHandlers(logReader), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.promptId).toBe("intent.prompt.split");
+  expect(starts[0]?.stepId).toBe("intent-split");
+  expect(readFileSync(stageFile, "utf8")).toBe(violationBytes);
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+  expect(resolveIntentFinalizationResumeContext({ ...run, attempts: run.attempts }, stateStore).ok).toBe(false);
+});
+
+test("resumes paused intent-split write loop with landing-contract reprompt context from log", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "intent-split-paused-reprompt";
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  const stageFile = join(worktreePath, ".jarvis-intent-stage", "bad-intent.md");
+  mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+  writeFileSync(
+    stageFile,
+    "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\nStill prose.\n",
+    "utf8",
+  );
+
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "ready-intents",
+    stepId: "intent-split",
+    workflowSnapshot: {
+      invocationId: "intent-split-paused-reprompt",
+      steps: [
+        {
+          stepId: "intent-split",
+          role: "plan",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: ".jarvis-intent-stage",
+          promptId: "intent.prompt.split",
+          promptPlaceholders: {
+            SEED_LABEL: "inline",
+            SEED_CONTENT: "Paused after repromptable miss",
+          },
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "landing_contract_reprompt",
+          attemptId: "attempt-1",
+          violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
+          offendingFile: "bad-intent.md",
+        },
+      },
+      {
+        runId,
+        seq: 2,
+        ts: "2026-01-01T00:00:01.000Z",
+        event: { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 1, resumable: true },
+      },
+    ],
+    async *follow() {},
+  };
+
+  const response = await resumeDirect(createHandlers(logReader), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.landingContractReprompt).toEqual({
+    violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
+    offendingFile: "bad-intent.md",
+  });
+  expect(readFileSync(stageFile, "utf8")).toContain("Still prose.");
 });
 
 test("exhausted-red eligibility guard inversion: origin evidence", () => {

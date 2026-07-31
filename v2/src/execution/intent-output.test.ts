@@ -26,6 +26,26 @@ function stage(repo: string, names: string[] = ["one"]): string {
 }
 
 describe("landIntentWorkflowOutput", () => {
+  test("lands NN-prefixed staged filename under unprefixed durable name", async () => {
+    const repo = createRepo();
+    const dir = join(repo, ".jarvis-intent-stage");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "01-example.md"),
+      "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n",
+      "utf8",
+    );
+    const result = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+    });
+    expect(result.files).toEqual(["example.md"]);
+    expect(result.specPath).toBe("ready-intents/example.md");
+    expect(existsSync(join(repo, "ready-intents", "example.md"))).toBe(true);
+    expect(existsSync(join(repo, "ready-intents", "01-example.md"))).toBe(false);
+  });
+
   test("lands one valid intent and records file handoff specPath", async () => {
     const repo = createRepo();
     stage(repo);

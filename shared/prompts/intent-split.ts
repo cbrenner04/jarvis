@@ -59,7 +59,7 @@ export function buildIntentSplitPrompt(opts: {
 
 - Write the authored intents as markdown files under \`${opts.stagingDir}\`.
 - Write one file per intent.
-- Filename must be \`<name>.md\`, where \`name:\` is the frontmatter slug in that file.
+- Filename must be \`<name>.md\` only — no \`NN-\` ordering prefix — where \`name:\` is the frontmatter slug in that file.
 - Include a \`## Prerequisites\` section in every emitted intent.
 - If there are prerequisites, write one prerequisite behavior per physical line as \`- ...\`; do not use prose, numbered lists, nested bullets, or wrapped continuation lines.
 - Leave the \`## Prerequisites\` body empty when there are no prerequisites.

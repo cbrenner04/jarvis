@@ -19,6 +19,13 @@ const BASE_OPTS = {
 const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 describe("buildIntentSplitPrompt", () => {
+  test("intent split prompt states landing filename contract", () => {
+    const prompt = buildIntentSplitPrompt(BASE_OPTS);
+
+    expect(prompt).toContain("<name>.md");
+    expect(prompt).toContain("no `NN-` ordering prefix");
+  });
+
   test("includes governed layering, file output, and optional step rules", () => {
     const prompt = buildIntentSplitPrompt({ ...BASE_OPTS, stepRules: DEFAULT_WRITE_STEP_RULES });
 

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   listIntentStageMarkdownFiles,
   repairIntentStageContent,
   validateIntentFilenames,
+  validateIntentStage,
   validateIntentStageContent,
   validateIntentStageStructure,
 } from "./intent-stage.ts";
@@ -60,6 +61,29 @@ describe("intent stage contract", () => {
     expect(content).toContain("See: #123");
     expect(content).toContain("\n## Prerequisites\n");
     expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(true);
+  });
+
+  test("normalizes NN- ordering prefix on staged filename", async () => {
+    // Mutation checkpoint: running filename validation before prefix strip in validateIntentStage
+    // must turn this test RED.
+    const dir = stage();
+    writeIntent(dir, "01-example", "---\nname: example\n---\n\n# Example\n\n## Prerequisites\n");
+    const result = await validateIntentStage(dir, [".jarvis-intent-stage/01-example.md"], () => {});
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(dir, "example.md"))).toBe(true);
+    expect(existsSync(join(dir, "01-example.md"))).toBe(false);
+  });
+
+  test("rejects duplicate basename after NN- prefix normalize", async () => {
+    const dir = stage();
+    writeIntent(dir, "01-foo", "---\nname: foo\n---\n\n# Foo\n\n## Prerequisites\n");
+    writeIntent(dir, "02-foo", "---\nname: foo\n---\n\n# Foo\n\n## Prerequisites\n");
+    const result = await validateIntentStage(
+      dir,
+      [".jarvis-intent-stage/01-foo.md", ".jarvis-intent-stage/02-foo.md"],
+      () => {},
+    );
+    expect(result).toEqual({ ok: false, error: "intent: duplicate emitted name foo" });
   });
 
   test("rejects malformed frontmatter and prerequisite prose", () => {

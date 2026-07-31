@@ -67,6 +67,8 @@ export type WorkflowSnapshotStep = {
   behavior?: "review-debate" | "review";
   stepRules?: string;
   expectedArtifactPath?: string;
+  promptId?: string;
+  promptPlaceholders?: Record<string, string>;
   agents?: readonly string[];
   agentModelConfig?: AgentModelConfig;
   iterationTimeoutMs?: number;
@@ -99,7 +101,8 @@ export type OutcomeKind =
   | "iteration_timeout"
   | "idle_output_timeout"
   | "invalid_token"
-  | "missing_blocker";
+  | "missing_blocker"
+  | "landing_failed";
 
 /** Durable ready-gate repair fence provenance persisted across process restart and resume. */
 export type ReadyGateRepairFenceProvenance = {

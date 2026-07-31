@@ -35,10 +35,10 @@ daemon exports only — CLI spec restores comment-checkpoint coverage on daemon 
 ## Acceptance criteria
 
 - [x] `v2/src/daemon/**/*.ts` outside `*.test.ts` carry no `setInvert*ForTest` export, `invert*ForTest` module variable, `invert*` function parameter, or `invert*ForTest` type member.
-- [ ] (Manual) In `daemon-pipeline-start.test.ts`, the documented admission-context mutation turns `pipeline_start persists supplied context before returning pipelineId` RED.
-- [ ] (Manual) In `pipeline-stage-resolve.test.ts`, the documented `selectChainedStageCwd` mutation turns its chained-resolution pinning tests RED.
-- [ ] (Manual) In `pipeline-end-to-end.sandbox-unrunnable.test.ts`, the documented `resumeFailedRequiresReopen` mutation turns its resume-and-settle test RED.
-- [ ] (Manual) In `pipeline-execution.test.ts`, the documented `hasPipelineTerminalPublicationFailure` mutation turns `fails a pipeline when its terminal action fails` RED.
+- [x] In `daemon-pipeline-start.test.ts`, the documented admission-context mutation turns `pipeline_start persists supplied context before returning pipelineId` RED. (Manual)
+- [x] In `pipeline-stage-resolve.test.ts`, the documented `selectChainedStageCwd` mutation turns its chained-resolution pinning tests RED. (Manual)
+- [x] In `pipeline-end-to-end.sandbox-unrunnable.test.ts`, the documented `resumeFailedRequiresReopen` mutation turns its resume-and-settle test RED. (Manual)
+- [x] In `pipeline-execution.test.ts`, the documented `hasPipelineTerminalPublicationFailure` mutation turns `fails a pipeline when its terminal action fails` RED. (Manual)
 - [x] `daemon-pipeline-start.test.ts` — `pipeline_start persists supplied context before returning pipelineId` stays green.
 - [x] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `walks intent → plan → implement with chained artifacts only on stage worktrees` stays green.
 - [x] `pipeline-execution.test.ts` — `fails a pipeline when its terminal action fails` stays green.

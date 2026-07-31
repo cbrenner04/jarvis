@@ -22,10 +22,7 @@ import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 import { derivePipelineState } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import {
-  createChainedStageProjectMatch,
-  resolveStageWorkflowSteps,
-} from "./pipeline-stage-resolve.ts";
+import { createChainedStageProjectMatch, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const PROJECT_KEY = "demo";
 const STAGE_IDS = ["intent", "approve-intent", "plan", "approve-plan", "implement"] as const;

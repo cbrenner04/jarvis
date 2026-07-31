@@ -27,11 +27,11 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline.test.ts` — replace `reads --seed from a relative file path` with assertions that `pipeline_start` context sets `seedPath` to the operator-relative CLI argument, `context.seed` is absent, and the fixture seed resolves inside the registered project root; fails pre-fix; `Mutation checkpoint:` stuffing file text into `context.seed` turns the test RED.
-- [ ] `pipeline.test.ts` — `prints admitted pipeline ID on valid start` stays green (`--seed-text` admits inline `context.seed` with no `seedPath`); `Mutation checkpoint:` setting `seedPath` on the text branch turns the test RED.
-- [ ] `pipeline.test.ts` — `rejects --seed %p before daemon connect` and `rejects unreadable --seed file before daemon connect` stay green.
-- [ ] `pipeline.test.ts` — resolved path outside the registered project root (`../` traversal) and symlink escape outside `projects.<projectKey>.root` each exit non-zero with a named stderr error and no daemon contact; fails pre-fix; `Mutation checkpoint:` inverting the project-root containment guard in `resolvePipelineSeed` turns both cases RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `pipeline.test.ts` — replace `reads --seed from a relative file path` with assertions that `pipeline_start` context sets `seedPath` to the operator-relative CLI argument, `context.seed` is absent, and the fixture seed resolves inside the registered project root; fails pre-fix; `Mutation checkpoint:` stuffing file text into `context.seed` turns the test RED.
+- [x] `pipeline.test.ts` — `prints admitted pipeline ID on valid start` stays green (`--seed-text` admits inline `context.seed` with no `seedPath`); `Mutation checkpoint:` setting `seedPath` on the text branch turns the test RED.
+- [x] `pipeline.test.ts` — `rejects --seed %p before daemon connect` and `rejects unreadable --seed file before daemon connect` stay green.
+- [x] `pipeline.test.ts` — resolved path outside the registered project root (`../` traversal) and symlink escape outside `projects.<projectKey>.root` each exit non-zero with a named stderr error and no daemon contact; fails pre-fix; `Mutation checkpoint:` inverting the project-root containment guard in `resolvePipelineSeed` turns both cases RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

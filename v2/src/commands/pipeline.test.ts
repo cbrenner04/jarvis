@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   PIPELINE_APPROVE_USAGE,
   PIPELINE_LIST_USAGE,
@@ -202,6 +202,28 @@ function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[
   return sent.filter((frame) => (frame as { method?: string }).method === method);
 }
 
+function pipelineStartContext(sent: readonly unknown[]): Record<string, unknown> | undefined {
+  return (ipcFramesWithMethod(sent, "pipeline_start")[0] as { params?: { context?: Record<string, unknown> } }).params
+    ?.context;
+}
+
+async function expectSeedRejectedBeforeConnect(seedArg: string, stderrContains: string): Promise<void> {
+  const cap = captureIo();
+  const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
+  let contacted = false;
+  const code = await main(["pipeline", "start", "demo", "--seed", seedArg], cap.io, {
+    ...noDaemonDeps(pipelineDeps(configPath)),
+    connectIpcClient: async () => {
+      contacted = true;
+      throw new Error("should not contact daemon");
+    },
+  });
+  expect(code).toBe(1);
+  expect(contacted).toBe(false);
+  expect(cap.read().stdout).toBe("");
+  expect(cap.read().stderr).toContain(stderrContains);
+}
+
 describe("pipeline start", () => {
   test("prints admitted pipeline ID on valid start", async () => {
     const cap = captureIo();
@@ -235,6 +257,8 @@ describe("pipeline start", () => {
         },
       },
     });
+    expect(pipelineStartContext(sent)).not.toHaveProperty("seedPath");
+    // Mutation checkpoint: setting `seedPath` on the text branch turns the test RED.
   });
 
   test("rejects invalid project pipeline configuration before daemon connect", async () => {
@@ -385,26 +409,32 @@ describe("pipeline start", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(1);
   });
 
-  test("reads --seed from a relative file path", async () => {
+  test("admits --seed as context.seedPath without inlining file content", async () => {
     const cap = captureIo();
-    const seedDir = mkdtempSync(join(tmpdir(), "jarvis-pipeline-seed-"));
-    const seedPath = join(seedDir, "seed.md");
-    writeFileSync(seedPath, "From file", "utf8");
+    const sent: unknown[] = [];
+    const seedRelative = "seeds/seed.md";
+    mkdirSync(join(fx.repoRoot, "seeds"), { recursive: true });
+    writeFileSync(join(fx.repoRoot, seedRelative), "From file", "utf8");
 
     const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     const code = await withFixedUuid([SESSION_UUID, "pipe-seed", "pipe-seed-w"], () =>
-      main(["pipeline", "start", "demo", "--seed", "seed.md"], cap.io, {
+      main(["pipeline", "start", "demo", "--seed", seedRelative], cap.io, {
         ...pipelineDeps(configPath),
-        cwd: () => seedDir,
         connectIpcClient: async () =>
           makeIpcClient(
             pipelineFrames("pipe-seed", ["pipe-seed-w"], "pipe-seed-1", [{ kind: "terminal", state: "succeeded" }]),
+            { sent },
           ),
       }),
     );
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain("pipe-seed-1\n");
+    expect(ipcFramesWithMethod(sent, "pipeline_start")).toHaveLength(1);
+    const context = pipelineStartContext(sent);
+    expect(context?.seedPath).toBe(seedRelative);
+    expect(context).not.toHaveProperty("seed");
+    // Mutation checkpoint: stuffing file text into `context.seed` turns the test RED.
   });
 
   test.each([
@@ -412,52 +442,46 @@ describe("pipeline start", () => {
     ["missing-seed.md", "pipeline: cannot resolve seed path:"],
     [".", "pipeline: seed is not a file: ."],
   ] as const)("rejects --seed %p before daemon connect", async (seedArg, stderrPrefix) => {
-    const cap = captureIo();
-    const seedDir = mkdtempSync(join(tmpdir(), "jarvis-pipeline-seed-"));
-    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
-    let contacted = false;
-
-    const code = await main(["pipeline", "start", "demo", "--seed", seedArg], cap.io, {
-      ...noDaemonDeps(pipelineDeps(configPath)),
-      cwd: () => seedDir,
-      connectIpcClient: async () => {
-        contacted = true;
-        throw new Error("should not contact daemon");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(contacted).toBe(false);
-    expect(cap.read().stdout).toBe("");
-    expect(cap.read().stderr).toContain(stderrPrefix);
+    await expectSeedRejectedBeforeConnect(seedArg, stderrPrefix);
   });
 
   test("rejects unreadable --seed file before daemon connect", async () => {
-    const cap = captureIo();
-    const seedDir = mkdtempSync(join(tmpdir(), "jarvis-pipeline-seed-"));
-    const seedPath = join(seedDir, "locked.md");
+    const seedPath = join(fx.repoRoot, "locked.md");
     writeFileSync(seedPath, "locked", "utf8");
     chmodSync(seedPath, 0o000);
-    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
-    let contacted = false;
-
     try {
-      const code = await main(["pipeline", "start", "demo", "--seed", "locked.md"], cap.io, {
-        ...noDaemonDeps(pipelineDeps(configPath)),
-        cwd: () => seedDir,
-        connectIpcClient: async () => {
-          contacted = true;
-          throw new Error("should not contact daemon");
-        },
-      });
-
-      expect(code).toBe(1);
-      expect(contacted).toBe(false);
-      expect(cap.read().stdout).toBe("");
-      expect(cap.read().stderr).toContain("pipeline: cannot resolve seed path:");
+      await expectSeedRejectedBeforeConnect("locked.md", "pipeline: cannot resolve seed path:");
     } finally {
       chmodSync(seedPath, 0o644);
     }
+  });
+
+  test("rejects --seed outside registered project root before daemon connect", async () => {
+    const outsideSeed = join(dirname(fx.repoRoot), "outside-seed.md");
+    writeFileSync(outsideSeed, "outside", "utf8");
+    try {
+      await expectSeedRejectedBeforeConnect(
+        "../outside-seed.md",
+        "pipeline: seed escapes registered project after symlink resolution:",
+      );
+    } finally {
+      try {
+        unlinkSync(outsideSeed);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+    // Mutation checkpoint: inverting the project-root containment guard in `resolvePipelineSeed` turns both cases RED.
+  });
+
+  test("rejects --seed symlink escape outside registered project root before daemon connect", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "jarvis-pipeline-outside-"));
+    writeFileSync(join(outside, "escaped.md"), "escaped", "utf8");
+    symlinkSync(join(outside, "escaped.md"), join(fx.repoRoot, "escaped.md"));
+    await expectSeedRejectedBeforeConnect(
+      "escaped.md",
+      "pipeline: seed escapes registered project after symlink resolution:",
+    );
   });
 });
 

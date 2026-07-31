@@ -668,12 +668,13 @@ function runListRowError(
   run: Parameters<typeof composeRunOperatorError>[0] | undefined,
   resumeContext: ResolvedWriteLoopInput | undefined,
   terminalRecord: TerminalLogRecord | undefined,
+  logRecords?: PersistedRecord[],
 ) {
   if (!run) return undefined;
   if (resumeContext?.ok === false) {
     return UNSUPPORTED_RESUME_ERROR;
   }
-  return composeRunOperatorError(run, terminalRecord);
+  return composeRunOperatorError(run, terminalRecord, logRecords);
 }
 
 export function runListTerminalFinishAtMs(
@@ -925,13 +926,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
+    const logTail = logReader?.tail(runId) ?? [];
     const run = store.loadRun(runId);
     const resumeContext = run ? resumeContextForRun(run, store, record) : undefined;
     const error =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
         : run
-          ? composeRunOperatorError(run, record)
+          ? composeRunOperatorError(run, record, logTail)
           : undefined;
     const unsupportedResume = resumeContext?.ok === false;
     const base: WaitRunCompletionResult =
@@ -967,7 +969,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     // review-step owner is always no and would blank out the mutation reason/detail below.
     // Entry resumability is projected separately via `entryCanResume`, so that masking
     // does not apply here.
-    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord);
+    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, logReader?.tail(owner.run.id) ?? []);
     const entryResult: WaitRunCompletionResult = {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
@@ -1384,7 +1386,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     liveRunIds: Set<string>,
   ) => {
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
-    const terminalRecord = findTerminalLogRecord(logReader?.tail(run.id) ?? []);
+    const logTail = logReader?.tail(run.id) ?? [];
+    const terminalRecord = findTerminalLogRecord(logTail);
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     const entryResult =
       entrySnapshot === undefined || fullRun === undefined
@@ -1394,7 +1397,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
     const error =
       rowOutcome?.error ??
-      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, store, terminalRecord), terminalRecord);
+      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, store, terminalRecord), terminalRecord, logTail);
     const {
       runStatus: _entryRunStatus,
       error: _entryError,

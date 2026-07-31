@@ -280,7 +280,7 @@ No stderr, exit codes, or attempt transcripts appear in this contract.
 | `surviving_mutation_failed` | `loopOutcomeKind: "surviving_mutation_failed"` on a `failed` row | `true` | `resume` |
 | `ready_flip_failed` | `loopOutcomeKind: "ready_flip_failed"` on a `completed` row | `false` | `stop` |
 
-For `completion_commit_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row. `ready_flip_failed` is terminal non-resumable and also carries `error.publicationFailure` from that row; `completion_commit_failed`, `ready_gate_failed`, and `ready_gate_out_of_scope` are retryable. `ready_gate_failed` and `ready_gate_out_of_scope` do **not** populate `error.publicationFailure` — gate evidence lives on the terminal `loop_finished` row (`readyGateError` message; inspect with `jarvis run log`). For `ready_gate_out_of_scope`, `error` also carries `readyGateOutsidePaths` and `readyGateOutOfScopeDetail` from that row and guides retry finalization via `jarvis run resume` (not source repair). For `surviving_mutation_failed`, `error` also carries `survivingMutation`, `survivingMutationSourceFile`, and `survivingMutationSourceLine` from the terminal `loop_finished` row. When `ready_flip_failed` occurs after the publisher returned a PR number, `error.prNumber` on `list` and `wait` identifies the PR for manual fixing; omitted when publication returned no PR.
+For `completion_commit_failed`, `error.publicationFailure` on both `list` and `wait` contains the failed operation, message, exit code, and bounded labelled stdout/stderr tails from the terminal `loop_finished` row. `ready_flip_failed` is terminal non-resumable and also carries `error.publicationFailure` from that row; `completion_commit_failed`, `ready_gate_failed`, and `ready_gate_out_of_scope` are retryable. `ready_gate_failed` and `ready_gate_out_of_scope` do **not** populate `error.publicationFailure` — gate evidence lives on the terminal `loop_finished` row (`readyGateError` message; inspect with `jarvis run log`). For `ready_gate_out_of_scope`, `error` also carries `readyGateOutsidePaths` and `readyGateOutOfScopeDetail` from that row and guides retry finalization via `jarvis run resume` (not source repair). For `surviving_mutation_failed`, `error` also carries `survivingMutation`, `survivingMutationSourceFile`, and `survivingMutationSourceLine` from the terminal `loop_finished` row. For `contract_miss`, `error.contractMissDetail` carries the chronologically last `contract_miss_detail.failureReason` from the run log when the log tail is readable; omitted when `logReader` is absent (store-only composition) or when the chronologically last `contract_miss_detail` lacks `failureReason`. `jarvis run log` remains the full excerpt. When `ready_flip_failed` occurs after the publisher returned a PR number, `error.prNumber` on `list` and `wait` identifies the PR for manual fixing; omitted when publication returned no PR.
 
 A failed hidden shrink publication row remains `failed` and resumable; the workflow entry row rolls up to `failed` rather than `completed`.
 
@@ -289,12 +289,16 @@ Every publication-tail outcome, `surviving_mutation_failed` included, settles on
 **Omission:** `error` is absent on `in-progress` runs and on `completed` runs with
 no operator-actionable stop.
 
-**Composition:** `composeRunOperatorError` reads durable `loadRun` plus the chronologically
+**Composition:** `composeRunOperatorError` reads durable `loadRun`, the chronologically
 last terminal log record (`loop_finished` or `run_execution_failed` — whichever ended
-the current quiescent state). `list` replays persisted logs per row via injected
-`logReader` (no `follow`). When `logReader` is absent (tests), `list` composes
-store-only and does not fail the RPC. `wait` and `list` share one composer and one
-terminal-selection rule.
+the current quiescent state), and an optional log-tail record list. `list` replays
+persisted logs per row via injected `logReader` (no `follow`) and passes that tail into
+the composer; `contractMissDetail` is sourced from the chronologically last
+`contract_miss_detail` in that tail when the row composes to `contract_miss`. When
+`logReader` is absent (tests), `list` composes store-only without the tail and does not
+fail the RPC — `contractMissDetail` is omitted. `wait` and `list` share one composer,
+one terminal-selection rule, and the same log-tail enrichment path when the tail is
+available.
 
 **Tie-break:** Attempt `outcome_kind: "invalid_token"` or `"missing_blocker"` wins over generic
 `resumable_pause` when `runStatus: "paused"`. A terminal `loop_finished` with

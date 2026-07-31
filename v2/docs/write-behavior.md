@@ -503,6 +503,10 @@ rejection message in `failureReason`, `contract_miss_detail.failureReason`, and
 the harness-appended `## Blocker` on staged `join(expectedArtifactPath,
 "intent.md")`; bare missing-tree failures still settle `plan.draft.shape`.
 `contract_miss_detail.responseText` remains agent stdout, not the normalizer text.
+`jarvis run list` and `jarvis run wait` project the chronologically last
+`contract_miss_detail.failureReason` onto `error.contractMissDetail` for
+`contract_miss` rows when the log tail is readable; see
+[`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait).
 
 ## Coverage advisory
 

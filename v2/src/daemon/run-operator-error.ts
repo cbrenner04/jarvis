@@ -1,7 +1,12 @@
 import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
-import type { LoopFinishedEvent, PersistedRecord, RunExecutionFailedEvent } from "../persistence/log-stream.ts";
+import type {
+  ContractMissDetailEvent,
+  LoopFinishedEvent,
+  PersistedRecord,
+  RunExecutionFailedEvent,
+} from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
 /** Closed operator-facing stop reason; not raw loop or invocation taxonomy. */
@@ -53,6 +58,7 @@ export type RunOperatorError = {
   survivingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
+  contractMissDetail?: string;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -282,7 +288,7 @@ export function terminalResumeRefusalMessage(
  * conflicting `loop_finished` values do not override mappable attempt detail, and
  * durable-status resumable kinds from stale logs stay demoted.
  */
-export function composeRunOperatorError(
+function composeRunOperatorErrorFromState(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
@@ -338,4 +344,21 @@ export function composeRunOperatorError(
   if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
   if (run.status === "failed") return op("harness_failure", "stop");
   return undefined;
+}
+
+export function composeRunOperatorError(
+  run: RunWithAttempts,
+  terminalRecord?: TerminalLogRecord,
+  logRecords?: PersistedRecord[],
+): RunOperatorError | undefined {
+  const error = composeRunOperatorErrorFromState(run, terminalRecord);
+  if (error?.reason !== "contract_miss" || !logRecords) return error;
+  let lastDetailEvent: ContractMissDetailEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "contract_miss_detail") {
+      lastDetailEvent = record.event;
+    }
+  }
+  const failureReason = lastDetailEvent?.failureReason;
+  return failureReason === undefined ? error : { ...error, contractMissDetail: failureReason };
 }

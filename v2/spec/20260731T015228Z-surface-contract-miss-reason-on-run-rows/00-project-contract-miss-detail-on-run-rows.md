@@ -46,18 +46,18 @@ confusing projection failure, not as a composition bug.
 
 ## Acceptance criteria
 
-- [ ] `daemon-wait-run-completion.test.ts` adds a settled-run regression asserting
+- [x] `daemon-wait-run-completion.test.ts` adds a settled-run regression asserting
       `error.contractMissDetail` on **both** `wait` and `list` for the same run (combined-test
       pattern, e.g. `surviving_mutation_failed`). "Plan-draft normalizer" names the motivating
       producer; the test may inject persisted `contract_miss_detail` + `loop_finished` log rows
       with the same `failureReason` text rather than driving the full write loop. Contract:
       persisted log → list/wait row projection. Fails against the pre-fix code.
-- [ ] `run-operator-error.test.ts` `composeRunOperatorError returns agent_blocked and contract_miss
+- [x] `run-operator-error.test.ts` `composeRunOperatorError returns agent_blocked and contract_miss
       from loop_finished` stays green (`contract_miss` without `contract_miss_detail.failureReason`
       keeps today's row shape).
-- [ ] `run-operator-error.test.ts` adds a case where the log tail contains `contract_miss_detail`
+- [x] `run-operator-error.test.ts` adds a case where the log tail contains `contract_miss_detail`
       without `failureReason` and the composed error keeps today's shape (no `contractMissDetail`).
-- [ ] Source-mutating the shared list/wait composition path to drop the
+- [x] Source-mutating the shared list/wait composition path to drop the
       `contract_miss_detail.failureReason` projection onto `contractMissDetail` turns the daemon
       regression RED, with a comment checkpoint at that line naming the mutation. Satisfy this by
       mutating the real guard — do **not** add a production test flag (no `setInvert*ForTest`

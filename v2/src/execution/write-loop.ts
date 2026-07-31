@@ -9,6 +9,7 @@ import {
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
+import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -35,6 +36,7 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
   classifyReadyGateError,
@@ -176,6 +178,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   /** Reprompt context for the next intent-split iteration after a landing-contract miss. */
   landingContractReprompt?: { violation: string; offendingFile: string };
+  /** Publication landing contract when invoked from workflow-runner write steps. */
+  landing?: PublicationLanding;
 };
 
 /**
@@ -279,7 +283,71 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
 const REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE = "Ready-gate repair stages harness sidecar: ";
+const REPAIR_FENCE_MARKDOWN_ONLY_FAILURE_MESSAGE =
+  "Ready-gate repair stages path outside markdown workflow output roots: ";
 const REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE = "Ready-gate repair fence could not reconstruct persisted allowset";
+const REPAIR_FENCE_MISSING_MARKDOWN_PROVENANCE_MESSAGE =
+  "Ready-gate repair fence could not reconstruct persisted markdown workflow output roots";
+
+const MARKDOWN_STAGING_ROOTS: Record<string, string> = {
+  [INTENT_SPLIT_PROMPT_ID]: ".jarvis-intent-stage",
+  [PLAN_DRAFT_PROMPT_ID]: ".jarvis-plan-stage",
+};
+
+function resolveMarkdownOnlyWorkflowPromptId(
+  promptId: string | undefined,
+  landing?: PublicationLanding,
+): string | undefined {
+  if (promptId === INTENT_SPLIT_PROMPT_ID || landing?.kind === "intent-stage") {
+    return INTENT_SPLIT_PROMPT_ID;
+  }
+  if (promptId === PLAN_DRAFT_PROMPT_ID || landing?.kind === "plan-tree") {
+    return PLAN_DRAFT_PROMPT_ID;
+  }
+  return undefined;
+}
+
+/** Frozen markdown output roots for intent/plan ready-gate repair from the originating write-step contract. */
+export function deriveMarkdownOutputRoots(args: {
+  promptId: string | undefined;
+  specPath: string;
+  expectedArtifactPath: string;
+  landing?: PublicationLanding;
+}): readonly string[] | undefined {
+  const workflowPromptId = resolveMarkdownOnlyWorkflowPromptId(args.promptId, args.landing);
+  const stagingRoot = workflowPromptId !== undefined ? MARKDOWN_STAGING_ROOTS[workflowPromptId] : undefined;
+  if (workflowPromptId === undefined || stagingRoot === undefined) {
+    return undefined;
+  }
+  const roots = new Set<string>();
+  const durable =
+    workflowPromptId === INTENT_SPLIT_PROMPT_ID
+      ? args.landing?.kind === "intent-stage"
+        ? args.landing.output.durableDir
+        : args.specPath
+      : args.landing?.kind === "plan-tree"
+        ? args.landing.durablePath
+        : args.specPath;
+  const normalizedDurable = validateRepoRelativePath(durable);
+  if (normalizedDurable !== undefined) {
+    roots.add(normalizedDurable);
+  }
+  const stagingDir =
+    workflowPromptId === INTENT_SPLIT_PROMPT_ID
+      ? args.landing?.kind === "intent-stage"
+        ? args.landing.stagingDir
+        : args.expectedArtifactPath
+      : args.landing?.kind === "plan-tree"
+        ? args.landing.stagingDir
+        : args.expectedArtifactPath;
+  if (validateRepoRelativePath(stagingDir) === stagingRoot) {
+    roots.add(stagingRoot);
+  }
+  if (roots.size === 0) {
+    return undefined;
+  }
+  return [...roots].sort(compareRepoPathsByUtf8Bytes);
+}
 
 async function shouldEnforceReadyGateRepairFence(worktreePath: string): Promise<boolean> {
   try {
@@ -400,9 +468,39 @@ export function findFirstRepairFenceViolation(
   return undefined;
 }
 
+export function findFirstMarkdownOnlyFenceViolation(
+  candidates: readonly string[],
+  markdownOutputRoots: readonly string[],
+): string | undefined {
+  const normalizedRoots = markdownOutputRoots
+    .map((root) => validateRepoRelativePath(root))
+    .filter((root): root is string => root !== undefined);
+  const normalizedCandidates: string[] = [];
+  for (const raw of candidates) {
+    const normalized = validateRepoRelativePath(raw);
+    if (normalized === undefined) {
+      return escapeRepoPathForEvidence(raw);
+    }
+    normalizedCandidates.push(normalized);
+  }
+  normalizedCandidates.sort(compareRepoPathsByUtf8Bytes);
+  for (const normalized of normalizedCandidates) {
+    if (!normalized.endsWith(".md")) {
+      return escapeRepoPathForEvidence(normalized);
+    }
+    const underRoot = normalizedRoots.some((root) => normalized === root || normalized.startsWith(`${root}/`));
+    if (!underRoot) {
+      return escapeRepoPathForEvidence(normalized);
+    }
+  }
+  return undefined;
+}
+
 export async function validateReadyGateRepairCompletion(
   scope: ReadyGateScopeInput,
   allowedPaths: Set<string>,
+  markdownOutputRoots?: readonly string[],
+  markdownOnlyRequired = false,
 ): Promise<{ error: Error; offendingPath?: string } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
@@ -416,13 +514,25 @@ export async function validateReadyGateRepairCompletion(
     };
   }
   const violation = findFirstRepairFenceViolation(candidates, allowedPaths);
-  if (violation === undefined) {
-    return undefined;
+  if (violation !== undefined) {
+    return {
+      offendingPath: violation,
+      error: new Error(`${REPAIR_FENCE_FAILURE_MESSAGE}${violation}`),
+    };
   }
-  return {
-    offendingPath: violation,
-    error: new Error(`${REPAIR_FENCE_FAILURE_MESSAGE}${violation}`),
-  };
+  if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
+    return { error: new Error(REPAIR_FENCE_MISSING_MARKDOWN_PROVENANCE_MESSAGE) };
+  }
+  if (markdownOutputRoots !== undefined && markdownOutputRoots.length > 0) {
+    const markdownViolation = findFirstMarkdownOnlyFenceViolation(candidates, markdownOutputRoots);
+    if (markdownViolation !== undefined) {
+      return {
+        offendingPath: markdownViolation,
+        error: new Error(`${REPAIR_FENCE_MARKDOWN_ONLY_FAILURE_MESSAGE}${markdownViolation}`),
+      };
+    }
+  }
+  return undefined;
 }
 
 function persistReadyGateRepairFence(
@@ -430,9 +540,15 @@ function persistReadyGateRepairFence(
   runId: string,
   allowedPaths: Set<string>,
   offendingPath?: string,
+  markdownOutputRoots?: readonly string[],
+  markdownOnly?: boolean,
 ): void {
   store.setReadyGateRepairFence(runId, {
     allowedPaths: [...allowedPaths].sort(compareRepoPathsByUtf8Bytes),
+    ...(markdownOnly === true ? { markdownOnly: true } : {}),
+    ...(markdownOutputRoots !== undefined && markdownOutputRoots.length > 0
+      ? { markdownOutputRoots: [...markdownOutputRoots].sort(compareRepoPathsByUtf8Bytes) }
+      : {}),
     ...(offendingPath !== undefined ? { offendingPath } : {}),
     outcomeKind: offendingPath !== undefined ? "completion_commit_failed" : "frozen",
   });
@@ -464,7 +580,14 @@ export async function enforcePersistedReadyGateRepairFence(
   if (provenance === undefined || provenance === null) {
     return undefined;
   }
-  return (await validateReadyGateRepairCompletion(scope, new Set(provenance.allowedPaths)))?.error;
+  return (
+    await validateReadyGateRepairCompletion(
+      scope,
+      new Set(provenance.allowedPaths),
+      provenance.markdownOutputRoots,
+      provenance.markdownOnly === true,
+    )
+  )?.error;
 }
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
@@ -1823,6 +1946,16 @@ type ReadyRepairPublishResult = {
   readyGateOrigin?: ReadyGateOrigin;
 };
 
+function readyGateRepairMarkdownProvenanceFailure(iterationsConsumed: number): ReadyRepairPublishResult {
+  return {
+    failure: {
+      kind: "completion_commit_failed",
+      error: new Error(REPAIR_FENCE_MISSING_MARKDOWN_PROVENANCE_MESSAGE),
+    },
+    iterationsConsumed,
+  };
+}
+
 function readyGateRepairProvenanceFailure(iterationsConsumed: number): ReadyRepairPublishResult {
   return {
     failure: {
@@ -1855,6 +1988,7 @@ async function initializeFrozenRepairAllowset(
   store: StateStore,
   runId: string,
   input: CompletionPublishInput,
+  loopArgs: WriteLoopInput,
   iterationsConsumed: number,
 ): Promise<{ allowset: Set<string> } | { failure: ReadyRepairPublishResult }> {
   if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
@@ -1879,9 +2013,26 @@ async function initializeFrozenRepairAllowset(
       },
     };
   }
-  persistReadyGateRepairFence(store, runId, derived);
-  if (readyGateRepairFencePersisted(store, runId) === undefined) {
+  const markdownOnly = resolveMarkdownOnlyWorkflowPromptId(loopArgs.promptId, loopArgs.landing) !== undefined;
+  const markdownOutputRoots = deriveMarkdownOutputRoots({
+    promptId: loopArgs.promptId,
+    specPath: loopArgs.specPath,
+    expectedArtifactPath: loopArgs.expectedArtifactPath,
+    ...(loopArgs.landing !== undefined ? { landing: loopArgs.landing } : {}),
+  });
+  if (markdownOnly && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
+    return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
+  }
+  persistReadyGateRepairFence(store, runId, derived, undefined, markdownOutputRoots, markdownOnly);
+  const persistedFence = readyGateRepairFencePersisted(store, runId);
+  if (persistedFence === undefined) {
     return { failure: readyGateRepairProvenanceFailure(iterationsConsumed) };
+  }
+  if (
+    markdownOnly &&
+    (persistedFence.markdownOutputRoots === undefined || persistedFence.markdownOutputRoots.length === 0)
+  ) {
+    return { failure: readyGateRepairMarkdownProvenanceFailure(iterationsConsumed) };
   }
   return { allowset: derived };
 }
@@ -1897,6 +2048,11 @@ async function enforceRepairIterationFence(
   if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
     return undefined;
   }
+  const persistedFence = store.loadRun(runId)?.readyGateRepairFence;
+  const markdownOutputRoots = persistedFence?.markdownOutputRoots;
+  const markdownOnlyRequired =
+    persistedFence?.markdownOnly === true ||
+    resolveMarkdownOnlyWorkflowPromptId(_args.promptId, _args.landing) !== undefined;
   const fenceResult = await validateReadyGateRepairCompletion(
     {
       worktreePath: input.worktreePath,
@@ -1904,11 +2060,20 @@ async function enforceRepairIterationFence(
       specPath: input.specPath,
     },
     frozenRepairAllowset,
+    markdownOutputRoots,
+    markdownOnlyRequired,
   );
   if (fenceResult === undefined) {
     return undefined;
   }
-  persistReadyGateRepairFence(store, runId, frozenRepairAllowset, fenceResult.offendingPath);
+  persistReadyGateRepairFence(
+    store,
+    runId,
+    frozenRepairAllowset,
+    fenceResult.offendingPath,
+    markdownOutputRoots,
+    markdownOnlyRequired ? true : undefined,
+  );
   return {
     failure: { kind: "completion_commit_failed", error: fenceResult.error },
     iterationsConsumed,
@@ -1978,7 +2143,7 @@ async function runReadyGateRepairLoop(
     }
     if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
     if (allowset === undefined) {
-      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, currentIterations);
+      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, args, currentIterations);
       if ("failure" in initialized) return { kind: "early", result: initialized.failure };
       allowset = initialized.allowset;
     }

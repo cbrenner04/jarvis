@@ -27,10 +27,10 @@ stays green when the real guard is deleted.
 
 ## Acceptance criteria
 
-- [ ] New or extended `write.test.ts` cases for rendered `plan.prompt.draft` and `patch.prompt.body` (e.g. `intentSeed branch: agent-instructed write path matches the seeded/validated spec directory` and `patch.prompt.body resolves step placeholders and invokes binding`, or dedicated replacements) fail against pre-change `DEFAULT_WRITE_STEP_RULES` and pass after; each case uses separate substring pins for source-mutation + comment-checkpoint evidence and each forbidden hook shape—not wholesale `toContain(DEFAULT_WRITE_STEP_RULES)` alone.
-- [ ] Each new or extended render case carries a comment naming `DEFAULT_WRITE_STEP_RULES` as the inversion target; removing or inverting the guard-inversion paragraph in that constant makes `write.test.ts` RED.
-- [ ] `bun run typecheck`, scoped v2 tests for touched surfaces, and `bun run test:v1` (or `v1/test/prompts/rendered-snapshots.test.ts`) pass.
-- [ ] `v2/docs/test-writing.md` documents source-mutation + comment-checkpoint guard-inversion evidence and forbids all four production invert-hook shapes.
+- [x] New or extended `write.test.ts` cases for rendered `plan.prompt.draft` and `patch.prompt.body` (e.g. `intentSeed branch: agent-instructed write path matches the seeded/validated spec directory` and `patch.prompt.body resolves step placeholders and invokes binding`, or dedicated replacements) fail against pre-change `DEFAULT_WRITE_STEP_RULES` and pass after; each case uses separate substring pins for source-mutation + comment-checkpoint evidence and each forbidden hook shape—not wholesale `toContain(DEFAULT_WRITE_STEP_RULES)` alone.
+- [x] Each new or extended render case carries a comment naming `DEFAULT_WRITE_STEP_RULES` as the inversion target; removing or inverting the guard-inversion paragraph in that constant makes `write.test.ts` RED.
+- [x] `bun run typecheck`, scoped v2 tests for touched surfaces, and `bun run test:v1` (or `v1/test/prompts/rendered-snapshots.test.ts`) pass.
+- [x] `v2/docs/test-writing.md` documents source-mutation + comment-checkpoint guard-inversion evidence and forbids all four production invert-hook shapes.
 
 ## Documentation updates
 

@@ -312,6 +312,14 @@ When a guard inside a `setInterval` callback changes, extract it into a pure exp
 
 **Teaching fixture:** [`timer-callback-guard-fixture.ts`](../src/testing/timer-callback-guard-fixture.ts) — pure `shouldStopPolling` plus `registerStopPoll` for the `setInterval` wiring. Inverting `!hasPendingWork` to `hasPendingWork` fails the first predicate case; see [`timer-callback-guard-fixture.test.ts`](../src/testing/timer-callback-guard-fixture.test.ts).
 
+## Guard-inversion evidence
+
+Guard-inversion ACs require a **source mutation on the real guard** and a **comment checkpoint on the pinning test** naming that mutation (documents what to flip so the pin turns RED; not a substitute for mutating the guard).
+
+Injected write-step rules carry the guard-inversion evidence contract and invert-hook prohibition into agent prompts — necessary but not sufficient to stop production invert hooks. Static enforcement is owned by the `guard-production-test-flags` ready intent ([`v2/spec/ready-intents/guard-production-test-flags.md`](../spec/ready-intents/guard-production-test-flags.md)); `scripts/guard-production-test-flags.ts` is not wired into `bun run check` yet.
+
+Forbidden production invert hooks: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, `invert*ForTest` type members.
+
 ## Test doubles must not call production behavior
 
 Test fixtures and mocks under `v2/src/testing/**` must never compute their responses by calling the production behavior they stand in for. Such calls turn the double into a self-referential assertion that checks implementation against itself rather than catching behavioral drift or misuse.

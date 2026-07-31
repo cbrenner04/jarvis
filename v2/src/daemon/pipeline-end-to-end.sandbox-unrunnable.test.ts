@@ -25,7 +25,6 @@ import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-
 import {
   createChainedStageProjectMatch,
   resolveStageWorkflowSteps,
-  setCollapseFanOutToFirstInputForTest,
   setInvertPriorWorktreeRootGuardForTest,
 } from "./pipeline-stage-resolve.ts";
 
@@ -922,9 +921,7 @@ describe("pipeline end-to-end fast", () => {
       );
     });
 
-    afterEach(() => {
-      setCollapseFanOutToFirstInputForTest(false);
-    });
+    afterEach(() => {});
 
     test("walks intent → plan → implement on separate branches with dispatch count 2 per downstream stage", async () => {
       expect(existsSync(join(fanOutRepoRoot, INTENT_ALPHA))).toBe(false);
@@ -960,30 +957,6 @@ describe("pipeline end-to-end fast", () => {
       expect(fastStageStatusVector(pipeline)).not.toEqual(["succeeded", "succeeded", "succeeded"]);
       expect(derivePipelineState(pipeline)).toBe("succeeded");
       expect(harness.dispatchCounts).toEqual({ intent: 1, plan: 2, implement: 2 });
-      harness.fakeExecutor.abortAll();
-    });
-
-    test("collapsing fan-out to one branch fails before full success", async () => {
-      setCollapseFanOutToFirstInputForTest(true);
-      const harness = createFastHarness(
-        fanOutRepoRoot,
-        fanOutJarvisRoot,
-        fanOutConfigPath,
-        fanOutArtifactTemplatesDir,
-        { twoBranchFanOut: true },
-      );
-      const { store, handlers, definition, context } = harness;
-
-      const start = await handlers.pipeline_start(
-        requestFrame("start", "pipeline_start", { definition, context }),
-        new AbortController().signal,
-      );
-      const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
-
-      await waitFor(() => derivePipelineState(readPipeline(store, pipelineId)) !== "pending");
-      const pipeline = readPipeline(store, pipelineId);
-      expect(fastTwoBranchStatusVector(pipeline)).not.toEqual([...FAST_TWO_BRANCH_SUCCESS_VECTOR]);
-      expect(derivePipelineState(pipeline)).not.toBe("succeeded");
       harness.fakeExecutor.abortAll();
     });
   });

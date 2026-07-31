@@ -61,34 +61,9 @@ const WORKFLOW_POSTURE_PRESETS: Record<string, Partial<Record<string, CliWorkflo
 const FIXED_REVIEW_PASSES = 1;
 
 let invertPriorWorktreeRootGuardForTest = false;
-let collapseFanOutToFirstInputForTest = false;
-let treatAbsentDownstreamInputsAsFanOutForTest = false;
-let refanOutOnLaterStagesForTest = false;
-let treatLength1AsMultiFanOutForTest = false;
-let fallbackToDirectorySpecPathOnMissingForTest = false;
 
 export function setInvertPriorWorktreeRootGuardForTest(value: boolean): void {
   invertPriorWorktreeRootGuardForTest = value;
-}
-
-export function setCollapseFanOutToFirstInputForTest(value: boolean): void {
-  collapseFanOutToFirstInputForTest = value;
-}
-
-export function setTreatAbsentDownstreamInputsAsFanOutForTest(value: boolean): void {
-  treatAbsentDownstreamInputsAsFanOutForTest = value;
-}
-
-export function setRefanOutOnLaterStagesForTest(value: boolean): void {
-  refanOutOnLaterStagesForTest = value;
-}
-
-export function setTreatLength1AsMultiFanOutForTest(value: boolean): void {
-  treatLength1AsMultiFanOutForTest = value;
-}
-
-export function setFallbackToDirectorySpecPathOnMissingForTest(value: boolean): void {
-  fallbackToDirectorySpecPathOnMissingForTest = value;
 }
 
 function selectChainedStageCwd(contextCwd: string, priorWorktreePath: string): string {
@@ -270,21 +245,6 @@ type ChainedReadyIntentPaths =
   | { ok: true; kind: "fan-out"; paths: readonly string[] }
   | { ok: false; error: string };
 
-function chainedStageAllowsFanOut(stage: PipelineStage & { kind: "workflow" }): boolean {
-  if (stage.workflow === "plan") return true;
-  return refanOutOnLaterStagesForTest && stage.workflow !== "intent";
-}
-
-function chainedReadyIntentFallbackOrError(
-  prior: PriorArtifactContext,
-  verified: { ok: false; error: string },
-): ChainedReadyIntentPaths {
-  if (fallbackToDirectorySpecPathOnMissingForTest) {
-    return { ok: true, kind: "single", path: prior.specPath };
-  }
-  return verified;
-}
-
 function verifyChainedReadyIntentPath(
   prior: PriorArtifactContext,
   path: string,
@@ -296,9 +256,6 @@ function verifyChainedReadyIntentPath(
     };
   }
   if (!existsSync(join(prior.worktreePath, path))) {
-    if (fallbackToDirectorySpecPathOnMissingForTest) {
-      return { ok: true };
-    }
     return {
       ok: false,
       error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
@@ -313,51 +270,42 @@ function resolveVerifiedChainedReadyIntentPath(
   asFanOut: boolean,
 ): ChainedReadyIntentPaths {
   const verified = verifyChainedReadyIntentPath(prior, path);
-  if (!verified.ok) return chainedReadyIntentFallbackOrError(prior, verified);
+  if (!verified.ok) return verified;
   if (asFanOut) return { ok: true, kind: "fan-out", paths: [path] };
   return { ok: true, kind: "single", path };
 }
 
-function resolveChainedReadyIntentPaths(
-  prior: PriorArtifactContext,
-  stage: PipelineStage & { kind: "workflow" },
-): ChainedReadyIntentPaths {
+/**
+ * Fan-out happens only at the plan stage — the pipeline has already branched by the time implement
+ * resolves, so this is called from the plan resolver alone.
+ */
+function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedReadyIntentPaths {
   const downstreamInputs = prior.artifact.downstreamInputs;
-  const allowFanOut = chainedStageAllowsFanOut(stage);
 
-  if (!allowFanOut) {
-    return { ok: true, kind: "single", path: prior.specPath };
-  }
-
+  // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
+  // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
+  // regressions RED.
   if (downstreamInputs === undefined || downstreamInputs.length === 0) {
-    if (treatAbsentDownstreamInputsAsFanOutForTest) {
-      return { ok: true, kind: "fan-out", paths: [prior.specPath] };
-    }
     return { ok: true, kind: "single", path: prior.specPath };
   }
 
   if (downstreamInputs.length === 1) {
-    return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, treatLength1AsMultiFanOutForTest);
-  }
-
-  if (collapseFanOutToFirstInputForTest) {
     return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, false);
   }
 
   for (const path of downstreamInputs) {
     const verified = verifyChainedReadyIntentPath(prior, path);
-    if (!verified.ok) return chainedReadyIntentFallbackOrError(prior, verified);
+    // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
+    // error must turn the missing-downstream-input regression RED.
+    if (!verified.ok) return verified;
   }
   return { ok: true, kind: "fan-out", paths: downstreamInputs };
 }
 
 function pathForDownstreamInput(
-  prior: PriorArtifactContext,
+  _prior: PriorArtifactContext,
   path: string,
 ): { ok: true; path: string } | { ok: false; error: string } {
-  if (fallbackToDirectorySpecPathOnMissingForTest && !existsSync(join(prior.worktreePath, path))) {
-    return { ok: true, path: prior.artifact.specPath };
-  }
   return { ok: true, path };
 }
 
@@ -454,7 +402,9 @@ async function resolvePlanStage(
   presetName: CliWorkflowPresetName,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
 ): Promise<PipelineStageResolutionResult> {
-  if (!isChainedPlanReadyIntentPath(prior.specPath) && !fallbackToDirectorySpecPathOnMissingForTest) {
+  // Mutation checkpoint: accepting a directory specPath here must turn the plan-stage
+  // ready-intent-file regression RED.
+  if (!isChainedPlanReadyIntentPath(prior.specPath)) {
     return {
       ok: false,
       error: `pipeline-stage-resolve: preceding artifact specPath must be a ready-intent file, not a directory`,
@@ -495,19 +445,9 @@ async function resolveImplementWorkflowStage(
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return priorResult;
 
-  if (refanOutOnLaterStagesForTest) {
-    const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
-    if (!inputPaths.ok) return inputPaths;
-    if (inputPaths.kind === "fan-out") {
-      return resolveForDownstreamPaths(
-        priorResult.prior,
-        inputPaths.paths,
-        (prior) => resolveImplementStage(stage, prior, context, builders),
-        definition.terminalAction === "leave-draft" ? leaveDraftWriteStepMapper : undefined,
-      );
-    }
-  }
-
+  // Implement never re-fans out: the pipeline already branched at plan, so this stage resolves
+  // exactly one input. Mutation checkpoint: fanning out here must turn the
+  // "later stages do not re-fan out" regression RED.
   const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
   if (!result.ok || definition.terminalAction !== "leave-draft") return result;
   return { ok: true, steps: leaveDraftWriteStepMapper(singleStageResolutionSteps(result)) };
@@ -528,7 +468,7 @@ async function resolvePlanWorkflowStage(
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return priorResult;
 
-  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
+  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior);
   if (!inputPaths.ok) return inputPaths;
 
   if (inputPaths.kind === "fan-out") {

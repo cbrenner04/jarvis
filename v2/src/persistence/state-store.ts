@@ -253,7 +253,7 @@ function comparePipelineStageBranchOrder(a: PipelineStageRecord, b: PipelineStag
 }
 
 /** Stage rows that participate in reopen shape analysis for one failed branch row. */
-export function reopenStagesForFailedBranch(
+function reopenStagesForFailedBranch(
   stages: readonly PipelineStageRecord[],
   failedStage: PipelineStageRecord,
 ): PipelineStageRecord[] {

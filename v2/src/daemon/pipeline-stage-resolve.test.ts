@@ -14,12 +14,7 @@ import {
   type PipelineContext,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
-  setCollapseFanOutToFirstInputForTest,
-  setFallbackToDirectorySpecPathOnMissingForTest,
   setInvertPriorWorktreeRootGuardForTest,
-  setRefanOutOnLaterStagesForTest,
-  setTreatAbsentDownstreamInputsAsFanOutForTest,
-  setTreatLength1AsMultiFanOutForTest,
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 
@@ -122,11 +117,6 @@ async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate"
 
 afterEach(() => {
   setInvertPriorWorktreeRootGuardForTest(false);
-  setCollapseFanOutToFirstInputForTest(false);
-  setTreatAbsentDownstreamInputsAsFanOutForTest(false);
-  setRefanOutOnLaterStagesForTest(false);
-  setTreatLength1AsMultiFanOutForTest(false);
-  setFallbackToDirectorySpecPathOnMissingForTest(false);
 });
 
 describe("resolveStageWorkflowSteps", () => {
@@ -770,13 +760,6 @@ describe("resolveStageWorkflowSteps", () => {
     if (!result.ok || !("results" in result)) throw new Error("expected fan-out results");
     expect(result.results).toHaveLength(2);
     expect(seenReadyIntents).toEqual([readyA, readyB]);
-
-    setCollapseFanOutToFirstInputForTest(true);
-    const collapsed = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
-    expect(collapsed.ok).toBe(true);
-    if (!collapsed.ok) return;
-    expect("results" in collapsed).toBe(false);
-    expect(singleStageResolutionSteps(collapsed).length).toBeGreaterThan(0);
   });
 
   test("single-file prior artifact without downstreamInputs still resolves one plan preset binding", async () => {
@@ -806,12 +789,6 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
     expect(seenInput?.readyIntent).toBe(readyIntentRel);
-
-    setTreatAbsentDownstreamInputsAsFanOutForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
-    expect(inverted.ok).toBe(true);
-    if (!inverted.ok) return;
-    expect("results" in inverted).toBe(true);
   });
 
   test("per-branch plan artifact resolving implement returns one resolution without re-fan-out", async () => {
@@ -847,12 +824,6 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
     expect(seenInput?.specPath).toBe(planSpecRel);
-
-    setRefanOutOnLaterStagesForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
-    expect(inverted.ok).toBe(true);
-    if (!inverted.ok) return;
-    expect("results" in inverted).toBe(true);
   });
 
   test("downstreamInputs length 1 resolves one binding to that path", async () => {
@@ -883,12 +854,6 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
     expect(seenInput?.readyIntent).toBe(readyRel);
-
-    setTreatLength1AsMultiFanOutForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
-    expect(inverted.ok).toBe(true);
-    if (!inverted.ok) return;
-    expect("results" in inverted).toBe(true);
   });
 
   test("missing downstreamInputs path fails without falling back to directory specPath", async () => {
@@ -916,9 +881,5 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain("not found");
-
-    setFallbackToDirectorySpecPathOnMissingForTest(true);
-    const inverted = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
-    expect(inverted.ok).toBe(true);
   });
 });

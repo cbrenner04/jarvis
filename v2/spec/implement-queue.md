@@ -88,6 +88,7 @@ Remaining chrome sits with the [TUI phase](tui-overhaul-brief.md):
 | --- | --- |
 | `pipeline-intent-split-fans-out-downstream-stages` | A splitting intent is the normal outcome and dead-ends every pipeline at plan; blocks unattended runs entirely |
 | `pipeline-start-seed-path-loses-file-identity` | Frontmatter-derived branch slug, and the seed file is never consumed; hits every `pipeline start --seed` |
+| `intent-landing-contracts-are-enforced-too-late` | Landing-shape violations settle `landing_failed` after the agent is gone; two of two intents run this session needed a hand-edit plus resume |
 | `iteration-timeout-discards-completed-subspecs` | A timeout's only recovery retires the branch, discarding finished subspecs; cost a hand-finish on a 3-subspec spec |
 | `pipeline-config-validation-blocks-unrelated-implement` | A stale `projects.<name>.pipeline` block refuses `implement`, which never reads pipelines |
 | `out-of-scope-gate-classification-strands-caused-failures` | #2313's classifier calls a run-caused failure in an unedited file "out of scope" and advertises a resume that cannot help |

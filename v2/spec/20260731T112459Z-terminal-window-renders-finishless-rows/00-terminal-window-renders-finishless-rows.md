@@ -40,17 +40,17 @@ spawn-failed runs operators open the TUI to find. Do not reintroduce `setInvert*
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-terminal-window.test.ts` — `treats missing finishedAtMs as in-window`,
+- [x] `tui-monitor-terminal-window.test.ts` — `treats missing finishedAtMs as in-window`,
   `keeps terminal rows with omitted finishedAtMs in the live window`, and `renders finishless
   terminal rows below the twenty-row cap` fail against pre-fix `return false` on `undefined` and
   pass after the guard change; the render test uses a sparse fixture with in-window terminal count
   below the twenty-row cap.
-- [ ] `tui-monitor-terminal-window.test.ts` — mutating the finishless guard (`return true` →
+- [x] `tui-monitor-terminal-window.test.ts` — mutating the finishless guard (`return true` →
   `return false` when `finishedAtMs === undefined`) turns `keeps terminal rows with omitted
   finishedAtMs in the live window` RED; `Mutation checkpoint:` on that test names the mutation.
-- [ ] `tui-monitor-terminal-window.test.ts` — `renders in-window terminal rows in finish order, capped at twenty, and keeps old active rows` stays green.
-- [ ] `tui-monitor-terminal-window.test.ts` — `retains non-terminal rows and caps terminal rows by finish time` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-terminal-window.test.ts` — `renders in-window terminal rows in finish order, capped at twenty, and keeps old active rows` stays green.
+- [x] `tui-monitor-terminal-window.test.ts` — `retains non-terminal rows and caps terminal rows by finish time` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

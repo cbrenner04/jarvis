@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
@@ -9,7 +9,7 @@ import {
   TUI_TERMINAL_WINDOW_MS,
   terminalRunInLiveWindow,
 } from "./tui-monitor-terminal-window.ts";
-import type { RunTuiEntryDeps, TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
+import type { TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
 
 const FIXED_NOW = 1_700_000_000_000;
 
@@ -24,6 +24,16 @@ function terminalRow(runId: string, finishedAtMs: number): DaemonListRunRow {
   };
 }
 
+function finishlessRow(status: "killed" | "interrupted"): DaemonListRunRow {
+  return {
+    runId: "run-finishless",
+    project: "demo",
+    branch: "finishless",
+    status,
+    isLive: false,
+  };
+}
+
 describe("terminalRunInLiveWindow", () => {
   test("keeps finishes inside the window", () => {
     expect(terminalRunInLiveWindow(FIXED_NOW - 30 * 60_000, FIXED_NOW, TUI_TERMINAL_WINDOW_MS)).toBe(true);
@@ -34,6 +44,10 @@ describe("terminalRunInLiveWindow", () => {
     expect(terminalRunInLiveWindow(FIXED_NOW - TUI_TERMINAL_WINDOW_MS - 1, FIXED_NOW, TUI_TERMINAL_WINDOW_MS)).toBe(
       false,
     );
+  });
+
+  test("treats missing finishedAtMs as in-window", () => {
+    expect(terminalRunInLiveWindow(undefined, FIXED_NOW, TUI_TERMINAL_WINDOW_MS)).toBe(true);
   });
 });
 
@@ -150,6 +164,21 @@ describe("filterMonitorRunsForLiveWindow", () => {
     expect(keptInvocationIds.size).toBe(TUI_TERMINAL_ROW_CAP);
     expect(filtered).toHaveLength(TUI_TERMINAL_ROW_CAP * 2);
   });
+
+  test("keeps terminal rows with omitted finishedAtMs in the live window", () => {
+    const finishless = finishlessRow("killed");
+    const active: DaemonListRunRow = {
+      runId: "run-active",
+      project: "demo",
+      branch: "active",
+      status: "in-progress",
+      isLive: true,
+    };
+
+    const filtered = filterMonitorRunsForLiveWindow([finishless, active], { nowMs: FIXED_NOW });
+    // Mutation checkpoint: return true → return false on the finishedAtMs === undefined branch.
+    expect(filtered.map((row) => row.runId)).toEqual([active.runId, finishless.runId]);
+  });
 });
 
 function deferred<T>() {
@@ -242,9 +271,26 @@ function tableRunIds(state: TuiMonitorState): string[] {
     .filter((runId) => runId.length > 0);
 }
 
-describe("runTuiEntry terminal live window", () => {
-  afterEach(() => {});
+async function renderedTableRunIds(runs: DaemonListRunRow[]): Promise<string[]> {
+  const view = createViewHost();
+  const pending = runTuiEntry({
+    socketPath: "/tmp/test.sock",
+    nowMs: () => FIXED_NOW,
+    viewHost: view.host,
+    connectTuiDaemon: async () => fakeClient([{ runs }]),
+    socketDiscovery: async () => [],
+  });
+  await view.waitUntilOpen();
+  await flush();
+  const state = view.monitorStates.at(-1);
+  if (!state) throw new Error("missing monitor state");
+  const renderedIds = tableRunIds(state);
+  view.quit();
+  await pending;
+  return renderedIds;
+}
 
+describe("runTuiEntry terminal live window", () => {
   function buildFixtureRuns(): DaemonListRunRow[] {
     const activeOld: DaemonListRunRow = {
       runId: "run-paused-old",
@@ -261,35 +307,21 @@ describe("runTuiEntry terminal live window", () => {
   }
 
   test("renders in-window terminal rows in finish order, capped at twenty, and keeps old active rows", async () => {
-    const view = createViewHost();
-    const runs = buildFixtureRuns();
-    const deps: RunTuiEntryDeps = {
-      socketPath: "/tmp/test.sock",
-      nowMs: () => FIXED_NOW,
-      viewHost: view.host,
-      connectTuiDaemon: async () => fakeClient([{ runs }]),
-      socketDiscovery: async () => [],
-    };
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    const state = view.monitorStates.at(-1);
-    if (!state) throw new Error("missing monitor state");
-
-    const renderedIds = tableRunIds(state);
+    const renderedIds = await renderedTableRunIds(buildFixtureRuns());
     expect(renderedIds[0]).toBe("run-paused-old");
     expect(renderedIds.includes("run-stale")).toBe(false);
     const terminalRendered = renderedIds.filter((id) => id.startsWith("run-t-"));
     expect(terminalRendered).toHaveLength(TUI_TERMINAL_ROW_CAP);
     expect(terminalRendered).toEqual(Array.from({ length: TUI_TERMINAL_ROW_CAP }, (_, index) => `run-t-${index}`));
     expect(renderedIds.includes("run-paused-old")).toBe(true);
-
-    view.quit();
-    await pending;
   });
 
-  test("inverted window filter surfaces terminal runs finished more than one hour ago", async () => {});
-
-  test("inverted row cap shows every in-window terminal run", async () => {});
+  test("renders finishless terminal rows below the twenty-row cap", async () => {
+    const runs = [
+      finishlessRow("interrupted"),
+      ...Array.from({ length: 3 }, (_, index) => terminalRow(`run-t-${index}`, FIXED_NOW - index * 1_000)),
+    ];
+    const renderedIds = await renderedTableRunIds(runs);
+    expect(renderedIds.includes("run-finishless")).toBe(true);
+  });
 });

@@ -1,28 +1,46 @@
 # v2 implement queue
 
-Authority: operator priorities. Rebuilt 2026-07-31 after the overnight session.
+Authority: operator priorities. Updated 2026-07-31 evening.
+
+## Goal
+
+Burn a short pre-TUI reliability queue, then open [tui-overhaul-brief.md](tui-overhaul-brief.md) (six intent slices, not one `plan`).
 
 ## Start here next
 
-The 2026-07-31 overnight session cleared every actionable item. What remains is deliberately
-deferred; pick by what the next session actually hits.
+Pre-TUI — convert seeds to intents in this order; skip a row only when the session is blocked on something else.
 
-1. Convert `seeds/cursor-usage-is-parsed-then-discarded` — cheap fix, large payoff: cursor already
-   emits token usage in the frame the harness parses, and `data/prices.json` already prices
-   `Composer 2.5`. Until it ships, no session report can state what the agents cost.
-2. Convert `seeds/human-only-marker-read-from-first-line-only` — the `(Manual)` marker is trailing-anchored and read from the first line only, while plan agents write it leading and wrapped. It stranded five runs at `contract_miss` this session on criteria the agent could not satisfy.
-3. Convert `seeds/iteration-timeout-discards-completed-subspecs` — a timeout's only recovery retires the branch, discarding finished subspecs. Cost a hand-finish on a 3-subspec spec, and the same hazard destroyed a pushed commit via `--reset-despite-dirty`.
-4. Convert `seeds/gate-repair-does-not-run-the-formatter` — formatter-only red gates exhaust the repair budget; hand `bun run fix` + resume is the standing stopgap, used repeatedly.
-5. `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` — retry now that #2370 names the real normalizer reason (three prior dispatches settled on an opaque `artifact.exists`).
-6. Everything else in the seed tables below, by cost of not fixing.
+| # | Seed / intent | Status on `main` | Why now |
+| --- | --- | --- | --- |
+| 1 | `seeds/cursor-usage-is-parsed-then-discarded` | **Seed only** (#2422). `parseCursorJsonOutput` still returns `{ displayText }`; usage is dropped. | Cheap fix; until it ships, agent cost in telemetry and reports is unmeasured for cursor (~99% of invocations). |
+| 2 | `seeds/human-only-marker-read-from-first-line-only` | **Open.** `isHumanOnlyCriterion` still `endsWith` on the first line only (`shared/spec-parser.ts`). | Plan agents write `(Manual)` leading; five runs stranded at `contract_miss` this session. |
+| 3 | `seeds/gate-repair-does-not-run-the-formatter` | **Open.** No formatter autofix before agent repair. | Formatter-only red gates exhaust repair budget; standing stopgap is hand `bun run fix` + resume. |
+| 4 | `seeds/human-only-marker…` done → **TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md) | Brief written; prerequisites below. | Primary operator surface after the three seeds above. |
+
+**Defer unless you hit them in session**
+
+| Seed / intent | Status | Notes |
+| --- | --- | --- |
+| `seeds/iteration-timeout-discards-completed-subspecs` | Open (`iteration_timeout` still `resumable: false`) | Largest scope. Workaround: split large subspecs at plan time; never `--reset-despite-dirty` on incomplete specs you care about. |
+| `seeds/out-of-scope-gate-classification-strands-caused-failures` | Open | Run-caused test failures classified out of scope (#2313). |
+| `seeds/mutation-verification-artifact-reached-the-completion-commit` | Open | Mutation artifact shipped in completion commit (#2314). |
+| `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` | Ready | Hygiene; retry now that #2370 names the normalizer reason. Not blocking TUI. |
+| `ready-intents/aggregate-timeout-reaps-the-test-process-group.md` | Ready | Only if a hung test descendant is observed. |
+| `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Prereq to later review work only. |
+
+**Fold into TUI (do not queue separately)**
+
+- `seeds/tui-tests-bypass-the-render-path` — resolve in TUI slice 1 as a doc decision: no real ink painting on CI (#2417–#2418); assert via injected input hook + production monitor state.
+- `pipeline_list` timestamps (`createdAt`, stage `startedAt`/`endedAt`) — `branchKey` is already on the wire; add timestamps in TUI slice 3 (elapsed columns), not as a standalone seed.
+- Delete stub `seeds/queue-widget-refactor.md` when opening TUI slice 1 (operator notes only, no acceptance criteria).
 
 ## Rule
 
-No phase is open. Reliability and dogfooding-discovered defects are the lane; pick up a phase brief only when the operator opens one.
+No reliability phase is open beyond the table above. Pipelines are done; TUI is the next phase brief.
 
 ## Phase gate — per-project pipelines: **COMPLETE and dogfooded**
 
-`jarvis pipeline start | list | wait | approve | reject | resume` works end to end, **including a splitting intent** — the normal intent outcome, which the six-slice phase never covered.
+`jarvis pipeline start | list | wait | approve | reject | resume` works end to end, including intent-split fan-out.
 
 | Work | State |
 | --- | --- |
@@ -33,53 +51,40 @@ No phase is open. Reliability and dogfooding-discovered defects are the lane; pi
 | `--seed <path>` identity and consumption | shipped #2409, #2411 |
 | Stale `pipeline` block no longer refuses `implement` | shipped #2399 |
 
-Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-walkthrough.md)
-§ Configured pipeline.
+Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-walkthrough.md) § Configured pipeline.
+
+## TUI prerequisites (on `main`)
+
+| Dependency | State |
+| --- | --- |
+| Intent fan-out (`pipeline-intent-split-fan-out-execution`) | shipped |
+| `terminal-window-renders-finishless-rows` | shipped |
+| `pipeline_list` `branchKey` | shipped |
+| `pipeline_list` timestamps for elapsed columns | **not shipped** — slice 3 |
+| TUI test strategy (ink vs monitor state) | **undecided** — slice 1 |
 
 ## Guard-inversion: **CLOSED**
 
-Prevention (#2384), removal across shared/daemon/CLI/execution-loop/TUI (#2395, #2398, #2392, #2402), and a static guard in `bun run check` (#2405) with **zero allowlist entries**. The only `setInvert*ForTest` match outside `*.test.ts` is the rule text forbidding it.
+Prevention (#2384), removal across shared/daemon/CLI/execution-loop/TUI (#2395, #2398, #2392, #2402), and a static guard in `bun run check` (#2405) with **zero allowlist entries**.
 
-Watch for the disguises, which a static guard cannot catch: production exports that exist only for test import, and "inversion" tests asserting against locally-defined helpers rather than production. Both appeared this session (#2406).
+Watch for disguises a static guard cannot catch: production exports that exist only for test import, and inversion tests asserting against local helpers rather than production (#2406).
 
-## Ready-intents (queued)
+## Backlog (deferred / low — no ordering)
 
-| File | Notes |
-| --- | --- |
-| `guard-bare-settimeout-in-deterministic-tests.md` | Retry now that #2370 names the normalizer reason |
-| `aggregate-timeout-reaps-the-test-process-group.md` | Insert only if a hung descendant is observed |
-| `split-v2-review-prompt-ids-from-v1.md` | Prereq to later review work only |
-
-## Seeds (ordered by cost of not fixing)
-
-| Seed | Why |
-| --- | --- |
-| `cursor-usage-is-parsed-then-discarded` | Cursor emits token usage in the stream-json frame the harness already requests and the parser drops it, so agent cost is unmeasured for ~99% of invocations and every report's cost column is meaningless |
-| `human-only-marker-read-from-first-line-only` | Trailing-anchored and first-line-only; stranded five runs this session on unsatisfiable criteria |
-| `iteration-timeout-discards-completed-subspecs` | A timeout's only recovery retires the branch, discarding finished subspecs |
-| `gate-repair-does-not-run-the-formatter` | Formatter-only red gates exhaust the repair budget |
-| `out-of-scope-gate-classification-strands-caused-failures` | #2313's classifier calls a run-caused failure "out of scope" and advertises a resume that cannot help |
-| `mutation-verification-artifact-reached-the-completion-commit` | A mutation shipped inside a completion commit with every local gate green |
-| `tui-tests-bypass-the-render-path` | No supported way to assert real ink output; a test that tries is green locally and red on CI — it reddened `main` on 2026-07-31 |
-| `queue-widget-refactor` | Operator-authored |
-
-## Seeds (deferred / low)
-
-`daemon-child-output-test-races-process-startup` (mitigated #2208, race remains),
+`daemon-child-output-test-races-process-startup` (mitigated #2208),
 `publication-tails-are-consolidated`, `materialization-base-drift-guard`,
 `implement-review-bounds-diff-payload`, `review-checkpoint-reuse-is-not-scoped-to-a-dispatch`,
 `set-agents-accepts-any-string-including-flags`, `reviewer-verification-command`,
 `surface-the-completion-commit-error-instead-of-swallowing-it`,
-`archival-refusal-names-why-owner-was-not-retired` (ship with next cleanup diagnostic touch).
+`archival-refusal-names-why-owner-was-not-retired`.
 
 ## Carried operator notes
 
-- **Review every implement diff with a subagent before merging.** Review caught something real in 8 of 11 implement PRs this session, none of which a green ready gate flagged: a destructive non-transactional migration (#2374), a module global written on every `contract_miss` in the daemon hot path (#2370), a silent coverage loss where the test count went *up* (#2412), and four "inversion" tests asserting against local helpers, one of which stayed green under a real mutation (#2406).
+- **Review every implement diff with a subagent before merging.** Review caught real issues in 8 of 11 implement PRs this session that a green ready gate did not flag.
 - **A rising test count can hide a coverage loss.** When a change converts a fixture rather than adding one, run the relevant mutation and compare kill counts against `main`.
-- **Plans block on dependency chains, and that is correct.** Eleven plan runs settled `blocked` naming an unshipped sibling. Fan plans out only across intents with no shared prerequisite; otherwise ship the root first and re-run.
-- **Do not pass `--reset-despite-dirty` on an incomplete spec you care about.** It retires the branch including the remote, destroying pushed commits. Recover with `git fsck --lost-found`.
-- **Do not admin-merge over a red check.** It happened once here (#2417) and reddened `main`.
-- **ink does not paint to a fake stdout on CI.** A TUI test asserting painted output cannot pass there — assert through the injected input hook and production monitor state instead. See seed `tui-tests-bypass-the-render-path`.
-- `bun test` **does not typecheck.** When hand-finishing anything, run `bun run check` and `bun run typecheck`, not just the tests.
-- **A large subspec can exceed the iteration ceiling**, and the timeout discards finished subspec work — see the seed. Split large subspecs at plan time.
-- **Two worktrees survive `cleanup`:** `20260727T203911Z-intent-split-prompt-by-surface` (predates 2026-07-30, holds modified files) and `20260731T040405Z-shared-drop-production-invert-hooks` (its work landed by hand as #2395). Inspect before forcing.
+- **Plans block on dependency chains, and that is correct.** Fan plans only across intents with no shared prerequisite; otherwise ship the root first and re-run.
+- **Do not pass `--reset-despite-dirty` on an incomplete spec you care about.** It retires the branch including the remote. Recover with `git fsck --lost-found`.
+- **Do not admin-merge over a red check.** It reddened `main` once (#2417).
+- **ink does not paint to a fake stdout on CI.** See seed `tui-tests-bypass-the-render-path`.
+- `bun test` **does not typecheck.** Hand-finishing: `bun run check` and `bun run typecheck`.
+- **One worktree may still survive `cleanup`:** `20260727T203911Z-intent-split-prompt-by-surface` (predates 2026-07-30, holds modified files). `20260731T040405Z-shared-drop-production-invert-hooks` is archived (#2423); its work shipped as #2395.

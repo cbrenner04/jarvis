@@ -46,6 +46,7 @@ import {
   persistRetainedFinalizationCheckpoint,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
+  validateReadyGateRepairCompletion,
   type WallSegmentSchedule,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
@@ -1830,16 +1831,32 @@ describe("write loop", () => {
         execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
         return worktreePath;
       }
+      const SEED_TEST_SLICE = `export const SANDBOX_SUFFIX = ".sandbox-unrunnable.test.ts";
+
+export const LOAD_SENSITIVE_FILES: readonly string[] = [
+  "v2/src/existing.test.ts",
+];
+
+export function isLoadSensitive(file: string): boolean {
+  return file.endsWith(SANDBOX_SUFFIX) || LOAD_SENSITIVE_FILES.includes(file);
+}
+`;
 
       function initRepairFenceWorktree(
         jarvisRoot: string,
         branchName: string,
-        options?: { harnessSidecars?: boolean },
+        options?: { harnessSidecars?: boolean; loadSensitiveSlice?: boolean },
       ): { worktreePath: string; baseRef: string } {
         const worktreePath = initGitRepairWorktree(jarvisRoot, branchName);
+        if (options?.loadSensitiveSlice === true) {
+          mkdirSync(join(worktreePath, "scripts"), { recursive: true });
+        }
         mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
         writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
         writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        if (options?.loadSensitiveSlice === true) {
+          writeFileSync(join(worktreePath, "scripts/test-slice.ts"), SEED_TEST_SLICE, "utf8");
+        }
         if (options?.harnessSidecars !== true) {
           writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
           writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
@@ -1855,11 +1872,27 @@ describe("write loop", () => {
           writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
           writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md.owner"), "owner\n", "utf8");
           execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        } else if (options?.loadSensitiveSlice === true) {
+          writeFileSync(
+            join(worktreePath, "scripts/test-slice.ts"),
+            SEED_TEST_SLICE.replace(
+              '"v2/src/existing.test.ts",',
+              '"v2/src/existing.test.ts",\n  "v2/src/implement-grown.test.ts",',
+            ).replace("export const LOAD_SENSITIVE_FILES", "// touched in run diff\nexport const LOAD_SENSITIVE_FILES"),
+            "utf8",
+          );
+          execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "scripts/test-slice.ts"], { stdio: "pipe" });
         } else {
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
         }
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
         return { worktreePath, baseRef };
+      }
+
+      function editLoadSensitiveSliceRepair(cwd: string, edit: (content: string) => string) {
+        writeFileSync(join(cwd, "proof.txt"), "fixed\n", "utf8");
+        const slicePath = join(cwd, "scripts/test-slice.ts");
+        writeFileSync(slicePath, edit(readFileSync(slicePath, "utf8")), "utf8");
       }
 
       async function runRepairFenceLoop(args: {
@@ -2103,6 +2136,115 @@ describe("write loop", () => {
           .split("\n")
           .filter(Boolean);
         expect(dirty.some((path) => basename(path).startsWith(".jarvis-"))).toBe(true);
+      });
+
+      test("rejects ready-gate repairs that extend LOAD_SENSITIVE_FILES", async () => {
+        // Mutation checkpoint: remove staged-vs-HEAD `LOAD_SENSITIVE_FILES` superset check in
+        // `validateReadyGateRepairCompletion`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-load-sensitive-extend";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          loadSensitiveSlice: true,
+        });
+
+        const allowed = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(allowed?.has("scripts/test-slice.ts")).toBe(true);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            editLoadSensitiveSliceRepair(cwd, (content) =>
+              content.replace(
+                '"v2/src/existing.test.ts",',
+                '"v2/src/existing.test.ts",\n  "v2/src/new-load-sensitive.test.ts",',
+              ),
+            );
+          },
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("Ready-gate repair extends LOAD_SENSITIVE_FILES:");
+        expect(fenced.result.completionCommitError).toContain("v2/src/new-load-sensitive.test.ts");
+        expect(fenced.publishCalls).toBe(1);
+        expect(fenced.gateCalls).toBe(1);
+      });
+
+      test("membership guard rejects LOAD_SENSITIVE_FILES extension when path fence allows the path", async () => {
+        // Mutation checkpoint: remove staged-vs-HEAD `LOAD_SENSITIVE_FILES` superset check in
+        // `validateReadyGateRepairCompletion` even when `findFirstRepairFenceViolation` allows
+        // `scripts/test-slice.ts`.
+        const { jarvisRoot } = createJarvisHome();
+        const branchName = "repair-fence-load-sensitive-decoupled";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          loadSensitiveSlice: true,
+        });
+
+        editLoadSensitiveSliceRepair(worktreePath, (content) =>
+          content.replace(
+            '"v2/src/implement-grown.test.ts",',
+            '"v2/src/implement-grown.test.ts",\n  "v2/src/repair-added.test.ts",',
+          ),
+        );
+
+        const allowedPaths = new Set(["proof.txt", "scripts/test-slice.ts"]);
+        const candidates = (await enumerateRepairCompletionCandidates(worktreePath)) ?? [];
+        expect(findFirstRepairFenceViolation(candidates, allowedPaths)).toBeUndefined();
+
+        const violation = await validateReadyGateRepairCompletion(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          allowedPaths,
+        );
+        expect(violation?.error.message).toContain("Ready-gate repair extends LOAD_SENSITIVE_FILES:");
+        expect(violation?.error.message).toContain("v2/src/repair-added.test.ts");
+      });
+
+      test("allows ready-gate repairs that edit test-slice without growing LOAD_SENSITIVE_FILES", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-load-sensitive-churn";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          loadSensitiveSlice: true,
+        });
+
+        const allowed = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(allowed?.has("scripts/test-slice.ts")).toBe(true);
+
+        const headSlice = execFileSync("git", ["-C", worktreePath, "show", "HEAD:scripts/test-slice.ts"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+        const baseSlice = execFileSync("git", ["-C", worktreePath, "show", `${baseRef}:scripts/test-slice.ts`], {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+        expect(headSlice).toContain("v2/src/implement-grown.test.ts");
+        expect(baseSlice).not.toContain("v2/src/implement-grown.test.ts");
+
+        const { result, gateCalls } = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          repairEdit: (cwd) => {
+            editLoadSensitiveSliceRepair(cwd, (content) =>
+              content.replace(
+                "export const LOAD_SENSITIVE_FILES: readonly string[] = [",
+                "export const LOAD_SENSITIVE_FILES: readonly string[] = [\n  // membership unchanged",
+              ),
+            );
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(gateCalls).toBe(2);
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {

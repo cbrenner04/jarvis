@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -283,6 +283,9 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
 const REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE = "Ready-gate repair stages harness sidecar: ";
+const REPAIR_FENCE_LOAD_SENSITIVE_FAILURE_MESSAGE = "Ready-gate repair extends LOAD_SENSITIVE_FILES: ";
+const LOAD_SENSITIVE_SLICE_PATH = "scripts/test-slice.ts";
+const LOAD_SENSITIVE_FILES_BINDING = /export\s+const\s+LOAD_SENSITIVE_FILES[^=]*=\s*\[/;
 const REPAIR_FENCE_MARKDOWN_ONLY_FAILURE_MESSAGE =
   "Ready-gate repair stages path outside markdown workflow output roots: ";
 const REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE = "Ready-gate repair fence could not reconstruct persisted allowset";
@@ -429,6 +432,84 @@ export async function enumerateRepairCompletionCandidates(worktreePath: string):
   }
 }
 
+function extractLoadSensitiveFilesMembership(source: string): Set<string> | undefined {
+  const match = LOAD_SENSITIVE_FILES_BINDING.exec(source);
+  if (match === null) {
+    return undefined;
+  }
+  const arrayStart = match.index + match[0].length;
+  let depth = 1;
+  let index = arrayStart;
+  while (index < source.length && depth > 0) {
+    const char = source[index];
+    if (char === "[") {
+      depth += 1;
+    } else if (char === "]") {
+      depth -= 1;
+    }
+    index += 1;
+  }
+  if (depth !== 0) {
+    return undefined;
+  }
+  const arrayBody = source.slice(arrayStart, index - 1);
+  const membership = new Set<string>();
+  const literalPattern = /"((?:[^"\\]|\\.)*)"/g;
+  for (const literalMatch of arrayBody.matchAll(literalPattern)) {
+    const raw = literalMatch[1];
+    if (raw === undefined) {
+      continue;
+    }
+    membership.add(raw.replace(/\\(.)/g, "$1"));
+  }
+  return membership;
+}
+
+async function validateLoadSensitiveSliceRepairExtension(
+  worktreePath: string,
+): Promise<{ error: Error; offendingPath: string } | undefined> {
+  const stagedPath = join(worktreePath, LOAD_SENSITIVE_SLICE_PATH);
+  if (!existsSync(stagedPath)) {
+    return undefined;
+  }
+  let baseSource: string | undefined;
+  try {
+    baseSource = await runRepairFenceGit(worktreePath, ["show", `HEAD:${LOAD_SENSITIVE_SLICE_PATH}`]);
+  } catch {
+    baseSource = undefined;
+  }
+  if (baseSource === undefined) {
+    return undefined;
+  }
+  let stagedSource: string | undefined;
+  try {
+    stagedSource = readFileSync(stagedPath, "utf8");
+  } catch {
+    stagedSource = undefined;
+  }
+  if (stagedSource === undefined) {
+    return undefined;
+  }
+  const baseMembership = extractLoadSensitiveFilesMembership(baseSource);
+  const stagedMembership = extractLoadSensitiveFilesMembership(stagedSource);
+  if (baseMembership === undefined || stagedMembership === undefined) {
+    return undefined;
+  }
+  const added = [...stagedMembership].filter((entry) => !baseMembership.has(entry));
+  if (added.length === 0) {
+    return undefined;
+  }
+  added.sort(compareRepoPathsByUtf8Bytes);
+  const firstAdded = added.at(0);
+  if (firstAdded === undefined) {
+    return undefined;
+  }
+  return {
+    offendingPath: LOAD_SENSITIVE_SLICE_PATH,
+    error: new Error(`${REPAIR_FENCE_LOAD_SENSITIVE_FAILURE_MESSAGE}${escapeRepoPathForEvidence(firstAdded)}`),
+  };
+}
+
 function findFirstHarnessSidecarBasenameViolation(candidates: readonly string[]): string | undefined {
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
@@ -512,6 +593,12 @@ export async function validateReadyGateRepairCompletion(
       offendingPath: sidecarViolation,
       error: new Error(`${REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE}${sidecarViolation}`),
     };
+  }
+  if (candidates.includes(LOAD_SENSITIVE_SLICE_PATH)) {
+    const loadSensitiveViolation = await validateLoadSensitiveSliceRepairExtension(scope.worktreePath);
+    if (loadSensitiveViolation !== undefined) {
+      return loadSensitiveViolation;
+    }
   }
   const violation = findFirstRepairFenceViolation(candidates, allowedPaths);
   if (violation !== undefined) {

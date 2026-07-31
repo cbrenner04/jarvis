@@ -13,8 +13,8 @@ suite execution policy change that must not ride repair completion.
 - Run the membership guard inside `validateReadyGateRepairCompletion` (shared by first repair and
   persisted-fence recovery) and fail as retryable `completion_commit_failed` — rules out a distinct
   failure kind or post-publish check.
-- Dedicated test invert `invertReadyGateRepairLoadSensitiveGuardForTest` disables only the membership
-  guard; `invertReadyGateRepairFenceForTest` does not — rules out one flag coupling both guards.
+- Dedicated test invert a source mutation on the load-sensitive guard disables only the membership
+  guard; a source mutation on the run-diff fence does not — rules out one flag coupling both guards.
 - Non-growing edits to `scripts/test-slice.ts` remain subject only to the ordinary run-diff path
   fence — rules out banning all module edits when the run legitimately touched it.
 
@@ -27,20 +27,20 @@ suite execution policy change that must not ride repair completion.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` test `rejects ready-gate repairs that extend
+- [x] `v2/src/execution/write-loop.test.ts` test `rejects ready-gate repairs that extend
       LOAD_SENSITIVE_FILES` stages a new explicit-list entry, returns `completion_commit_failed`
       before repair republish, and fails against the pre-fix baseline.
-- [ ] Inverting `invertReadyGateRepairLoadSensitiveGuardForTest` makes that regression red; with
-      only `invertReadyGateRepairFenceForTest` enabled the membership guard still rejects extension.
-- [ ] `write-loop.test.ts` test `allows ready-gate repairs that edit test-slice without growing
+- [x] Inverting a source mutation on the load-sensitive guard makes that regression red; with
+      only a source mutation on the run-diff fence enabled the membership guard still rejects extension.
+- [x] `write-loop.test.ts` test `allows ready-gate repairs that edit test-slice without growing
       LOAD_SENSITIVE_FILES` has `scripts/test-slice.ts` in the frozen run-diff allowset, stages a
       non-growing edit (comment-only or literal reorder), repair completes without
       `completion_commit_failed`, and fails against the pre-fix baseline.
-- [ ] `v2/docs/test-writing.md` states explicit `LOAD_SENSITIVE_FILES` changes are operator
+- [x] `v2/docs/test-writing.md` states explicit `LOAD_SENSITIVE_FILES` changes are operator
       decisions, not repair-time.
-- [ ] `v2/docs/write-behavior.md` documents the load-sensitive membership guard on ready-gate repair
+- [x] `v2/docs/write-behavior.md` documents the load-sensitive membership guard on ready-gate repair
       completion.
-- [ ] `v2/docs/v1-behaviors.md` ready-gate repair fencing bullet includes the membership guard.
+- [x] `v2/docs/v1-behaviors.md` ready-gate repair fencing bullet includes the membership guard.
 
 ## Documentation updates
 

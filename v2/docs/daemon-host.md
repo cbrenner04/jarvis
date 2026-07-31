@@ -826,8 +826,10 @@ is realizable. `implement` has no unreviewed builder path (same rule as
 [`workflow-runner.md`](./workflow-runner.md) pipeline posture matrix).
 
 Seed/artifact hand-off: the first workflow stage (by authored position) builds
-with `PipelineContext.seed` as the seed input and `PipelineContext.cwd` as its
-read root. Every later workflow stage builds from the immediately preceding
+with admitted `PipelineContext.seedPath` as file `seed` or inline
+`PipelineContext.seed` as `seedText` (never both; `seedPath` wins when both are
+stored) and `PipelineContext.cwd` as its read root. Every later workflow stage
+builds from the immediately preceding
 workflow stage's recorded artifact (approval stages are skipped when walking
 back to find it): resolution loads the prior stage's entry run via
 `store.loadRun(artifact.entryRunId)` and sets preset `cwd` to that run's

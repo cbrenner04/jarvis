@@ -210,6 +210,9 @@ jarvis pipeline start <project> --seed path/to/seed.md
 jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return after admission; track via printed pipeline ID
 ```
 
+`--seed <path>` matches standalone intent `--seed` (slug, `landing.inputs.paths`, worktree consumption);
+`--seed-text` is inline-only (`seedText`, no seed-file deletion).
+
 **Detach vs attached:** `--detach` runs the same pre-admission validation and daemon `pipeline_start` path as the default attached launch. Detached stdout is the admitted pipeline ID only; exit **`0` means admitted**, not that the pipeline finished. Attached mode loops `pipeline_wait` through `awaiting-approval` boundaries until a terminal state, then prints `{kind:"terminal",state}` JSON.
 
 ### Pipeline list and wait

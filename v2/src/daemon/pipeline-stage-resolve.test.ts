@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
+import { buildIntentWorkflowSteps, type IntentWorkflowInput, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
+import { landPublication } from "../execution/publication-landing.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
@@ -16,6 +18,53 @@ import {
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
+
+const QUEUE_WIDGET_SEED_REL = "v2/spec/seeds/queue-widget-refactor.md";
+const QUEUE_WIDGET_SEED_CONTENT = readFileSync(
+  join(import.meta.dir, "..", "..", "spec", "seeds", "queue-widget-refactor.md"),
+  "utf8",
+);
+
+type IntentWriteStep = Extract<AnyWorkflowStep, { behavior: "write" }>;
+
+function intentWriteStep(steps: AnyWorkflowStep[]): IntentWriteStep {
+  const step = steps.find((candidate) => candidate.behavior === "write");
+  if (step?.behavior !== "write") throw new Error("expected write step");
+  return step;
+}
+
+function intentSeedIdentity(step: IntentWriteStep): { slug: string; name: string; label: string; paths: string[] } {
+  const branchName = step.worktree?.branchName ?? "";
+  const slug = branchName.startsWith("intent/") ? branchName.slice("intent/".length) : branchName;
+  const name = step.creationTitle?.startsWith("intent: ") ? step.creationTitle.slice("intent: ".length) : "";
+  const label = step.promptPlaceholders?.SEED_LABEL ?? "";
+  const paths = step.landing?.kind === "intent-stage" ? (step.landing.inputs?.paths ?? []) : [];
+  return { slug, name, label, paths };
+}
+
+const intentOnlyDefinition: PipelineDefinition = {
+  name: "p",
+  stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "none" }],
+};
+
+function createSeedPathRepo(): { repoRoot: string; configPath: string; intentWorktree: string } {
+  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-seed-path-repo-"));
+  initGitRepo(repoRoot);
+  writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+  mkdirSync(join(repoRoot, "v2", "spec", "seeds"), { recursive: true });
+  writeFileSync(join(repoRoot, QUEUE_WIDGET_SEED_REL), QUEUE_WIDGET_SEED_CONTENT, "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+  const intentBranch = "intent/queue-widget-refactor";
+  const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+  mkdirSync(intentWorktree, { recursive: true });
+  execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  return { repoRoot, configPath, intentWorktree };
+}
 
 const okStep = { behavior: "write" } as never;
 
@@ -103,19 +152,36 @@ function createChainedHandoffRepo(): {
   return { repoRoot, configPath, intentBranch, intentWorktree, planBranch, planWorktree, readyIntentRel, planSpecRel };
 }
 
-async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate") {
+async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate", seed = "ship feature") {
   const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
   const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
-  const context: PipelineContext = { cwd, configPath, seed: "ship feature" };
   const definition: PipelineDefinition = {
     name: "p",
     stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review }],
   };
-  return resolveStageWorkflowSteps(definition, 0, context, new Map(), { builders: WORKFLOW_PRESET_BUILDERS });
+  return resolveStageWorkflowSteps(
+    definition,
+    0,
+    { cwd, configPath, seed },
+    new Map(),
+    { builders: WORKFLOW_PRESET_BUILDERS },
+  );
+}
+
+async function resolveQueueWidgetIntent(repoRoot: string, configPath: string): Promise<IntentWriteStep> {
+  const result = await resolveStageWorkflowSteps(
+    intentOnlyDefinition,
+    0,
+    { cwd: repoRoot, configPath, seedPath: QUEUE_WIDGET_SEED_REL },
+    new Map(),
+    { builders: WORKFLOW_PRESET_BUILDERS },
+  );
+  if (!result.ok) throw new Error("expected queue-widget intent resolution");
+  return intentWriteStep(singleStageResolutionSteps(result));
 }
 
 describe("resolveStageWorkflowSteps", () => {
-  test("first workflow stage builds with PipelineContext.seed as the seed input", async () => {
+  test("first workflow stage builds with inline PipelineContext.seed as seedText only", async () => {
     let seenInput: IntentWorkflowInput | undefined;
     const builders = fakeBuilders({
       "intent-reviewed": async (input) => {
@@ -127,11 +193,72 @@ describe("resolveStageWorkflowSteps", () => {
       name: "p",
       stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "light" }],
     };
+    const inlineContext: PipelineContext = { cwd: "/repo", seed: "ship inline feature" };
 
-    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
+    const result = await resolveStageWorkflowSteps(definition, 0, inlineContext, new Map(), { builders });
 
     expect(result.ok).toBe(true);
-    expect(seenInput?.seedText).toBe(baseContext.seed);
+    expect(seenInput?.seedText).toBe(inlineContext.seed);
+    expect(seenInput?.seed).toBeUndefined();
+    // Mutation checkpoint: in `resolveIntentStage`, setting `seedPath` on the text branch turns the test RED.
+
+    const realResult = await resolveFirstIntentStageWithRealBuilders("none", "ship inline feature");
+    expect(realResult.ok).toBe(true);
+    if (!realResult.ok) return;
+    const identity = intentSeedIdentity(intentWriteStep(singleStageResolutionSteps(realResult)));
+    expect(identity).toMatchObject({
+      slug: "ship-inline-feature",
+      name: "ship-inline-feature",
+      label: "inline seed",
+      paths: [],
+    });
+  });
+
+  test("first workflow stage routes seedPath through file seed with standalone intent parity", async () => {
+    const { repoRoot, configPath } = createSeedPathRepo();
+    const pipelineIdentity = intentSeedIdentity(await resolveQueueWidgetIntent(repoRoot, configPath));
+
+    const standalone = await buildIntentWorkflowSteps(
+      { cwd: repoRoot, seed: QUEUE_WIDGET_SEED_REL, configPath, reviewPasses: 0 },
+      { resolveProjectMatch: () => ({ key: "demo", root: repoRoot }) },
+    );
+    expect(standalone.ok).toBe(true);
+    if (!standalone.ok) return;
+    const standaloneIdentity = intentSeedIdentity(intentWriteStep(standalone.steps));
+
+    const expected = {
+      slug: "queue-widget-refactor",
+      name: "queue-widget-refactor",
+      label: QUEUE_WIDGET_SEED_REL,
+    };
+    expect(pipelineIdentity).toMatchObject(expected);
+    expect(standaloneIdentity).toMatchObject(expected);
+    expect(pipelineIdentity.paths.length).toBeGreaterThan(0);
+    expect(standaloneIdentity.paths).toEqual(pipelineIdentity.paths);
+    // Mutation checkpoint: in `resolveIntentStage`, routing `context.seedPath` through `{ seedText: context.seedPath }` breaks slug/name/label/`paths` parity with standalone `--seed` (path-string slugification) and turns the test RED.
+  });
+
+  test("pipeline file-seed landing consumes the seed from the intent worktree", async () => {
+    const { repoRoot, configPath, intentWorktree } = createSeedPathRepo();
+    const seedOnWorktree = join(intentWorktree, QUEUE_WIDGET_SEED_REL);
+    expect(existsSync(seedOnWorktree)).toBe(true);
+
+    const writeStep = await resolveQueueWidgetIntent(repoRoot, configPath);
+    expect(intentSeedIdentity(writeStep).paths.length).toBeGreaterThan(0);
+    if (writeStep.landing?.kind !== "intent-stage") throw new Error("expected intent-stage landing");
+    // Mutation checkpoint: clearing `IntentWorkflowInput.seed` or `landing.inputs.paths` in `resolveIntentStage` / `intentSource` leaves the seed on the worktree and turns the test RED.
+
+    mkdirSync(join(intentWorktree, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(
+      join(intentWorktree, ".jarvis-intent-stage", "queue-widget-refactor.md"),
+      "---\nname: queue-widget-refactor\n---\n\n## Prerequisites\n",
+      "utf8",
+    );
+
+    await landPublication(writeStep.landing, intentWorktree);
+
+    expect(existsSync(seedOnWorktree)).toBe(false);
+    expect(existsSync(join(repoRoot, QUEUE_WIDGET_SEED_REL))).toBe(true);
   });
 
   test("second workflow stage builds with the first stage's recorded artifact as readyIntent, matching the recorded value", async () => {

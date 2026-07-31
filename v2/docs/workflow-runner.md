@@ -172,7 +172,8 @@ daemon/TUI rows stay aligned to the authored workflow.
 `publication-workflow-steps.ts` owns named `intent` and `plan` publication rows. Each row selects its prompt, staging directory, output contract, and landing kind; shared project, target, Git, worktree, loading, and publication assembly is composed once. Input resolvers remain row-owned so intent seed and plan ready-intent validation retain their distinct contracts.
 
 `buildIntentWorkflowSteps` (preset: `intent`) accepts exactly one file `seed` or inline `seedText` and
-an optional relative, non-traversing `targetDir`. It resolves the seed and
+an optional relative, non-traversing `targetDir`. Pipeline first-stage resolution passes admitted
+`context.seedPath` as file `seed` (same `landing.inputs.paths` as CLI `--seed`). It resolves the seed and
 registered project before daemon contact; file seeds must be relative and remain
 inside the project after symlink resolution. The slug is normalized from the file basename
 or first inline words; empty, `index`, and `head` are rejected.

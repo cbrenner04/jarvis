@@ -397,6 +397,51 @@ function extractLoadSensitiveFilesMembership(source: string): Set<string> | unde
   return membership;
 }
 
+async function validateLoadSensitiveSliceRepairExtension(
+  worktreePath: string,
+): Promise<{ error: Error; offendingPath: string } | undefined> {
+  const stagedPath = join(worktreePath, LOAD_SENSITIVE_SLICE_PATH);
+  if (!existsSync(stagedPath)) {
+    return undefined;
+  }
+  let baseSource: string | undefined;
+  try {
+    baseSource = await runRepairFenceGit(worktreePath, ["show", `HEAD:${LOAD_SENSITIVE_SLICE_PATH}`]);
+  } catch {
+    baseSource = undefined;
+  }
+  if (baseSource === undefined) {
+    return undefined;
+  }
+  let stagedSource: string | undefined;
+  try {
+    stagedSource = readFileSync(stagedPath, "utf8");
+  } catch {
+    stagedSource = undefined;
+  }
+  if (stagedSource === undefined) {
+    return undefined;
+  }
+  const baseMembership = extractLoadSensitiveFilesMembership(baseSource);
+  const stagedMembership = extractLoadSensitiveFilesMembership(stagedSource);
+  if (baseMembership === undefined || stagedMembership === undefined) {
+    return undefined;
+  }
+  const added = [...stagedMembership].filter((entry) => !baseMembership.has(entry));
+  if (added.length === 0) {
+    return undefined;
+  }
+  added.sort(compareRepoPathsByUtf8Bytes);
+  const firstAdded = added.at(0);
+  if (firstAdded === undefined) {
+    return undefined;
+  }
+  return {
+    offendingPath: LOAD_SENSITIVE_SLICE_PATH,
+    error: new Error(`${REPAIR_FENCE_LOAD_SENSITIVE_FAILURE_MESSAGE}${escapeRepoPathForEvidence(firstAdded)}`),
+  };
+}
+
 function findFirstHarnessSidecarBasenameViolation(candidates: readonly string[]): string | undefined {
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
@@ -452,41 +497,9 @@ export async function validateReadyGateRepairCompletion(
     };
   }
   if (candidates.includes(LOAD_SENSITIVE_SLICE_PATH)) {
-    const stagedPath = join(scope.worktreePath, LOAD_SENSITIVE_SLICE_PATH);
-    if (existsSync(stagedPath)) {
-      let baseSource: string | undefined;
-      try {
-        baseSource = await runRepairFenceGit(scope.worktreePath, [
-          "show",
-          `HEAD:${LOAD_SENSITIVE_SLICE_PATH}`,
-        ]);
-      } catch {
-        baseSource = undefined;
-      }
-      if (baseSource !== undefined) {
-        let stagedSource: string | undefined;
-        try {
-          stagedSource = readFileSync(stagedPath, "utf8");
-        } catch {
-          stagedSource = undefined;
-        }
-        if (stagedSource !== undefined) {
-          const baseMembership = extractLoadSensitiveFilesMembership(baseSource);
-          const stagedMembership = extractLoadSensitiveFilesMembership(stagedSource);
-          if (baseMembership !== undefined && stagedMembership !== undefined) {
-            const added = [...stagedMembership].filter((entry) => !baseMembership.has(entry));
-            if (added.length > 0) {
-              added.sort(compareRepoPathsByUtf8Bytes);
-              return {
-                offendingPath: LOAD_SENSITIVE_SLICE_PATH,
-                error: new Error(
-                  `${REPAIR_FENCE_LOAD_SENSITIVE_FAILURE_MESSAGE}${escapeRepoPathForEvidence(added[0]!)}`,
-                ),
-              };
-            }
-          }
-        }
-      }
+    const loadSensitiveViolation = await validateLoadSensitiveSliceRepairExtension(scope.worktreePath);
+    if (loadSensitiveViolation !== undefined) {
+      return loadSensitiveViolation;
     }
   }
   const violation = findFirstRepairFenceViolation(candidates, allowedPaths);

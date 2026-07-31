@@ -42,9 +42,9 @@ import {
   executeWriteLoop,
   findFirstRepairFenceViolation,
   persistRetainedFinalizationCheckpoint,
-  validateReadyGateRepairCompletion,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
+  validateReadyGateRepairCompletion,
   type WallSegmentSchedule,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
@@ -1870,10 +1870,7 @@ export function isLoadSensitive(file: string): boolean {
             SEED_TEST_SLICE.replace(
               '"v2/src/existing.test.ts",',
               '"v2/src/existing.test.ts",\n  "v2/src/implement-grown.test.ts",',
-            ).replace(
-              "export const LOAD_SENSITIVE_FILES",
-              "// touched in run diff\nexport const LOAD_SENSITIVE_FILES",
-            ),
+            ).replace("export const LOAD_SENSITIVE_FILES", "// touched in run diff\nexport const LOAD_SENSITIVE_FILES"),
             "utf8",
           );
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "scripts/test-slice.ts"], { stdio: "pipe" });

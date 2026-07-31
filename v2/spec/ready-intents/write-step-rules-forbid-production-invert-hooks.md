@@ -27,4 +27,3 @@ bypass branches that let the real guard be deleted while mutation verification p
 - `v2/docs/test-writing.md` — guard-inversion evidence is a source mutation with a comment checkpoint; production invert hooks are forbidden.
 
 ## Prerequisites
-

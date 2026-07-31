@@ -17,7 +17,7 @@ partition guard-inversion ACs pass without mutating the real partition filter.
 ## Acceptance criteria
 
 - [ ] `shared/**/*.ts` outside `*.test.ts` exports no `setInvert*ForTest` and declares no `invert*ForTest` module variables.
-- [ ] `shared/module-boundary-surfaces.test.ts` guard-inversion fails when the named mutation is inverted.
+- [ ] `module-boundary-surfaces.test.ts` test `inverting partition guard fails k2 draft-scope preservation` fails when its named mutation is inverted.
 - [ ] `bun run typecheck` and `bun run test:v2` pass for touched shared files.
 
 ## Documentation updates
@@ -27,6 +27,3 @@ partition guard-inversion ACs pass without mutating the real partition filter.
 ## Prerequisites
 
 - Plan and implement write-step rules name comment-checkpoint source mutation and forbid production invert hooks.
-- Daemon production modules export no `setInvert*ForTest` or `invert*ForTest` hooks.
-- CLI production modules export no `setInvert*ForTest` or `invert*ForTest` hooks.
-- Execution-loop and TUI production modules carry no forbidden invert hooks.

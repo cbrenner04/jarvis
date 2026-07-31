@@ -202,7 +202,7 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detac
 
 ### Pipeline start
 
-Launch a registered project's configured pipeline when `projects.<name>.pipeline` is present in machine config (unlike `implement`, which treats `pipeline` as optional):
+Launch a registered project's configured pipeline when `projects.<name>.pipeline` is present and valid in machine config (`jarvis run workflow implement` ignores `pipeline` entirely):
 
 ```sh
 jarvis pipeline start <project> --seed-text "Ship feature"

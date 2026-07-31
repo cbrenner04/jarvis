@@ -30,3 +30,7 @@ guard-inversion ACs pass without mutating real guards (`pipeline-stage-resolve`,
 ## Prerequisites
 
 - Plan and implement write-step rules name comment-checkpoint source mutation and forbid production invert hooks.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-daemon-drop-production-invert-hooks.md has a multi-surface ## Acceptance criteria bullet: (Manual) Inverting the admission-context handoff mutation documented in `daemon-pipeline-start.test.ts` (`createPipeline({ definition, context })` → `createPipeline({ definition })`) turns `pipeline_start persists supplied context before returning pipelineId` RED.

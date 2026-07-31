@@ -40,3 +40,7 @@ split the operator cannot tell which branch is awaiting or target a gate decisio
 - Pipeline stage rows are keyed by `(stageId, branchKey)` and stage artifacts may carry multiple downstream inputs.
 - Multi-file intent landing records one downstream input per landed ready-intent file on the entry run and stage artifact.
 - Pipeline execution fans out downstream stages per ready-intent branch, resolves plan per input, settles terminal state across branches, and scopes approval gates per branch.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 01-branch-keyed-pipeline-cli.md has a multi-surface ## Decisions bullet: CLI remains a thin daemon RPC wrapper; fan-out execution stays in the daemon — rules out reimplementing branch scheduling in the CLI.

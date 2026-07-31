@@ -92,15 +92,8 @@ const LIST_STRING_DIMENSIONS = [
   paramKey: keyof ListRpcParams;
 }>;
 
-let invertListStatusValidationForTest = false;
-
-export function setInvertListStatusValidationForTest(value: boolean): void {
-  invertListStatusValidationForTest = value;
-}
-
 function parseListStatusValue(value: string): RunStatus | undefined {
   if (!isRunStatus(value)) return undefined;
-  if (invertListStatusValidationForTest) return value;
   return TERMINAL_RUN_STATUSES.has(value) ? value : undefined;
 }
 
@@ -211,13 +204,6 @@ function parseListArgv(
   return { ok: true, params };
 }
 
-/** When true, `run log` / `run wait` skip cross-daemon owner resolution (guard-inversion tests). */
-let invertRunOwnerResolutionForTest = false;
-
-export function setInvertRunOwnerResolutionForTest(value: boolean): void {
-  invertRunOwnerResolutionForTest = value;
-}
-
 async function resolveRunOwnerSocket(runId: string, deps: CliDeps): Promise<string> {
   const { listResults } = await queryDaemonListsFromSockets(deps, undefined);
   const { owners } = mergeRunLists(listResults);
@@ -278,7 +264,7 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 }
 
 async function runLogSubcommand(runId: string, follow: boolean, io: Io, deps: CliDeps): Promise<number> {
-  const socketPath = invertRunOwnerResolutionForTest ? deps.socketPath : await resolveRunOwnerSocket(runId, deps);
+  const socketPath = await resolveRunOwnerSocket(runId, deps);
   return withRunClient(
     io,
     deps,
@@ -383,7 +369,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
       io.stderr(RUN_USAGE);
       return 1;
     }
-    const socketPath = invertRunOwnerResolutionForTest ? deps.socketPath : await resolveRunOwnerSocket(runId, deps);
+    const socketPath = await resolveRunOwnerSocket(runId, deps);
     return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io), socketPath);
   }
 

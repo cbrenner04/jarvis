@@ -29,21 +29,15 @@ export function resolveListRpcRequest(input: ListRpcParams): ListRpcParams | und
   return Object.fromEntries(entries) as ListRpcParams;
 }
 
-let invertListRpcRequestIsFilteredForTest = false;
-
-export function setInvertListRpcRequestIsFilteredForTest(value: boolean): void {
-  invertListRpcRequestIsFilteredForTest = value;
-}
-
 export function listRpcRequestIsFiltered(params: ListRpcParams | undefined): boolean {
   if (params === undefined) return false;
-  const filtered =
+  return (
     params.sinceMs !== undefined ||
     params.project !== undefined ||
     params.branch !== undefined ||
     params.specPath !== undefined ||
-    params.status !== undefined;
-  return invertListRpcRequestIsFilteredForTest ? !filtered : filtered;
+    params.status !== undefined
+  );
 }
 
 export type ListRpcMatchRun = Pick<Run, "createdAt" | "project" | "branch" | "specPath" | "status">;

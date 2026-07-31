@@ -9,8 +9,6 @@ import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-h
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { listRunsDirect } from "../testing/run-control.ts";
 import { connectTuiLogTail } from "../tui/tui-log-tail-client.ts";
-import { setInvertListStatusValidationForTest } from "./run.ts";
-import { setInvertListRpcRequestIsFilteredForTest } from "./run-list-rpc.ts";
 
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000020";
 const STREAM_ID = "00000000-0000-4000-8000-000000000021";
@@ -71,13 +69,9 @@ beforeEach(() => {
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
-  setInvertListRpcRequestIsFilteredForTest(false);
-  setInvertListStatusValidationForTest(false);
 });
 
 afterEach(() => {
-  setInvertListRpcRequestIsFilteredForTest(false);
-  setInvertListStatusValidationForTest(false);
   try {
     stateStore.close();
   } catch {
@@ -165,6 +159,7 @@ test("conjunctive dimension filters and composition with sinceMs", async () => {
 });
 
 test("dimension-only filtered query bypasses terminal retention", async () => {
+  // Inversion target: listRpcRequestIsFiltered dimension membership checks in run-list-rpc.ts — treating dimension-only queries as unfiltered turns this test RED.
   const historicalId = seedBeyondRetentionWindow(stateStore, { project: "history-proj" });
 
   const defaultRuns = await listRunsDirect(handlers);
@@ -228,6 +223,7 @@ async function expectListCliRejectsBeforeRpc(argv: string[], expectedStderr: str
 }
 
 test("invalid --status exits 1 with invalid_status and skips list RPC", async () => {
+  // Inversion target: parseListStatusValue TERMINAL_RUN_STATUSES check in run.ts — accepting non-terminal status turns this test RED.
   await expectListCliRejectsBeforeRpc(["run", "list", "--status", "in-progress"], "invalid_status: invalid value\n");
 });
 
@@ -250,28 +246,8 @@ test("empty --spec exits 1 with invalid_spec and skips list RPC", async () => {
   await expectListCliRejectsBeforeRpc(["run", "list", "--spec", ""], "invalid_spec: invalid value\n");
 });
 
-test("invalid_status guard inversion accepts non-terminal status", async () => {
-  setInvertListStatusValidationForTest(true);
-  const cap = captureIo();
-  const sent: unknown[] = [];
-  const code = await withFixedUuid(LIST_REQUEST_ID, () =>
-    main(["run", "list", "--status", "in-progress"], cap.io, {
-      connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: LIST_REQUEST_ID, result: { runs: [] } }], { sent }),
-    }),
-  );
-  expect(code).toBe(0);
-  expect(sent).toEqual([{ kind: "request", id: LIST_REQUEST_ID, method: "list", params: { status: "in-progress" } }]);
-});
-
-test("listRpcRequestIsFiltered guard inversion keeps retention on dimension-only queries", async () => {
-  const historicalId = seedBeyondRetentionWindow(stateStore, { project: "history-proj" });
-  setInvertListRpcRequestIsFilteredForTest(true);
-  const filtered = await listRunsDirect(handlers, { project: "history-proj" });
-  expect(filtered?.some((row) => row.runId === historicalId)).toBe(false);
-});
-
 test("run log stream-open and tui log tail-open accept dimension-listed runs beyond retention", async () => {
+  // Inversion target: listRpcRequestIsFiltered dimension membership checks in run-list-rpc.ts — treating dimension-only queries as unfiltered turns this test RED.
   const historicalId = seedBeyondRetentionWindow(stateStore, { project: "history-proj" });
 
   const filtered = await listRunsDirect(handlers, { project: "history-proj" });

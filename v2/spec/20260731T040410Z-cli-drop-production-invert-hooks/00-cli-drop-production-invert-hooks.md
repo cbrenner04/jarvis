@@ -79,30 +79,36 @@ tests only — no edits to those production modules.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/**/*.ts` outside `*.test.ts` carry no `setInvert*ForTest`
+- [x] `v2/src/commands/**/*.ts` outside `*.test.ts` carry no `setInvert*ForTest`
   export, `invert*ForTest` module variable, `invert*` function parameter, or
   `invert*ForTest` type member in the worktree.
-- [ ] (Manual) Inverting the pre-admission resolution guard-inversion mutation
-  documented in `pipeline.test.ts` turns its pinning test RED.
-- [ ] `pipeline.test.ts` — `failed daemon admission exits non-zero with stderr detail
+- [x] Mutating the pre-admission resolution guard in `pipeline.ts` (falling back to the
+  `fast` definition instead of exiting non-zero) turns its `pipeline.test.ts` pinning
+  test RED. (Manual)
+- [x] `pipeline.test.ts` — `failed daemon admission exits non-zero with stderr detail
   and no pipeline ID on stdout` stays green.
-- [ ] `pipeline.test.ts` — `pipeline approve exits 0 on applied decision and sends both
+- [x] `pipeline.test.ts` — `pipeline approve exits 0 on applied decision and sends both
   IDs`, `pipeline reject exits 0 on applied decision and sends both IDs`, and
   `pipeline resume exits 0 on resumed for …` stay green.
-- [ ] `workflow.test.ts` — `run workflow implement with --detach admits and exits
+- [x] `workflow.test.ts` — `run workflow implement with --detach admits and exits
   without client wait` stays green.
-- [ ] `run.test.ts` — `run log streams a run owned by a non-invoking live daemon` and
+- [x] `run.test.ts` — `run log streams a run owned by a non-invoking live daemon` and
   `run wait resolves a run owned by a non-invoking live daemon` stay green; owner-
   resolution guard-inversion cases use comment checkpoints (no setter import or call).
-- [ ] `run-list-dimension-filters.test.ts` — `dimension-only filtered query bypasses
+- [x] `run-list-dimension-filters.test.ts` — `dimension-only filtered query bypasses
   terminal retention` and `run log stream-open and tui log tail-open accept
   dimension-listed runs beyond retention` stay green.
-- [ ] `cleanup.test.ts` — `older-digest live daemon makes merged worktree ineligible`
+- [x] `cleanup.test.ts` — `older-digest live daemon makes merged worktree ineligible`
   and `one dead socket in query set does not blank eligibility when another reports
   live run` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - None — shared guard-inversion doc already updated by
   `write-step-rules-forbid-production-invert-hooks`.
+
+## Blocker
+
+Artifact contract check failed: Unticked non-human-only acceptance criteria:
+- (Manual) Inverting the pre-admission resolution guard-inversion mutation

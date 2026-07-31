@@ -39,13 +39,8 @@ import {
   parsePlanWorkflowArgs,
 } from "./workflow-args.ts";
 
-let invertDetachClientWaitGuardForTest = false;
 let forceSkipAttachClientWaitForTest = false;
 let attachWaitRunIdOverrideForTest: string | undefined;
-
-export function setInvertDetachClientWaitGuardForTest(value: boolean): void {
-  invertDetachClientWaitGuardForTest = value;
-}
 
 export function setForceSkipAttachClientWaitForTest(value: boolean): void {
   forceSkipAttachClientWaitForTest = value;
@@ -346,8 +341,7 @@ async function startWorkflowRun(
     }
   }
   io.stdout(`${start.runId}\n`);
-  const skipClientWait =
-    (detach && !invertDetachClientWaitGuardForTest) || (!detach && forceSkipAttachClientWaitForTest);
+  const skipClientWait = detach || forceSkipAttachClientWaitForTest;
   if (skipClientWait) return 0;
   return waitForRunCompletion(client, attachWaitRunIdOverrideForTest ?? start.runId, io);
 }

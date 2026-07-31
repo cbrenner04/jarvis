@@ -16,11 +16,7 @@ import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock
 import { request } from "../cli/ipc.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
-import {
-  type QueryDaemonListsDeps,
-  queryDaemonListsFromSocketPaths,
-  queryDaemonListsFromSockets,
-} from "../daemon/query-daemon-lists-from-sockets.ts";
+import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -185,28 +181,12 @@ export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
   return daemonClient;
 }
 
-let invertCleanupSocketDiscoveryForTest = false;
-let invertCleanupSocketSkipOnFailureForTest = false;
-
-export function setInvertCleanupSocketDiscoveryForTest(value: boolean): void {
-  invertCleanupSocketDiscoveryForTest = value;
-}
-
-export function setInvertCleanupSocketSkipOnFailureForTest(value: boolean): void {
-  invertCleanupSocketSkipOnFailureForTest = value;
-}
-
 export async function createBulkCleanupDaemonClient(deps: QueryDaemonListsDeps): Promise<{
   client: DaemonClient;
   hasAnsweringDaemon: boolean;
   firstError: unknown;
 }> {
-  const queryLists = async () => {
-    const skipOnFailure = !invertCleanupSocketSkipOnFailureForTest;
-    return invertCleanupSocketDiscoveryForTest
-      ? queryDaemonListsFromSocketPaths(deps.connectIpcClient, [deps.socketPath], undefined, { skipOnFailure })
-      : queryDaemonListsFromSockets(deps, undefined, { skipOnFailure });
-  };
+  const queryLists = async () => queryDaemonListsFromSockets(deps, undefined, { skipOnFailure: true });
 
   const initial = await queryLists();
   const hasAnsweringDaemon = initial.listResults.some(([, result]) => result !== undefined);

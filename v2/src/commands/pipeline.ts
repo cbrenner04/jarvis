@@ -16,7 +16,6 @@ import {
 } from "../cli/usage.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
-import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineBoundaryResult, PipelineTerminalState } from "../daemon/pipeline-observation.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
@@ -27,37 +26,6 @@ import {
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
-
-let invertPreAdmissionResolutionGuardForTest = false;
-let invertDetachClientWaitGuardForTest = false;
-let invertListNonFollowGuardForTest = false;
-let invertWaitBoundaryGuardForTest = false;
-let invertAppliedRefusedGuardForTest = false;
-let invertResumedRefusedGuardForTest = false;
-
-export function setInvertPreAdmissionResolutionGuardForTest(value: boolean): void {
-  invertPreAdmissionResolutionGuardForTest = value;
-}
-
-export function setInvertDetachClientWaitGuardForTest(value: boolean): void {
-  invertDetachClientWaitGuardForTest = value;
-}
-
-export function setInvertListNonFollowGuardForTest(value: boolean): void {
-  invertListNonFollowGuardForTest = value;
-}
-
-export function setInvertWaitBoundaryGuardForTest(value: boolean): void {
-  invertWaitBoundaryGuardForTest = value;
-}
-
-export function setInvertAppliedRefusedGuardForTest(value: boolean): void {
-  invertAppliedRefusedGuardForTest = value;
-}
-
-export function setInvertResumedRefusedGuardForTest(value: boolean): void {
-  invertResumedRefusedGuardForTest = value;
-}
 
 type PipelineStartCliInput =
   | {
@@ -119,19 +87,6 @@ function parsePipelineDecisionArgs(
   if (pipelineId === undefined || stageId === undefined) return { ok: false };
   if (pipelineId.trim().length === 0 || stageId.trim().length === 0) return { ok: false };
   return { ok: true, pipelineId, stageId };
-}
-
-function exitCodeForPipelineMutationOutcome(success: boolean, invertGuard: boolean): number {
-  if (invertGuard) return success ? 1 : 0;
-  return success ? 0 : 1;
-}
-
-function hasNonTerminalListPipelines(pipelines: unknown[]): boolean {
-  return pipelines.some((pipeline) => {
-    if (typeof pipeline !== "object" || pipeline === null) return false;
-    const state = (pipeline as { state?: unknown }).state;
-    return typeof state === "string" && !isPipelineTerminal(state as PipelineDerivedState);
-  });
 }
 
 function resolvePipelineSeed(
@@ -244,7 +199,7 @@ async function startAdmittedPipeline(
     return 1;
   }
   io.stdout(`${pipelineId}\n`);
-  if (detach && !invertDetachClientWaitGuardForTest) return 0;
+  if (detach) return 0;
   return waitForPipelineTerminal(client, pipelineId, io, deps);
 }
 
@@ -293,20 +248,11 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
     getPipelineDefinition,
     agentModelConfig,
   );
-  let definition: PipelineDefinition;
-  if (resolution.ok) {
-    definition = resolution.definition;
-  } else if (invertPreAdmissionResolutionGuardForTest) {
-    const fallback = getPipelineDefinition("fast");
-    if (!fallback.ok) {
-      io.stderr(formatProjectPipelineResolutionError(resolution));
-      return 1;
-    }
-    definition = fallback.definition;
-  } else {
+  if (!resolution.ok) {
     io.stderr(formatProjectPipelineResolutionError(resolution));
     return 1;
   }
+  const definition = resolution.definition;
 
   const context: PipelineContext = {
     cwd: deps.cwd(),
@@ -323,14 +269,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
 async function runPipelineListCommand(io: Io, deps: CliDeps): Promise<number> {
   return withRunClient(io, deps, async (client) => {
     try {
-      let result: unknown = await request(client, "pipeline_list");
-      if (invertListNonFollowGuardForTest) {
-        const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-        while (hasNonTerminalListPipelines(readPipelineListResult(result)?.pipelines ?? [])) {
-          await sleep(50);
-          result = await request(client, "pipeline_list");
-        }
-      }
+      const result: unknown = await request(client, "pipeline_list");
       const snapshot = readPipelineListResult(result);
       if (snapshot === undefined) {
         io.stderr("invalid daemon response\n");
@@ -352,20 +291,6 @@ async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps)
   return withRunClient(io, deps, async (client) => {
     const unregister = deps.onSigint(() => client.close());
     try {
-      if (invertWaitBoundaryGuardForTest) {
-        const listResult = await request(client, "pipeline_list");
-        const pipeline = readPipelineListResult(listResult)?.pipelines.find(
-          (row) =>
-            typeof row === "object" && row !== null && (row as { pipelineId?: unknown }).pipelineId === pipelineId,
-        );
-        const state =
-          typeof pipeline === "object" && pipeline !== null ? (pipeline as { state?: unknown }).state : undefined;
-        if (state === "pending" || state === "running") {
-          io.stdout(`${JSON.stringify({ kind: "intermediate", state })}\n`);
-          return 0;
-        }
-      }
-
       let response: unknown;
       try {
         response = await request(client, "pipeline_wait", { pipelineId });
@@ -394,7 +319,6 @@ async function runPipelineMutationCommand(
   method: "pipeline_approve" | "pipeline_reject" | "pipeline_resume",
   params: Record<string, string>,
   successKind: "applied" | "resumed",
-  invertGuard: boolean,
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
@@ -418,7 +342,7 @@ async function runPipelineMutationCommand(
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
     }
-    return exitCodeForPipelineMutationOutcome(outcome.kind === successKind, invertGuard);
+    return outcome.kind === successKind ? 0 : 1;
   });
 }
 
@@ -448,7 +372,6 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       subcommand === "approve" ? "pipeline_approve" : "pipeline_reject",
       { pipelineId: parsed.pipelineId, stageId: parsed.stageId },
       "applied",
-      invertAppliedRefusedGuardForTest,
       io,
       deps,
     );
@@ -459,14 +382,7 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       io.stderr(PIPELINE_RESUME_USAGE);
       return 1;
     }
-    return runPipelineMutationCommand(
-      "pipeline_resume",
-      { pipelineId },
-      "resumed",
-      invertResumedRefusedGuardForTest,
-      io,
-      deps,
-    );
+    return runPipelineMutationCommand("pipeline_resume", { pipelineId }, "resumed", io, deps);
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

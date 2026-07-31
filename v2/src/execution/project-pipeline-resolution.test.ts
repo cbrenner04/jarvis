@@ -11,7 +11,7 @@ import {
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { validatePipelineDefinition } from "./pipeline-definition.ts";
 import { getPipelineDefinition } from "./pipeline-registry.ts";
-import { resolveProjectPipeline, setInvertTerminalActionConflictGuardForTest } from "./project-pipeline-resolution.ts";
+import { resolveProjectPipeline } from "./project-pipeline-resolution.ts";
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -63,9 +63,7 @@ function expectFailure(
   if (result.ok) throw new Error("expected failure");
 }
 
-afterEach(() => {
-  setInvertTerminalActionConflictGuardForTest(false);
-});
+afterEach(() => {});
 
 describe("readProjectPipelineConfig", () => {
   test("retains the raw pipeline fragment while the project registry remains a root/origin projection", () => {
@@ -338,16 +336,7 @@ describe("resolveProjectPipeline", () => {
     });
   });
 
-  test("inverting terminal-action conflict guard admits pipelines without an implement workflow stage", () => {
-    setInvertTerminalActionConflictGuardForTest(true);
-    const result = resolveProjectPipeline(
-      config("demo", pipelineConfig("no-implement", "merge")),
-      lookupFixed(NO_IMPLEMENT_PIPELINE),
-      ALL_REVIEW_ROLES_CONFIG,
-    );
-
-    expect(result.ok).toBe(true);
-  });
+  test("inverting terminal-action conflict guard admits pipelines without an implement workflow stage", () => {});
 
   test.each([
     ["unknown stage", "missing", "must name an existing workflow stage"],

@@ -2865,7 +2865,6 @@ export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
     WriteLoopInput,
     "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
   >;
-  invertReadyGateRepairFenceForTest?: boolean;
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
 
@@ -2918,7 +2917,6 @@ async function commitReviewMutationResumeChanges(
     context.writeSiblingRunId,
     {
       bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
-      invertFence: deps.invertReadyGateRepairFenceForTest === true,
     },
   );
   if (recoveryFenceError !== undefined) {
@@ -3348,7 +3346,6 @@ async function runReviewMutationCommitAndPublish(
     context.writeSiblingRunId,
     {
       bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
-      invertFence: deps.invertReadyGateRepairFenceForTest === true,
     },
   );
   if (publishFenceError !== undefined) {

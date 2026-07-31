@@ -1092,8 +1092,7 @@ async function awaitIteration(
   let removeAbort: (() => void) | undefined;
   const abort = new Promise<RaceOutcome>((resolve) => {
     if (!args.signal) return;
-    const resolveAbort = () =>
-      queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort") }));
+    const resolveAbort = () => queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort") }));
     if (args.signal.aborted) return resolveAbort();
     const onAbort = () => resolveAbort();
     args.signal.addEventListener("abort", onAbort, { once: true });
@@ -1777,7 +1776,7 @@ async function initializeFrozenRepairAllowset(
 }
 
 async function enforceRepairIterationFence(
-  args: WriteLoopInput,
+  _args: WriteLoopInput,
   store: StateStore,
   runId: string,
   input: CompletionPublishInput,

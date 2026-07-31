@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Pipeline context seed path field](./00-pipeline-context-seed-path-field.md)
+- [x] [00 - Pipeline context seed path field](./00-pipeline-context-seed-path-field.md)

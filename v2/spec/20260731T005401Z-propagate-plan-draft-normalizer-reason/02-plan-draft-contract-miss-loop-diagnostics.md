@@ -13,10 +13,17 @@ event path operators read alongside stdout.
   rules out overloading `responseText` with the contract reason.
 - `responseText` stays the final agent stdout used for contract evaluation (unchanged) — rules
   out replacing invocation output with the deterministic rejection text.
-- Harness-appended blocker uses propagated `failureReason`, not a generic shape slug — rules out
-  leaving the next plan attempt blind to the deterministic rejection.
+- Harness blocker append is largely pre-wired once `failureReason` propagates (subspec 01);
+  subspec 02’s distinct deliverables are `contract_miss_detail.failureReason`, loop tests, and
+  docs — rules out re-implementing blocker body text from scratch.
+- `plan.prompt.draft` + `artifact.exists` `contract_miss` appends `## Blocker` to
+  `join(expectedArtifactPath, "intent.md")` under the worktree (same routing pattern as
+  `spec.criteria-ticked` uses `expectedArtifactPath`), not durable `specPath` — rules out
+  appending to a durable path that may not exist on first draft.
 - `ContractMissDetailEvent` in `log-stream.ts` carries the optional field — rules out ad-hoc
   parsing of `responseText` for normalizer text.
+- Including the normalizer message in the next plan agent reprompt is out of scope (deferred;
+  not covered by this spec or `surface-contract-miss-reason-on-run-rows`).
 - Deferred to first consumer: TUI/list-row projection of `contract_miss_detail.failureReason` —
   pin when `surface-contract-miss-reason-on-run-rows` ships.
 
@@ -24,8 +31,10 @@ event path operators read alongside stdout.
 
 - Add optional `failureReason` to `ContractMissDetailEvent` and append it from `write-loop.ts`
   on `contract_miss` boundaries.
-- Add `write-loop.test.ts` plan-draft normalizer regressions for log detail and harness blocker
-  text.
+- Route `plan.prompt.draft` + `artifact.exists` blocker append to staging
+  `join(expectedArtifactPath, "intent.md")` when not already wired.
+- Add `write-loop.test.ts` plan-draft normalizer regressions for log detail, blocker path, and
+  body text.
 - Update `v2/docs/write-behavior.md` and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
@@ -34,8 +43,8 @@ event path operators read alongside stdout.
       `contract_miss_detail.failureReason` matches the step `failureReason`; `responseText`
       remains agent stdout; it fails against the pre-fix code.
 - [ ] `write-loop.test.ts` drives a plan-draft normalizer `contract_miss` and asserts the
-      harness-appended `## Blocker` body contains the normalizer message; it fails against the
-      pre-fix code.
+      harness-appended `## Blocker` at `join(worktreePath, expectedArtifactPath, "intent.md")`
+      contains the normalizer message in its body; it fails against the pre-fix code.
 - [ ] `log-stream.test.ts` (or an equivalent typed fixture beside `log-stream.ts`) asserts
       `contract_miss_detail` is assignable with optional `failureReason`; it fails against the
       pre-fix code.

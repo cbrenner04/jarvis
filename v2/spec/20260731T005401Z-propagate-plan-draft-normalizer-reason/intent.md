@@ -28,6 +28,8 @@ missing index links, cross-boundary decisions) are discarded; the operator sees
   tree.
 - Not in scope: whether a criterion naming two test files should be rejected as multi-surface; that
   is normalizer policy, tracked separately.
+- Not in scope: including the normalizer message in the next plan agent reprompt (deferred; not
+  covered by this spec or `surface-contract-miss-reason-on-run-rows`).
 
 ## Acceptance criteria
 
@@ -48,7 +50,10 @@ missing index links, cross-boundary decisions) are discarded; the operator sees
       stdout; it fails against the pre-fix code.
 - [ ] A plan-draft normalizer `contract_miss` harness-appends a `## Blocker` whose body contains the
       normalizer message; a regression test in `write-loop.test.ts` fails against the pre-fix code.
-- [ ] Inverting the guard that propagates the normalizer message turns the first two tests RED.
+- [ ] Inverting the `evaluateContracts` guard that prefers a check-returned `reason` (subspec 00)
+      turns the step-runner dynamic-reason test RED.
+- [ ] Inverting the guard that propagates the normalizer throw message through `validatePlanDraft`
+      (subspec 01) turns the first two `write.test.ts` normalizer tests RED.
 
 ## Documentation updates
 

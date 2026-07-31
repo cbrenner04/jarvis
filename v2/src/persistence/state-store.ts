@@ -293,31 +293,6 @@ export type PipelineStageRecord = {
   failureDetail: unknown | null;
 };
 
-/** True when every listed branch key has a stored row for the authored stage. */
-export function stageRowsIncludeBranchKeys(
-  stages: readonly PipelineStageRecord[],
-  stageId: string,
-  branchKeys: readonly string[],
-): boolean {
-  if (branchKeys.length === 0) {
-    return false;
-  }
-  const present = new Set(stages.filter((stage) => stage.stageId === stageId).map((stage) => stage.branchKey));
-  return branchKeys.every((branchKey) => present.has(branchKey));
-}
-
-/** True when artifact JSON stores exactly two worktree-relative ready-intent file paths. */
-export function isTwoPathDownstreamInputsArtifact(artifact: unknown): boolean {
-  if (artifact === null || typeof artifact !== "object") {
-    return false;
-  }
-  const downstreamInputs = (artifact as { downstreamInputs?: unknown }).downstreamInputs;
-  if (!Array.isArray(downstreamInputs) || downstreamInputs.length !== 2) {
-    return false;
-  }
-  return downstreamInputs.every((path) => typeof path === "string" && path.length > 0 && !path.endsWith("/"));
-}
-
 /**
  * A targeted patch to one stage's durable lifecycle fields. Omitted fields are
  * unchanged; an explicit `null` clears a nullable field. `status`, when
@@ -783,8 +758,18 @@ function applySchemaMigrations(db: Database): void {
   for (const migration of SCHEMA_MIGRATIONS) {
     const exists = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(migration.id);
     if (exists) continue;
-    db.exec(migration.up);
-    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(migration.id, Date.now());
+    // One transaction per migration: a table-rebuild migration (drop + rename) that is
+    // interrupted partway would otherwise destroy its table and leave the store unopenable,
+    // because the earlier CREATE is already stamped and will not re-run.
+    db.exec("BEGIN");
+    try {
+      db.exec(migration.up);
+      db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(migration.id, Date.now());
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 }
 
@@ -1100,8 +1085,8 @@ class StateStoreImpl implements StateStore {
 
     const defaultSibling = this.db
       .prepare("SELECT position FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?")
-      .get(args.pipelineId, args.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY) as { position: number } | undefined;
-    if (defaultSibling === undefined) {
+      .get(args.pipelineId, args.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY) as { position: number } | null;
+    if (defaultSibling === null) {
       throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
     }
 

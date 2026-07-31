@@ -9,7 +9,6 @@ import {
   approvalDecisionAllowsStatus,
   isApprovalAuthoredStage,
   isOwnerAlive,
-  isTwoPathDownstreamInputsArtifact,
   type OwnerLivenessProbe,
   openStateStore,
   orphanSettlementReconciledAt,
@@ -22,7 +21,6 @@ import {
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
   type StateStore,
-  stageRowsIncludeBranchKeys,
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
@@ -1229,8 +1227,8 @@ describe("pipelines", () => {
     });
 
     const pipeline = loadPipelineOrThrow(store, pipelineId);
-    // Returning false when non-default branch rows are absent turns this RED — omitting createPipelineStageBranch does that.
-    expect(stageRowsIncludeBranchKeys(pipeline.stages, "plan", ["default", "branch-a"])).toBe(true);
+    // Mutation checkpoint: collapsing storage to one row per stageId must turn this RED.
+    expect(pipeline.stages.map((stage) => stage.branchKey).sort()).toEqual(["branch-a", "default"]);
     expect(pipeline.stages).toHaveLength(2);
     const defaultRow = pipeline.stages.find((stage) => stage.branchKey === "default");
     const branchRow = pipeline.stages.find((stage) => stage.branchKey === "branch-a");
@@ -1246,13 +1244,15 @@ describe("pipelines", () => {
   test("inverting branch-row guard fails branch-key regression", () => {
     const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("branch-guard") });
     store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" });
-    expect(() => store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" })).toThrow();
+    expect(() => store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" })).toThrow(
+      /Branch branch-a already exists for stage plan/u,
+    );
     expect(() =>
       store.createPipelineStageBranch({ pipelineId, stageId: "unknown-stage", branchKey: "branch-b" }),
-    ).toThrow();
+    ).toThrow(/Stage unknown-stage not found in pipeline/u);
     expect(() =>
       store.createPipelineStageBranch({ pipelineId: "unknown-pipeline", stageId: "plan", branchKey: "branch-b" }),
-    ).toThrow();
+    ).toThrow(/Pipeline unknown-pipeline not found/u);
     expect(loadPipelineOrThrow(store, pipelineId).stages.filter((stage) => stage.stageId === "plan")).toHaveLength(2);
   });
 
@@ -1265,8 +1265,12 @@ describe("pipelines", () => {
     store = openStateStore(TEST_DB_PATH);
     const loaded = loadPipelineOrThrow(store, pipelineId).stages[0]?.artifact;
     expect(loaded).toEqual(artifact);
-    // Accepting single-path, directory, or omitted downstreamInputs turns this RED — see isTwoPathDownstreamInputsArtifact.
-    expect(isTwoPathDownstreamInputsArtifact(loaded)).toBe(true);
+    // Mutation checkpoint: storing only one path, a directory path, or dropping downstreamInputs
+    // must turn this RED.
+    expect((loaded as { downstreamInputs: string[] }).downstreamInputs).toEqual([
+      "ready-intents/a.md",
+      "ready-intents/b.md",
+    ]);
   });
 
   test("createPipelineStageBranch admits pending branch rows on workflow and approval stages", () => {

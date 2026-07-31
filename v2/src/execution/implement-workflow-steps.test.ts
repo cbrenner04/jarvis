@@ -743,7 +743,11 @@ describe("buildImplementWorkflowSteps", () => {
     execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: root });
     mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
     writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
-    writeFileSync(join(planWorktree, "spec/feature/00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    writeFileSync(
+      join(planWorktree, "spec/feature/00-work.md"),
+      "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+      "utf8",
+    );
     execFileSync("git", ["add", "-A"], { cwd: planWorktree });
     execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
 
@@ -775,8 +779,7 @@ describe("buildImplementWorkflowSteps", () => {
       {
         asyncSubprocessRunner: runner,
         resolveProjectMatch: createChainedStageProjectMatch(context),
-        loadWorkflowSteps: (steps) =>
-          loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
         resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
       },
     );
@@ -800,8 +803,7 @@ describe("buildImplementWorkflowSteps", () => {
       {
         asyncSubprocessRunner: runner,
         resolveProjectMatch: createChainedStageProjectMatch(context),
-        loadWorkflowSteps: (steps) =>
-          loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile }),
         resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
       },
     );

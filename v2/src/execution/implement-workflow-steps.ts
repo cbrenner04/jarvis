@@ -209,6 +209,48 @@ function resolveImplementReviewConfig(
   return { reviewPasses: reviewPasses.reviewPasses, reviewBehavior: reviewBehavior.reviewBehavior };
 }
 
+/**
+ * Pipeline-chained launch: the spec tree lives on the prior stage's worktree, so both the spec
+ * read root and the base-ref availability check run against `preflightGitRoot` rather than the
+ * registered project root.
+ */
+async function resolveChainedImplementLaunch(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+  specReadRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
+  const resolveProjectMatch =
+    deps.resolveProjectMatch ??
+    ((p: string) => findProjectMatch(p, readProjectRegistry(input.configPath ?? deps.configPath)));
+  const match =
+    input.projectRoot !== undefined
+      ? { key: input.projectName ?? "", root: input.projectRoot }
+      : resolveProjectMatch(input.cwd);
+  if (match === undefined) {
+    return { error: `No registered project matches cwd: ${input.cwd}` };
+  }
+  const resolvedSpecPath = resolveExistingImplementPath("Spec", resolve(specReadRoot, input.specPath));
+  if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
+  const artifact = resolveImplementArtifact({ ...input, cwd: specReadRoot }, resolvedSpecPath, match);
+  if ("error" in artifact) return artifact;
+  const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
+  if ("error" in reviewConfig) return reviewConfig;
+  if (!(await isSpecAvailableInBaseRef(specReadRoot, input.baseRef, input.specPath, runner))) {
+    return { error: `Spec path unavailable in base ref ${input.baseRef}: ${input.specPath}` };
+  }
+  return {
+    ...input,
+    branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
+    specPath: input.specPath,
+    projectRoot: match.root,
+    projectName: match.key,
+    ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
+    reviewPasses: reviewConfig.reviewPasses,
+    reviewBehavior: reviewConfig.reviewBehavior,
+  };
+}
+
 async function resolveImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
@@ -227,37 +269,7 @@ async function resolveImplementLaunch(
   }
 
   if (input.preflightGitRoot !== undefined) {
-    const resolveProjectMatch =
-      deps.resolveProjectMatch ?? ((p: string) => findProjectMatch(p, readProjectRegistry(input.configPath ?? deps.configPath)));
-    const match =
-      input.projectRoot !== undefined
-        ? { key: input.projectName ?? "", root: input.projectRoot }
-        : resolveProjectMatch(input.cwd);
-    if (match === undefined) {
-      return { error: `No registered project matches cwd: ${input.cwd}` };
-    }
-    const specReadRoot = input.preflightGitRoot;
-    const requestedSpecPath = resolve(specReadRoot, input.specPath);
-    const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
-    if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
-    const artifact = resolveImplementArtifact({ ...input, cwd: specReadRoot }, resolvedSpecPath, match);
-    if ("error" in artifact) return artifact;
-    const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
-    if ("error" in reviewConfig) return reviewConfig;
-    const specPathForPreflight = input.specPath;
-    if (!(await isSpecAvailableInBaseRef(input.preflightGitRoot, input.baseRef, specPathForPreflight, runner))) {
-      return { error: `Spec path unavailable in base ref ${input.baseRef}: ${specPathForPreflight}` };
-    }
-    return {
-      ...input,
-      branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
-      specPath: specPathForPreflight,
-      projectRoot: match.root,
-      projectName: match.key,
-      ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
-      reviewPasses: reviewConfig.reviewPasses,
-      reviewBehavior: reviewConfig.reviewBehavior,
-    };
+    return await resolveChainedImplementLaunch(input, deps, input.preflightGitRoot, runner);
   }
 
   const resolvedSpec = resolveImplementSpecAndProject(input, deps);

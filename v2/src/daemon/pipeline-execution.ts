@@ -651,7 +651,11 @@ function skipRemainingStages(
   }
 }
 
-function carryForwardArtifact(stageArtifacts: Map<string, PipelineStageArtifact>, stageId: string, artifact: unknown): void {
+function carryForwardArtifact(
+  stageArtifacts: Map<string, PipelineStageArtifact>,
+  stageId: string,
+  artifact: unknown,
+): void {
   if (
     artifact !== null &&
     typeof artifact === "object" &&

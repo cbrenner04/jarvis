@@ -35,9 +35,9 @@ Primary: `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts`. Depends
 
 ## Acceptance criteria
 
-- [ ] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `fast` case walks `intent(none) → plan(none) → implement(light)` through production `resolveStage`, real `resolveStageWorkflowSteps`, real preset builders, and repo-nested worktree paths with dispatch/wait faked only at the agent boundary; intent ready-intent and plan spec tree are absent from `context.cwd`; all three workflow stages reach `succeeded` and `derivePipelineState(pipeline) === "succeeded"`.
-- [ ] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `setInvertPriorWorktreeRootGuardForTest(true)` makes the `fast` case fail.
-- [ ] `bun run test:integration:v2` exits zero.
+- [x] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `fast` case walks `intent(none) → plan(none) → implement(light)` through production `resolveStage`, real `resolveStageWorkflowSteps`, real preset builders, and repo-nested worktree paths with dispatch/wait faked only at the agent boundary; intent ready-intent and plan spec tree are absent from `context.cwd`; all three workflow stages reach `succeeded` and `derivePipelineState(pipeline) === "succeeded"`.
+- [x] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `setInvertPriorWorktreeRootGuardForTest(true)` makes the `fast` case fail.
+- [x] `bun run test:integration:v2` exits zero.
 
 ## Documentation updates
 

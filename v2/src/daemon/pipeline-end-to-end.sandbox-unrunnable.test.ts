@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { buildImplementWorkflowSteps } from "../execution/implement-workflow-steps.ts";
@@ -78,7 +78,7 @@ function makeResolveStageBuilders(): typeof WORKFLOW_PRESET_BUILDERS {
   return builders as unknown as typeof WORKFLOW_PRESET_BUILDERS;
 }
 
-function productionResolveStage(
+function _productionResolveStage(
   definition: PipelineDefinition,
   stageIndex: number,
   context: Parameters<typeof resolveStageWorkflowSteps>[2],
@@ -189,11 +189,8 @@ function setupPipelineSandboxRepo(roots: string[]): { repoRoot: string; jarvisRo
     "---\nname: ship-feature\n---\n\n## Prerequisites\n\nnone\n\n## Acceptance criteria\n\n- [ ] pending\n",
     "utf8",
   );
-  writeFileSync(
-    join(repoRoot, PLAN_SPEC),
-    "---\nname: ship-feature\n---\n\n## Prerequisites\n\nnone\n\n## Acceptance criteria\n\n- [ ] pending\n",
-    "utf8",
-  );
+  writeFileSync(join(repoRoot, PLAN_SPEC), "# ship-feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(join(repoRoot, PLAN_WORK_SPEC), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
   execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -225,16 +222,8 @@ function setupFastPipelineSandboxRepo(roots: string[]): {
     "---\nname: ship-feature\n---\n\n## Prerequisites\n\nnone\n\n## Acceptance criteria\n\n- [ ] pending\n",
     "utf8",
   );
-  writeFileSync(
-    join(artifactTemplatesDir, PLAN_SPEC),
-    "# ship-feature\n\n- [ ] [Work](./00-work.md)\n",
-    "utf8",
-  );
-  writeFileSync(
-    join(artifactTemplatesDir, PLAN_WORK_SPEC),
-    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
-    "utf8",
-  );
+  writeFileSync(join(artifactTemplatesDir, PLAN_SPEC), "# ship-feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(join(artifactTemplatesDir, PLAN_WORK_SPEC), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
   execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
@@ -354,7 +343,9 @@ function createFakePipelineInvocation(
       ? seedGitWorktreeArtifacts(repoRoot, branch, artifactFilesForStage(stageId))
       : (() => {
           const path = join(repoRoot, ".jarvis-worktrees", branch);
-          seedWorktreeArtifact(path, specPath);
+          for (const file of artifactFilesForStage(stageId)) {
+            seedWorktreeArtifact(path, file.specPath);
+          }
           return path;
         })();
     const runId = store.createRun({
@@ -408,7 +399,10 @@ function createHarness(
 ): Harness {
   const store = openStateStore(join(tmpdir(), `jarvis-pipeline-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`));
   const settlement = fakeOptions.settlement ?? deferred<void>();
-  const fakeInvocation = createFakePipelineInvocation(store, repoRoot, fakeOptions);
+  const fakeInvocation = createFakePipelineInvocation(store, repoRoot, {
+    extraPlanArtifacts: [PLAN_WORK_SPEC],
+    ...fakeOptions,
+  });
   const fakeExecutor = createFakeWriteLoopExecutor();
   const resolution = resolveProjectPipeline(
     {
@@ -456,7 +450,9 @@ function createFastHarness(
   configPath: string,
   artifactTemplatesDir: string,
 ): Harness {
-  const store = openStateStore(join(tmpdir(), `jarvis-pipeline-fast-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  const store = openStateStore(
+    join(tmpdir(), `jarvis-pipeline-fast-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
   const fakeInvocation = createFakePipelineInvocation(store, repoRoot, {
     dispatchSequence: ["intent", "plan", "implement"],
     artifactRoot: artifactTemplatesDir,
@@ -494,7 +490,9 @@ function createFastHarness(
 }
 
 function fastStageStatusVector(pipeline: LoadedPipeline): string[] {
-  return FAST_STAGE_IDS.map((stageId) => pipeline.stages.find((stage) => stage.stageId === stageId)?.status ?? "missing");
+  return FAST_STAGE_IDS.map(
+    (stageId) => pipeline.stages.find((stage) => stage.stageId === stageId)?.status ?? "missing",
+  );
 }
 
 function readPipeline(store: StateStore, pipelineId: string): LoadedPipeline {

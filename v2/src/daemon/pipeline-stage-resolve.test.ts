@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
@@ -91,7 +91,11 @@ function createChainedHandoffRepo(): {
   execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: repoRoot });
   mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
   writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
-  writeFileSync(join(planWorktree, "spec/feature/00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+  writeFileSync(
+    join(planWorktree, "spec/feature/00-work.md"),
+    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+    "utf8",
+  );
   execFileSync("git", ["add", "-A"], { cwd: planWorktree });
   execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
 
@@ -438,7 +442,13 @@ describe("resolveStageWorkflowSteps", () => {
     };
     const stageArtifacts = new Map([["plan", stageArtifact("run-plan", "spec/index.md")]]);
 
-    const leaveDraft = await resolveStageWorkflowSteps(leaveDraftDefinition, 1, baseContext, stageArtifacts, resolveDeps);
+    const leaveDraft = await resolveStageWorkflowSteps(
+      leaveDraftDefinition,
+      1,
+      baseContext,
+      stageArtifacts,
+      resolveDeps,
+    );
     expect(leaveDraft.ok).toBe(true);
     if (!leaveDraft.ok) return;
     const leaveDraftStep = leaveDraft.steps.find(
@@ -504,7 +514,13 @@ describe("resolveStageWorkflowSteps", () => {
     const stageArtifacts = new Map([["intent", stageArtifact("run-intent", readyIntentRel)]]);
     const deps = { builders, ...chainedDeps(intentWorktree) };
 
-    const result = await resolveStageWorkflowSteps(definition, 1, { cwd: operatorCwd, seed: "seed" }, stageArtifacts, deps);
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      deps,
+    );
     expect(result.ok).toBe(true);
     expect(seenInput?.cwd).toBe(intentWorktree);
     expect(seenInput?.readyIntent).toBe(readyIntentRel);
@@ -557,7 +573,13 @@ describe("resolveStageWorkflowSteps", () => {
     const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel)]]);
     const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
 
-    const result = await resolveStageWorkflowSteps(definition, 1, { cwd: operatorCwd, seed: "seed" }, stageArtifacts, deps);
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      deps,
+    );
     expect(result.ok).toBe(true);
     expect(seenInput?.cwd).toBe(planWorktree);
     expect(seenInput?.specPath).toBe(planSpecRel);

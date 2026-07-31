@@ -1,9 +1,11 @@
 import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
-  buildImplementWorkflowSteps,
-  type BuildImplementWorkflowStepsInput,
   type BuildImplementWorkflowStepsDeps,
+  type BuildImplementWorkflowStepsInput,
+  buildImplementWorkflowSteps,
 } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import {
@@ -15,12 +17,10 @@ import {
   type PlanWorkflowInput,
   type PlanWorkflowResult,
 } from "../execution/publication-workflow-steps.ts";
+import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
-import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { jarvisHome } from "../paths.ts";
-import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 

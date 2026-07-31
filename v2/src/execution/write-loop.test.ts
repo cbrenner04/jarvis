@@ -2012,17 +2012,27 @@ describe("write loop", () => {
         writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
       }
 
+      /**
+       * Defaults to the implement shape so the inherited run-diff-fence recovery regressions keep
+       * staging a path outside the run diff — with an intent-shaped worktree the staged path is
+       * inside the diff and only the markdown layer rejects it, leaving the allowset layer
+       * unguarded on every recovery path. Pass `intentShaped` for markdown-only coverage.
+       */
       async function seedFailedRepairFence(args: {
         jarvisRoot: string;
         stateDbPath: string;
         branchName: string;
         stepId?: string;
         workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
+        intentShaped?: boolean;
       }) {
-        const { baseRef } = initIntentRepairFenceWorktree(args.jarvisRoot, args.branchName);
+        const { intentShaped, ...loopArgs } = args;
+        const { baseRef } = intentShaped
+          ? initIntentRepairFenceWorktree(args.jarvisRoot, args.branchName)
+          : initRepairFenceWorktree(args.jarvisRoot, args.branchName);
         const first = await runRepairFenceLoop({
-          ...args,
-          ...intentRepairLoopDefaults,
+          ...loopArgs,
+          ...(intentShaped ? intentRepairLoopDefaults : {}),
           baseRef,
           repairEdit: touchUntouchedRepairEdit,
         });
@@ -2280,10 +2290,50 @@ describe("write loop", () => {
         ],
       };
 
+      test("completed-run retry on an implement workflow still rejects a path outside the run diff", async () => {
+        // Guards the run-diff allowset layer on the recovery path. Mutation checkpoint: removing
+        // the `!allowedPaths.has(normalized)` rejection in `findFirstRepairFenceViolation` must
+        // turn this RED. Without an implement-shaped fixture here the staged path is inside the
+        // intent run diff, so only the markdown layer rejects it and this layer goes unguarded.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-retry-implement-run-diff";
+        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+
+        const reopened = openStateStore(stateDbPath);
+        const persisted = reopened.loadRun(first.result.runId);
+        expect(persisted?.readyGateRepairFence?.offendingPath).toBe("v2/src/untouched.test.ts");
+        expect(persisted?.readyGateRepairFence?.markdownOnly).not.toBe(true);
+        reopened.close();
+
+        let publishCalls = 0;
+        const retry = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => {
+            publishCalls += 1;
+            return {};
+          },
+          readyFinalizer: async () => {},
+        });
+        expect(retry.kind).toBe("completion_commit_failed");
+        expect(retry.runId).toBe(first.result.runId);
+        expect(retry.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(publishCalls).toBe(0);
+      });
+
       test("completed-run retry after restart retains frozen allowset and rejects dirty path", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-retry";
-        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+        const { baseRef, first } = await seedFailedRepairFence({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          intentShaped: true,
+        });
         expect(first.publishCalls).toBe(1);
 
         const reopened = openStateStore(stateDbPath);
@@ -2366,6 +2416,7 @@ describe("write loop", () => {
           branchName,
           stepId: "implement",
           workflowSnapshot: RESUME_WORKFLOW_SNAPSHOT,
+          intentShaped: true,
         });
 
         let publishCalls = 0;
@@ -2396,7 +2447,12 @@ describe("write loop", () => {
       test("completed-run retry fails closed when persisted markdown roots are missing on markdown-only run", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-retry-missing-markdown-roots";
-        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+        const { baseRef, first } = await seedFailedRepairFence({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          intentShaped: true,
+        });
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(first.result.runId);
@@ -2454,6 +2510,7 @@ describe("write loop", () => {
           branchName,
           stepId: "implement",
           workflowSnapshot: RESUME_WORKFLOW_SNAPSHOT,
+          intentShaped: true,
         });
 
         const reopened = openStateStore(stateDbPath);
@@ -2496,7 +2553,12 @@ describe("write loop", () => {
       test("recovery regressions fail when persisted-fence validation is bypassed", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-bypass";
-        const { baseRef, first } = await seedFailedRepairFence({ jarvisRoot, stateDbPath, branchName });
+        const { baseRef, first } = await seedFailedRepairFence({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          intentShaped: true,
+        });
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(first.result.runId);

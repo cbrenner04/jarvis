@@ -12,8 +12,8 @@ persist the path for landing consumption.
 
 ## Decisions
 
-- Add optional project-relative `seedPath` to `PipelineContext` — rules out overloading `seed` to mean path or inline with runtime guessing.
-- `seed` carries `--seed-text` inline prose only; omit it when `seedPath` is set — rules out duplicating file content in persisted context.
+- Add optional project-relative `seedPath?: string`; make inline `seed?: string` optional too — rules out a required `seed` field that forces inlining or sentinel values.
+- Runtime invariant: at most one of `seedPath` or `seed` is set on new admissions; `--seed` sets `seedPath` only, `--seed-text` sets `seed` only — rules out dual-populated context or overloading one field to mean path or inline.
 - Pre-migration rows with only `seed` load unchanged — rules out rewriting existing pipeline context snapshots.
 
 ## Acceptance criteria
@@ -24,7 +24,6 @@ persist the path for landing consumption.
 
 ## Documentation updates
 
-- `v2/docs/state-store.md` — `PipelineContext` documents `seedPath` vs inline `seed`.
+- `v2/docs/state-store.md` — `PipelineContext` documents optional `seedPath` and optional inline `seed`, plus admission mutual exclusivity.
 
 ## Prerequisites
-

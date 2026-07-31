@@ -28,6 +28,7 @@ queue files on `main` after landing.
 
 - `v2/docs/operator-runbook.md` § Pipeline start — `--seed <path>` matches standalone intent seed-path behavior including consumption; `--seed-text` is inline-only.
 - `v2/docs/workflow-runner.md` — publication landing consumption applies to pipeline-supplied seed paths.
+- `v2/docs/daemon-host.md` § Seed/artifact hand-off — first-stage input documents `seedPath` vs inline `seed`.
 - `v2/docs/v1-behaviors.md` — record pipeline file-seed identity and consumption parity with standalone intent.
 
 ## Prerequisites

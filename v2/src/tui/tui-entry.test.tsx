@@ -180,7 +180,14 @@ function inkInputHarness() {
       stdoutText = "";
       inputHandler(input, key);
       if (instance === undefined) throw new Error("expected ink instance");
-      await instance.waitUntilRenderFlush();
+      // A single flush is not enough: the state update this keypress schedules can land after the
+      // first render pass on a loaded machine, leaving `stdoutText` empty. Drain until ink has
+      // actually written a frame (matching `waitUntilOpen`'s flush-render-flush sequence).
+      for (let attempt = 0; attempt < 20 && stdoutText === ""; attempt += 1) {
+        await instance.waitUntilRenderFlush();
+        await flush();
+        await instance.waitUntilRenderFlush();
+      }
     },
     renderedText() {
       return flattenRenderedText(stdoutText);

@@ -42,7 +42,6 @@ import {
   executeWriteLoop,
   findFirstRepairFenceViolation,
   persistRetainedFinalizationCheckpoint,
-  resolveIterationSettlementKind,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
   type WallSegmentSchedule,
@@ -190,7 +189,6 @@ async function runAbortWatchdogOrdering(args: {
   stateStore: StateStore;
   order: "abort-first" | "watchdog-first";
   branchName: string;
-  invertPrecedence?: boolean;
 }) {
   const controller = new AbortController();
   const manual = createManualWallSchedule();
@@ -212,7 +210,6 @@ async function runAbortWatchdogOrdering(args: {
     signal: controller.signal,
     iterationTimeoutMs: 1_000_000,
     schedule: manual.schedule,
-    ...(args.invertPrecedence !== undefined ? { invertAbortWatchdogPrecedenceForTest: args.invertPrecedence } : {}),
   });
   await manual.waitForSchedule();
   if (args.order === "abort-first") {
@@ -245,8 +242,6 @@ async function runLoop(args: {
   completionCommitter?: WriteLoopInput["completionCommitter"];
   completionPublisher?: WriteLoopInput["completionPublisher"];
   readyFinalizer?: WriteLoopInput["readyFinalizer"];
-  invertReadyGateRepairFenceForTest?: boolean;
-  invertReadyGateRepairSidecarFenceForTest?: boolean;
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   stepId?: string;
   workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
@@ -278,12 +273,6 @@ async function runLoop(args: {
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
-    ...(args.invertReadyGateRepairFenceForTest !== undefined
-      ? { invertReadyGateRepairFenceForTest: args.invertReadyGateRepairFenceForTest }
-      : {}),
-    ...(args.invertReadyGateRepairSidecarFenceForTest !== undefined
-      ? { invertReadyGateRepairSidecarFenceForTest: args.invertReadyGateRepairSidecarFenceForTest }
-      : {}),
     ...(args.bypassPersistedReadyGateRepairFenceForTest !== undefined
       ? { bypassPersistedReadyGateRepairFenceForTest: args.bypassPersistedReadyGateRepairFenceForTest }
       : {}),
@@ -1247,6 +1236,9 @@ describe("write loop", () => {
       expectedKind,
       expectedResumable,
     }) => {
+      // Mutation checkpoint: in `settleFinalizationRepair`, skip `abortExecution()` (abort-propagation
+      // guard), skip `await execution` (invocation-join guard), or in `runReadyRepairIteration` commit a
+      // terminal boundary before `awaitIteration` (terminal-ordering guard).
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const store = openStateStore(stateDbPath);
@@ -1328,82 +1320,6 @@ describe("write loop", () => {
         expect(repair.invocationSettled).toBe(true);
       } finally {
         repair.release();
-        store.close();
-      }
-    });
-
-    test.each([
-      { label: "abort propagation", invert: { invertRepairAbortPropagationForTest: true } },
-      { label: "invocation join", invert: { invertRepairJoinForTest: true } },
-      { label: "terminal ordering", invert: { invertRepairTerminalBeforeJoinForTest: true } },
-    ])("inverting repair $label breaks held-repair settlement for killed", async ({ invert }) => {
-      const { jarvisRoot, stateDbPath } = createJarvisHome();
-      roots.push(join(jarvisRoot, ".."));
-      const store = openStateStore(stateDbPath);
-      const controller = new AbortController();
-      let runId: string | undefined;
-      let calls = 0;
-      const repair = createHeldInvocation();
-
-      try {
-        void executeWriteLoop({
-          worktree: {
-            projectRoot: "/fake",
-            projectName: "demo",
-            branchName: "repair-settlement-invert-killed",
-            baseRef: "HEAD",
-            jarvisRoot,
-          },
-          specPath: "spec.md",
-          stepRules: "Return exactly one terminal token.",
-          expectedArtifactPath: "proof.txt",
-          bindings: [
-            {
-              id: "held-repair",
-              metadata: { agent: "codex", model: "test" },
-              invoke: ({ cwd, signal }) => {
-                calls += 1;
-                if (calls === 1) {
-                  writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-                  return Promise.resolve({ kind: "ok", stdout: "done", stderr: "" });
-                }
-                return repair.invoke(signal);
-              },
-            },
-          ],
-          stateStore: store,
-          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-          sessionsDir: join(jarvisRoot, "sessions"),
-          signal: controller.signal,
-          maxIterations: 2,
-          quiescenceTimeoutMs: 1,
-          completionCommitter: completionHooks.completionCommitter,
-          completionPublisher: completionHooks.completionPublisher,
-          readyFinalizer: async () => {
-            throw new ReadyGateError("bun run ready", 1, "red");
-          },
-          onRunCreated: (id) => {
-            runId = id;
-          },
-          ...invert,
-        });
-
-        await repair.started;
-        if (invert.invertRepairTerminalBeforeJoinForTest) {
-          expect(store.loadRun(runId as string)?.status).toBe("failed");
-        } else {
-          controller.abort();
-          await new Promise<void>((resolve) => setTimeout(resolve, 10));
-          if (invert.invertRepairAbortPropagationForTest) {
-            expect(repair.signal?.aborted).toBe(false);
-          } else {
-            expect(repair.invocationSettled).toBe(false);
-            expect(store.loadRun(runId as string)?.status).toBe("in-progress");
-          }
-        }
-      } finally {
-        repair.release();
-        controller.abort();
         store.close();
       }
     });
@@ -1936,8 +1852,6 @@ describe("write loop", () => {
         branchName: string;
         baseRef: string;
         repairEdit: (cwd: string, invocations: number) => void;
-        invertReadyGateRepairFenceForTest?: boolean;
-        invertReadyGateRepairSidecarFenceForTest?: boolean;
         stepId?: string;
         workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
       }) {
@@ -1975,12 +1889,6 @@ describe("write loop", () => {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
             }
           },
-          ...(args.invertReadyGateRepairFenceForTest !== undefined
-            ? { invertReadyGateRepairFenceForTest: args.invertReadyGateRepairFenceForTest }
-            : {}),
-          ...(args.invertReadyGateRepairSidecarFenceForTest !== undefined
-            ? { invertReadyGateRepairSidecarFenceForTest: args.invertReadyGateRepairSidecarFenceForTest }
-            : {}),
           ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
           ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
         });
@@ -2009,6 +1917,8 @@ describe("write loop", () => {
       }
 
       test("rejects ready-gate repairs outside the run diff and spec tree", async () => {
+        // Mutation checkpoint: remove `!allowedPaths.has(normalized)` rejection in
+        // `findFirstRepairFenceViolation`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-outside";
         const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
@@ -2025,16 +1935,6 @@ describe("write loop", () => {
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
         expect(fenced.publishCalls).toBe(1);
         expect(fenced.gateCalls).toBe(1);
-
-        const unfenced = await runRepairFenceLoop({
-          jarvisRoot,
-          stateDbPath,
-          branchName: `${branchName}-invert`,
-          baseRef: initRepairFenceWorktree(jarvisRoot, `${branchName}-invert`).baseRef,
-          repairEdit: touchUntouchedRepairEdit,
-          invertReadyGateRepairFenceForTest: true,
-        });
-        expect(unfenced.result.kind).toBe("complete");
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {
@@ -2043,6 +1943,8 @@ describe("write loop", () => {
       }
 
       test("rejects ready-gate repairs that would publish harness sidecars", async () => {
+        // Mutation checkpoint: remove `basename(normalized).startsWith(".jarvis-")` rejection in
+        // `findFirstHarnessSidecarBasenameViolation`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-harness-sidecars";
         const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
@@ -2077,16 +1979,6 @@ describe("write loop", () => {
           .split("\n")
           .filter(Boolean);
         expect(dirty.some((path) => basename(path).startsWith(".jarvis-"))).toBe(true);
-
-        const unfenced = await runRepairFenceLoop({
-          jarvisRoot,
-          stateDbPath,
-          branchName: `${branchName}-invert`,
-          baseRef: initRepairFenceWorktree(jarvisRoot, `${branchName}-invert`, { harnessSidecars: true }).baseRef,
-          repairEdit: stageHarnessSidecarRepairEdit,
-          invertReadyGateRepairSidecarFenceForTest: true,
-        });
-        expect(unfenced.result.kind).toBe("complete");
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {
@@ -3947,6 +3839,8 @@ describe("write loop", () => {
   });
 
   test("lets an observed abort win before the watchdog, but not after it", async () => {
+    // Mutation checkpoint: flip `resolveIterationSettlementKind` precedence mapping; does not cover
+    // dropped watchdog latch, synchronous abort settlement, or reordered `Promise.race` operands.
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
@@ -3987,45 +3881,6 @@ describe("write loop", () => {
           resumable: false,
         });
       }
-    } finally {
-      store.close();
-      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
-    }
-  });
-
-  test("abort-vs-watchdog precedence predicate: both truth directions, no real-timer wait", () => {
-    expect(resolveIterationSettlementKind("abort", false)).toBe("aborted");
-    expect(resolveIterationSettlementKind("watchdog", false)).toBe("timed_out");
-    expect(resolveIterationSettlementKind("abort", true)).toBe("timed_out");
-    expect(resolveIterationSettlementKind("watchdog", true)).toBe("aborted");
-  });
-
-  test("abort-vs-watchdog guard inversion: watchdog-first flips to progress when precedence is inverted", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    roots.push(join(jarvisRoot, ".."));
-    const store = openStateStore(stateDbPath);
-    mock.module("./write.ts", () => ({
-      executeWrite: (input: WriteExecuteInput) =>
-        new Promise<never>((_resolve, reject) => {
-          input.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
-        }),
-    }));
-
-    try {
-      const result = await runAbortWatchdogOrdering({
-        jarvisRoot,
-        stateStore: store,
-        order: "watchdog-first",
-        branchName: "inverted-watchdog-first",
-        invertPrecedence: true,
-      });
-
-      // With correct precedence this ordering settles "iteration_timeout" (see the case above).
-      // Inverted, it wrongly settles "progress" — proving the settlement-kind mapping
-      // (resolveIterationSettlementKind's role->kind assignment) is load-bearing. This does not
-      // cover race-ordering regressions (e.g. a dropped watchdogSettled latch, abort settling
-      // synchronously, or reordered Promise.race operands) — those stay invisible to this guard.
-      expect(result).toMatchObject({ kind: "progress", resumable: true });
     } finally {
       store.close();
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

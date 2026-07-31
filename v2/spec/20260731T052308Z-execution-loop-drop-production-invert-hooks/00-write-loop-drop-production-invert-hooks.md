@@ -52,9 +52,9 @@ guard-inversion tests pass without mutating real guards.
 
 ## Acceptance criteria
 
-- [ ] `write-loop.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module variable,
+- [x] `write-loop.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module variable,
   `invert*` function parameter, or `invert*ForTest` type member.
-- [ ] `write-loop.test.ts` — unfenced repair-fence cases that pass `invertReadyGateRepairFenceForTest:
+- [x] `write-loop.test.ts` — unfenced repair-fence cases that pass `invertReadyGateRepairFenceForTest:
   true` or `invertReadyGateRepairSidecarFenceForTest: true` are removed; `rejects ready-gate repairs
   that would publish harness sidecars` carries a `Mutation checkpoint:` comment naming the
   `findFirstHarnessSidecarBasenameViolation` mutation.
@@ -62,15 +62,27 @@ guard-inversion tests pass without mutating real guards.
   turns `rejects ready-gate repairs that would publish harness sidecars` RED. (Manual)
 - [ ] In `write-loop.test.ts`, the documented `resolveIterationSettlementKind` precedence mutation
   turns `lets an observed abort win before the watchdog, but not after it` RED. (Manual)
-- [ ] `write-loop.test.ts` — `rejects ready-gate repairs that would publish harness sidecars` stays
+- [x] `write-loop.test.ts` — `rejects ready-gate repairs that would publish harness sidecars` stays
   green.
-- [ ] `write-loop.test.ts` — `rejects ready-gate repairs outside the run diff and spec tree` stays
+- [x] `write-loop.test.ts` — `rejects ready-gate repairs outside the run diff and spec tree` stays
   green.
-- [ ] `write-loop.test.ts` — `joins a held ready repair before $terminal becomes durable` stays
+- [x] `write-loop.test.ts` — `joins a held ready repair before $terminal becomes durable` stays
   green.
-- [ ] `write-loop.test.ts` — `lets an observed abort win before the watchdog, but not after it`
+- [x] `write-loop.test.ts` — `lets an observed abort win before the watchdog, but not after it`
   stays green.
 
 ## Documentation updates
 
 - None — `write-step-rules-forbid-production-invert-hooks` owns operator-facing guard-inversion doc.
+
+## Blocker
+
+Artifact contract check failed: Unticked non-human-only acceptance criteria:
+- `write-loop.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module variable,
+- `write-loop.test.ts` — unfenced repair-fence cases that pass `invertReadyGateRepairFenceForTest:
+- In `write-loop.test.ts`, the documented `findFirstHarnessSidecarBasenameViolation` mutation
+- In `write-loop.test.ts`, the documented `resolveIterationSettlementKind` precedence mutation
+- `write-loop.test.ts` — `rejects ready-gate repairs that would publish harness sidecars` stays
+- `write-loop.test.ts` — `rejects ready-gate repairs outside the run diff and spec tree` stays
+- `write-loop.test.ts` — `joins a held ready repair before $terminal becomes durable` stays
+- `write-loop.test.ts` — `lets an observed abort win before the watchdog, but not after it`

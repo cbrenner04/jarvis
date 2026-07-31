@@ -1,25 +1,28 @@
 # v2 implement queue
 
-Authority: operator priorities. Rebuilt 2026-07-30 (evening session).
+Authority: operator priorities. Rebuilt 2026-07-31 (overnight session).
 
 ## Start here next
 
-1. Convert `seeds/plan-draft-contract-swallows-the-normalizer-reason` — it cost three plan runs this
-   session and will cost one per malformed draft until it ships.
-2. Drain the three gate-repair intents unblocked by #2337:
-   `ready-intents/markdown-only-workflow-ready-repair-rejects-code-edits.md`,
-   `ready-gate-repair-omits-jarvis-sidecars-from-commits.md`,
-   `ready-gate-repair-cannot-extend-load-sensitive-files.md`. All three are ready; no dependency
-   chain between them, so fan the plans out.
-3. Convert `seeds/pipeline-config-validation-blocks-unrelated-implement` — a stale `pipeline` block
+1. Convert `seeds/pipeline-intent-split-fans-out-downstream-stages` — **the** blocker to unattended
+   pipelines. A splitting intent is the normal outcome, and a pipeline stage carries one artifact,
+   so any split dead-ends at plan. Observed on the first real `full-review` run.
+2. Convert `seeds/pipeline-start-seed-path-loses-file-identity` — every `pipeline start --seed`
+   produces a frontmatter-derived branch slug and never consumes the seed file.
+3. Finish `20260731T005401Z-propagate-plan-draft-normalizer-reason`, then plan the blocked sibling
+   `ready-intents/surface-contract-miss-reason-on-run-rows.md` (dependency chain, blocked once).
+4. Convert `seeds/pipeline-config-validation-blocks-unrelated-implement` — a stale `pipeline` block
    refuses every `implement` dispatch, and every future required pipeline key repeats it.
-4. TUI chrome: `ready-intents/terminal-window-renders-finishless-rows.md`,
+5. Drain the two remaining gate-repair specs: `20260731T222239Z-markdown-only-workflow-ready-repair-rejects-code-edits`,
+   `20260730T222243Z-ready-gate-repair-cannot-extend-load-sensitive-files`. Both planned; run them
+   serially — they extend the same `validateReadyGateRepairCompletion` seam.
+6. TUI chrome: `ready-intents/terminal-window-renders-finishless-rows.md`,
    `expansion-driven-through-e-keybinding.md`.
 
 ## Rule
 
-The pipelines phase is done. Reliability and split-discipline work is now the primary lane; TUI
-chrome is the parallel lane.
+Pipelines are the primary lane again: the mechanism ships but does not survive a real seed.
+Reliability is second, TUI chrome is the parallel lane.
 
 ## Phase gate — per-project pipelines: **COMPLETE**
 
@@ -37,12 +40,13 @@ end to end, and #2352 proves it composes through the daemon.
 Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-walkthrough.md)
 § Configured pipeline.
 
-**Pipeline handoff gap:** stages do not yet read the prior worktree's concrete output;
-see `seeds/pipeline-stage-artifact-handoff-from-prior-worktree.md`. Until it ships, do not
-expect `fast` or unattended `full-review` to walk past intent without manual file sync.
+**Pipeline handoff: shipped** (#2359 intent records a ready-intent file, #2363 stages resolve
+chained paths from the prior stage worktree). Dogfooding it immediately surfaced the next two
+gaps — see Start here items 1 and 2. Until item 1 ships, a pipeline survives only a seed the
+intent step does **not** split, which is the minority case.
 
 **Before using a pipeline on this machine**, note `projects.<name>.pipeline` now requires
-`terminalAction`; the jarvis entry is set to `leave-draft`. See the seed in item 3 — until it ships,
+`terminalAction`; the jarvis entry is set to `ready`. See the seed in item 3 — until it ships,
 a missing or stale key refuses unrelated `implement` dispatches too.
 
 ## Reliability lane
@@ -82,13 +86,14 @@ Remaining chrome sits with the [TUI phase](tui-overhaul-brief.md):
 
 | Seed | Why |
 | --- | --- |
-| `pipeline-stage-artifact-handoff-from-prior-worktree` | `fast` and `full-review` cannot chain intent→plan→implement: artifacts pass a directory path read from `cwd`, not the prior stage worktree file |
-| `plan-draft-contract-swallows-the-normalizer-reason` | Three plan runs lost this session to an opaque `artifact.exists`; the normalizer's real message names the offending bullet in one line |
+| `pipeline-intent-split-fans-out-downstream-stages` | A splitting intent is the normal outcome and dead-ends every pipeline at plan; blocks unattended runs entirely |
+| `pipeline-start-seed-path-loses-file-identity` | Frontmatter-derived branch slug, and the seed file is never consumed; hits every `pipeline start --seed` |
+| `iteration-timeout-discards-completed-subspecs` | A timeout's only recovery retires the branch, discarding finished subspecs; cost a hand-finish on a 3-subspec spec |
 | `pipeline-config-validation-blocks-unrelated-implement` | A stale `projects.<name>.pipeline` block refuses `implement`, which never reads pipelines |
 | `out-of-scope-gate-classification-strands-caused-failures` | #2313's classifier calls a run-caused failure in an unedited file "out of scope" and advertises a resume that cannot help |
 | `mutation-verification-artifact-reached-the-completion-commit` | A mutation shipped inside a completion commit with every local gate green; CI caught it |
 | `gate-repair-does-not-run-the-formatter` | Formatter-only red gates exhaust the repair budget; hand `bun run fix` + resume is the standing stopgap |
-| `guard-inversion-criteria-produce-production-test-flags` | Inversion criteria keep producing `setInvert*ForTest` in production code (#2323, #2328, and again in #2343) |
+| `guard-inversion-criteria-produce-production-test-flags` | Recurs as parameters too, not just exports (#2359, #2360); #2360's invert plumbing survived mutation verification and cost a hand-written regression |
 | `human-only-marker-read-from-first-line-only` | A wrapped `(Manual)` criterion blocked two implement dispatches |
 
 ## Seeds (deferred / low)

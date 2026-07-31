@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -23,12 +23,18 @@ import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 import { derivePipelineState, setInvertResumeFailedRequiresReopenForTest } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import {
+  createChainedStageProjectMatch,
+  resolveStageWorkflowSteps,
+  setInvertPriorWorktreeRootGuardForTest,
+} from "./pipeline-stage-resolve.ts";
 
 const PROJECT_KEY = "demo";
 const STAGE_IDS = ["intent", "approve-intent", "plan", "approve-plan", "implement"] as const;
+const FAST_STAGE_IDS = ["intent", "plan", "implement"] as const;
 const INTENT_SPEC = "v2/spec/ready-intents/ship-feature.md";
 const PLAN_SPEC = "v2/spec/ship-feature/index.md";
+const PLAN_WORK_SPEC = "v2/spec/ship-feature/00-work.md";
 const TERMINAL_PR = { prNumber: 42, prUrl: "https://github.com/org/repo/pull/42" } as const;
 const FAST_SUBPROCESS_RUNNER: AsyncSubprocessRunner = {
   runAsync: async () => "",
@@ -82,6 +88,41 @@ function productionResolveStage(
   return resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
     resolveBaseRef: async () => "HEAD",
     builders: makeResolveStageBuilders(),
+    ...deps,
+  });
+}
+
+function fastProductionResolveStage(
+  definition: PipelineDefinition,
+  stageIndex: number,
+  context: Parameters<typeof resolveStageWorkflowSteps>[2],
+  stageArtifacts: Parameters<typeof resolveStageWorkflowSteps>[3],
+  deps: Parameters<typeof resolveStageWorkflowSteps>[4] = {},
+) {
+  const builders = {
+    ...WORKFLOW_PRESET_BUILDERS,
+    implement: (input: Parameters<typeof buildImplementWorkflowSteps>[0]) =>
+      buildImplementWorkflowSteps(
+        {
+          ...input,
+          reviewPasses: input.reviewPasses ?? 1,
+          reviewBehavior: input.reviewBehavior ?? "light",
+          preflightGitRoot: input.preflightGitRoot ?? input.cwd,
+          projectRoot: input.projectRoot ?? context.cwd,
+          projectName: input.projectName ?? PROJECT_KEY,
+          ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
+        },
+        {
+          asyncSubprocessRunner: FAST_SUBPROCESS_RUNNER,
+          readSpecFile: (path) => readFileSync(path, "utf8"),
+          resolveProjectMatch: createChainedStageProjectMatch(context),
+          loadWorkflowSteps: loadStepsWithProfile,
+        },
+      ),
+  };
+  return resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
+    resolveBaseRef: async () => "HEAD",
+    builders: builders as unknown as typeof WORKFLOW_PRESET_BUILDERS,
     ...deps,
   });
 }
@@ -163,6 +204,74 @@ function setupPipelineSandboxRepo(roots: string[]): { repoRoot: string; jarvisRo
   return { repoRoot, jarvisRoot };
 }
 
+function setupFastPipelineSandboxRepo(roots: string[]): {
+  repoRoot: string;
+  jarvisRoot: string;
+  artifactTemplatesDir: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-fast-worktree-"));
+  roots.push(root);
+  const repoRoot = join(root, "repo");
+  const jarvisRoot = join(root, "jarvis-home");
+  const artifactTemplatesDir = join(root, "artifact-templates");
+
+  mkdirSync(repoRoot, { recursive: true });
+  mkdirSync(join(artifactTemplatesDir, dirname(INTENT_SPEC)), { recursive: true });
+  mkdirSync(join(artifactTemplatesDir, dirname(PLAN_SPEC)), { recursive: true });
+  mkdirSync(join(artifactTemplatesDir, dirname(PLAN_WORK_SPEC)), { recursive: true });
+  writeFileSync(join(repoRoot, "README.md"), "seed\n", "utf8");
+  writeFileSync(
+    join(artifactTemplatesDir, INTENT_SPEC),
+    "---\nname: ship-feature\n---\n\n## Prerequisites\n\nnone\n\n## Acceptance criteria\n\n- [ ] pending\n",
+    "utf8",
+  );
+  writeFileSync(
+    join(artifactTemplatesDir, PLAN_SPEC),
+    "# ship-feature\n\n- [ ] [Work](./00-work.md)\n",
+    "utf8",
+  );
+  writeFileSync(
+    join(artifactTemplatesDir, PLAN_WORK_SPEC),
+    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+    "utf8",
+  );
+
+  execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+
+  return { repoRoot, jarvisRoot, artifactTemplatesDir };
+}
+
+function seedGitWorktreeArtifacts(
+  repoRoot: string,
+  branch: string,
+  files: ReadonlyArray<{ specPath: string; content: string }>,
+): string {
+  const worktreePath = join(repoRoot, ".jarvis-worktrees", branch);
+  try {
+    execFileSync("git", ["rev-parse", "--verify", branch], { cwd: repoRoot, stdio: "ignore" });
+    try {
+      execFileSync("git", ["worktree", "add", worktreePath, branch], { cwd: repoRoot, stdio: "pipe" });
+    } catch {
+      // worktree already checked out for this branch
+    }
+  } catch {
+    execFileSync("git", ["branch", branch], { cwd: repoRoot, stdio: "pipe" });
+    execFileSync("git", ["worktree", "add", worktreePath, branch], { cwd: repoRoot, stdio: "pipe" });
+  }
+  for (const { specPath, content } of files) {
+    const targetPath = join(worktreePath, specPath);
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, content, "utf8");
+  }
+  execFileSync("git", ["add", "-A"], { cwd: worktreePath, stdio: "pipe" });
+  execFileSync("git", ["commit", "-m", `seed ${branch}`], { cwd: worktreePath, stdio: "pipe" });
+  return worktreePath;
+}
+
 function writeMachineProfile(jarvisRoot: string): void {
   const machinesDir = join(jarvisRoot, "machines");
   mkdirSync(machinesDir, { recursive: true });
@@ -184,6 +293,9 @@ function writeMachineProfile(jarvisRoot: string): void {
 type FakeInvocationOptions = {
   dispatchSequence?: readonly string[];
   failFirstPlanWait?: boolean;
+  artifactRoot?: string;
+  gitWorktrees?: boolean;
+  extraPlanArtifacts?: readonly string[];
 };
 
 function createFakePipelineInvocation(
@@ -198,6 +310,7 @@ function createFakePipelineInvocation(
 } {
   const dispatchCounts: Record<string, number> = { intent: 0, plan: 0, implement: 0 };
   const dispatchSequence = options.dispatchSequence ?? ["intent", "plan", "plan", "implement"];
+  const artifactRoot = options.artifactRoot ?? repoRoot;
   let dispatchIndex = 0;
   let firstPlanRunId: string | undefined;
 
@@ -212,11 +325,22 @@ function createFakePipelineInvocation(
     return PLAN_SPEC;
   };
 
+  const artifactFilesForStage = (stageId: string): ReadonlyArray<{ specPath: string; content: string }> => {
+    if (stageId === "plan") {
+      const extra = options.extraPlanArtifacts ?? [];
+      return [specForStage(stageId), ...extra].map((specPath) => ({
+        specPath,
+        content: readFileSync(join(artifactRoot, specPath), "utf8"),
+      }));
+    }
+    const specPath = specForStage(stageId);
+    return [{ specPath, content: readFileSync(join(artifactRoot, specPath), "utf8") }];
+  };
+
   const seedWorktreeArtifact = (worktreePath: string, specPath: string): void => {
-    const sourcePath = join(repoRoot, specPath);
     const targetPath = join(worktreePath, specPath);
     mkdirSync(dirname(targetPath), { recursive: true });
-    writeFileSync(targetPath, readFileSync(sourcePath, "utf8"), "utf8");
+    writeFileSync(targetPath, readFileSync(join(artifactRoot, specPath), "utf8"), "utf8");
   };
 
   const dispatch: PipelineWorkflowDispatch = async () => {
@@ -225,9 +349,14 @@ function createFakePipelineInvocation(
     dispatchIndex += 1;
     dispatchCounts[stageId] = (dispatchCounts[stageId] ?? 0) + 1;
     const branch = branchForStage(stageId);
-    const worktreePath = join(repoRoot, ".jarvis-worktrees", branch);
     const specPath = specForStage(stageId);
-    seedWorktreeArtifact(worktreePath, specPath);
+    const worktreePath = options.gitWorktrees
+      ? seedGitWorktreeArtifacts(repoRoot, branch, artifactFilesForStage(stageId))
+      : (() => {
+          const path = join(repoRoot, ".jarvis-worktrees", branch);
+          seedWorktreeArtifact(path, specPath);
+          return path;
+        })();
     const runId = store.createRun({
       project: PROJECT_KEY,
       specRef: "main",
@@ -296,7 +425,7 @@ function createHarness(
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
-    resolveStage: productionResolveStage,
+    resolveStage: fastProductionResolveStage,
     pipelineDispatch: fakeInvocation.dispatch,
     pipelineWait: fakeInvocation.wait,
     executeTerminalPublication: async () => {
@@ -319,6 +448,53 @@ function createHarness(
     dispatchCounts: fakeInvocation.dispatchCounts,
     fakeExecutor,
   };
+}
+
+function createFastHarness(
+  repoRoot: string,
+  _jarvisRoot: string,
+  configPath: string,
+  artifactTemplatesDir: string,
+): Harness {
+  const store = openStateStore(join(tmpdir(), `jarvis-pipeline-fast-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`));
+  const fakeInvocation = createFakePipelineInvocation(store, repoRoot, {
+    dispatchSequence: ["intent", "plan", "implement"],
+    artifactRoot: artifactTemplatesDir,
+    gitWorktrees: true,
+    extraPlanArtifacts: [PLAN_WORK_SPEC],
+  });
+  const fakeExecutor = createFakeWriteLoopExecutor();
+  const selected = getPipelineDefinition("fast");
+  if (!selected.ok) throw new Error(`getPipelineDefinition failed: ${JSON.stringify(selected)}`);
+
+  const handlers = createRunControlHandlers({
+    stateStore: store,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: fastProductionResolveStage,
+    pipelineDispatch: fakeInvocation.dispatch,
+    pipelineWait: fakeInvocation.wait,
+  });
+
+  return {
+    store,
+    handlers,
+    definition: selected.definition,
+    context: {
+      cwd: repoRoot,
+      seed: "Ship feature",
+      configPath,
+      projectRegistry: { [PROJECT_KEY]: { root: repoRoot } },
+    },
+    settlement: deferred<void>(),
+    dispatchCounts: fakeInvocation.dispatchCounts,
+    fakeExecutor,
+  };
+}
+
+function fastStageStatusVector(pipeline: LoadedPipeline): string[] {
+  return FAST_STAGE_IDS.map((stageId) => pipeline.stages.find((stage) => stage.stageId === stageId)?.status ?? "missing");
 }
 
 function readPipeline(store: StateStore, pipelineId: string): LoadedPipeline {
@@ -550,6 +726,95 @@ describe("pipeline end-to-end full-review", () => {
       kind: "response",
       result: { kind: "refused", pipelineId, reason: "pipeline_not_resumable" },
     });
+    harness.fakeExecutor.abortAll();
+  });
+});
+
+describe("pipeline end-to-end fast", () => {
+  const roots: string[] = [];
+  let previousJarvisHome: string | undefined;
+  let repoRoot: string;
+  let jarvisRoot: string;
+  let configPath: string;
+  let artifactTemplatesDir: string;
+
+  beforeEach(() => {
+    const setup = setupFastPipelineSandboxRepo(roots);
+    repoRoot = setup.repoRoot;
+    jarvisRoot = setup.jarvisRoot;
+    artifactTemplatesDir = setup.artifactTemplatesDir;
+    resolveStageMachinesDir = join(jarvisRoot, "machines");
+    previousJarvisHome = process.env.JARVIS_HOME;
+    process.env.JARVIS_HOME = jarvisRoot;
+    writeMachineProfile(jarvisRoot);
+    configPath = join(jarvisRoot, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        machineProfile: "home",
+        agents: ["claude"],
+        projects: {
+          [PROJECT_KEY]: {
+            root: repoRoot,
+            pipeline: { name: "fast" },
+          },
+        },
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    setInvertPriorWorktreeRootGuardForTest(false);
+    setInvertResumeFailedRequiresReopenForTest(false);
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+    await flushBackgroundRuns();
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("walks intent → plan → implement with chained artifacts only on stage worktrees", async () => {
+    expect(existsSync(join(repoRoot, INTENT_SPEC))).toBe(false);
+    expect(existsSync(join(repoRoot, PLAN_SPEC))).toBe(false);
+
+    const harness = createFastHarness(repoRoot, jarvisRoot, configPath, artifactTemplatesDir);
+    const { store, handlers, definition, context } = harness;
+
+    const start = await handlers.pipeline_start(
+      requestFrame("start", "pipeline_start", { definition, context }),
+      new AbortController().signal,
+    );
+    expect(start.kind).toBe("response");
+    const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
+
+    await waitFor(
+      () => fastStageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,succeeded,succeeded",
+      10_000,
+      `fast vector=${fastStageStatusVector(readPipeline(store, pipelineId)).join(",")} implement=${readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.status} detail=${JSON.stringify(readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.failureDetail)}`,
+    );
+    const pipeline = readPipeline(store, pipelineId);
+    expect(fastStageStatusVector(pipeline)).toEqual(["succeeded", "succeeded", "succeeded"]);
+    expect(derivePipelineState(pipeline)).toBe("succeeded");
+    expect(harness.dispatchCounts).toEqual({ intent: 1, plan: 1, implement: 1 });
+    harness.fakeExecutor.abortAll();
+  });
+
+  test("inverting prior-worktree guard fails chained resolution", async () => {
+    setInvertPriorWorktreeRootGuardForTest(true);
+    const harness = createFastHarness(repoRoot, jarvisRoot, configPath, artifactTemplatesDir);
+    const { store, handlers, definition, context } = harness;
+
+    const start = await handlers.pipeline_start(
+      requestFrame("start", "pipeline_start", { definition, context }),
+      new AbortController().signal,
+    );
+    const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
+
+    await waitFor(() => derivePipelineState(readPipeline(store, pipelineId)) !== "pending");
+    const pipeline = readPipeline(store, pipelineId);
+    expect(fastStageStatusVector(pipeline)).not.toEqual(["succeeded", "succeeded", "succeeded"]);
+    expect(derivePipelineState(pipeline)).not.toBe("succeeded");
     harness.fakeExecutor.abortAll();
   });
 });

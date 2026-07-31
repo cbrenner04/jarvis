@@ -76,6 +76,23 @@ function noDaemonDeps(extra: NonNullable<Parameters<typeof main>[2]> = {}): NonN
   };
 }
 
+async function expectPipelineConfigRejectedBeforeConnect(pipeline: unknown, stderrContains: string): Promise<void> {
+  const cap = captureIo();
+  const configPath = pipelineMachineConfig("demo", pipeline, fx.repoRoot);
+  let contacted = false;
+  const code = await main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
+    ...noDaemonDeps(pipelineDeps(configPath)),
+    connectIpcClient: async () => {
+      contacted = true;
+      throw new Error("should not contact daemon");
+    },
+  });
+  expect(code).toBe(1);
+  expect(contacted).toBe(false);
+  expect(cap.read().stderr).toContain(stderrContains);
+  expect(cap.read().stdout).toBe("");
+}
+
 function pipelineDeps(
   configPath: string | undefined,
   extra: NonNullable<Parameters<typeof main>[2]> = {},
@@ -175,22 +192,18 @@ describe("pipeline start", () => {
 
   test("rejects invalid project pipeline configuration before daemon connect", async () => {
     // Inversion target: resolveProjectPipeline failure branch in pipeline.ts — falling through to daemon IPC on resolution failure turns this test RED.
-    const cap = captureIo();
-    const configPath = pipelineMachineConfig("demo", { name: "" }, fx.repoRoot);
-    let contacted = false;
+    await expectPipelineConfigRejectedBeforeConnect(
+      { name: "" },
+      "invalid-project-pipeline-config: projects.demo.pipeline.name",
+    );
+  });
 
-    const code = await main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
-      ...noDaemonDeps(pipelineDeps(configPath)),
-      connectIpcClient: async () => {
-        contacted = true;
-        throw new Error("should not contact daemon");
-      },
-    });
-
-    expect(code).toBe(1);
-    expect(contacted).toBe(false);
-    expect(cap.read().stderr).toContain("invalid-project-pipeline-config: projects.demo.pipeline.name");
-    expect(cap.read().stdout).toBe("");
+  test("rejects project pipeline missing terminalAction before daemon connect", async () => {
+    // Inversion target: resolveProjectPipeline failure branch in pipeline.ts — falling through to daemon IPC on resolution failure turns this test RED.
+    await expectPipelineConfigRejectedBeforeConnect(
+      { name: "fast" },
+      "invalid-project-pipeline-config: projects.demo.pipeline.terminalAction",
+    );
   });
 
   test("refuses a registered project with no pipeline key before daemon connect", async () => {

@@ -669,9 +669,11 @@ type FanOutSplit = {
   branchKeys: string[];
 };
 
-function isSplittingArtifact(
-  artifact: PipelineStageArtifact,
-): artifact is PipelineStageArtifact & { downstreamInputs: string[] } {
+type SplittingPipelineStageArtifact = PipelineStageArtifact & {
+  downstreamInputs: string[];
+};
+
+function isSplittingArtifact(artifact: PipelineStageArtifact): artifact is SplittingPipelineStageArtifact {
   return (artifact.downstreamInputs?.length ?? 0) >= 2;
 }
 

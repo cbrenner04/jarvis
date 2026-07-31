@@ -96,18 +96,16 @@ Per-project implement defaults:
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
 
-Each registered project may select a source-owned pipeline (optional; absence admits legacy
-implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
+Each registered project may configure a source-owned pipeline for `jarvis pipeline start` only (`jarvis run workflow implement` ignores `projects.<key>.pipeline` entirely; absence admits legacy implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
 
 | Key | Type | Validation |
 | --- | --- | --- |
-| `projects.<key>.pipeline` | object | Optional; when present, `jarvis pipeline start` and implement admission share project-pipeline resolution |
+| `projects.<key>.pipeline` | object | Required for `jarvis pipeline start`; ignored by implement admission |
 | `projects.<key>.pipeline.name` | non-empty string | Required when `pipeline` is present; must name a source-registry pipeline |
 | `projects.<key>.pipeline.terminalAction` | `"leave-draft"`, `"ready"`, or `"merge"` | Required when `pipeline` is present; names how the pipeline leaves the final PR |
 | `projects.<key>.pipeline.reviewOverrides` | object of stage ID → string | Optional; each key must name a workflow stage, not an approval stage |
 
-When the `pipeline` key is present, `jarvis pipeline start` and implement admission both
-resolve it through the same project-pipeline boundary. The object accepts only `name`,
+`jarvis pipeline start` resolves `projects.<key>.pipeline` through project-pipeline resolution before daemon connect. Implement admission does not read or validate this block. The object accepts only `name`,
 `terminalAction`, and `reviewOverrides`. Missing or malformed pipeline fields, unknown `terminalAction` values,
 non-string override values, forbidden keys, unknown stage IDs, approval-stage override
 targets, and terminal actions on pipelines with no `implement` workflow stage fail with

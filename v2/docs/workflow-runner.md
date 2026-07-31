@@ -540,19 +540,11 @@ retired worktree or branch is `implement.recovery_target_missing`. An admitted
 it never resets the workspace or re-enters the write step. No admitted lineage falls through
 to the ordinary `implement.already_complete` preflight.
 
-For CLI launches, when the matched project's raw config record includes a `pipeline`
-key, the builder reads that fragment, resolves its source definition and overrides
-against the loaded agent model config, and carries the validated definition as admission
-evidence. When the key is absent, admission skips resolution and proceeds with legacy
-implement (no `pipelineDefinition`). Resolution preserves parse → source lookup →
-override-target → terminal-action compose → terminal-action conflict check →
-composed-definition validation precedence. `terminalAction` is copied onto the owned
-admitted definition during resolution and is not read again from mutable project config
-at pipeline completion. A named resolution error stops the command before stale reset,
-daemon connection/start, durable run-row creation, external-worktree materialization,
-or agent invocation. This gate only validates implement admission when a pipeline is
-selected; dispatching the selected pipeline's stages is deferred to the pipeline
-execution consumer.
+For CLI launches with `projectRegistry` set, implement admission requires a readable
+`projects.<key>` object (`projects.<key> must be an object` when the matched key has no
+object record) and never reads, validates, or resolves `projects.<key>.pipeline` — absent,
+valid, or stale; admission never attaches `pipelineDefinition`. Legacy implement proceeds
+when the project record exists regardless of pipeline configuration.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract

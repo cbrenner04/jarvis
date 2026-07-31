@@ -23,15 +23,15 @@
 
 ## Acceptance criteria
 
-- [ ] `terminal-publication.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module
+- [x] `terminal-publication.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module
   variable, `invert*` function parameter, or `invert*ForTest` type member.
-- [ ] In `terminal-publication.test.ts`, the documented red-ready-gate mutation turns `does not
+- [x] In `terminal-publication.test.ts`, the documented red-ready-gate mutation turns `does not
   ready-flip or merge after a red ready gate` RED. (Manual)
-- [ ] `terminal-publication.test.ts` — `does not ready-flip or merge after a red ready gate` stays
+- [x] `terminal-publication.test.ts` — `does not ready-flip or merge after a red ready gate` stays
   green.
-- [ ] `terminal-publication.test.ts` — `executes each terminal action type once against fake
+- [x] `terminal-publication.test.ts` — `executes each terminal action type once against fake
   publication` stays green.
-- [ ] `terminal-publication.test.ts` — `retains PR evidence on ready gate failure` stays green.
+- [x] `terminal-publication.test.ts` — `retains PR evidence on ready gate failure` stays green.
 
 ## Documentation updates
 

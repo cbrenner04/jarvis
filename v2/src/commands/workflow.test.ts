@@ -2182,11 +2182,7 @@ describe("implement preflight stale workspace reset", () => {
     },
   };
 
-  function pipelineAdmissionBuilder(
-    effects: PipelineAdmissionEffects,
-    expectedPipeline?: string,
-    expectOmitPipelineDefinition?: boolean,
-  ) {
+  function pipelineAdmissionBuilder(effects: PipelineAdmissionEffects) {
     return async (input: BuildImplementWorkflowStepsInput) => {
       const built = await buildImplementWorkflowSteps(input, {
         loadWorkflowSteps: (steps: readonly WorkflowSourceStep[]) =>
@@ -2200,8 +2196,7 @@ describe("implement preflight stale workspace reset", () => {
           }),
       });
       if (!built.ok) return built;
-      if (expectedPipeline !== undefined) expect(built.pipelineDefinition?.name).toBe(expectedPipeline);
-      if (expectOmitPipelineDefinition) expect(built.pipelineDefinition).toBeUndefined();
+      expect(built.pipelineDefinition).toBeUndefined();
       const writeStep = built.steps[0];
       if (writeStep?.behavior !== "write") throw new Error("expected implement write step");
       writeStep.worktree.git = false;
@@ -2255,8 +2250,6 @@ describe("implement preflight stale workspace reset", () => {
   async function runConnectedPipelineAdmission(
     projects: Record<string, unknown>,
     effects: PipelineAdmissionEffects,
-    expectedPipeline?: string,
-    expectOmitPipelineDefinition?: boolean,
   ): Promise<number> {
     const configPath = writeMachineConfig({ projects });
     const connected = connectedWorkflowHandlers(effects);
@@ -2268,7 +2261,7 @@ describe("implement preflight stale workspace reset", () => {
         resetImplementDeps({
           machineConfigPath: configPath,
           workflowPresetBuilders: {
-            implement: pipelineAdmissionBuilder(effects, expectedPipeline, expectOmitPipelineDefinition),
+            implement: pipelineAdmissionBuilder(effects),
           },
           subprocessRunner: staleResetSubprocessRunner(() => {
             effects.staleResetWork += 1;
@@ -2295,109 +2288,28 @@ describe("implement preflight stale workspace reset", () => {
     expect(effects.agentInvocations).toBeGreaterThan(0);
   }
 
-  test("project pipeline selection gates implement before durable admission effects", async () => {
+  test("implement ignores project pipeline config before durable admission effects", async () => {
     const validEffects = emptyPipelineAdmissionEffects();
     const validCode = await runConnectedPipelineAdmission(
       { demo: { root: resetProjectRoot, pipeline: { name: "fast", terminalAction: "leave-draft" } } },
       validEffects,
-      "fast",
     );
     expectPipelineAdmissionSuccess(validEffects, validCode);
+  });
 
-    const invalidEffects = emptyPipelineAdmissionEffects();
-    const invalidConfigPath = writeMachineConfig({
-      projects: {
-        demo: {
-          root: resetProjectRoot,
-          pipeline: { name: "fast", terminalAction: "leave-draft", reviewOverrides: { implement: "none" } },
-        },
-      },
-    });
-    const invalidCap = captureIo();
-    const invalidCode = await main(
-      pipelineAdmissionArgs(),
-      invalidCap.io,
-      resetImplementDeps({
-        machineConfigPath: invalidConfigPath,
-        workflowPresetBuilders: { implement: pipelineAdmissionBuilder(invalidEffects) },
-        subprocessRunner: staleResetSubprocessRunner(() => {
-          invalidEffects.staleResetWork += 1;
-          return undefined;
-        }),
-        connectIpcClient: async () => {
-          invalidEffects.daemonConnections += 1;
-          throw new Error("invalid selection must not contact daemon");
-        },
-      }),
-    );
-
-    expect(invalidCode).toBe(1);
-    expect(invalidCap.read()).toEqual({
-      stdout: "",
-      stderr:
-        'invalid-pipeline-definition: stage "implement": workflow "implement" has no realization for review posture "none"\n',
-    });
-    expect(invalidEffects.daemonConnections).toBe(0);
-    expect(invalidEffects.runRows).toBe(0);
-    expect(invalidEffects.materializations + invalidEffects.staleResetWork).toBe(0);
-    expect(invalidEffects.agentInvocations).toBe(0);
+  test.each([
+    ["missing terminalAction", { name: "fast" }],
+    ["invalid reviewOverrides", { name: "fast", terminalAction: "leave-draft", reviewOverrides: [] }],
+  ])("jarvis run workflow implement admits stale pipeline config (%s) through durable admission effects", async (_label, pipeline) => {
+    const effects = emptyPipelineAdmissionEffects();
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot, pipeline } }, effects);
+    expectPipelineAdmissionSuccess(effects, code);
   });
 
   test("admits implement without pipelineDefinition when projects.demo omits pipeline", async () => {
     const effects = emptyPipelineAdmissionEffects();
-    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot } }, effects, undefined, true);
+    const code = await runConnectedPipelineAdmission({ demo: { root: resetProjectRoot } }, effects);
     expectPipelineAdmissionSuccess(effects, code);
-  });
-
-  test.each([
-    [
-      "parse",
-      { name: "missing", terminalAction: "leave-draft", reviewOverrides: [] },
-      "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides must be an object\n",
-    ],
-    [
-      "lookup",
-      { name: "missing", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } },
-      "unknown-pipeline: missing\n",
-    ],
-    [
-      "override target",
-      { name: "fast", terminalAction: "leave-draft", reviewOverrides: { absent: "none" } },
-      "invalid-project-pipeline-config: projects.demo.pipeline.reviewOverrides.absent must name an existing workflow stage\n",
-    ],
-    [
-      "validation",
-      { name: "fast", terminalAction: "leave-draft", reviewOverrides: { implement: "none" } },
-      'invalid-pipeline-definition: stage "implement": workflow "implement" has no realization for review posture "none"\n',
-    ],
-  ])("pipeline %s failure precedes daemon and implement effects", async (_phase, pipeline, stderr) => {
-    const effects = emptyPipelineAdmissionEffects();
-    const configPath = writeMachineConfig({ projects: { demo: { root: resetProjectRoot, pipeline } } });
-    const cap = captureIo();
-
-    const code = await main(
-      pipelineAdmissionArgs(),
-      cap.io,
-      resetImplementDeps({
-        machineConfigPath: configPath,
-        workflowPresetBuilders: { implement: pipelineAdmissionBuilder(effects) },
-        subprocessRunner: staleResetSubprocessRunner(() => {
-          effects.staleResetWork += 1;
-          return undefined;
-        }),
-        connectIpcClient: async () => {
-          effects.daemonConnections += 1;
-          throw new Error("pipeline failure must not contact daemon");
-        },
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "", stderr });
-    expect(effects.daemonConnections).toBe(0);
-    expect(effects.runRows).toBe(0);
-    expect(effects.materializations + effects.staleResetWork).toBe(0);
-    expect(effects.agentInvocations).toBe(0);
   });
 
   test("run workflow implement resets a stale worktree before daemon start", async () => {

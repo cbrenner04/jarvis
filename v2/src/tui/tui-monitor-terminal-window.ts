@@ -9,21 +9,11 @@ import {
 export const TUI_TERMINAL_WINDOW_MS = 3_600_000;
 export const TUI_TERMINAL_ROW_CAP = 20;
 
-let invertTerminalWindowFilterForTest = false;
-let invertTerminalRowCapFilterForTest = false;
-
-export function setInvertTerminalWindowFilterForTest(value: boolean): void {
-  invertTerminalWindowFilterForTest = value;
-}
-
-export function setInvertTerminalRowCapFilterForTest(value: boolean): void {
-  invertTerminalRowCapFilterForTest = value;
-}
-
 export function terminalRunInLiveWindow(finishedAtMs: number | undefined, nowMs: number, windowMs: number): boolean {
-  if (finishedAtMs === undefined) return invertTerminalWindowFilterForTest;
+  if (finishedAtMs === undefined) return false;
   const inWindow = finishedAtMs >= nowMs - windowMs;
-  return invertTerminalWindowFilterForTest ? !inWindow : inWindow;
+  // Mutation checkpoint: negating `inWindow` must turn the in-window terminal-row test RED.
+  return inWindow;
 }
 
 type TerminalRetentionUnit = {
@@ -72,7 +62,8 @@ export function filterMonitorRunsForLiveWindow(
 
   const inWindow = terminalUnits.filter((unit) => terminalRunInLiveWindow(unit.finishedAtMs, options.nowMs, windowMs));
   inWindow.sort((left, right) => (right.finishedAtMs ?? 0) - (left.finishedAtMs ?? 0));
-  const keptTerminal = invertTerminalRowCapFilterForTest ? inWindow : inWindow.slice(0, terminalCap);
+  // Mutation checkpoint: dropping `.slice(0, terminalCap)` must turn the row-cap test RED.
+  const keptTerminal = inWindow.slice(0, terminalCap);
 
   const kept: DaemonListRunRow[] = [...keptNonTerminal];
   for (const unit of keptTerminal) {

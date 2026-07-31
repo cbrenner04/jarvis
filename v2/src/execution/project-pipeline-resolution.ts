@@ -33,12 +33,6 @@ type ParsedProjectPipeline = {
   reviewOverrides: Array<[stageId: string, posture: string]>;
 };
 
-let invertTerminalActionConflictGuardForTest = false;
-
-export function setInvertTerminalActionConflictGuardForTest(value: boolean): void {
-  invertTerminalActionConflictGuardForTest = value;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -146,7 +140,9 @@ export function resolveProjectPipeline(
   const lacksImplementStage = !definition.stages.some(
     (stage) => stage.kind === "workflow" && stage.workflow === "implement",
   );
-  if (invertTerminalActionConflictGuardForTest ? !lacksImplementStage : lacksImplementStage) {
+  // Mutation checkpoint: negating `lacksImplementStage` here must turn
+  // `rejects terminal-action approval conflicts` RED.
+  if (lacksImplementStage) {
     return invalid(
       terminalActionKey,
       `${terminalActionKey} is incompatible with ${nameKey} when the composed pipeline has no implement workflow stage`,

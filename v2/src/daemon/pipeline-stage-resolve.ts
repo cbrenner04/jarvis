@@ -284,7 +284,7 @@ function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedRea
   }
 
   if (downstreamInputs.length === 1) {
-    const singlePath = downstreamInputs.at(0);
+    const singlePath = downstreamInputs[0];
     if (singlePath !== undefined) {
       return resolveVerifiedChainedReadyIntentPath(prior, singlePath, false);
     }

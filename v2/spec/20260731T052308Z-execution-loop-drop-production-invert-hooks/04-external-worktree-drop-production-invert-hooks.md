@@ -18,7 +18,7 @@ guard-inversion tests pass without mutating the real lock-release `finally` guar
 
 ## Acceptance criteria
 
-- [ ] `external-worktree.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module
+- [x] `external-worktree.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module
   variable, `invert*` function parameter, or `invert*ForTest` type member.
 
 ## Documentation updates

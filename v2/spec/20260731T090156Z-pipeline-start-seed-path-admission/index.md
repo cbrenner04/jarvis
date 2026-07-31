@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Pipeline start seed path admission](./00-pipeline-start-seed-path-admission.md)
+- [x] [00 - Pipeline start seed path admission](./00-pipeline-start-seed-path-admission.md)

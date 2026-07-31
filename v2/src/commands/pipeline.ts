@@ -1,5 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { PIPELINE_START_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -98,15 +98,28 @@ function parsePipelineDecisionArgs(
   return { ok: true, pipelineId, stageId, branchKey };
 }
 
+function inside(parent: string, child: string): boolean {
+  const path = relative(parent, child);
+  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+}
+
 function resolvePipelineSeed(
   cwd: string,
   seedPath: string,
-): { ok: true; seed: string } | { ok: false; message: string } {
+  projectRoot: string,
+): { ok: true } | { ok: false; message: string } {
   if (isAbsolute(seedPath)) return { ok: false, message: "pipeline: --seed must be a relative path" };
   const path = join(cwd, seedPath);
   try {
     if (!statSync(path).isFile()) return { ok: false, message: `pipeline: seed is not a file: ${seedPath}` };
-    return { ok: true, seed: readFileSync(path, "utf8") };
+    const canonical = realpathSync(path);
+    if (!inside(realpathSync(projectRoot), canonical))
+      return {
+        ok: false,
+        message: `pipeline: seed escapes registered project after symlink resolution: ${seedPath}`,
+      };
+    accessSync(canonical, constants.R_OK);
+    return { ok: true };
   } catch (error) {
     return {
       ok: false,
@@ -242,14 +255,12 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
     return 1;
   }
 
-  let seed = parsed.seed;
   if (parsed.seedIsPath) {
-    const resolvedSeed = resolvePipelineSeed(deps.cwd(), parsed.seed);
+    const resolvedSeed = resolvePipelineSeed(deps.cwd(), parsed.seed, registry[parsed.projectKey]!.root);
     if (!resolvedSeed.ok) {
       io.stderr(`${resolvedSeed.message}\n`);
       return 1;
     }
-    seed = resolvedSeed.seed;
   }
 
   const resolution = resolveProjectPipeline(
@@ -265,7 +276,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
 
   const context: PipelineContext = {
     cwd: deps.cwd(),
-    seed,
+    ...(parsed.seedIsPath ? { seedPath: parsed.seed } : { seed: parsed.seed }),
     configPath: deps.machineConfigPath,
     projectRegistry: registry,
   };

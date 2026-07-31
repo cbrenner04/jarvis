@@ -26,7 +26,7 @@ per `v2/docs/test-writing.md`.
 - `intent-output.ts`: verify-only under the hook sweep — comment checkpoints only, no production
   hooks to remove.
 
-- [ ] [00 - Write loop drops invert-for-test hooks](./00-write-loop-drop-production-invert-hooks.md)
+- [x] [00 - Write loop drops invert-for-test hooks](./00-write-loop-drop-production-invert-hooks.md)
 - [ ] [01 - Workflow runner drops invert-for-test hooks](./01-workflow-runner-drop-production-invert-hooks.md)
 - [ ] [02 - Terminal publication drops invert-for-test hooks](./02-terminal-publication-drop-production-invert-hooks.md)
 - [ ] [03 - Project pipeline resolution drops invert-for-test hooks](./03-project-pipeline-resolution-drop-production-invert-hooks.md)

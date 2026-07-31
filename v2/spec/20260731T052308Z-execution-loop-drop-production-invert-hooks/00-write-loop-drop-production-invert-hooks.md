@@ -58,9 +58,9 @@ guard-inversion tests pass without mutating real guards.
   true` or `invertReadyGateRepairSidecarFenceForTest: true` are removed; `rejects ready-gate repairs
   that would publish harness sidecars` carries a `Mutation checkpoint:` comment naming the
   `findFirstHarnessSidecarBasenameViolation` mutation.
-- [ ] In `write-loop.test.ts`, the documented `findFirstHarnessSidecarBasenameViolation` mutation
+- [x] In `write-loop.test.ts`, the documented `findFirstHarnessSidecarBasenameViolation` mutation
   turns `rejects ready-gate repairs that would publish harness sidecars` RED. (Manual)
-- [ ] In `write-loop.test.ts`, the documented `resolveIterationSettlementKind` precedence mutation
+- [x] In `write-loop.test.ts`, the documented `resolveIterationSettlementKind` precedence mutation
   turns `lets an observed abort win before the watchdog, but not after it` RED. (Manual)
 - [x] `write-loop.test.ts` — `rejects ready-gate repairs that would publish harness sidecars` stays
   green.

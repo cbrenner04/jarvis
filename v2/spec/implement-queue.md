@@ -7,11 +7,14 @@ Authority: operator priorities. Rebuilt 2026-07-31 after the overnight session.
 The 2026-07-31 overnight session cleared every actionable item. What remains is deliberately
 deferred; pick by what the next session actually hits.
 
-1. Convert `seeds/human-only-marker-read-from-first-line-only` — **highest value open item.** The `(Manual)` marker is trailing-anchored and read from the first line only, while plan agents write it leading and wrapped. It stranded five runs at `contract_miss` this session on criteria the agent could not satisfy.
-2. Convert `seeds/iteration-timeout-discards-completed-subspecs` — a timeout's only recovery retires the branch, discarding finished subspecs. Cost a hand-finish on a 3-subspec spec, and the same hazard destroyed a pushed commit via `--reset-despite-dirty`.
-3. Convert `seeds/gate-repair-does-not-run-the-formatter` — formatter-only red gates exhaust the repair budget; hand `bun run fix` + resume is the standing stopgap, used repeatedly.
-4. `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` — retry now that #2370 names the real normalizer reason (three prior dispatches settled on an opaque `artifact.exists`).
-5. Everything else in the seed tables below, by cost of not fixing.
+1. Convert `seeds/cursor-usage-is-parsed-then-discarded` — cheap fix, large payoff: cursor already
+   emits token usage in the frame the harness parses, and `data/prices.json` already prices
+   `Composer 2.5`. Until it ships, no session report can state what the agents cost.
+2. Convert `seeds/human-only-marker-read-from-first-line-only` — the `(Manual)` marker is trailing-anchored and read from the first line only, while plan agents write it leading and wrapped. It stranded five runs at `contract_miss` this session on criteria the agent could not satisfy.
+3. Convert `seeds/iteration-timeout-discards-completed-subspecs` — a timeout's only recovery retires the branch, discarding finished subspecs. Cost a hand-finish on a 3-subspec spec, and the same hazard destroyed a pushed commit via `--reset-despite-dirty`.
+4. Convert `seeds/gate-repair-does-not-run-the-formatter` — formatter-only red gates exhaust the repair budget; hand `bun run fix` + resume is the standing stopgap, used repeatedly.
+5. `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` — retry now that #2370 names the real normalizer reason (three prior dispatches settled on an opaque `artifact.exists`).
+6. Everything else in the seed tables below, by cost of not fixing.
 
 ## Rule
 
@@ -51,6 +54,7 @@ Watch for the disguises, which a static guard cannot catch: production exports t
 
 | Seed | Why |
 | --- | --- |
+| `cursor-usage-is-parsed-then-discarded` | Cursor emits token usage in the stream-json frame the harness already requests and the parser drops it, so agent cost is unmeasured for ~99% of invocations and every report's cost column is meaningless |
 | `human-only-marker-read-from-first-line-only` | Trailing-anchored and first-line-only; stranded five runs this session on unsatisfiable criteria |
 | `iteration-timeout-discards-completed-subspecs` | A timeout's only recovery retires the branch, discarding finished subspecs |
 | `gate-repair-does-not-run-the-formatter` | Formatter-only red gates exhaust the repair budget |

@@ -35,12 +35,12 @@ Primary: `v2/src/daemon/pipeline-stage-resolve.ts`. In-scope: `pipeline-stage-re
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` — after a splitting intent artifact with N=2 `downstreamInputs`, resolving the plan stage returns two `ok` resolutions with distinct `readyIntent` files; collapsing to the first input makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — single-file prior artifact (file `specPath`, no `downstreamInputs`) still returns one `ok` resolution; inverting the no-fan-out-when-absent guard makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — per-branch plan artifact (file `specPath`, no `downstreamInputs`) resolving implement returns one `ok` resolution; inverting the no-refan-out guard makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — `downstreamInputs` length 1 returns one `ok` resolution bound to that path; treating length 1 as multi-fan-out makes the test fail.
-- [ ] `pipeline-stage-resolve.test.ts` — a listed `downstreamInputs` path missing from the worktree fails without falling back to directory `specPath`; inverting the no-fallback guard makes the test fail.
-- [ ] `bun run typecheck` exits zero.
+- [x] `pipeline-stage-resolve.test.ts` — after a splitting intent artifact with N=2 `downstreamInputs`, resolving the plan stage returns two `ok` resolutions with distinct `readyIntent` files; collapsing to the first input makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — single-file prior artifact (file `specPath`, no `downstreamInputs`) still returns one `ok` resolution; inverting the no-fan-out-when-absent guard makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — per-branch plan artifact (file `specPath`, no `downstreamInputs`) resolving implement returns one `ok` resolution; inverting the no-refan-out guard makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — `downstreamInputs` length 1 returns one `ok` resolution bound to that path; treating length 1 as multi-fan-out makes the test fail.
+- [x] `pipeline-stage-resolve.test.ts` — a listed `downstreamInputs` path missing from the worktree fails without falling back to directory `specPath`; inverting the no-fallback guard makes the test fail.
+- [x] `bun run typecheck` exits zero.
 
 ## Documentation updates
 

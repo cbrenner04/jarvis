@@ -31,8 +31,8 @@ Primary: `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts`. Depends
 
 ## Acceptance criteria
 
-- [ ] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — two-ready-intent split walks intent → plan → implement on real stage worktrees with dispatch/wait faked only at the agent boundary; each downstream workflow stage dispatches twice; collapsing fan-out to one branch makes the test fail.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — two-ready-intent split walks intent → plan → implement on real stage worktrees with dispatch/wait faked only at the agent boundary; each downstream workflow stage dispatches twice; collapsing fan-out to one branch makes the test fail.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

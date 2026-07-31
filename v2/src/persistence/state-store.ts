@@ -241,8 +241,35 @@ export type FailedPipelineReopenShape =
       reason: Exclude<PipelineReopenRefusalReason, "pipeline_not_found" | "reopen_lost">;
     };
 
-/** Detect whether ordered stage rows match the in-place failed-continuation reopen shape. */
-export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
+function comparePipelineStageBranchOrder(a: PipelineStageRecord, b: PipelineStageRecord): number {
+  if (a.position !== b.position) return a.position - b.position;
+  if (a.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY && b.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    return -1;
+  }
+  if (b.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY && a.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    return 1;
+  }
+  return a.branchKey.localeCompare(b.branchKey);
+}
+
+/** Stage rows that participate in reopen shape analysis for one failed branch row. */
+export function reopenStagesForFailedBranch(
+  stages: readonly PipelineStageRecord[],
+  failedStage: PipelineStageRecord,
+): PipelineStageRecord[] {
+  if (failedStage.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    return [...stages];
+  }
+  return stages
+    .filter(
+      (stage) =>
+        stage.branchKey === failedStage.branchKey ||
+        (stage.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY && stage.position < failedStage.position),
+    )
+    .sort(comparePipelineStageBranchOrder);
+}
+
+function analyzeFailedPipelineReopenShapeOnStages(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
   const failed = stages.filter((stage) => stage.status === "failed");
   if (failed.length === 0) {
     return { kind: "invalid", reason: "no_failed_stage" };
@@ -273,6 +300,25 @@ export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageR
   }
 
   return { kind: "valid", failedStageRecordId: failedStage.id, suffixStageRecordIds };
+}
+
+/** Detect whether ordered stage rows match the in-place failed-continuation reopen shape. */
+export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
+  const failed = stages.filter((stage) => stage.status === "failed");
+  if (failed.length === 0) {
+    return { kind: "invalid", reason: "no_failed_stage" };
+  }
+  if (failed.length > 1) {
+    return { kind: "invalid", reason: "multiple_failed_stages" };
+  }
+
+  const failedStage = failed[0];
+  if (failedStage === undefined) {
+    return { kind: "invalid", reason: "no_failed_stage" };
+  }
+
+  const relevantStages = reopenStagesForFailedBranch(stages, failedStage);
+  return analyzeFailedPipelineReopenShapeOnStages(relevantStages);
 }
 
 export const DEFAULT_PIPELINE_STAGE_BRANCH_KEY = "default";

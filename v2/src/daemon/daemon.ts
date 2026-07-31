@@ -1909,12 +1909,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (retiring) {
         return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
       }
-      const params = frame.params as { pipelineId?: string; stageId?: string } | undefined;
+      const params = frame.params as { pipelineId?: string; stageId?: string; branchKey?: string } | undefined;
       if (!params?.pipelineId || !params?.stageId) {
         return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
       }
-      const { pipelineId, stageId } = params;
-      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps());
+      const { pipelineId, stageId, branchKey } = params;
+      const outcome = applyPipelineApprovalDecision(
+        pipelineId,
+        stageId,
+        decision,
+        pipelineExecutionDeps(),
+        branchKey,
+      );
       return { kind: "response", result: outcome };
     };
 

@@ -42,14 +42,14 @@ Out of scope for this spec (sibling `pipeline-branch-operator-cli`): operator `p
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — after fan-out admission, no `default` branch dispatches plan or implement while per-branch rows exist; leaving `default` rows actionable makes the test fail.
-- [ ] `pipeline-execution.test.ts` — `pipeline approve` / `pipeline reject` with `branchKey` on one branch leaves the other branch's gate `awaiting`; omitting `branchKey` when multiple branch rows exist is refused; a cross-branch decision leak makes the test fail.
-- [ ] `pipeline-execution.test.ts` — with one branch failed and one succeeded, the pipeline settles a non-`succeeded` terminal state whose `failureDetail` names the failed `branchKey` while the succeeding branch still reaches its terminal action; inverting either half makes the test fail.
-- [ ] `pipeline-execution.test.ts` — with one branch rejected and one succeeded, aggregate is non-`succeeded`, `failureDetail` names the rejected `branchKey`, and the succeeding branch still reaches terminal success; aborting the succeeding branch makes the test fail.
-- [ ] `pipeline-execution.test.ts` — branch A and branch B plan artifacts coexist and resolve independently; last-write-wins per `stageId` makes the test fail.
-- [ ] `pipeline-execution.test.ts` — `"continues past an approved gate and dispatches the next workflow stage"` stays green for single-branch (`default`) pipelines.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` exits zero.
+- [x] `pipeline-execution.test.ts` — after fan-out admission, no `default` branch dispatches plan or implement while per-branch rows exist; leaving `default` rows actionable makes the test fail.
+- [x] `pipeline-execution.test.ts` — `pipeline approve` / `pipeline reject` with `branchKey` on one branch leaves the other branch's gate `awaiting`; omitting `branchKey` when multiple branch rows exist is refused; a cross-branch decision leak makes the test fail.
+- [x] `pipeline-execution.test.ts` — with one branch failed and one succeeded, the pipeline settles a non-`succeeded` terminal state whose `failureDetail` names the failed `branchKey` while the succeeding branch still reaches its terminal action; inverting either half makes the test fail.
+- [x] `pipeline-execution.test.ts` — with one branch rejected and one succeeded, aggregate is non-`succeeded`, `failureDetail` names the rejected `branchKey`, and the succeeding branch still reaches terminal success; aborting the succeeding branch makes the test fail.
+- [x] `pipeline-execution.test.ts` — branch A and branch B plan artifacts coexist and resolve independently; last-write-wins per `stageId` makes the test fail.
+- [x] `pipeline-execution.test.ts` — `"continues past an approved gate and dispatches the next workflow stage"` stays green for single-branch (`default`) pipelines.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` exits zero.
 
 ## Documentation updates
 

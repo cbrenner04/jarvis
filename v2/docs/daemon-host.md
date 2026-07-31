@@ -828,11 +828,12 @@ back to find it): resolution loads the prior stage's entry run via
 `worktreePath`. Artifact `specPath` is worktree-relative and is passed through
 unchanged as `readyIntent` for the `plan`/`plan-reviewed*` presets or
 `specPath` for the implement builder — never joined to admission `cwd` and
-never absolutized in the store. Chained implement resolution calls
-`resolveBaseRef` with the prior entry run's `worktreePath`, not admission
-`cwd`. The `full-review` end-to-end harness pre-seeds ready-intent and plan
-artifacts on the operator checkout; the `fast` integration case in subspec 02
-is the inter-stage worktree handoff proof.
+never absolutized in the store. Chained implement resolution takes its
+`baseRef` from the prior entry run's `branch` and checks spec availability
+against that run's `worktreePath`, not admission `cwd` and not the default
+branch. The `fast` integration case is the inter-stage worktree handoff
+proof: it seeds every stage artifact on real stage worktrees and asserts the
+ready-intent and plan spec tree are absent from the operator checkout.
 
 `reviewPasses` and `reviewBehavior` on built intent/plan/implement inputs are
 derived from the stage's own `review` posture (`none` → `reviewPasses: 0` with

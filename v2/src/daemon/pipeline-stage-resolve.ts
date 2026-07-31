@@ -30,7 +30,6 @@ export type PipelineStageResolutionResult = { ok: true; steps: AnyWorkflowStep[]
 
 export type PipelineStageResolveDeps = {
   builders?: typeof WORKFLOW_PRESET_BUILDERS;
-  resolveBaseRef?: (cwd: string) => Promise<string>;
   loadRun?: (runId: string) => { worktreePath: string; branch: string } | null;
 };
 
@@ -98,10 +97,9 @@ export function createChainedStageProjectMatch(context: PipelineContext): (path:
     if (direct !== undefined && isUnderPath(path, admissionRoot)) return direct;
     const resolved = resolve(path);
     const jarvisRoot = jarvisHome();
-    for (const [key, entry] of Object.entries(registry)) {
+    for (const key of Object.keys(registry)) {
       const externalRoot = join(jarvisRoot, "worktrees", key);
-      const nestedRoot = join(entry.root, ".jarvis-worktrees");
-      if (isUnderPath(resolved, externalRoot) || isUnderPath(resolved, nestedRoot)) {
+      if (isUnderPath(resolved, externalRoot)) {
         return { key, root: admissionRoot };
       }
     }
@@ -120,8 +118,7 @@ function chainedImplementWorkflowDeps(context: PipelineContext): BuildImplementW
     ...(configPath !== undefined
       ? {
           configPath,
-          loadWorkflowSteps: (steps) =>
-            realLoadWorkflowSteps(steps, { machineConfigPath: configPath, machineProfile: "home" }),
+          loadWorkflowSteps: (steps) => realLoadWorkflowSteps(steps, { machineConfigPath: configPath }),
         }
       : {}),
   };

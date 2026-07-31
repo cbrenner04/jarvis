@@ -9,7 +9,6 @@ import { buildImplementWorkflowSteps } from "../execution/implement-workflow-ste
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
-import { buildReviewedPlanWorkflowSteps, type PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps } from "../execution/workflow-loader.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import {
@@ -40,7 +39,7 @@ const FAST_SUBPROCESS_RUNNER: AsyncSubprocessRunner = {
   runAsync: async () => "",
 };
 
-let sandboxRepoRoot = "";
+let _sandboxRepoRoot = "";
 let resolveStageMachinesDir = "";
 
 function loadStepsWithProfile(steps: Parameters<typeof loadWorkflowSteps>[0]) {
@@ -49,48 +48,6 @@ function loadStepsWithProfile(steps: Parameters<typeof loadWorkflowSteps>[0]) {
 
 // `resolveStageWorkflowSteps` widens every preset input to `BuildImplementWorkflowStepsInput`
 // before dispatch, so the map's declared signature is looser than each builder's real input.
-function makeResolveStageBuilders(): typeof WORKFLOW_PRESET_BUILDERS {
-  const builders = {
-    ...WORKFLOW_PRESET_BUILDERS,
-    "plan-reviewed": (input: PlanWorkflowInput) =>
-      buildReviewedPlanWorkflowSteps(input, {
-        resolveProjectMatch: (cwd) => ({ key: PROJECT_KEY, root: cwd }),
-        resolveBaseBranch: async () => "HEAD",
-        readReadyIntent: () => ({
-          ok: true as const,
-          name: "ship-feature",
-          content: readFileSync(join(sandboxRepoRoot, INTENT_SPEC), "utf8"),
-        }),
-        loadWorkflowSteps: loadStepsWithProfile,
-      }),
-    implement: (input: Parameters<typeof buildImplementWorkflowSteps>[0]) =>
-      buildImplementWorkflowSteps(
-        { ...input, reviewPasses: 0, reviewBehavior: "light", projectName: PROJECT_KEY },
-        {
-          asyncSubprocessRunner: FAST_SUBPROCESS_RUNNER,
-          readSpecFile: (path) => readFileSync(path, "utf8"),
-          resolveProjectMatch: (cwd) => ({ key: PROJECT_KEY, root: cwd }),
-          resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
-          loadWorkflowSteps: loadStepsWithProfile,
-        },
-      ),
-  };
-  return builders as unknown as typeof WORKFLOW_PRESET_BUILDERS;
-}
-
-function _productionResolveStage(
-  definition: PipelineDefinition,
-  stageIndex: number,
-  context: Parameters<typeof resolveStageWorkflowSteps>[2],
-  stageArtifacts: Parameters<typeof resolveStageWorkflowSteps>[3],
-  deps: Parameters<typeof resolveStageWorkflowSteps>[4] = {},
-) {
-  return resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
-    resolveBaseRef: async () => "HEAD",
-    builders: makeResolveStageBuilders(),
-    ...deps,
-  });
-}
 
 function fastProductionResolveStage(
   definition: PipelineDefinition,
@@ -121,7 +78,6 @@ function fastProductionResolveStage(
       ),
   };
   return resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
-    resolveBaseRef: async () => "HEAD",
     builders: builders as unknown as typeof WORKFLOW_PRESET_BUILDERS,
     ...deps,
   });
@@ -529,7 +485,7 @@ describe("pipeline end-to-end full-review", () => {
     const setup = setupPipelineSandboxRepo(roots);
     repoRoot = setup.repoRoot;
     jarvisRoot = setup.jarvisRoot;
-    sandboxRepoRoot = repoRoot;
+    _sandboxRepoRoot = repoRoot;
     resolveStageMachinesDir = join(jarvisRoot, "machines");
     previousJarvisHome = process.env.JARVIS_HOME;
     process.env.JARVIS_HOME = jarvisRoot;

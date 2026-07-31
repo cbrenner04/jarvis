@@ -15,7 +15,8 @@ artifact, and gate state per ready-intent branch with no cross-branch overwrite.
 - A succeeded workflow-stage artifact may record multiple downstream inputs, each a worktree-relative ready-intent file path — rules out a single `specPath` field only and rules out retaining the ready-intents directory as the handoff value for splits.
 - `listPipelines` / `loadPipeline` return every branch row for a pipeline — rules out collapsing branches in persistence reads.
 - Branch creation is explicit at the fan-out boundary; this slice does not run downstream stages — rules out absorbing execution-loop or daemon fan-out logic here.
-- Deferred to first consumer: stable `branchKey` derivation from input path — pin when fan-out execution lands.
+- Schema migration backfills existing single-row-per-`stageId` records with constant `branchKey` `"default"` — rules out null keys and path-derived backfill before fan-out lands.
+- Deferred to fan-out execution: stable path-derived `branchKey` for new branches beyond the migration default.
 
 ## Acceptance criteria
 

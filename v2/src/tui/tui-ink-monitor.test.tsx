@@ -199,6 +199,21 @@ describe("openInkMonitor", () => {
     session.close();
   });
 
+  test("drives workflow expansion through the injected input hook", async () => {
+    // Mutation checkpoint: change or remove the `input === "e"` branch in tui-ink-monitor.tsx.
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.toggleSelectedWorkflowExpansion = () => calls.push("toggle");
+    const input = inputHarness();
+    const session = await openInkMonitor(monitorState([], null), controls, await input.injection());
+
+    await input.press("e");
+    await input.press("e");
+
+    expect(calls).toEqual(["toggle", "toggle"]);
+    session.close();
+  });
+
   test("drives row navigation through the injected input hook", async () => {
     const calls: string[] = [];
     const controls = noopControls();

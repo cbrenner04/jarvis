@@ -33,7 +33,5 @@ anchoring the parser no longer uses.
 
 ## Prerequisites
 
-- `parseSpec` assembles each acceptance criterion from its full bullet block (first checklist line
-  plus continuation lines until the next `- [ ]` / `- [x]` or section heading).
-- `(Manual)`, `visual inspection only`, and `no automated guard` classify a criterion as human-only
-  when present anywhere in that assembled text (case-insensitive, whole-phrase).
+- `parseSpec` assembles each acceptance criterion from its full bullet block (first checklist line plus continuation lines until the next `- [ ]` / `- [x]` or section heading).
+- `(Manual)`, `visual inspection only`, and `no automated guard` classify a criterion as human-only when present anywhere in that assembled text (case-insensitive, whole-phrase).

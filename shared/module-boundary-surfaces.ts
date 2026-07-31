@@ -201,12 +201,6 @@ type BulletBlock = {
   surfaces: ModuleBoundarySurface[];
 };
 
-let invertPartitionGuardForTest = false;
-
-export function setInvertPartitionGuardForTest(value: boolean): void {
-  invertPartitionGuardForTest = value;
-}
-
 type DraftSubspec = {
   body: string;
   criteria: BulletBlock[];
@@ -275,7 +269,8 @@ function bulletsForBoundary(
   surface: ModuleBoundarySurface,
   boundaryIndex: number,
 ): BulletBlock[] {
-  if (invertPartitionGuardForTest) return [...bullets];
+  // Mutation checkpoint: replacing this filter with `return [...bullets]` must turn the k2
+  // draft-scope preservation assertions in `module-boundary-surfaces.test.ts` RED.
   return bullets.filter(
     (bullet) => bullet.surfaces[0] === surface || (boundaryIndex === 0 && bullet.surfaces.length === 0),
   );

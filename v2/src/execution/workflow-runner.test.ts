@@ -6820,8 +6820,9 @@ describe("executeWorkflow review dispatch", () => {
         definition,
         1,
         { cwd: workspace, seed: "seed" },
-        new Map([["intent", entryRun?.specPath ?? ""]]),
+        new Map([["intent", { entryRunId: result.runId, specPath: entryRun?.specPath ?? "" }]]),
         {
+          loadRun: (runId) => (runId === result.runId ? { worktreePath: workspace, branch: "intent/test" } : null),
           builders: {
             implement: async () => ({ ok: false as const, error: "unexpected" }),
             intent: async () => ({ ok: false as const, error: "unexpected" }),

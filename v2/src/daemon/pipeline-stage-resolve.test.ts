@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
@@ -8,7 +9,13 @@ import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/public
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
-import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import {
+  type PipelineContext,
+  type PipelineStageResolveDeps,
+  resolveStageWorkflowSteps,
+  setInvertPriorWorktreeRootGuardForTest,
+} from "./pipeline-stage-resolve.ts";
 
 const okStep = { behavior: "write" } as never;
 
@@ -27,6 +34,75 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
 
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
 
+function stageArtifact(entryRunId: string, specPath: string): PipelineStageArtifact {
+  return { entryRunId, specPath };
+}
+
+function initGitRepo(root: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+}
+
+function loadRunAt(worktreePath: string, branch = "main"): NonNullable<PipelineStageResolveDeps["loadRun"]> {
+  return () => ({ worktreePath, branch });
+}
+
+function chainedDeps(
+  worktreePath: string,
+  branch = "main",
+  overrides: Partial<PipelineStageResolveDeps> = {},
+): PipelineStageResolveDeps {
+  return { loadRun: loadRunAt(worktreePath, branch), ...overrides };
+}
+
+function createChainedHandoffRepo(): {
+  repoRoot: string;
+  configPath: string;
+  intentBranch: string;
+  intentWorktree: string;
+  planBranch: string;
+  planWorktree: string;
+  readyIntentRel: string;
+  planSpecRel: string;
+} {
+  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-chained-repo-"));
+  initGitRepo(repoRoot);
+  writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+  execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+  const intentBranch = "intent/feature";
+  const readyIntentRel = "spec/ready-intents/feature.md";
+  const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+  mkdirSync(intentWorktree, { recursive: true });
+  execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+  mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+  writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: intentWorktree });
+  execFileSync("git", ["commit", "-qm", "intent"], { cwd: intentWorktree });
+
+  const planBranch = "plan/feature";
+  const planSpecRel = "spec/feature/index.md";
+  const planWorktree = join(repoRoot, ".jarvis-worktrees", planBranch);
+  mkdirSync(planWorktree, { recursive: true });
+  execFileSync("git", ["branch", planBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: repoRoot });
+  mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+  writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(
+    join(planWorktree, "spec/feature/00-work.md"),
+    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+    "utf8",
+  );
+  execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+  execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  return { repoRoot, configPath, intentBranch, intentWorktree, planBranch, planWorktree, readyIntentRel, planSpecRel };
+}
+
 async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate") {
   const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
   const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
@@ -37,6 +113,10 @@ async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate"
   };
   return resolveStageWorkflowSteps(definition, 0, context, new Map(), { builders: WORKFLOW_PRESET_BUILDERS });
 }
+
+afterEach(() => {
+  setInvertPriorWorktreeRootGuardForTest(false);
+});
 
 describe("resolveStageWorkflowSteps", () => {
   test("first workflow stage builds with PipelineContext.seed as the seed input", async () => {
@@ -74,12 +154,16 @@ describe("resolveStageWorkflowSteps", () => {
       ],
     };
     const recordedArtifact = "spec/ready-intents/foo.md";
-    const artifactSpecPaths = new Map([["intent", recordedArtifact]]);
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", recordedArtifact)]]);
 
-    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, artifactSpecPaths, { builders });
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, {
+      builders,
+      ...chainedDeps(baseContext.cwd),
+    });
 
     expect(result.ok).toBe(true);
     expect(seenInput?.readyIntent).toBe(recordedArtifact);
+    expect(seenInput?.cwd).toBe(baseContext.cwd);
   });
 
   test("approval stages are skipped when walking back to find the preceding workflow artifact", async () => {
@@ -99,9 +183,12 @@ describe("resolveStageWorkflowSteps", () => {
       ],
     };
     const recordedArtifact = "spec/ready-intents/foo.md";
-    const artifactSpecPaths = new Map([["intent", recordedArtifact]]);
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", recordedArtifact)]]);
 
-    const result = await resolveStageWorkflowSteps(definition, 2, baseContext, artifactSpecPaths, { builders });
+    const result = await resolveStageWorkflowSteps(definition, 2, baseContext, stageArtifacts, {
+      builders,
+      ...chainedDeps(baseContext.cwd),
+    });
 
     expect(result.ok).toBe(true);
     expect(seenInput?.readyIntent).toBe(recordedArtifact);
@@ -142,9 +229,13 @@ describe("resolveStageWorkflowSteps", () => {
       ],
     };
 
-    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, new Map([["intent", "x.md"]]), {
-      builders,
-    });
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      baseContext,
+      new Map([["intent", stageArtifact("run-intent", "x.md")]]),
+      { builders, ...chainedDeps(baseContext.cwd) },
+    );
 
     expect(result.ok).toBe(true);
     expect(called).toBe(true);
@@ -166,9 +257,13 @@ describe("resolveStageWorkflowSteps", () => {
       ],
     };
 
-    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, new Map([["intent", "x.md"]]), {
-      builders,
-    });
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      baseContext,
+      new Map([["intent", stageArtifact("run-intent", "x.md")]]),
+      { builders, ...chainedDeps(baseContext.cwd) },
+    );
 
     expect(result.ok).toBe(true);
     expect(called).toBe(true);
@@ -176,6 +271,7 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("implement stage's built steps carry the stage's own posture as reviewBehavior, not a project default", async () => {
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const planBranch = "plan/feature";
     const builders = fakeBuilders({
       implement: async (input) => {
         seenInput = input;
@@ -189,16 +285,17 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
       ],
     };
-    const artifactSpecPaths = new Map([["plan", "spec/index.md"]]);
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", "spec/index.md")]]);
 
-    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, artifactSpecPaths, {
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, {
       builders,
-      resolveBaseRef: async () => "main",
+      ...chainedDeps(baseContext.cwd, planBranch),
     });
 
     expect(result.ok).toBe(true);
     expect(seenInput?.reviewBehavior).toBe("light");
     expect(seenInput?.specPath).toBe("spec/index.md");
+    expect(seenInput?.baseRef).toBe(planBranch);
   });
 
   test("intent+debate maps to intent preset with debate reviewBehavior and one pass", async () => {
@@ -275,7 +372,10 @@ describe("resolveStageWorkflowSteps", () => {
       stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
     };
 
-    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), { builders });
+    const result = await resolveStageWorkflowSteps(definition, 0, baseContext, new Map(), {
+      builders,
+      loadRun: () => null,
+    });
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -311,10 +411,11 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
       ],
     };
-    const artifactSpecPaths = new Map([["intent", "spec/ready-intents/feature.md"]]);
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", "spec/ready-intents/feature.md")]]);
 
-    const result = await resolveStageWorkflowSteps(definition, 1, context, artifactSpecPaths, {
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, {
       builders: WORKFLOW_PRESET_BUILDERS,
+      ...chainedDeps(cwd),
     });
 
     expect(result.ok).toBe(true);
@@ -337,15 +438,15 @@ describe("resolveStageWorkflowSteps", () => {
     };
     const resolveDeps = {
       builders,
-      resolveBaseRef: async () => "main",
+      ...chainedDeps(baseContext.cwd, "plan/feature"),
     };
-    const artifactSpecPaths = new Map([["plan", "spec/index.md"]]);
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", "spec/index.md")]]);
 
     const leaveDraft = await resolveStageWorkflowSteps(
       leaveDraftDefinition,
       1,
       baseContext,
-      artifactSpecPaths,
+      stageArtifacts,
       resolveDeps,
     );
     expect(leaveDraft.ok).toBe(true);
@@ -358,7 +459,7 @@ describe("resolveStageWorkflowSteps", () => {
     expect(leaveDraftStep.skipReadyFinalization).toBe(true);
 
     const readyDefinition: PipelineDefinition = { ...leaveDraftDefinition, terminalAction: "ready" };
-    const ready = await resolveStageWorkflowSteps(readyDefinition, 1, baseContext, artifactSpecPaths, resolveDeps);
+    const ready = await resolveStageWorkflowSteps(readyDefinition, 1, baseContext, stageArtifacts, resolveDeps);
     expect(ready.ok).toBe(true);
     if (!ready.ok) return;
     const readyStep = ready.steps.find(
@@ -386,5 +487,236 @@ describe("resolveStageWorkflowSteps", () => {
     );
     expect(finalizerCalled).toBe(false);
     expect(outcome.kind).toBe("success");
+  });
+
+  test("plan stage resolves chained readyIntent from the intent entry-run worktree, not admission cwd", async () => {
+    const operatorCwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-wt-"));
+    const readyIntentRel = "spec/ready-intents/feature.md";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
+    expect(existsSync(join(operatorCwd, readyIntentRel))).toBe(false);
+
+    let seenInput: PlanWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      plan: async (input) => {
+        seenInput = input as unknown as PlanWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", readyIntentRel)]]);
+    const deps = { builders, ...chainedDeps(intentWorktree) };
+
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(seenInput?.cwd).toBe(intentWorktree);
+    expect(seenInput?.readyIntent).toBe(readyIntentRel);
+
+    setInvertPriorWorktreeRootGuardForTest(true);
+    let invertedInput: PlanWorkflowInput | undefined;
+    const inverted = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      {
+        ...deps,
+        builders: fakeBuilders({
+          plan: async (input) => {
+            invertedInput = input as unknown as PlanWorkflowInput;
+            return { ok: true, steps: [okStep], identity: {} as never };
+          },
+        }),
+      },
+    );
+    expect(inverted.ok).toBe(true);
+    expect(invertedInput?.cwd).not.toBe(intentWorktree);
+    expect(invertedInput?.cwd).toBe(operatorCwd);
+  });
+
+  test("implement stage resolves chained specPath from the plan entry-run worktree with prior branch as baseRef", async () => {
+    const operatorCwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
+    const planBranch = "plan/feature";
+    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-wt-"));
+    const planSpecRel = "spec/feature/index.md";
+    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n", "utf8");
+    expect(existsSync(join(operatorCwd, planSpecRel))).toBe(false);
+
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel)]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(seenInput?.cwd).toBe(planWorktree);
+    expect(seenInput?.specPath).toBe(planSpecRel);
+    expect(seenInput?.baseRef).toBe(planBranch);
+
+    setInvertPriorWorktreeRootGuardForTest(true);
+    let invertedInput: BuildImplementWorkflowStepsInput | undefined;
+    const inverted = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      { cwd: operatorCwd, seed: "seed" },
+      stageArtifacts,
+      {
+        ...deps,
+        builders: fakeBuilders({
+          implement: async (input) => {
+            invertedInput = input;
+            return { ok: true, steps: [okStep] };
+          },
+        }),
+      },
+    );
+    expect(inverted.ok).toBe(true);
+    expect(invertedInput?.cwd).not.toBe(planWorktree);
+    expect(invertedInput?.cwd).toBe(operatorCwd);
+  });
+
+  test("missing prior artifact, entryRunId, entry run, or worktreePath returns resolution failure without falling back to context.cwd", async () => {
+    const builders = fakeBuilders({ plan: async () => ({ ok: true, steps: [okStep], identity: {} as never }) });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const loadRun = loadRunAt(baseContext.cwd);
+
+    const missingArtifact = await resolveStageWorkflowSteps(definition, 1, baseContext, new Map(), {
+      builders,
+      loadRun,
+    });
+    expect(missingArtifact.ok).toBe(false);
+    if (missingArtifact.ok) return;
+    expect(missingArtifact.error).toContain("preceding workflow artifact");
+
+    const missingEntryRunId = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      baseContext,
+      new Map([["intent", { entryRunId: "", specPath: "spec/ready-intents/x.md" }]]),
+      { builders, loadRun },
+    );
+    expect(missingEntryRunId.ok).toBe(false);
+    if (missingEntryRunId.ok) return;
+    expect(missingEntryRunId.error).toContain("entryRunId");
+
+    const missingEntryRun = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      baseContext,
+      new Map([["intent", stageArtifact("run-missing", "spec/ready-intents/x.md")]]),
+      { builders, loadRun: () => null },
+    );
+    expect(missingEntryRun.ok).toBe(false);
+    if (missingEntryRun.ok) return;
+    expect(missingEntryRun.error).toContain("not found");
+
+    const missingWorktreePath = await resolveStageWorkflowSteps(
+      definition,
+      1,
+      baseContext,
+      new Map([["intent", stageArtifact("run-empty-wt", "spec/ready-intents/x.md")]]),
+      { builders, loadRun: () => ({ worktreePath: "", branch: "main" }) },
+    );
+    expect(missingWorktreePath.ok).toBe(false);
+    if (missingWorktreePath.ok) return;
+    expect(missingWorktreePath.error).toContain("worktreePath");
+  });
+
+  test("plan stage resolves through real preset builders when ready-intent exists only on intent worktree", async () => {
+    const { repoRoot, configPath, intentBranch, intentWorktree, readyIntentRel } = createChainedHandoffRepo();
+    expect(existsSync(join(repoRoot, readyIntentRel))).toBe(false);
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", readyIntentRel)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.some((step) => step.behavior === "write")).toBe(true);
+
+    setInvertPriorWorktreeRootGuardForTest(true);
+    const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(inverted.ok).toBe(false);
+    if (inverted.ok) return;
+    expect(inverted.error).toContain("ready-intent");
+  });
+
+  test("implement stage resolves through real preset builders when plan spec exists only on plan worktree branch", async () => {
+    const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
+    expect(existsSync(join(repoRoot, planSpecRel))).toBe(false);
+    try {
+      execFileSync("git", ["cat-file", "-e", `main:${planSpecRel}`], { cwd: repoRoot, stdio: "ignore" });
+      throw new Error("plan spec should be absent from main");
+    } catch (error) {
+      expect(error).toBeDefined();
+    }
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps.some((step) => step.behavior === "write")).toBe(true);
+
+    setInvertPriorWorktreeRootGuardForTest(true);
+    const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(inverted.ok).toBe(false);
+    if (inverted.ok) return;
+    expect(inverted.error).toMatch(/Spec path unavailable|path does not exist|link_unreadable/);
   });
 });

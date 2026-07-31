@@ -29,10 +29,10 @@ Primary: `v2/src/execution/publication-workflow-steps.ts` (plan project match + 
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` (or `plan-workflow-steps.test.ts`) — resolving the plan stage through `WORKFLOW_PRESET_BUILDERS` succeeds when the ready-intent file exists only on the intent entry-run worktree; resolution fails when the worktree-root guard is inverted via `setInvertPriorWorktreeRootGuardForTest(true)`.
-- [ ] `pipeline-stage-resolve.test.ts` (or `implement-workflow-steps.test.ts`) — resolving the implement stage through `WORKFLOW_PRESET_BUILDERS` succeeds when the plan spec tree exists only on the plan entry-run worktree branch and is absent from `main`; resolution fails when `setInvertPriorWorktreeRootGuardForTest(true)`.
-- [ ] `implement-workflow-steps.test.ts` — chained pipeline preflight uses prior entry-run `worktreePath` as git root and prior entry-run `branch` as `baseRef` (not operator checkout / default branch).
-- [ ] `bun run test:v2` exits zero.
+- [x] `pipeline-stage-resolve.test.ts` (or `plan-workflow-steps.test.ts`) — resolving the plan stage through `WORKFLOW_PRESET_BUILDERS` succeeds when the ready-intent file exists only on the intent entry-run worktree; resolution fails when the worktree-root guard is inverted via `setInvertPriorWorktreeRootGuardForTest(true)`.
+- [x] `pipeline-stage-resolve.test.ts` (or `implement-workflow-steps.test.ts`) — resolving the implement stage through `WORKFLOW_PRESET_BUILDERS` succeeds when the plan spec tree exists only on the plan entry-run worktree branch and is absent from `main`; resolution fails when `setInvertPriorWorktreeRootGuardForTest(true)`.
+- [x] `implement-workflow-steps.test.ts` — chained pipeline preflight uses prior entry-run `worktreePath` as git root and prior entry-run `branch` as `baseRef` (not operator checkout / default branch).
+- [x] `bun run test:v2` exits zero.
 
 ## Documentation updates
 

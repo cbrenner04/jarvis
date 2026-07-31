@@ -550,14 +550,6 @@ export async function recoverContinuablePipelines(
   return { continued };
 }
 
-function extractArtifactSpecPath(artifact: unknown): string | undefined {
-  if (artifact !== null && typeof artifact === "object" && "specPath" in artifact) {
-    const specPath = (artifact as { specPath?: unknown }).specPath;
-    if (typeof specPath === "string") return specPath;
-  }
-  return undefined;
-}
-
 function findStageRecord(stages: readonly PipelineStageRecord[], stageId: string): PipelineStageRecord | undefined {
   return stages.find((record) => record.stageId === stageId);
 }
@@ -659,9 +651,19 @@ function skipRemainingStages(
   }
 }
 
-function carryForwardArtifact(artifactSpecPaths: Map<string, string>, stageId: string, artifact: unknown): void {
-  const specPath = extractArtifactSpecPath(artifact);
-  if (specPath !== undefined) artifactSpecPaths.set(stageId, specPath);
+function carryForwardArtifact(
+  stageArtifacts: Map<string, PipelineStageArtifact>,
+  stageId: string,
+  artifact: unknown,
+): void {
+  if (
+    artifact !== null &&
+    typeof artifact === "object" &&
+    typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
+    typeof (artifact as PipelineStageArtifact).specPath === "string"
+  ) {
+    stageArtifacts.set(stageId, artifact as PipelineStageArtifact);
+  }
 }
 
 type StageStepOutcome = "continue" | "stop";
@@ -679,14 +681,13 @@ async function advanceWorkflowStage(args: {
   stage: Extract<PipelineStage, { kind: "workflow" }>;
   index: number;
   context: PipelineExecutionDeps["context"];
-  artifactSpecPaths: Map<string, string>;
+  stageArtifacts: Map<string, PipelineStageArtifact>;
   store: StateStore;
   dispatch: PipelineWorkflowDispatch;
   wait: PipelineWorkflowWait;
   resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
 }): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, context, artifactSpecPaths, store, dispatch, wait, resolveStage } =
-    args;
+  const { pipelineId, definition, stage, index, context, stageArtifacts, store, dispatch, wait, resolveStage } = args;
 
   try {
     const current = store.loadPipeline(pipelineId);
@@ -694,14 +695,19 @@ async function advanceWorkflowStage(args: {
     const record = current ? findStageRecord(stageRecords, stage.stageId) : undefined;
 
     if (record?.status === "succeeded") {
-      carryForwardArtifact(artifactSpecPaths, stage.stageId, record.artifact);
+      carryForwardArtifact(stageArtifacts, stage.stageId, record.artifact);
       return "continue";
     }
     if (record?.status === "running" || record?.status === "failed" || record?.status === "skipped") {
       return "stop";
     }
 
-    const resolution = await resolveStage(definition, index, context, artifactSpecPaths);
+    const resolution = await resolveStage(definition, index, context, stageArtifacts, {
+      loadRun: (runId) => {
+        const entryRun = store.loadRun(runId);
+        return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
+      },
+    });
     if (!resolution.ok) {
       store.updateStage({
         pipelineId,
@@ -722,7 +728,7 @@ async function advanceWorkflowStage(args: {
       return "stop";
     }
 
-    carryForwardArtifact(artifactSpecPaths, stage.stageId, settledRecord.artifact);
+    carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
     return "continue";
   } catch (error) {
     try {
@@ -785,7 +791,7 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
   if (!pipeline) return;
 
   const definition = pipeline.definition;
-  const artifactSpecPaths = new Map<string, string>();
+  const stageArtifacts = new Map<string, PipelineStageArtifact>();
 
   try {
     // Walk the durable stage rows (ordered by their stored `position`) rather than the authored
@@ -806,7 +812,7 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
         stage,
         index,
         context,
-        artifactSpecPaths,
+        stageArtifacts,
         store,
         dispatch,
         wait,

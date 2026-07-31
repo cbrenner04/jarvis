@@ -50,6 +50,8 @@ export type BuildImplementWorkflowStepsInput = {
   reviewBehavior?: ImplementReviewBehavior;
   configPath?: string;
   projectRegistry?: Record<string, { root: string; origin?: string }>;
+  /** Git root for chained pipeline preflight; defaults to the resolved project root. */
+  preflightGitRoot?: string;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -146,6 +148,20 @@ function resolveImplementSpecAndProject(
   return { match: { key: identity.project, root: identity.projectRoot }, resolvedSpecPath: identity.absoluteSpecPath };
 }
 
+function insideResolvedPath(parent: string, child: string): boolean {
+  let resolvedParent = parent;
+  let resolvedChild = child;
+  try {
+    resolvedParent = realpathSync(parent);
+    resolvedChild = realpathSync(child);
+  } catch {
+    resolvedParent = resolve(parent);
+    resolvedChild = resolve(child);
+  }
+  const rel = relative(resolvedParent, resolvedChild);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 function resolveImplementArtifact(
   input: BuildImplementWorkflowStepsInput,
   resolvedSpecPath: string,
@@ -158,7 +174,11 @@ function resolveImplementArtifact(
     ? resolvedSpecPath
     : resolveExistingImplementPath("Artifact", resolve(input.cwd, artifactPath));
   if (typeof resolvedArtifactPath === "object") return resolvedArtifactPath;
-  if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
+  if (input.preflightGitRoot !== undefined) {
+    if (!insideResolvedPath(input.preflightGitRoot, resolvedArtifactPath)) {
+      return { error: `Artifact path outside chained worktree: ${resolvedArtifactPath}` };
+    }
+  } else if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
     return { error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
   }
   return {
@@ -189,11 +209,56 @@ function resolveImplementReviewConfig(
   return { reviewPasses: reviewPasses.reviewPasses, reviewBehavior: reviewBehavior.reviewBehavior };
 }
 
+/**
+ * Pipeline-chained launch: the spec tree lives on the prior stage's worktree, so both the spec
+ * read root and the base-ref availability check run against `preflightGitRoot` rather than the
+ * registered project root.
+ */
+async function resolveChainedImplementLaunch(
+  input: BuildImplementWorkflowStepsInput,
+  deps: BuildImplementWorkflowStepsDeps,
+  specReadRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
+  const resolveProjectMatch =
+    deps.resolveProjectMatch ??
+    ((p: string) => findProjectMatch(p, readProjectRegistry(input.configPath ?? deps.configPath)));
+  const match =
+    input.projectRoot !== undefined
+      ? { key: input.projectName ?? "", root: input.projectRoot }
+      : resolveProjectMatch(input.cwd);
+  if (match === undefined) {
+    return { error: `No registered project matches cwd: ${input.cwd}` };
+  }
+  const resolvedSpecPath = resolveExistingImplementPath("Spec", resolve(specReadRoot, input.specPath));
+  if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
+  const artifact = resolveImplementArtifact({ ...input, cwd: specReadRoot }, resolvedSpecPath, match);
+  if ("error" in artifact) return artifact;
+  const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
+  if ("error" in reviewConfig) return reviewConfig;
+  if (!(await isSpecAvailableInBaseRef(specReadRoot, input.baseRef, input.specPath, runner))) {
+    return { error: `Spec path unavailable in base ref ${input.baseRef}: ${input.specPath}` };
+  }
+  return {
+    ...input,
+    branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
+    specPath: input.specPath,
+    projectRoot: match.root,
+    projectName: match.key,
+    ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
+    reviewPasses: reviewConfig.reviewPasses,
+    reviewBehavior: reviewConfig.reviewBehavior,
+  };
+}
+
 async function resolveImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
 ): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
-  if (input.projectRoot !== undefined || deps.resolveProjectMatch !== undefined) {
+  const runner = deps.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
+  const skipPreflight =
+    (input.projectRoot !== undefined || deps.resolveProjectMatch !== undefined) && input.preflightGitRoot === undefined;
+  if (skipPreflight) {
     return {
       ...input,
       ...(input.projectRoot !== undefined
@@ -201,6 +266,10 @@ async function resolveImplementLaunch(
         : {}),
       reviewPasses: input.reviewPasses ?? 1,
     };
+  }
+
+  if (input.preflightGitRoot !== undefined) {
+    return await resolveChainedImplementLaunch(input, deps, input.preflightGitRoot, runner);
   }
 
   const resolvedSpec = resolveImplementSpecAndProject(input, deps);
@@ -421,13 +490,17 @@ export async function buildImplementWorkflowSteps(
   const match = resolveImplementProjectMatch(resolvedInput, resolveProjectMatch);
   if ("error" in match) return { ok: false, error: match.error };
 
-  const absoluteSpecPath = resolve(match.root, resolvedInput.specPath);
+  const specTreeRoot = resolvedInput.preflightGitRoot ?? match.root;
+  const absoluteSpecPath =
+    resolvedInput.preflightGitRoot !== undefined
+      ? resolve(resolvedInput.cwd, resolvedInput.specPath)
+      : resolve(match.root, resolvedInput.specPath);
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
 
   if (deps.resolveActiveLinkedSubspec === undefined || deps.readSpecFile !== undefined) {
     const completionError = validateImplementSpecTreeCompletion(
       absoluteSpecPath,
-      match.root,
+      specTreeRoot,
       deps.readSpecFile ?? ((path) => readFileSync(path, "utf8")),
     );
     if (completionError !== undefined) return { ok: false, error: completionError };
@@ -440,7 +513,7 @@ export async function buildImplementWorkflowSteps(
   );
   if (typeof expectedArtifactPath === "object") return { ok: false, error: expectedArtifactPath.error };
 
-  const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, match.root, resolveLinkedSubspec);
+  const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, specTreeRoot, resolveLinkedSubspec);
   if (routingError !== undefined) return { ok: false, error: routingError.error };
 
   const sourceStep: WriteWorkflowSourceStep = {

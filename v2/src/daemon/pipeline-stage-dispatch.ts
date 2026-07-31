@@ -101,9 +101,7 @@ export async function dispatchPipelineStage(args: {
         entryRunId: dispatched.entryRunId,
         ...(dispatched.invocationId !== undefined ? { invocationId: dispatched.invocationId } : {}),
         specPath: entryRun.specPath,
-        ...(entryRun.downstreamInputs?.length
-          ? { downstreamInputs: [...entryRun.downstreamInputs] }
-          : {}),
+        ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
         ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
         ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
       };

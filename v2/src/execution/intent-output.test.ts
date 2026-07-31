@@ -65,11 +65,7 @@ describe("landIntentWorkflowOutput", () => {
   test("multi-file landing scopes downstreamInputs to this invocation only", async () => {
     const repo = createRepo();
     mkdirSync(join(repo, "ready-intents"), { recursive: true });
-    writeFileSync(
-      join(repo, "ready-intents", "old.md"),
-      "---\nname: old\n---\n\n# old\n\n## Prerequisites\n",
-      "utf8",
-    );
+    writeFileSync(join(repo, "ready-intents", "old.md"), "---\nname: old\n---\n\n# old\n\n## Prerequisites\n", "utf8");
     execFileSync("git", ["add", "ready-intents/old.md"], { cwd: repo });
     execFileSync("git", ["commit", "-qm", "old intent"], { cwd: repo });
     stage(repo, ["one", "two"]);

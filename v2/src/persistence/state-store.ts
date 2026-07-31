@@ -980,9 +980,7 @@ class StateStoreImpl implements StateStore {
   }
 
   setRunDownstreamInputs(runId: string, downstreamInputs: readonly string[]): void {
-    this.db
-      .prepare("UPDATE runs SET downstream_inputs = ? WHERE id = ?")
-      .run(JSON.stringify(downstreamInputs), runId);
+    this.db.prepare("UPDATE runs SET downstream_inputs = ? WHERE id = ?").run(JSON.stringify(downstreamInputs), runId);
   }
 
   clearRunDownstreamInputs(runId: string): void {

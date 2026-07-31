@@ -41,11 +41,10 @@ describe("landIntentWorkflowOutput", () => {
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
   });
 
-  test("inverting the single-file guard fails single-file handoff", () => {
+  test("single-file handoff names the landed file, not the durable directory", () => {
+    // Mutation checkpoint: returning the durable directory from the single-file branch turns this RED.
     expect(intentHandoffSpecPath("/repo", "ready-intents", ["one.md"])).toBe("ready-intents/one.md");
-    expect(intentHandoffSpecPath("/repo", "ready-intents", ["one.md"], { invertSingleFileGuardForTest: true })).toBe(
-      "ready-intents",
-    );
+    expect(intentHandoffSpecPath("/repo", "ready-intents", ["one.md"])).not.toBe("ready-intents");
   });
 
   test("multi-file landing records downstreamInputs with directory specPath", async () => {
@@ -134,9 +133,7 @@ describe("landIntentWorkflowOutput", () => {
     });
     expect(second.specPath).toBe("ready-intents/one.md");
     expect(second.specPath).not.toBe("ready-intents");
-    expect(intentHandoffSpecPath(repo, "ready-intents", second.files, { invertSingleFileGuardForTest: true })).toBe(
-      "ready-intents",
-    );
+    expect(intentHandoffSpecPath(repo, "ready-intents", second.files)).toBe("ready-intents/one.md");
   });
 
   test("rejects rogue edits and retains staging", async () => {

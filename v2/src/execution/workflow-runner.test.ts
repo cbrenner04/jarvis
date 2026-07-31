@@ -6693,9 +6693,6 @@ describe("executeWorkflow review dispatch", () => {
       expect(intentRun?.specPath).toBe("ready-intents/handoff.md");
       expect(intentRun?.specPath).not.toBe("ready-intents");
       expect(intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"])).toBe("ready-intents/handoff.md");
-      expect(
-        intentHandoffSpecPath(workspace, "ready-intents", ["handoff.md"], { invertSingleFileGuardForTest: true }),
-      ).toBe("ready-intents");
     });
   });
 
@@ -6755,9 +6752,7 @@ describe("executeWorkflow review dispatch", () => {
       if (!resolved.ok) throw new Error("expected resolved resume context");
       expect(resolved.context.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
       expect(resolved.context.landing.output.durableDir).toBe(configuredIntentDurableDir(workspace, writeRun.specPath));
-      expect(resolved.context.durableDir).not.toBe(
-        configuredIntentDurableDir(workspace, writeRun.specPath, { invertFileGuardForTest: true }),
-      );
+      expect(resolved.context.durableDir).not.toBe(writeRun.specPath);
     });
   });
 

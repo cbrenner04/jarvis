@@ -94,19 +94,9 @@ export function intentPipelineHandoff(
 }
 
 /** Worktree-relative handoff path: one landed file → file; otherwise the durable directory. */
-export function intentHandoffSpecPath(
-  worktreePath: string,
-  durableDir: string,
-  files: string[],
-  options?: { invertSingleFileGuardForTest?: boolean },
-): string {
-  if (options?.invertSingleFileGuardForTest) {
-    const durableRel = intentPublicationSpecPath(worktreePath, durableDir);
-    if (files.length !== 1 && files.length > 0) {
-      return `${durableRel.replace(/\/$/, "")}/${files[0]}`;
-    }
-    return durableRel;
-  }
+export function intentHandoffSpecPath(worktreePath: string, durableDir: string, files: string[]): string {
+  // Mutation checkpoint: making the single-file branch of `intentPipelineHandoff` return the
+  // durable directory instead of the landed file must turn the single-file handoff tests RED.
   return intentPipelineHandoff(worktreePath, durableDir, files).specPath;
 }
 
@@ -115,11 +105,7 @@ function landingResult(worktreePath: string, durableDir: string, files: string[]
 }
 
 /** Configured durable ready-intents directory from a file- or directory-shaped handoff path. */
-export function configuredIntentDurableDir(
-  worktreePath: string,
-  handoffSpecPath: string,
-  options?: { invertFileGuardForTest?: boolean },
-): string {
+export function configuredIntentDurableDir(worktreePath: string, handoffSpecPath: string): string {
   const resolved = resolve(worktreePath, handoffSpecPath);
   let isFile = false;
   try {
@@ -127,7 +113,7 @@ export function configuredIntentDurableDir(
   } catch {
     // missing path — treat as directory handoff
   }
-  if (options?.invertFileGuardForTest) isFile = !isFile;
+  // Mutation checkpoint: inverting `isFile` here must turn the resume-context durableDir test RED.
   if (isFile) return relative(worktreePath, dirname(resolved)).replace(/\\/g, "/");
   return handoffSpecPath;
 }

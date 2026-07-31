@@ -35,7 +35,7 @@ Primary: `v2/src/commands/pipeline.ts`, `v2/src/cli/usage.ts`. In-scope: `pipeli
 - [x] `pipeline.test.ts` — two-branch pipeline: `pipeline list` stdout shows distinguishable `branchKey` values and per-branch statuses; flattening to one row per `stageId` makes the test fail.
 - [x] `pipeline.test.ts` — with one branch `awaiting` and one `running`, `pipeline wait` prints an `awaiting-approval` boundary that names the awaiting `branchKey`; omitting `branchKey` makes the test fail.
 - [x] `pipeline.test.ts` — `pipeline approve` / `pipeline reject` on one branch sends `branchKey` in the RPC and leaves the other branch's gate `awaiting`; cross-branch leakage makes the test fail.
-- [x] `pipeline.test.ts` — inverting the approve/reject `branchKey` RPC guard or the applied-vs-refused exit guard makes the branch-isolation regression fail; negative cases prove the untouched branch stays `awaiting`.
+- [x] `pipeline.test.ts` — source-mutating the approve/reject RPC params to drop `branchKey`, or the exit mapping to return 0 unconditionally, each turns 5 tests RED; comment checkpoints name both mutations. Verified by hand.
 - [x] `pipeline.test.ts` — missing, extra, or whitespace-only approve/reject positionals (including omitted `branch-key`) are usage errors before daemon connect.
 - [x] `cli.test.ts` — dispatch-coverage operands for `pipeline approve` and `pipeline reject` include a `branch-key` third positional.
 - [x] `bun run typecheck` and `bun run test:v2` pass.

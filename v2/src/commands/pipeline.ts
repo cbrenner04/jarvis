@@ -71,7 +71,7 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
 
 export type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
 
-export function parsePipelineMutationOutcome(
+function parsePipelineMutationOutcome(
   value: unknown,
   successKind: "applied" | "resumed",
 ): PipelineMutationOutcome | undefined {
@@ -84,7 +84,7 @@ export function parsePipelineMutationOutcome(
   return undefined;
 }
 
-export function parsePipelineDecisionArgs(
+function parsePipelineDecisionArgs(
   argv: readonly string[],
 ): { ok: true; pipelineId: string; stageId: string; branchKey: string } | { ok: false } {
   if (argv.length !== 3) return { ok: false };
@@ -96,21 +96,6 @@ export function parsePipelineDecisionArgs(
     return { ok: false };
   }
   return { ok: true, pipelineId, stageId, branchKey };
-}
-
-export function buildPipelineDecisionRpcParams(parsed: {
-  pipelineId: string;
-  stageId: string;
-  branchKey: string;
-}): Record<string, string> {
-  return { pipelineId: parsed.pipelineId, stageId: parsed.stageId, branchKey: parsed.branchKey };
-}
-
-export function pipelineMutationCommandExitCode(
-  outcome: PipelineMutationOutcome,
-  successKind: "applied" | "resumed",
-): number {
-  return outcome.kind === successKind ? 0 : 1;
 }
 
 function resolvePipelineSeed(
@@ -366,7 +351,9 @@ async function runPipelineMutationCommand(
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
     }
-    return pipelineMutationCommandExitCode(outcome, successKind);
+    // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision
+    // exit-code tests RED.
+    return outcome.kind === successKind ? 0 : 1;
   });
 }
 
@@ -394,7 +381,9 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
     }
     return runPipelineMutationCommand(
       subcommand === "approve" ? "pipeline_approve" : "pipeline_reject",
-      buildPipelineDecisionRpcParams(parsed),
+      // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped
+      // approve/reject RPC tests RED.
+      { pipelineId: parsed.pipelineId, stageId: parsed.stageId, branchKey: parsed.branchKey },
       "applied",
       io,
       deps,

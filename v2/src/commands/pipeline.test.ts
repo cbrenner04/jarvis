@@ -22,12 +22,6 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
-import {
-  buildPipelineDecisionRpcParams,
-  parsePipelineDecisionArgs,
-  parsePipelineMutationOutcome,
-  pipelineMutationCommandExitCode,
-} from "./pipeline.ts";
 
 let fx: CliRepoFixture;
 
@@ -707,33 +701,6 @@ describe("pipeline approve and reject", () => {
     expect(ipcFramesWithMethod(sent, method)).toEqual([
       expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate", branchKey: "default" } }),
     ]);
-  });
-
-  test("pipeline approve/reject branchKey RPC guard inversion: omitting branchKey breaks branch-targeted params", () => {
-    const parsed = parsePipelineDecisionArgs(["pipe-fan", "gate", "alpha"]);
-    expect(parsed.ok).toBe(true);
-    if (!parsed.ok) return;
-    const params = buildPipelineDecisionRpcParams(parsed);
-    expect(params).toEqual({ pipelineId: "pipe-fan", stageId: "gate", branchKey: "alpha" });
-    const { branchKey: _omit, ...withoutBranchKey } = params;
-    expect(withoutBranchKey).not.toHaveProperty("branchKey");
-    expect(expect.objectContaining({ params: withoutBranchKey })).not.toEqual(expect.objectContaining({ params }));
-    expect(
-      TWO_BRANCH_AWAITING_SNAPSHOT.stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status,
-    ).toBe("awaiting");
-  });
-
-  test("pipeline mutation applied-vs-refused exit guard inversion", () => {
-    const applied = parsePipelineMutationOutcome(
-      { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "approved" },
-      "applied",
-    );
-    expect(applied).toEqual({ kind: "applied" });
-    expect(pipelineMutationCommandExitCode({ kind: "applied" }, "applied")).toBe(0);
-    expect(pipelineMutationCommandExitCode({ kind: "refused", reason: "status_not_awaiting" }, "applied")).toBe(1);
-    const invertExit = (outcome: { kind: string }, successKind: string) => (outcome.kind === successKind ? 1 : 0);
-    expect(invertExit({ kind: "applied" }, "applied")).toBe(1);
-    expect(invertExit({ kind: "refused" }, "applied")).toBe(0);
   });
 
   test("pipeline approve on one branch sends branchKey and leaves sibling gate awaiting", async () => {

@@ -41,12 +41,12 @@ import {
   escapeRepoPathForEvidence,
   executeWriteLoop,
   findFirstRepairFenceViolation,
+  getContractMissStepFailureReasonForTest,
   persistRetainedFinalizationCheckpoint,
+  resetContractMissStepFailureReasonForTest,
   resolveIterationSettlementKind,
   runMutationRepairIteration,
   setInvertContractMissDetailFailureReasonForTest,
-  getContractMissStepFailureReasonForTest,
-  resetContractMissStepFailureReasonForTest,
   shouldFailTerminalCompletionForDirtyWorktree,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -691,7 +691,14 @@ describe("write loop", () => {
     });
 
     expect(result.kind).toBe("contract_miss");
-    const intentPath = join(jarvisRoot, "worktrees", "demo", "plan-draft-normalizer-blocker", ".jarvis-plan-stage", "intent.md");
+    const intentPath = join(
+      jarvisRoot,
+      "worktrees",
+      "demo",
+      "plan-draft-normalizer-blocker",
+      ".jarvis-plan-stage",
+      "intent.md",
+    );
     const intent = readFileSync(intentPath, "utf8");
     expect(intent).toContain("## Blocker");
     expect(intent).toContain("multi-surface");

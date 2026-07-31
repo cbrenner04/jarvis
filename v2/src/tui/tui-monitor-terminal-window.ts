@@ -10,7 +10,7 @@ export const TUI_TERMINAL_WINDOW_MS = 3_600_000;
 export const TUI_TERMINAL_ROW_CAP = 20;
 
 export function terminalRunInLiveWindow(finishedAtMs: number | undefined, nowMs: number, windowMs: number): boolean {
-  if (finishedAtMs === undefined) return false;
+  if (finishedAtMs === undefined) return true;
   const inWindow = finishedAtMs >= nowMs - windowMs;
   // Mutation checkpoint: negating `inWindow` must turn the in-window terminal-row test RED.
   return inWindow;

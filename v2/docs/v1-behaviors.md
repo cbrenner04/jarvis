@@ -581,7 +581,9 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   connections that fail to list are skipped without aborting the view. After merge,
   the monitor applies a live terminal window: non-terminal rows pass through;
   terminal rows need `finishedAtMs` within the last hour (list rows take the max
-  of attempt `completed_at` and store `reconciledAt`), sort newest-first, and cap at twenty **collapsed workflow
+  of attempt `completed_at` and store `reconciledAt`), or stay in-window when
+  `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like other
+  terminal statuses; sort newest-first, and cap at twenty **collapsed workflow
   rows** (constituent step runs share one top-level row until expanded with
   `e`); unlike default `jarvis run list`, which keeps the daemon fifty-newest
   terminal retention.

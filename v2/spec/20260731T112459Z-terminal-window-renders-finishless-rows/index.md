@@ -4,4 +4,4 @@ repo: cbrenner04/jarvis
 
 Depends on store terminal reconciliation (`v2/spec/completed/20260730T071755Z-store-timestamps-terminal-reconciliation`) and list `finishedAtMs` honesty (`v2/spec/completed/20260730T084815Z-list-row-step-honesty`) merged before implement. Implement after `05-tui-monitor-terminal-window-drop-production-invert-hooks` (`v2/spec/20260731T052308Z-execution-loop-drop-production-invert-hooks`) is merged.
 
-- [ ] [00 - Terminal window renders finishless rows](./00-terminal-window-renders-finishless-rows.md)
+- [x] [00 - Terminal window renders finishless rows](./00-terminal-window-renders-finishless-rows.md)

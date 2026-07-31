@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,14 +22,6 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
-import {
-  setInvertAppliedRefusedGuardForTest,
-  setInvertDetachClientWaitGuardForTest,
-  setInvertListNonFollowGuardForTest,
-  setInvertPreAdmissionResolutionGuardForTest,
-  setInvertResumedRefusedGuardForTest,
-  setInvertWaitBoundaryGuardForTest,
-} from "./pipeline.ts";
 
 let fx: CliRepoFixture;
 
@@ -39,15 +31,6 @@ beforeAll(() => {
 
 afterAll(() => {
   fx.cleanup();
-});
-
-afterEach(() => {
-  setInvertPreAdmissionResolutionGuardForTest(false);
-  setInvertDetachClientWaitGuardForTest(false);
-  setInvertAppliedRefusedGuardForTest(false);
-  setInvertResumedRefusedGuardForTest(false);
-  setInvertListNonFollowGuardForTest(false);
-  setInvertWaitBoundaryGuardForTest(false);
 });
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
@@ -191,6 +174,7 @@ describe("pipeline start", () => {
   });
 
   test("rejects invalid project pipeline configuration before daemon connect", async () => {
+    // Inversion target: resolveProjectPipeline failure branch in pipeline.ts — falling through to daemon IPC on resolution failure turns this test RED.
     const cap = captureIo();
     const configPath = pipelineMachineConfig("demo", { name: "" }, fx.repoRoot);
     let contacted = false;
@@ -257,6 +241,7 @@ describe("pipeline start", () => {
   });
 
   test("--detach exits 0 after admission without pipeline_wait", async () => {
+    // Inversion target: startAdmittedPipeline detach branch in pipeline.ts — blocking on pipeline_wait when detach is true turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
     const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
@@ -319,47 +304,6 @@ describe("pipeline start", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "admission_failed: refused\n" });
     expect(ipcFramesWithMethod(sent, "pipeline_start")).toHaveLength(1);
-  });
-
-  test("inverting the pre-admission resolution guard reaches daemon IPC with invalid configuration", async () => {
-    setInvertPreAdmissionResolutionGuardForTest(true);
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "" }, fx.repoRoot);
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-guard"], () =>
-      main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
-        ...pipelineDeps(configPath),
-        connectIpcClient: async () => makeIpcClient(pipelineFrames("pipe-guard", [], "pipe-guard-1", []), { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(ipcFramesWithMethod(sent, "pipeline_start")).toHaveLength(1);
-  });
-
-  test("inverting the detach client-wait guard blocks on pipeline_wait", async () => {
-    setInvertDetachClientWaitGuardForTest(true);
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-det-guard", "pipe-det-w"], () =>
-      main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], cap.io, {
-        ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            pipelineFrames("pipe-det-guard", ["pipe-det-w"], "pipe-det-guard-1", [
-              { kind: "terminal", state: "succeeded" },
-            ]),
-            { sent },
-          ),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(1);
-    expect(cap.read().stdout).toContain('{"kind":"terminal","state":"succeeded"}');
   });
 
   test("operator abort during attached start reports stderr detail without boundary JSON", async () => {
@@ -494,6 +438,7 @@ describe("pipeline list", () => {
   });
 
   test("live list returns within 500ms while reporting a non-terminal derived state", async () => {
+    // Inversion target: runPipelineListCommand single-fetch path in pipeline.ts — polling pipeline_list until terminals settle turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
     const startedAt = Date.now();
@@ -511,31 +456,6 @@ describe("pipeline list", () => {
     expect(JSON.parse(cap.read().stdout.trim())).toEqual({ pipelines: [LIVE_RUNNING_SNAPSHOT] });
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
   });
-
-  test("inverting the list non-follow guard issues multiple pipeline_list RPCs", async () => {
-    setInvertListNonFollowGuardForTest(true);
-    const cap = captureIo();
-    const sent: unknown[] = [];
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-list-g1", "pipe-list-g2"], () =>
-      main(["pipeline", "list"], cap.io, {
-        ...pipelineDeps(undefined, {
-          sleep: async () => {},
-        }),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              pipelineListFrame("pipe-list-g1", [LIVE_RUNNING_SNAPSHOT]),
-              pipelineListFrame("pipe-list-g2", [{ ...LIVE_RUNNING_SNAPSHOT, state: "succeeded" }]),
-            ],
-            { sent },
-          ),
-      }),
-    );
-
-    expect(ipcFramesWithMethod(sent, "pipeline_list").length).toBeGreaterThan(1);
-    expect(code).toBe(0);
-  });
 });
 
 describe("pipeline wait", () => {
@@ -546,6 +466,7 @@ describe("pipeline wait", () => {
     [{ kind: "terminal", state: "interrupted" }, 1],
     [{ kind: "awaiting-approval", stageId: "approve-intent" }, 0],
   ] as const)("prints wait boundary %p with exit %i", async (boundary, expectedExit) => {
+    // Inversion target: runPipelineWaitCommand pipeline_wait path in pipeline.ts — resolving on pending/running from pipeline_list alone turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
 
@@ -638,25 +559,6 @@ describe("pipeline wait", () => {
     });
   });
 
-  test("inverting the wait-boundary guard resolves on pending or running alone", async () => {
-    setInvertWaitBoundaryGuardForTest(true);
-    const cap = captureIo();
-    const sent: unknown[] = [];
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-guard"], () =>
-      main(["pipeline", "wait", "pipe-live"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineListFrame("pipe-wait-guard", [LIVE_RUNNING_SNAPSHOT])], { sent }),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(cap.read().stdout).toBe('{"kind":"intermediate","state":"running"}\n');
-    expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(0);
-    expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
-  });
-
   test("operator abort during pipeline wait reports stderr detail without boundary JSON", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -680,6 +582,7 @@ describe("pipeline approve and reject", () => {
     ["approve", "pipeline_approve", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" }],
     ["reject", "pipeline_reject", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" }],
   ] as const)("pipeline %s exits 0 on applied decision and sends both IDs", async (subcommand, method, result) => {
+    // Inversion target: runPipelineMutationCommand exit mapping in pipeline.ts — treating applied outcomes as failure turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
 
@@ -785,29 +688,6 @@ describe("pipeline approve and reject", () => {
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
   });
-
-  test("inverting the applied-vs-refused guard reports applied decisions as failure", async () => {
-    setInvertAppliedRefusedGuardForTest(true);
-    const cap = captureIo();
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-guard"], () =>
-      main(["pipeline", "approve", "pipe-1", "gate"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-approve-guard", {
-              kind: "applied",
-              pipelineId: "pipe-1",
-              stageId: "gate",
-              decision: "approved",
-            }),
-          ]),
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe("");
-  });
 });
 
 describe("pipeline resume", () => {
@@ -815,6 +695,7 @@ describe("pipeline resume", () => {
     ["pipe-resume-failed", "pipe-failed"],
     ["pipe-resume-await", "pipe-await"],
   ] as const)("pipeline resume exits 0 on resumed for %s", async (rpcId, pipelineId) => {
+    // Inversion target: runPipelineMutationCommand exit mapping in pipeline.ts — treating resumed outcomes as failure turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
 
@@ -882,22 +763,6 @@ describe("pipeline resume", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
-  });
-
-  test("inverting the resumed-vs-refused guard reports resumed outcomes as failure", async () => {
-    setInvertResumedRefusedGuardForTest(true);
-    const cap = captureIo();
-
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-guard"], () =>
-      main(["pipeline", "resume", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineWaitFrame("pipe-resume-guard", { kind: "resumed", pipelineId: "pipe-1" })]),
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read().stdout).toBe("");
   });
 });
 

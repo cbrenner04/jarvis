@@ -36,8 +36,6 @@ import {
   revalidateMergedBranchRefCandidate,
   runCleanupCommand,
   STALE_RESET_OVERRIDE_CLI_FLAG,
-  setInvertCleanupSocketDiscoveryForTest,
-  setInvertCleanupSocketSkipOnFailureForTest,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
 
@@ -165,8 +163,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   });
 
   afterEach(() => {
-    setInvertCleanupSocketDiscoveryForTest(false);
-    setInvertCleanupSocketSkipOnFailureForTest(false);
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -1105,6 +1101,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   });
 
   test("older-digest live daemon makes merged worktree ineligible", async () => {
+    // Inversion target: createBulkCleanupDaemonClient socket discovery in cleanup.ts — querying only deps.socketPath instead of discovered sockets turns this test RED.
     const branch = "older-digest-live";
     const worktreePath = await createWorktree(branch);
     const invokingSocket = join(jarvisRoot, "daemon-invoking.sock");
@@ -1135,24 +1132,10 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
     expect(stdout).not.toContain(worktreePath);
     expect(existsSync(worktreePath)).toBe(true);
-
-    setInvertCleanupSocketDiscoveryForTest(true);
-    let invertedStdout = "";
-    const { client: invertedClient } = await createBulkCleanupDaemonClient(bulkDeps);
-    await runCleanupCommand(
-      { dryRun: true },
-      { project: { root: projectRoot } },
-      jarvisRoot,
-      ghRunnerForPr("MERGED"),
-      invertedClient,
-      { listRuns: () => [] } as unknown as StateStore,
-      { stdout: (text) => (invertedStdout += text), stderr: () => {} },
-    );
-    expect(invertedStdout).toContain(`Skipped merged worktree: ${worktreePath}`);
-    expect(invertedStdout).toContain("Daemon unreachable");
   });
 
   test("one dead socket in query set does not blank eligibility when another reports live run", async () => {
+    // Inversion target: createBulkCleanupDaemonClient skipOnFailure in cleanup.ts — treating connect failures as empty list results turns this test RED.
     const branch = "dead-socket-peer-live";
     const worktreePath = await createWorktree(branch);
     const invokingSocket = join(jarvisRoot, "daemon-dead.sock");
@@ -1182,20 +1165,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
     expect(stdout).not.toContain(worktreePath);
     expect(existsSync(worktreePath)).toBe(true);
-
-    setInvertCleanupSocketSkipOnFailureForTest(true);
-    let invertedStdout = "";
-    await runCleanupCommand(
-      { dryRun: true },
-      { project: { root: projectRoot } },
-      jarvisRoot,
-      ghRunnerForPr("MERGED"),
-      daemonClient,
-      { listRuns: () => [] } as unknown as StateStore,
-      { stdout: (text) => (invertedStdout += text), stderr: () => {} },
-    );
-    expect(invertedStdout).toContain(`Skipped merged worktree: ${worktreePath}`);
-    expect(invertedStdout).toContain("Daemon unreachable");
   });
 
   test("non-daemon ineligibility keeps cleanup exit zero", async () => {

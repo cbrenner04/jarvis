@@ -11,7 +11,6 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
-import { setInvertRunOwnerResolutionForTest } from "./run.ts";
 
 let fx: CliRepoFixture;
 
@@ -26,10 +25,6 @@ afterAll(() => {
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
 const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000002";
 const SOLO_LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
-
-afterEach(() => {
-  setInvertRunOwnerResolutionForTest(false);
-});
 
 function soloDaemonListRow(runId: string) {
   return { runId, project: "demo", branch: "main", status: "completed", isLive: true };
@@ -753,6 +748,7 @@ describe("run list multi-daemon", () => {
   }
 
   test("run log streams a run owned by a non-invoking live daemon", async () => {
+    // Inversion target: resolveRunOwnerSocket in run.ts — using deps.socketPath without cross-daemon owner lookup turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
     const connectSockets: string[] = [];
@@ -826,6 +822,7 @@ describe("run list multi-daemon", () => {
   });
 
   test("run wait resolves a run owned by a non-invoking live daemon", async () => {
+    // Inversion target: resolveRunOwnerSocket in run.ts — using deps.socketPath without cross-daemon owner lookup turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
     const connectSockets: string[] = [];
@@ -866,66 +863,6 @@ describe("run list multi-daemon", () => {
     expect(cap.read().stdout).toBe(
       '{"runStatus":"completed","loopOutcomeKind":"complete","iterationsConsumed":1,"resumable":false}\n',
     );
-  });
-
-  test("run log guard inversion fails when owner resolution is bypassed", async () => {
-    setInvertRunOwnerResolutionForTest(true);
-    const cap = captureIo();
-    const record = logRecord(1, "iteration_started");
-    record.runId = "remote-run";
-    let connectCount = 0;
-
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, STREAM_REQUEST_ID], () =>
-      main(["run", "log", "remote-run"], cap.io, {
-        socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => [OTHER_SOCKET],
-        connectIpcClient: async (socketPath) => {
-          connectCount += 1;
-          if (socketPath === OTHER_SOCKET) {
-            return makeIpcClient([
-              { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
-              { kind: "stream-end", streamId: STREAM_REQUEST_ID },
-            ]);
-          }
-          throw new Error("stream unavailable on invoking socket");
-        },
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("stream unavailable on invoking socket");
-    expect(connectCount).toBe(1);
-  });
-
-  test("run wait guard inversion fails when owner resolution is bypassed", async () => {
-    setInvertRunOwnerResolutionForTest(true);
-    const cap = captureIo();
-    let connectCount = 0;
-
-    const code = await withFixedUuid([OPERATOR_SESSION_ID, WAIT_REQUEST_ID], () =>
-      main(["run", "wait", "remote-run"], cap.io, {
-        socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => [OTHER_SOCKET],
-        connectIpcClient: async (socketPath) => {
-          connectCount += 1;
-          if (socketPath === OTHER_SOCKET) {
-            return makeIpcClient([
-              waitResponse({
-                runStatus: "completed",
-                loopOutcomeKind: "complete",
-                iterationsConsumed: 1,
-                resumable: false,
-              }),
-            ]);
-          }
-          throw new Error("wait unavailable on invoking socket");
-        },
-      }),
-    );
-
-    expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("wait unavailable on invoking socket");
-    expect(connectCount).toBe(1);
   });
 
   const UNREACHABLE_DAEMON_ERROR = "connect ENOENT /tmp/jarvis.sock";

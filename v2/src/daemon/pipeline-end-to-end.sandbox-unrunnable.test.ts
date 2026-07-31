@@ -31,9 +31,15 @@ import {
 const PROJECT_KEY = "demo";
 const STAGE_IDS = ["intent", "approve-intent", "plan", "approve-plan", "implement"] as const;
 const FAST_STAGE_IDS = ["intent", "plan", "implement"] as const;
-const INTENT_SPEC = "v2/spec/ready-intents/ship-feature.md";
+const READY_INTENTS_DIR = "v2/spec/ready-intents";
+const INTENT_SPEC = `${READY_INTENTS_DIR}/ship-feature.md`;
 const PLAN_SPEC = "v2/spec/ship-feature/index.md";
 const PLAN_WORK_SPEC = "v2/spec/ship-feature/00-work.md";
+const FAN_OUT_BRANCH_KEYS = ["alpha", "beta"] as const;
+const INTENT_ALPHA = `${READY_INTENTS_DIR}/alpha.md`;
+const INTENT_BETA = `${READY_INTENTS_DIR}/beta.md`;
+const PLAN_ALPHA_SPEC = "v2/spec/alpha/index.md";
+const PLAN_BETA_SPEC = "v2/spec/beta/index.md";
 const TERMINAL_PR = { prNumber: 42, prUrl: "https://github.com/org/repo/pull/42" } as const;
 const FAST_SUBPROCESS_RUNNER: AsyncSubprocessRunner = {
   runAsync: async () => "",
@@ -190,6 +196,57 @@ function setupFastPipelineSandboxRepo(roots: string[]): {
   return { repoRoot, jarvisRoot, artifactTemplatesDir };
 }
 
+function readyIntentContent(name: string): string {
+  return `---\nname: ${name}\n---\n\n## Prerequisites\n\nnone\n\n## Acceptance criteria\n\n- [ ] pending\n`;
+}
+
+function planIndexContent(name: string, workRel: string): string {
+  return `# ${name}\n\n- [ ] [Work](${workRel})\n`;
+}
+
+function setupFastTwoBranchPipelineSandboxRepo(roots: string[]): {
+  repoRoot: string;
+  jarvisRoot: string;
+  artifactTemplatesDir: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-fast-fan-out-"));
+  roots.push(root);
+  const repoRoot = join(root, "repo");
+  const jarvisRoot = join(root, "jarvis-home");
+  const artifactTemplatesDir = join(root, "artifact-templates");
+
+  mkdirSync(repoRoot, { recursive: true });
+  writeFileSync(join(repoRoot, "README.md"), "seed\n", "utf8");
+  for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+    const intentPath = join(artifactTemplatesDir, READY_INTENTS_DIR, `${branchKey}.md`);
+    const planDir = join(artifactTemplatesDir, "v2/spec", branchKey);
+    mkdirSync(dirname(intentPath), { recursive: true });
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(intentPath, readyIntentContent(branchKey), "utf8");
+    writeFileSync(join(planDir, "index.md"), planIndexContent(branchKey, "./00-work.md"), "utf8");
+    writeFileSync(join(planDir, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+  }
+
+  execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+
+  return { repoRoot, jarvisRoot, artifactTemplatesDir };
+}
+
+function branchPlanSpecs(branchKey: string): { planSpec: string; planWorkSpec: string } {
+  return {
+    planSpec: `v2/spec/${branchKey}/index.md`,
+    planWorkSpec: `v2/spec/${branchKey}/00-work.md`,
+  };
+}
+
+function branchReadyIntentSpec(branchKey: string): string {
+  return `${READY_INTENTS_DIR}/${branchKey}.md`;
+}
+
 function seedGitWorktreeArtifacts(
   repoRoot: string,
   branch: string,
@@ -241,6 +298,8 @@ type FakeInvocationOptions = {
   artifactRoot?: string;
   gitWorktrees?: boolean;
   extraPlanArtifacts?: readonly string[];
+  twoBranchFanOut?: boolean;
+  branchKeys?: readonly string[];
 };
 
 function createFakePipelineInvocation(
@@ -254,31 +313,57 @@ function createFakePipelineInvocation(
   firstPlanRunId: () => string | undefined;
 } {
   const dispatchCounts: Record<string, number> = { intent: 0, plan: 0, implement: 0 };
-  const dispatchSequence = options.dispatchSequence ?? ["intent", "plan", "plan", "implement"];
+  const branchKeys = options.branchKeys ?? [...FAN_OUT_BRANCH_KEYS];
+  const twoBranchFanOut = options.twoBranchFanOut ?? false;
+  const defaultSequence = twoBranchFanOut
+    ? ["intent", "plan", "plan", "implement", "implement"]
+    : ["intent", "plan", "plan", "implement"];
+  const dispatchSequence = options.dispatchSequence ?? defaultSequence;
   const artifactRoot = options.artifactRoot ?? repoRoot;
   let dispatchIndex = 0;
   let firstPlanRunId: string | undefined;
 
-  const branchForStage = (stageId: string): string => {
-    if (stageId === "intent") return "intent/ship-feature";
-    if (stageId === "plan") return "plan/ship-feature";
-    return "implement/ship-feature";
+  const branchKeyForDispatch = (stageId: string): string | undefined => {
+    if (!twoBranchFanOut || stageId === "intent") return undefined;
+    const ordinal = (dispatchCounts[stageId] ?? 0) + 1;
+    return branchKeys[ordinal - 1];
   };
 
-  const specForStage = (stageId: string): string => {
-    if (stageId === "intent") return INTENT_SPEC;
+  const branchForStage = (stageId: string, branchKey?: string): string => {
+    if (stageId === "intent") return twoBranchFanOut ? "intent/fan-out" : "intent/ship-feature";
+    if (stageId === "plan") {
+      return twoBranchFanOut ? `plan/${branchKey ?? "ship-feature"}` : "plan/ship-feature";
+    }
+    return twoBranchFanOut ? `implement/${branchKey ?? "ship-feature"}` : "implement/ship-feature";
+  };
+
+  const specForStage = (stageId: string, branchKey?: string): string => {
+    if (stageId === "intent") return twoBranchFanOut ? READY_INTENTS_DIR : INTENT_SPEC;
+    if (twoBranchFanOut && branchKey !== undefined) return branchPlanSpecs(branchKey).planSpec;
     return PLAN_SPEC;
   };
 
-  const artifactFilesForStage = (stageId: string): ReadonlyArray<{ specPath: string; content: string }> => {
+  const artifactFilesForStage = (
+    stageId: string,
+    branchKey?: string,
+  ): ReadonlyArray<{ specPath: string; content: string }> => {
+    if (stageId === "intent" && twoBranchFanOut) {
+      return branchKeys.map((key) => {
+        const specPath = branchReadyIntentSpec(key);
+        return { specPath, content: readFileSync(join(artifactRoot, specPath), "utf8") };
+      });
+    }
     if (stageId === "plan") {
-      const extra = options.extraPlanArtifacts ?? [];
-      return [specForStage(stageId), ...extra].map((specPath) => ({
+      const extra =
+        twoBranchFanOut && branchKey !== undefined
+          ? [branchPlanSpecs(branchKey).planWorkSpec]
+          : (options.extraPlanArtifacts ?? []);
+      return [specForStage(stageId, branchKey), ...extra].map((specPath) => ({
         specPath,
         content: readFileSync(join(artifactRoot, specPath), "utf8"),
       }));
     }
-    const specPath = specForStage(stageId);
+    const specPath = specForStage(stageId, branchKey);
     return [{ specPath, content: readFileSync(join(artifactRoot, specPath), "utf8") }];
   };
 
@@ -292,14 +377,15 @@ function createFakePipelineInvocation(
     const stageId = dispatchSequence[dispatchIndex];
     if (stageId === undefined) throw new Error("unexpected pipeline dispatch");
     dispatchIndex += 1;
+    const branchKey = branchKeyForDispatch(stageId);
     dispatchCounts[stageId] = (dispatchCounts[stageId] ?? 0) + 1;
-    const branch = branchForStage(stageId);
-    const specPath = specForStage(stageId);
+    const branch = branchForStage(stageId, branchKey);
+    const specPath = specForStage(stageId, branchKey);
     const worktreePath = options.gitWorktrees
-      ? seedGitWorktreeArtifacts(repoRoot, branch, artifactFilesForStage(stageId))
+      ? seedGitWorktreeArtifacts(repoRoot, branch, artifactFilesForStage(stageId, branchKey))
       : (() => {
           const path = join(repoRoot, ".jarvis-worktrees", branch);
-          for (const file of artifactFilesForStage(stageId)) {
+          for (const file of artifactFilesForStage(stageId, branchKey)) {
             seedWorktreeArtifact(path, file.specPath);
           }
           return path;
@@ -312,6 +398,12 @@ function createFakePipelineInvocation(
       specPath,
       ...(stageId === "implement" ? TERMINAL_PR : {}),
     });
+    if (stageId === "intent" && twoBranchFanOut) {
+      store.setRunDownstreamInputs(
+        runId,
+        branchKeys.map((key) => branchReadyIntentSpec(key)),
+      );
+    }
     if (stageId === "plan" && dispatchCounts.plan === 1) {
       firstPlanRunId = runId;
     }
@@ -405,15 +497,24 @@ function createFastHarness(
   _jarvisRoot: string,
   configPath: string,
   artifactTemplatesDir: string,
+  options: { twoBranchFanOut?: boolean } = {},
 ): Harness {
+  const twoBranchFanOut = options.twoBranchFanOut ?? false;
   const store = openStateStore(
-    join(tmpdir(), `jarvis-pipeline-fast-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`),
+    join(
+      tmpdir(),
+      `jarvis-pipeline-fast${twoBranchFanOut ? "-fan-out" : ""}-e2e-${process.pid}-${Date.now()}-${Math.random()}.db`,
+    ),
   );
   const fakeInvocation = createFakePipelineInvocation(store, repoRoot, {
-    dispatchSequence: ["intent", "plan", "implement"],
+    ...(twoBranchFanOut
+      ? { twoBranchFanOut: true, branchKeys: FAN_OUT_BRANCH_KEYS }
+      : {
+          dispatchSequence: ["intent", "plan", "implement"],
+          extraPlanArtifacts: [PLAN_WORK_SPEC],
+        }),
     artifactRoot: artifactTemplatesDir,
     gitWorktrees: true,
-    extraPlanArtifacts: [PLAN_WORK_SPEC],
   });
   const fakeExecutor = createFakeWriteLoopExecutor();
   const selected = getPipelineDefinition("fast");
@@ -450,6 +551,24 @@ function fastStageStatusVector(pipeline: LoadedPipeline): string[] {
     (stageId) => pipeline.stages.find((stage) => stage.stageId === stageId)?.status ?? "missing",
   );
 }
+
+function fastStageStatusForBranch(pipeline: LoadedPipeline, stageId: string, branchKey: string): string {
+  return (
+    pipeline.stages.find((stage) => stage.stageId === stageId && stage.branchKey === branchKey)?.status ?? "missing"
+  );
+}
+
+function fastTwoBranchStatusVector(pipeline: LoadedPipeline): string[] {
+  return [
+    fastStageStatusForBranch(pipeline, "intent", "default"),
+    fastStageStatusForBranch(pipeline, "plan", "alpha"),
+    fastStageStatusForBranch(pipeline, "plan", "beta"),
+    fastStageStatusForBranch(pipeline, "implement", "alpha"),
+    fastStageStatusForBranch(pipeline, "implement", "beta"),
+  ];
+}
+
+const FAST_TWO_BRANCH_SUCCESS_VECTOR = ["succeeded", "succeeded", "succeeded", "succeeded", "succeeded"] as const;
 
 function readPipeline(store: StateStore, pipelineId: string): LoadedPipeline {
   const pipeline = store.loadPipeline(pipelineId);
@@ -770,5 +889,75 @@ describe("pipeline end-to-end fast", () => {
     expect(fastStageStatusVector(pipeline)).not.toEqual(["succeeded", "succeeded", "succeeded"]);
     expect(derivePipelineState(pipeline)).not.toBe("succeeded");
     harness.fakeExecutor.abortAll();
+  });
+
+  describe("two-ready-intent fan-out", () => {
+    let fanOutRepoRoot: string;
+    let fanOutJarvisRoot: string;
+    let fanOutConfigPath: string;
+    let fanOutArtifactTemplatesDir: string;
+
+    beforeEach(() => {
+      const setup = setupFastTwoBranchPipelineSandboxRepo(roots);
+      fanOutRepoRoot = setup.repoRoot;
+      fanOutJarvisRoot = setup.jarvisRoot;
+      fanOutArtifactTemplatesDir = setup.artifactTemplatesDir;
+      process.env.JARVIS_HOME = fanOutJarvisRoot;
+      resolveStageMachinesDir = join(fanOutJarvisRoot, "machines");
+      writeMachineProfile(fanOutJarvisRoot);
+      fanOutConfigPath = join(fanOutJarvisRoot, "config.json");
+      writeFileSync(
+        fanOutConfigPath,
+        JSON.stringify({
+          machineProfile: "home",
+          agents: ["claude"],
+          projects: {
+            [PROJECT_KEY]: {
+              root: fanOutRepoRoot,
+              pipeline: { name: "fast" },
+            },
+          },
+        }),
+      );
+    });
+
+    afterEach(() => {});
+
+    test("walks intent → plan → implement on separate branches with dispatch count 2 per downstream stage", async () => {
+      expect(existsSync(join(fanOutRepoRoot, INTENT_ALPHA))).toBe(false);
+      expect(existsSync(join(fanOutRepoRoot, INTENT_BETA))).toBe(false);
+      expect(existsSync(join(fanOutRepoRoot, PLAN_ALPHA_SPEC))).toBe(false);
+      expect(existsSync(join(fanOutRepoRoot, PLAN_BETA_SPEC))).toBe(false);
+
+      const harness = createFastHarness(
+        fanOutRepoRoot,
+        fanOutJarvisRoot,
+        fanOutConfigPath,
+        fanOutArtifactTemplatesDir,
+        { twoBranchFanOut: true },
+      );
+      const { store, handlers, definition, context } = harness;
+
+      const start = await handlers.pipeline_start(
+        requestFrame("start", "pipeline_start", { definition, context }),
+        new AbortController().signal,
+      );
+      expect(start.kind).toBe("response");
+      const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
+
+      await waitFor(
+        () =>
+          fastTwoBranchStatusVector(readPipeline(store, pipelineId)).join(",") ===
+          FAST_TWO_BRANCH_SUCCESS_VECTOR.join(","),
+        10_000,
+        `fast fan-out vector=${fastTwoBranchStatusVector(readPipeline(store, pipelineId)).join(",")} detail=${JSON.stringify(readPipeline(store, pipelineId)?.stages.map((s) => ({ id: s.stageId, branch: s.branchKey, status: s.status, failure: s.failureDetail })))}`,
+      );
+      const pipeline = readPipeline(store, pipelineId);
+      expect(fastTwoBranchStatusVector(pipeline)).toEqual([...FAST_TWO_BRANCH_SUCCESS_VECTOR]);
+      expect(fastStageStatusVector(pipeline)).not.toEqual(["succeeded", "succeeded", "succeeded"]);
+      expect(derivePipelineState(pipeline)).toBe("succeeded");
+      expect(harness.dispatchCounts).toEqual({ intent: 1, plan: 2, implement: 2 });
+      harness.fakeExecutor.abortAll();
+    });
   });
 });

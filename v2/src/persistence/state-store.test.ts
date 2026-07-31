@@ -2291,6 +2291,88 @@ describe("failed pipeline reopen", () => {
       reason: "malformed_continuation",
     });
   });
+
+  test("analyzeFailedPipelineReopenShape ignores reconciled default rows for a failed branch row", () => {
+    const intentDefault: PipelineStageRecord = {
+      id: "intent-default",
+      pipelineId: "pipeline-id",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+    const planDefault: PipelineStageRecord = {
+      id: "plan-default",
+      pipelineId: "pipeline-id",
+      stageId: "plan",
+      branchKey: "default",
+      position: 1,
+      status: "skipped",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+    const planAlphaFailed: PipelineStageRecord = {
+      id: "plan-alpha",
+      pipelineId: "pipeline-id",
+      stageId: "plan",
+      branchKey: "alpha",
+      position: 1,
+      status: "failed",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1,
+      artifact: null,
+      failureDetail: { message: "failed" },
+    };
+    const planBetaSucceeded: PipelineStageRecord = {
+      id: "plan-beta",
+      pipelineId: "pipeline-id",
+      stageId: "plan",
+      branchKey: "beta",
+      position: 1,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 1,
+      artifact: null,
+      failureDetail: null,
+    };
+    const implementAlphaSkipped: PipelineStageRecord = {
+      id: "implement-alpha",
+      pipelineId: "pipeline-id",
+      stageId: "implement",
+      branchKey: "alpha",
+      position: 2,
+      status: "skipped",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+
+    expect(
+      analyzeFailedPipelineReopenShape([
+        intentDefault,
+        planDefault,
+        planAlphaFailed,
+        planBetaSucceeded,
+        implementAlphaSkipped,
+      ]),
+    ).toEqual({
+      kind: "valid",
+      failedStageRecordId: "plan-alpha",
+      suffixStageRecordIds: ["implement-alpha"],
+    });
+  });
 });
 
 describe("terminal publication commits", () => {

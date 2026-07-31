@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
@@ -6,9 +7,11 @@ import {
   type TerminalPublicationInput,
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   type ApprovalDecision,
   type ApprovalRefusalReason,
+  DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isOwnerAlive,
   type OwnerLivenessProbe,
   type Pipeline,
@@ -23,7 +26,12 @@ import {
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
-import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import {
+  isFanOutStageResolution,
+  type PipelineStageResolutionResult,
+  resolveStageWorkflowSteps,
+  singleStageResolutionSteps,
+} from "./pipeline-stage-resolve.ts";
 
 export type PipelineDerivedState =
   | "succeeded"
@@ -60,7 +68,15 @@ export type ContinuePipelineOutcome =
   | { kind: "continued"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineContinuationRefusalReason };
 
-export type PipelineApprovalDecisionRefusalReason = ApprovalRefusalReason | "pipeline_not_found";
+export type PipelineApprovalDecisionRefusalReason =
+  | ApprovalRefusalReason
+  | "pipeline_not_found"
+  | "branch_key_required";
+
+export type PipelineFailureDetail = {
+  branchKeys: string[];
+  message: string;
+};
 
 export type PipelineApprovalDecisionOutcome =
   | { kind: "applied"; pipelineId: string; stageId: string; decision: ApprovalDecision }
@@ -268,6 +284,7 @@ export function commitPipelineApprovalDecision(args: {
   store: StateStore;
   pipelineId: string;
   stageId: string;
+  branchKey?: string;
   decision: ApprovalDecision;
 }): PipelineApprovalDecisionOutcome {
   const pipeline = args.store.loadPipeline(args.pipelineId);
@@ -275,7 +292,24 @@ export function commitPipelineApprovalDecision(args: {
     return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: "pipeline_not_found" };
   }
 
-  const stageRecord = findStageRecord(pipeline.stages, args.stageId);
+  const fanOutBranchKeys = [
+    ...new Set(
+      pipeline.stages
+        .filter(
+          (record) =>
+            record.stageId === args.stageId &&
+            record.status !== "skipped" &&
+            record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+        )
+        .map((record) => record.branchKey),
+    ),
+  ];
+  if (fanOutBranchKeys.length > 1 && args.branchKey === undefined) {
+    return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: "branch_key_required" };
+  }
+
+  const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  const stageRecord = findStageRecord(pipeline.stages, args.stageId, branchKey);
   if (!stageRecord) {
     return { kind: "refused", pipelineId: args.pipelineId, stageId: args.stageId, reason: "stage_not_found" };
   }
@@ -298,11 +332,13 @@ export function applyPipelineApprovalDecision(
   stageId: string,
   decision: ApprovalDecision,
   deps: Omit<PipelineExecutionDeps, "context">,
+  branchKey?: string,
 ): PipelineApprovalDecisionOutcome {
   const outcome = commitPipelineApprovalDecision({
     store: deps.store,
     pipelineId,
     stageId,
+    ...(branchKey !== undefined ? { branchKey } : {}),
     decision,
   });
   if (outcome.kind === "applied" && decision === "approved") {
@@ -331,11 +367,57 @@ export function reopenedFailurePermitsActivation(pipeline: Pipeline & { stages: 
   return !pipeline.stages.some((record) => record.status === "failed");
 }
 
+function fanOutBranchHasContinuableWork(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): boolean {
+  for (let index = 0; index <= split.splitPosition; index += 1) {
+    const stage = pipeline.definition.stages[index];
+    if (stage === undefined) continue;
+    const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+    if (!isAuthoredStageSatisfied(stage, record)) return false;
+  }
+
+  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+    if (stage.kind === "approval" && record.status === "rejected") return false;
+    if (record.status === "failed") return false;
+    if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
+    if (!isAuthoredStageSatisfied(stage, record)) return true;
+  }
+  return false;
+}
+
+function fanOutApprovalPermitsActivation(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+): boolean {
+  for (const branchKey of split.branchKeys) {
+    if (!fanOutBranchHasContinuableWork(pipeline, split, branchKey)) continue;
+    for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+      if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
+    }
+    return true;
+  }
+  return true;
+}
+
 /** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage or pending settlement. */
 export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.status !== "active" && pipeline.status !== "interrupted") return false;
   if (pipeline.context === null) return false;
   if (isPipelineSettlementPending(pipeline)) return true;
+
+  const split = findFanOutSplit(pipeline);
+  if (split !== null) {
+    const hasContinuableBranch = split.branchKeys.some((branchKey) =>
+      fanOutBranchHasContinuableWork(pipeline, split, branchKey),
+    );
+    if (hasContinuableBranch) {
+      return fanOutApprovalPermitsActivation(pipeline, split);
+    }
+  }
+
   return (
     derivePipelineState(pipeline) === "pending" &&
     approvalOutcomePermitsActivation(pipeline) &&
@@ -355,15 +437,38 @@ export function hasPipelineTerminalPublicationFailure(pipeline: Pick<Pipeline, "
   return pipeline.terminalPublicationFailure !== null;
 }
 
+function areAuthoredStagesSatisfiedForSettlement(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit | null,
+): boolean {
+  if (split !== null) {
+    for (let index = 0; index <= split.splitPosition; index += 1) {
+      const stage = pipeline.definition.stages[index];
+      if (stage === undefined) continue;
+      const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+      if (!isAuthoredStageSatisfied(stage, record)) return false;
+    }
+    for (const branchKey of split.branchKeys) {
+      for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+        if (!isAuthoredStageSatisfied(stage, record)) return false;
+      }
+    }
+    return true;
+  }
+
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    if (!isAuthoredStageSatisfied(stage, record)) return false;
+  }
+  return true;
+}
+
 /** True when every authored stage is satisfied but terminal publication has not succeeded. */
 export function isPipelineSettlementPending(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.definition.terminalAction === undefined) return false;
   if (pipeline.terminalPublicationSucceededAt !== null) return false;
   if (pipeline.terminalPublicationFailure !== null) return false;
-  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
-    if (!isAuthoredStageSatisfied(stage, record)) return false;
-  }
-  return true;
+  return areAuthoredStagesSatisfiedForSettlement(pipeline, findFanOutSplit(pipeline));
 }
 
 type ResolvedTerminalPublicationInput =
@@ -377,6 +482,16 @@ function resolveTerminalPublicationInput(
   const terminalAction = pipeline.definition.terminalAction;
   if (terminalAction === undefined) {
     return { ok: false, failure: { operation: "terminal-publication", message: "pipeline has no terminal action" } };
+  }
+
+  if (findFanOutSplit(pipeline) !== null) {
+    return {
+      ok: false,
+      failure: {
+        operation: terminalAction,
+        message: "multi-branch terminal publication is not defined for fan-out pipelines",
+      },
+    };
   }
 
   let lastStage: { stage: Extract<PipelineStage, { kind: "workflow" }>; record: PipelineStageRecord } | undefined;
@@ -550,8 +665,150 @@ export async function recoverContinuablePipelines(
   return { continued };
 }
 
-function findStageRecord(stages: readonly PipelineStageRecord[], stageId: string): PipelineStageRecord | undefined {
-  return stages.find((record) => record.stageId === stageId);
+function findStageRecord(
+  stages: readonly PipelineStageRecord[],
+  stageId: string,
+  branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+): PipelineStageRecord | undefined {
+  return stages.find((record) => record.stageId === stageId && record.branchKey === branchKey);
+}
+
+export function branchKeyFromDownstreamInput(path: string): string {
+  const base = basename(path);
+  return base.endsWith(".md") ? base.slice(0, -3) : base;
+}
+
+type FanOutSplit = {
+  splitPosition: number;
+  branchKeys: string[];
+};
+
+function isSplittingArtifact(artifact: PipelineStageArtifact): boolean {
+  return (artifact.downstreamInputs?.length ?? 0) >= 2;
+}
+
+function findFanOutSplit(pipeline: Pipeline & { stages: PipelineStageRecord[] }): FanOutSplit | null {
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (stage.kind !== "workflow") continue;
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY || record.status !== "succeeded") continue;
+    const artifact = record.artifact;
+    if (
+      artifact !== null &&
+      typeof artifact === "object" &&
+      typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
+      typeof (artifact as PipelineStageArtifact).specPath === "string"
+    ) {
+      const typed = artifact as PipelineStageArtifact;
+      if (isSplittingArtifact(typed)) {
+        return {
+          splitPosition: record.position,
+          branchKeys: typed.downstreamInputs!.map(branchKeyFromDownstreamInput),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function suffixStagesForBranch(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  splitPosition: number,
+  branchKey: string,
+): Array<{ stage: PipelineStage; record: PipelineStageRecord }> {
+  const ordered: Array<{ stage: PipelineStage; record: PipelineStageRecord }> = [];
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.position <= splitPosition) continue;
+    if (record.branchKey !== branchKey) continue;
+    ordered.push({ stage, record });
+  }
+  return ordered;
+}
+
+type AdmitFanOutBranchesResult = { ok: true; branchKeys: string[] } | { ok: false; error: string };
+
+function admitFanOutBranches(
+  store: StateStore,
+  pipelineId: string,
+  definition: PipelineDefinition,
+  splitPosition: number,
+  downstreamInputs: readonly string[],
+): AdmitFanOutBranchesResult {
+  const branchKeys = downstreamInputs.map(branchKeyFromDownstreamInput);
+  const seen = new Set<string>();
+  for (const branchKey of branchKeys) {
+    if (seen.has(branchKey)) {
+      return { ok: false, error: `duplicate branchKey "${branchKey}" from downstreamInputs` };
+    }
+    seen.add(branchKey);
+  }
+
+  for (let position = splitPosition + 1; position < definition.stages.length; position += 1) {
+    const stage = definition.stages[position];
+    if (stage === undefined) continue;
+    const stageRecords = store.loadPipeline(pipelineId)?.stages ?? [];
+    for (const branchKey of branchKeys) {
+      if (findStageRecord(stageRecords, stage.stageId, branchKey) !== undefined) continue;
+      store.createPipelineStageBranch({ pipelineId, stageId: stage.stageId, branchKey });
+    }
+    const defaultRecord = findStageRecord(store.loadPipeline(pipelineId)?.stages ?? [], stage.stageId);
+    if (defaultRecord?.status === "pending") {
+      store.updateStage({
+        pipelineId,
+        stageId: stage.stageId,
+        branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+        patch: { status: "skipped" },
+      });
+    }
+  }
+  return { ok: true, branchKeys };
+}
+
+function buildBranchStageArtifacts(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+  stageIndex: number,
+): Map<string, PipelineStageArtifact> {
+  const artifacts = new Map<string, PipelineStageArtifact>();
+  for (let index = 0; index < stageIndex; index += 1) {
+    const stage = pipeline.definition.stages[index];
+    if (stage?.kind !== "workflow") continue;
+    const recordBranchKey = index <= split.splitPosition ? DEFAULT_PIPELINE_STAGE_BRANCH_KEY : branchKey;
+    const record = findStageRecord(pipeline.stages, stage.stageId, recordBranchKey);
+    carryForwardArtifact(artifacts, stage.stageId, record?.artifact);
+  }
+  return artifacts;
+}
+
+/** Aggregate failure detail naming failed or rejected fan-out branch keys. */
+export function derivePipelineFailureDetail(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): PipelineFailureDetail | null {
+  const split = findFanOutSplit(pipeline);
+  if (split === null) return null;
+
+  const rejectedKeys: string[] = [];
+  const failedKeys: string[] = [];
+  for (const branchKey of split.branchKeys) {
+    for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+      if (stage.kind === "approval" && record.status === "rejected") {
+        rejectedKeys.push(branchKey);
+        break;
+      }
+      if (stage.kind === "workflow" && record.status === "failed") {
+        failedKeys.push(branchKey);
+        break;
+      }
+    }
+  }
+
+  if (rejectedKeys.length > 0) {
+    return { branchKeys: rejectedKeys, message: `rejected branches: ${rejectedKeys.join(", ")}` };
+  }
+  if (failedKeys.length > 0) {
+    return { branchKeys: failedKeys, message: `failed branches: ${failedKeys.join(", ")}` };
+  }
+  return null;
 }
 
 function findStageRecordById(
@@ -584,10 +841,17 @@ function isDecidedApprovalStatus(status: string): boolean {
 
 type ApprovalAdvanceOutcome = "continue" | "stop";
 
-function settleApprovalBoundaryFailure(store: StateStore, pipelineId: string, stageId: string, message: string): void {
+function settleApprovalBoundaryFailure(
+  store: StateStore,
+  pipelineId: string,
+  stageId: string,
+  branchKey: string,
+  message: string,
+): void {
   store.updateStage({
     pipelineId,
     stageId,
+    branchKey,
     patch: { status: "failed", endedAt: Date.now(), failureDetail: { message } },
   });
 }
@@ -605,12 +869,14 @@ function advanceApprovalStage(args: {
   const { pipelineId, stageRecord, store } = args;
 
   const applyStatus = (status: string): ApprovalAdvanceOutcome => {
+    if (status === "skipped") return "continue";
     if (approvalGatePermitsProgress(status)) return "continue";
     if (approvalGateBlocksProgress(status) || approvalGateSettlesRejected(status)) return "stop";
     settleApprovalBoundaryFailure(
       store,
       pipelineId,
       stageRecord.stageId,
+      stageRecord.branchKey,
       `approval boundary refused with unexpected status: ${status}`,
     );
     return "stop";
@@ -631,6 +897,7 @@ function advanceApprovalStage(args: {
       store,
       pipelineId,
       stageRecord.stageId,
+      stageRecord.branchKey,
       `approval boundary refused with unexpected status: ${status}`,
     );
     return "stop";
@@ -638,16 +905,18 @@ function advanceApprovalStage(args: {
   return applyStatus(status);
 }
 
-/** Write `skipped` to every stage row from `fromPosition` onward — dispatched to none of them. */
+/** Write `skipped` to every stage row from `fromPosition` onward within one branch. */
 function skipRemainingStages(
   store: StateStore,
   pipelineId: string,
   stageRecords: readonly PipelineStageRecord[],
   fromPosition: number,
+  branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
 ): void {
   for (const record of stageRecords) {
     if (record.position < fromPosition) continue;
-    store.updateStage({ pipelineId, stageId: record.stageId, patch: { status: "skipped" } });
+    if (record.branchKey !== branchKey) continue;
+    store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped" } });
   }
 }
 
@@ -666,7 +935,191 @@ function carryForwardArtifact(
   }
 }
 
+function maybeAdmitFanOutBranches(
+  store: StateStore,
+  pipelineId: string,
+  definition: PipelineDefinition,
+  index: number,
+  branchKey: string,
+  artifact: unknown,
+): AdmitFanOutBranchesResult | null {
+  if (branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) return null;
+  if (artifact === null || typeof artifact !== "object") return null;
+  const typed = artifact as PipelineStageArtifact;
+  if (isSplittingArtifact(typed)) {
+    return admitFanOutBranches(store, pipelineId, definition, index, typed.downstreamInputs!);
+  }
+  return null;
+}
+
 type StageStepOutcome = "continue" | "stop";
+
+type AdvanceWorkflowStageArgs = {
+  pipelineId: string;
+  definition: PipelineDefinition;
+  stage: Extract<PipelineStage, { kind: "workflow" }>;
+  index: number;
+  branchKey: string;
+  split: FanOutSplit | null;
+  context: PipelineExecutionDeps["context"];
+  stageArtifacts: Map<string, PipelineStageArtifact>;
+  store: StateStore;
+  dispatch: PipelineWorkflowDispatch;
+  wait: PipelineWorkflowWait;
+  resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
+};
+
+function failWorkflowStageAt(
+  store: StateStore,
+  pipelineId: string,
+  stageId: string,
+  branchKey: string,
+  stageRecords: readonly PipelineStageRecord[],
+  skipFromPosition: number,
+  message: string,
+): StageStepOutcome {
+  store.updateStage({
+    pipelineId,
+    stageId,
+    branchKey,
+    patch: { status: "failed", endedAt: Date.now(), failureDetail: { message } },
+  });
+  skipRemainingStages(store, pipelineId, stageRecords, skipFromPosition, branchKey);
+  return "stop";
+}
+
+function handleSucceededWorkflowStage(args: {
+  store: StateStore;
+  pipelineId: string;
+  definition: PipelineDefinition;
+  stage: Extract<PipelineStage, { kind: "workflow" }>;
+  index: number;
+  branchKey: string;
+  stageRecords: readonly PipelineStageRecord[];
+  stageArtifacts: Map<string, PipelineStageArtifact>;
+  artifact: unknown;
+}): StageStepOutcome {
+  carryForwardArtifact(args.stageArtifacts, args.stage.stageId, args.artifact);
+  const admission = maybeAdmitFanOutBranches(
+    args.store,
+    args.pipelineId,
+    args.definition,
+    args.index,
+    args.branchKey,
+    args.artifact,
+  );
+  if (admission !== null && !admission.ok) {
+    return failWorkflowStageAt(
+      args.store,
+      args.pipelineId,
+      args.stage.stageId,
+      args.branchKey,
+      args.stageRecords,
+      args.index + 1,
+      admission.error,
+    );
+  }
+  return "continue";
+}
+
+function finishDispatchedWorkflowStage(args: {
+  store: StateStore;
+  pipelineId: string;
+  definition: PipelineDefinition;
+  stage: Extract<PipelineStage, { kind: "workflow" }>;
+  index: number;
+  branchKey: string;
+  stageArtifacts: Map<string, PipelineStageArtifact>;
+}): StageStepOutcome {
+  const settled = args.store.loadPipeline(args.pipelineId);
+  const settledRecords = settled?.stages ?? [];
+  const settledRecord = settled ? findStageRecord(settledRecords, args.stage.stageId, args.branchKey) : undefined;
+  if (settledRecord?.status !== "succeeded") {
+    skipRemainingStages(args.store, args.pipelineId, settledRecords, args.index + 1, args.branchKey);
+    return "stop";
+  }
+  return handleSucceededWorkflowStage({
+    store: args.store,
+    pipelineId: args.pipelineId,
+    definition: args.definition,
+    stage: args.stage,
+    index: args.index,
+    branchKey: args.branchKey,
+    stageRecords: settledRecords,
+    stageArtifacts: args.stageArtifacts,
+    artifact: settledRecord.artifact,
+  });
+}
+
+function intentDownstreamInputsForFanOut(
+  definition: PipelineDefinition,
+  splitPosition: number,
+  stageRecords: readonly PipelineStageRecord[],
+): readonly string[] | undefined {
+  const intentStage = definition.stages[splitPosition];
+  if (intentStage === undefined) return undefined;
+  const intentRecord = findStageRecord(stageRecords, intentStage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+  const intentArtifact =
+    intentRecord?.artifact !== null && typeof intentRecord?.artifact === "object"
+      ? (intentRecord.artifact as PipelineStageArtifact)
+      : undefined;
+  return intentArtifact?.downstreamInputs;
+}
+
+async function advanceFanOutStageResolution(
+  args: AdvanceWorkflowStageArgs,
+  resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
+  stageRecords: readonly PipelineStageRecord[],
+): Promise<StageStepOutcome> {
+  const { pipelineId, definition, stage, index, branchKey, split, stageArtifacts, store, dispatch, wait } = args;
+  const splitPosition = split?.splitPosition ?? index - 1;
+  const downstreamInputs = intentDownstreamInputsForFanOut(definition, splitPosition, stageRecords);
+  if (downstreamInputs === undefined || downstreamInputs.length < 2) {
+    return failWorkflowStageAt(
+      store,
+      pipelineId,
+      stage.stageId,
+      branchKey,
+      stageRecords,
+      index + 1,
+      "pipeline-stage-resolve: fan-out resolution missing downstreamInputs",
+    );
+  }
+
+  const admission = admitFanOutBranches(store, pipelineId, definition, splitPosition, downstreamInputs);
+  if (!admission.ok) {
+    return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, admission.error);
+  }
+
+  let currentBranchFailed = false;
+  for (let branchIndex = 0; branchIndex < admission.branchKeys.length; branchIndex += 1) {
+    const targetBranchKey = admission.branchKeys[branchIndex];
+    if (targetBranchKey === undefined) continue;
+    const loadedStages = store.loadPipeline(pipelineId)?.stages ?? [];
+    const targetRecord = findStageRecord(loadedStages, stage.stageId, targetBranchKey);
+    if (targetRecord?.status === "succeeded") continue;
+    const steps = resolution.results[branchIndex]?.steps;
+    if (steps === undefined) continue;
+    await dispatchPipelineStage({
+      pipelineId,
+      stageId: stage.stageId,
+      branchKey: targetBranchKey,
+      steps,
+      dispatch,
+      wait,
+      store,
+    });
+    const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
+    const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
+    if (settledRecord?.status !== "succeeded") {
+      skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
+      if (targetBranchKey === branchKey) currentBranchFailed = true;
+    } else {
+      carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
+    }
+  }
+  return currentBranchFailed ? "stop" : "continue";
+}
 
 /**
  * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
@@ -675,31 +1128,44 @@ type StageStepOutcome = "continue" | "stop";
  * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
  * to every later stage and stops the loop; no dispatch reaches them.
  */
-async function advanceWorkflowStage(args: {
-  pipelineId: string;
-  definition: PipelineDefinition;
-  stage: Extract<PipelineStage, { kind: "workflow" }>;
-  index: number;
-  context: PipelineExecutionDeps["context"];
-  stageArtifacts: Map<string, PipelineStageArtifact>;
-  store: StateStore;
-  dispatch: PipelineWorkflowDispatch;
-  wait: PipelineWorkflowWait;
-  resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
-}): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, context, stageArtifacts, store, dispatch, wait, resolveStage } = args;
+async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<StageStepOutcome> {
+  const {
+    pipelineId,
+    definition,
+    stage,
+    index,
+    branchKey,
+    context,
+    stageArtifacts,
+    store,
+    dispatch,
+    wait,
+    resolveStage,
+  } = args;
 
   try {
     const current = store.loadPipeline(pipelineId);
     const stageRecords = current?.stages ?? [];
-    const record = current ? findStageRecord(stageRecords, stage.stageId) : undefined;
+    const record = current ? findStageRecord(stageRecords, stage.stageId, branchKey) : undefined;
 
     if (record?.status === "succeeded") {
-      carryForwardArtifact(stageArtifacts, stage.stageId, record.artifact);
-      return "continue";
+      return handleSucceededWorkflowStage({
+        store,
+        pipelineId,
+        definition,
+        stage,
+        index,
+        branchKey,
+        stageRecords,
+        stageArtifacts,
+        artifact: record.artifact,
+      });
     }
-    if (record?.status === "running" || record?.status === "failed" || record?.status === "skipped") {
+    if (record?.status === "running" || record?.status === "failed") {
       return "stop";
+    }
+    if (record?.status === "skipped") {
+      return "continue";
     }
 
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
@@ -709,32 +1175,45 @@ async function advanceWorkflowStage(args: {
       },
     });
     if (!resolution.ok) {
-      store.updateStage({
+      return failWorkflowStageAt(
+        store,
         pipelineId,
-        stageId: stage.stageId,
-        patch: { status: "failed", endedAt: Date.now(), failureDetail: { message: resolution.error } },
-      });
-      skipRemainingStages(store, pipelineId, stageRecords, index + 1);
-      return "stop";
+        stage.stageId,
+        branchKey,
+        stageRecords,
+        index + 1,
+        resolution.error,
+      );
     }
 
-    await dispatchPipelineStage({ pipelineId, stageId: stage.stageId, steps: resolution.steps, dispatch, wait, store });
-
-    const settled = store.loadPipeline(pipelineId);
-    const settledRecords = settled?.stages ?? [];
-    const settledRecord = settled ? findStageRecord(settledRecords, stage.stageId) : undefined;
-    if (settledRecord?.status !== "succeeded") {
-      skipRemainingStages(store, pipelineId, settledRecords, index + 1);
-      return "stop";
+    if (isFanOutStageResolution(resolution)) {
+      return advanceFanOutStageResolution(args, resolution, stageRecords);
     }
 
-    carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
-    return "continue";
+    await dispatchPipelineStage({
+      pipelineId,
+      stageId: stage.stageId,
+      branchKey,
+      steps: singleStageResolutionSteps(resolution),
+      dispatch,
+      wait,
+      store,
+    });
+    return finishDispatchedWorkflowStage({
+      store,
+      pipelineId,
+      definition,
+      stage,
+      index,
+      branchKey,
+      stageArtifacts,
+    });
   } catch (error) {
     try {
       store.updateStage({
         pipelineId,
         stageId: stage.stageId,
+        branchKey,
         patch: {
           status: "failed",
           endedAt: Date.now(),
@@ -745,7 +1224,7 @@ async function advanceWorkflowStage(args: {
       // The store itself is unreachable; nothing further can be recorded.
     }
     const afterFailure = store.loadPipeline(pipelineId);
-    skipRemainingStages(store, pipelineId, afterFailure?.stages ?? [], index + 1);
+    skipRemainingStages(store, pipelineId, afterFailure?.stages ?? [], index + 1, branchKey);
     return "stop";
   }
 }
@@ -762,19 +1241,78 @@ function failStrandedPipelineStage(
   for (const stageRecord of pipeline.stages) {
     const authored = definition.stages[stageRecord.position];
     if (authored?.kind !== "workflow") continue;
-    const record = findStageRecord(pipeline.stages, stageRecord.stageId);
+    const record = findStageRecord(pipeline.stages, stageRecord.stageId, stageRecord.branchKey);
     if (record?.status !== "pending" && record?.status !== "running") continue;
     try {
       store.updateStage({
         pipelineId,
         stageId: stageRecord.stageId,
+        branchKey: stageRecord.branchKey,
         patch: { status: "failed", endedAt: Date.now(), failureDetail: detail },
       });
-      skipRemainingStages(store, pipelineId, pipeline.stages, stageRecord.position + 1);
+      skipRemainingStages(store, pipelineId, pipeline.stages, stageRecord.position + 1, stageRecord.branchKey);
     } catch {
       // The store itself is unreachable; nothing further can be recorded.
     }
     return;
+  }
+}
+
+async function runAuthoredStages(args: {
+  pipelineId: string;
+  deps: PipelineExecutionDeps;
+  split: FanOutSplit | null;
+  branchKey: string;
+  fromIndex: number;
+  toIndex: number;
+  sharedStageArtifacts?: Map<string, PipelineStageArtifact>;
+}): Promise<void> {
+  const { pipelineId, deps, split, branchKey, fromIndex, toIndex, sharedStageArtifacts } = args;
+  const { store, dispatch, wait, context } = deps;
+  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const pipeline = store.loadPipeline(pipelineId);
+  if (!pipeline) return;
+  const definition = pipeline.definition;
+
+  for (let index = fromIndex; index <= toIndex; index += 1) {
+    const stage = definition.stages[index];
+    if (stage === undefined) continue;
+    const stageRecord = findStageRecord(pipeline.stages, stage.stageId, branchKey);
+    if (stageRecord === undefined) continue;
+    if (
+      branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY &&
+      (stageRecord.status === "failed" || stageRecord.status === "skipped")
+    ) {
+      return;
+    }
+
+    const stageArtifacts =
+      sharedStageArtifacts ??
+      (split !== null ? buildBranchStageArtifacts(pipeline, split, branchKey, index) : new Map());
+
+    if (stage.kind === "approval") {
+      const outcome = advanceApprovalStage({ pipelineId, stageRecord, store });
+      if (outcome === "stop") return;
+      pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;
+      continue;
+    }
+
+    const outcome = await advanceWorkflowStage({
+      pipelineId,
+      definition,
+      stage,
+      index,
+      branchKey,
+      split,
+      context,
+      stageArtifacts,
+      store,
+      dispatch,
+      wait,
+      resolveStage,
+    });
+    if (outcome === "stop") return;
+    pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;
   }
 }
 
@@ -785,8 +1323,7 @@ function failStrandedPipelineStage(
  * continue past `approved`, stop at `rejected`) with no dispatch to later stages.
  */
 export async function runPipeline(pipelineId: string, deps: PipelineExecutionDeps): Promise<void> {
-  const { store, dispatch, wait, context } = deps;
-  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const { store } = deps;
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
 
@@ -794,31 +1331,29 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
   const stageArtifacts = new Map<string, PipelineStageArtifact>();
 
   try {
-    // Walk the durable stage rows (ordered by their stored `position`) rather than the authored
-    // definition array, so the loop's ordering cannot drift from what `loadPipeline` reports.
-    for (const stageRecord of pipeline.stages) {
-      const index = stageRecord.position;
-      const stage = definition.stages[index];
-      if (stage === undefined) continue;
-      if (stage.kind === "approval") {
-        const outcome = advanceApprovalStage({ pipelineId, stageRecord, store });
-        if (outcome === "stop") return;
-        continue;
+    const initialSplit = findFanOutSplit(pipeline);
+    await runAuthoredStages({
+      pipelineId,
+      deps,
+      split: initialSplit,
+      branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+      fromIndex: 0,
+      toIndex: initialSplit?.splitPosition ?? definition.stages.length - 1,
+      sharedStageArtifacts: stageArtifacts,
+    });
+    const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
+    if (activeSplit !== null) {
+      const lastIndex = definition.stages.length - 1;
+      for (const branchKey of activeSplit.branchKeys) {
+        await runAuthoredStages({
+          pipelineId,
+          deps,
+          split: activeSplit,
+          branchKey,
+          fromIndex: activeSplit.splitPosition + 1,
+          toIndex: lastIndex,
+        });
       }
-
-      const outcome = await advanceWorkflowStage({
-        pipelineId,
-        definition,
-        stage,
-        index,
-        context,
-        stageArtifacts,
-        store,
-        dispatch,
-        wait,
-        resolveStage,
-      });
-      if (outcome === "stop") return;
     }
 
     await settlePipelineTerminalPublication(pipelineId, deps);
@@ -846,6 +1381,113 @@ export function authoredStagesInPositionOrder(
   return ordered;
 }
 
+function deriveFanOutPrefixState(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+): PipelineDerivedState | null {
+  for (let index = 0; index <= split.splitPosition; index += 1) {
+    const stage = pipeline.definition.stages[index];
+    if (stage === undefined) continue;
+    const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+    if (stage.kind === "approval" && record?.status === "rejected") return "rejected";
+    if (record?.status === "failed") return "failed";
+    if (stage.kind === "workflow" && record?.status === "running") return "running";
+    if (!isAuthoredStageSatisfied(stage, record)) {
+      return stage.kind === "approval" ? "awaiting-approval" : "pending";
+    }
+  }
+  return null;
+}
+
+type FanOutSuffixAggregation = {
+  anyRejected: boolean;
+  anyFailed: boolean;
+  anyRunning: boolean;
+  anyAwaiting: boolean;
+  anyPending: boolean;
+  allBranchesComplete: boolean;
+};
+
+type FanOutBranchSuffixAggregation = {
+  anyRejected: boolean;
+  anyFailed: boolean;
+  anyRunning: boolean;
+  anyAwaiting: boolean;
+  anyPending: boolean;
+  branchComplete: boolean;
+};
+
+function aggregateFanOutBranchSuffix(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  splitPosition: number,
+  branchKey: string,
+): FanOutBranchSuffixAggregation {
+  let anyRejected = false;
+  let anyFailed = false;
+  let anyRunning = false;
+  let anyAwaiting = false;
+  let anyPending = false;
+  let branchComplete = true;
+
+  for (const { stage, record } of suffixStagesForBranch(pipeline, splitPosition, branchKey)) {
+    if (stage.kind === "approval" && record.status === "rejected") {
+      anyRejected = true;
+      branchComplete = false;
+    }
+    if (record.status === "failed") {
+      anyFailed = true;
+      branchComplete = false;
+    }
+    if (stage.kind === "workflow" && record.status === "running") anyRunning = true;
+    if (!isAuthoredStageSatisfied(stage, record)) {
+      branchComplete = false;
+      if (stage.kind === "approval" && record.status === "awaiting") anyAwaiting = true;
+      else if (record.status === "pending") anyPending = true;
+    }
+  }
+
+  return { anyRejected, anyFailed, anyRunning, anyAwaiting, anyPending, branchComplete };
+}
+
+function aggregateFanOutSuffixBranches(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+): FanOutSuffixAggregation {
+  let anyRejected = false;
+  let anyFailed = false;
+  let anyRunning = false;
+  let anyAwaiting = false;
+  let anyPending = false;
+  let allBranchesComplete = true;
+
+  for (const branchKey of split.branchKeys) {
+    const branch = aggregateFanOutBranchSuffix(pipeline, split.splitPosition, branchKey);
+    if (branch.anyRejected) anyRejected = true;
+    if (branch.anyFailed) anyFailed = true;
+    if (branch.anyRunning) anyRunning = true;
+    if (branch.anyAwaiting) anyAwaiting = true;
+    if (branch.anyPending) anyPending = true;
+    if (!branch.branchComplete) allBranchesComplete = false;
+  }
+
+  return { anyRejected, anyFailed, anyRunning, anyAwaiting, anyPending, allBranchesComplete };
+}
+
+function deriveFanOutSuffixState(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  aggregation: FanOutSuffixAggregation,
+): PipelineDerivedState {
+  if (aggregation.anyRejected) return "rejected";
+  if (aggregation.anyFailed) return "failed";
+  if (aggregation.anyRunning) return "running";
+  if (aggregation.anyAwaiting) return "awaiting-approval";
+  if (aggregation.anyPending) return "pending";
+  if (!aggregation.allBranchesComplete) return "pending";
+  if (isPipelineSettlementPending(pipeline)) return "running";
+  if (hasPipelineTerminalPublicationFailure(pipeline)) return "failed";
+  return "succeeded";
+}
+
 /**
  * Derive a pipeline's overall state from durable pipeline and stage rows — first match wins:
  * `interrupted` (stage rows only), `rejected`, `failed`, `running` (workflow stage rows),
@@ -855,6 +1497,15 @@ export function authoredStagesInPositionOrder(
  * `interrupted` is a reconciliation marker and does not mask preserved stage evidence.
  * `skipped` rows are never satisfied and are never reached because `failed` always precedes them.
  */
+function deriveFanOutPipelineState(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+): PipelineDerivedState {
+  const prefixState = deriveFanOutPrefixState(pipeline, split);
+  if (prefixState !== null) return prefixState;
+  return deriveFanOutSuffixState(pipeline, aggregateFanOutSuffixBranches(pipeline, split));
+}
+
 export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineDerivedState {
   const { stages: stageRecords } = pipeline;
 
@@ -862,7 +1513,14 @@ export function derivePipelineState(pipeline: Pipeline & { stages: PipelineStage
     return "interrupted";
   }
 
-  const ordered = authoredStagesInPositionOrder(pipeline);
+  const split = findFanOutSplit(pipeline);
+  if (split !== null) {
+    return deriveFanOutPipelineState(pipeline, split);
+  }
+
+  const ordered = authoredStagesInPositionOrder(pipeline).filter(
+    (entry) => entry.record.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  );
   for (const { stage, record } of ordered) {
     if (stage.kind === "approval" && record.status === "rejected") return "rejected";
   }

@@ -15,6 +15,7 @@ import {
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
   setInvertPriorWorktreeRootGuardForTest,
+  singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 
 const okStep = { behavior: "write" } as never;
@@ -34,8 +35,8 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
 
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
 
-function stageArtifact(entryRunId: string, specPath: string): PipelineStageArtifact {
-  return { entryRunId, specPath };
+function stageArtifact(entryRunId: string, specPath: string, downstreamInputs?: string[]): PipelineStageArtifact {
+  return downstreamInputs !== undefined ? { entryRunId, specPath, downstreamInputs } : { entryRunId, specPath };
 }
 
 function initGitRepo(root: string): void {
@@ -387,7 +388,7 @@ describe("resolveStageWorkflowSteps", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps.some((step) => step.behavior === "review-debate")).toBe(true);
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "review-debate")).toBe(true);
   });
 
   test("intent review none resolves through real preset builders without a review step", async () => {
@@ -395,7 +396,11 @@ describe("resolveStageWorkflowSteps", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps.some((step) => step.behavior === "review" || step.behavior === "review-debate")).toBe(false);
+    expect(
+      singleStageResolutionSteps(result).some(
+        (step) => step.behavior === "review" || step.behavior === "review-debate",
+      ),
+    ).toBe(false);
   });
 
   test("plan review none resolves through real preset builders without a review step", async () => {
@@ -420,7 +425,11 @@ describe("resolveStageWorkflowSteps", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps.some((step) => step.behavior === "review" || step.behavior === "review-debate")).toBe(false);
+    expect(
+      singleStageResolutionSteps(result).some(
+        (step) => step.behavior === "review" || step.behavior === "review-debate",
+      ),
+    ).toBe(false);
   });
 
   test("leave-draft pipeline implement completion skips ready finalization", async () => {
@@ -451,8 +460,8 @@ describe("resolveStageWorkflowSteps", () => {
     );
     expect(leaveDraft.ok).toBe(true);
     if (!leaveDraft.ok) return;
-    const leaveDraftStep = leaveDraft.steps.find(
-      (step): step is Extract<(typeof leaveDraft.steps)[number], { behavior: "write" }> =>
+    const leaveDraftStep = singleStageResolutionSteps(leaveDraft).find(
+      (step): step is Extract<ReturnType<typeof singleStageResolutionSteps>[number], { behavior: "write" }> =>
         step.behavior === "write" && step.publishCompletion !== false,
     );
     if (!leaveDraftStep) throw new Error("expected publish write step");
@@ -462,8 +471,8 @@ describe("resolveStageWorkflowSteps", () => {
     const ready = await resolveStageWorkflowSteps(readyDefinition, 1, baseContext, stageArtifacts, resolveDeps);
     expect(ready.ok).toBe(true);
     if (!ready.ok) return;
-    const readyStep = ready.steps.find(
-      (step): step is Extract<(typeof ready.steps)[number], { behavior: "write" }> =>
+    const readyStep = singleStageResolutionSteps(ready).find(
+      (step): step is Extract<ReturnType<typeof singleStageResolutionSteps>[number], { behavior: "write" }> =>
         step.behavior === "write" && step.publishCompletion !== false,
     );
     expect(readyStep?.skipReadyFinalization).toBeUndefined();
@@ -678,7 +687,7 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps.some((step) => step.behavior === "write")).toBe(true);
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
 
     setInvertPriorWorktreeRootGuardForTest(true);
     const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
@@ -711,12 +720,166 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.steps.some((step) => step.behavior === "write")).toBe(true);
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
 
     setInvertPriorWorktreeRootGuardForTest(true);
     const inverted = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
     expect(inverted.ok).toBe(false);
     if (inverted.ok) return;
     expect(inverted.error).toMatch(/Spec path unavailable|path does not exist|link_unreadable/);
+  });
+
+  test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
+    const readyA = "spec/ready-intents/alpha.md";
+    const readyB = "spec/ready-intents/beta.md";
+    const directorySpecPath = "spec/ready-intents";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n", "utf8");
+    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n", "utf8");
+
+    const seenReadyIntents: string[] = [];
+    const builders = fakeBuilders({
+      plan: async (input) => {
+        seenReadyIntents.push((input as unknown as PlanWorkflowInput).readyIntent);
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])]]);
+    const deps = { builders, ...chainedDeps(intentWorktree) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok || !("results" in result)) throw new Error("expected fan-out results");
+    expect(result.results).toHaveLength(2);
+    expect(seenReadyIntents).toEqual([readyA, readyB]);
+  });
+
+  test("single-file prior artifact without downstreamInputs still resolves one plan preset binding", async () => {
+    const readyIntentRel = "spec/ready-intents/feature.md";
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-single-file-"));
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n", "utf8");
+
+    let seenInput: PlanWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      plan: async (input) => {
+        seenInput = input as unknown as PlanWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", readyIntentRel)]]);
+    const deps = { builders, ...chainedDeps(intentWorktree) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok || "results" in result) throw new Error("expected single resolution");
+    expect(seenInput?.readyIntent).toBe(readyIntentRel);
+  });
+
+  test("per-branch plan artifact resolving implement returns one resolution without re-fan-out", async () => {
+    const planBranch = "plan/feature";
+    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-branch-"));
+    const planSpecRel = "spec/feature/index.md";
+    const ignoredA = "spec/ready-intents/ignored-a.md";
+    const ignoredB = "spec/ready-intents/ignored-b.md";
+    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+    mkdirSync(join(planWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n", "utf8");
+    writeFileSync(join(planWorktree, ignoredA), "---\nname: ignored-a\n---\n", "utf8");
+    writeFileSync(join(planWorktree, ignoredB), "---\nname: ignored-b\n---\n", "utf8");
+
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel, [ignoredA, ignoredB])]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok || "results" in result) throw new Error("expected single resolution");
+    expect(seenInput?.specPath).toBe(planSpecRel);
+  });
+
+  test("downstreamInputs length 1 resolves one binding to that path", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-length-one-"));
+    const readyRel = "spec/ready-intents/only.md";
+    const directorySpecPath = "spec/ready-intents";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyRel), "---\nname: only\n---\n", "utf8");
+
+    let seenInput: PlanWorkflowInput | undefined;
+    const builders = fakeBuilders({
+      plan: async (input) => {
+        seenInput = input as unknown as PlanWorkflowInput;
+        return { ok: true, steps: [okStep], identity: {} as never };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyRel])]]);
+    const deps = { builders, ...chainedDeps(intentWorktree) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok || "results" in result) throw new Error("expected single resolution");
+    expect(seenInput?.readyIntent).toBe(readyRel);
+  });
+
+  test("missing downstreamInputs path fails without falling back to directory specPath", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-missing-downstream-"));
+    const readyA = "spec/ready-intents/alpha.md";
+    const readyB = "spec/ready-intents/missing.md";
+    const directorySpecPath = "spec/ready-intents";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n", "utf8");
+
+    const builders = fakeBuilders({
+      plan: async () => ({ ok: true, steps: [okStep], identity: {} as never }),
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])]]);
+    const deps = { builders, ...chainedDeps(intentWorktree) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("not found");
   });
 });

@@ -27,11 +27,14 @@ export type PipelineStageArtifact = {
 };
 
 /** Best-effort failure write-back for an unexpected throw/rejection anywhere in dispatch/settlement. */
-function settleUnexpectedThrow(store: StateStore, pipelineId: string, stageId: string, error: unknown): void {
+function settleUnexpectedThrow(
+  store: StateStore,
+  target: { pipelineId: string; stageId: string; branchKey?: string },
+  error: unknown,
+): void {
   try {
     store.updateStage({
-      pipelineId,
-      stageId,
+      ...target,
       patch: {
         status: "failed",
         endedAt: Date.now(),
@@ -47,19 +50,20 @@ function settleUnexpectedThrow(store: StateStore, pipelineId: string, stageId: s
 export async function dispatchPipelineStage(args: {
   pipelineId: string;
   stageId: string;
+  branchKey?: string;
   steps: AnyWorkflowStep[];
   dispatch: PipelineWorkflowDispatch;
   wait: PipelineWorkflowWait;
   store: StateStore;
 }): Promise<void> {
-  const { pipelineId, stageId, steps, dispatch, wait, store } = args;
+  const { pipelineId, stageId, branchKey, steps, dispatch, wait, store } = args;
+  const stageTarget = { pipelineId, stageId, ...(branchKey !== undefined ? { branchKey } : {}) };
 
   try {
     const dispatched = await dispatch(steps);
     if (!dispatched.ok) {
       store.updateStage({
-        pipelineId,
-        stageId,
+        ...stageTarget,
         patch: {
           status: "failed",
           endedAt: Date.now(),
@@ -70,8 +74,7 @@ export async function dispatchPipelineStage(args: {
     }
 
     store.updateStage({
-      pipelineId,
-      stageId,
+      ...stageTarget,
       patch: {
         status: "running",
         startedAt: Date.now(),
@@ -85,8 +88,7 @@ export async function dispatchPipelineStage(args: {
       const entryRun = store.loadRun(dispatched.entryRunId);
       if (entryRun?.specPath === undefined) {
         store.updateStage({
-          pipelineId,
-          stageId,
+          ...stageTarget,
           patch: {
             status: "failed",
             endedAt: Date.now(),
@@ -106,8 +108,7 @@ export async function dispatchPipelineStage(args: {
         ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
       };
       store.updateStage({
-        pipelineId,
-        stageId,
+        ...stageTarget,
         patch: { status: "succeeded", endedAt: Date.now(), artifact },
       });
       return;
@@ -120,11 +121,10 @@ export async function dispatchPipelineStage(args: {
     const composed = entryRun ? composeRunOperatorError(entryRun) : undefined;
     const failureDetail = composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
     store.updateStage({
-      pipelineId,
-      stageId,
+      ...stageTarget,
       patch: { status: "failed", endedAt: Date.now(), failureDetail },
     });
   } catch (error) {
-    settleUnexpectedThrow(store, pipelineId, stageId, error);
+    settleUnexpectedThrow(store, stageTarget, error);
   }
 }

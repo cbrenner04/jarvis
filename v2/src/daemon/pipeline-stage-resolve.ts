@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
@@ -26,7 +27,25 @@ import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 
 export type { PipelineContext };
 
-export type PipelineStageResolutionResult = { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string };
+export type PipelineStageResolutionResult =
+  | { ok: true; steps: AnyWorkflowStep[] }
+  | { ok: true; results: Array<{ steps: AnyWorkflowStep[] }> }
+  | { ok: false; error: string };
+
+export function isFanOutStageResolution(
+  result: Extract<PipelineStageResolutionResult, { ok: true }>,
+): result is { ok: true; results: Array<{ steps: AnyWorkflowStep[] }> } {
+  return "results" in result;
+}
+
+export function singleStageResolutionSteps(
+  result: Extract<PipelineStageResolutionResult, { ok: true }>,
+): AnyWorkflowStep[] {
+  if (isFanOutStageResolution(result)) {
+    throw new Error("pipeline-stage-resolve: fan-out resolution requires per-branch dispatch");
+  }
+  return result.steps;
+}
 
 export type PipelineStageResolveDeps = {
   builders?: typeof WORKFLOW_PRESET_BUILDERS;
@@ -221,6 +240,93 @@ function isChainedPlanReadyIntentPath(specPath: string): boolean {
   return specPath.endsWith(".md");
 }
 
+type ChainedReadyIntentPaths =
+  | { ok: true; kind: "single"; path: string }
+  | { ok: true; kind: "fan-out"; paths: readonly string[] }
+  | { ok: false; error: string };
+
+function verifyChainedReadyIntentPath(
+  prior: PriorArtifactContext,
+  path: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!isChainedPlanReadyIntentPath(path)) {
+    return {
+      ok: false,
+      error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
+    };
+  }
+  if (!existsSync(join(prior.worktreePath, path))) {
+    return {
+      ok: false,
+      error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
+    };
+  }
+  return { ok: true };
+}
+
+function resolveVerifiedChainedReadyIntentPath(
+  prior: PriorArtifactContext,
+  path: string,
+  asFanOut: boolean,
+): ChainedReadyIntentPaths {
+  const verified = verifyChainedReadyIntentPath(prior, path);
+  if (!verified.ok) return verified;
+  if (asFanOut) return { ok: true, kind: "fan-out", paths: [path] };
+  return { ok: true, kind: "single", path };
+}
+
+/**
+ * Fan-out happens only at the plan stage — the pipeline has already branched by the time implement
+ * resolves, so this is called from the plan resolver alone.
+ */
+function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedReadyIntentPaths {
+  const downstreamInputs = prior.artifact.downstreamInputs;
+
+  // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
+  // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
+  // regressions RED.
+  if (downstreamInputs === undefined || downstreamInputs.length === 0) {
+    return { ok: true, kind: "single", path: prior.specPath };
+  }
+
+  if (downstreamInputs.length === 1) {
+    return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, false);
+  }
+
+  for (const path of downstreamInputs) {
+    const verified = verifyChainedReadyIntentPath(prior, path);
+    // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
+    // error must turn the missing-downstream-input regression RED.
+    if (!verified.ok) return verified;
+  }
+  return { ok: true, kind: "fan-out", paths: downstreamInputs };
+}
+
+function pathForDownstreamInput(
+  _prior: PriorArtifactContext,
+  path: string,
+): { ok: true; path: string } | { ok: false; error: string } {
+  return { ok: true, path };
+}
+
+async function resolveForDownstreamPaths(
+  prior: PriorArtifactContext,
+  paths: readonly string[],
+  resolveOne: (prior: PriorArtifactContext) => Promise<PipelineStageResolutionResult>,
+  mapSteps?: (steps: AnyWorkflowStep[]) => AnyWorkflowStep[],
+): Promise<PipelineStageResolutionResult> {
+  const results: Array<{ steps: AnyWorkflowStep[] }> = [];
+  for (const downstreamPath of paths) {
+    const bound = pathForDownstreamInput(prior, downstreamPath);
+    if (!bound.ok) return bound;
+    const result = await resolveOne({ ...prior, specPath: bound.path });
+    if (!result.ok) return result;
+    const steps = singleStageResolutionSteps(result);
+    results.push({ steps: mapSteps ? mapSteps(steps) : steps });
+  }
+  return { ok: true, results };
+}
+
 function toResolution(result: { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string }) {
   return result.ok ? { ok: true as const, steps: result.steps } : { ok: false as const, error: result.error };
 }
@@ -296,6 +402,8 @@ async function resolvePlanStage(
   presetName: CliWorkflowPresetName,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
 ): Promise<PipelineStageResolutionResult> {
+  // Mutation checkpoint: accepting a directory specPath here must turn the plan-stage
+  // ready-intent-file regression RED.
   if (!isChainedPlanReadyIntentPath(prior.specPath)) {
     return {
       ok: false,
@@ -311,6 +419,68 @@ async function resolvePlanStage(
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };
   return toResolution(await invokePlanPresetBuilder(presetName, input, context, builders));
+}
+
+function leaveDraftWriteStepMapper(steps: AnyWorkflowStep[]): AnyWorkflowStep[] {
+  return steps.map((step) =>
+    step.behavior === "write" && step.publishCompletion !== false ? { ...step, skipReadyFinalization: true } : step,
+  );
+}
+
+async function resolveImplementWorkflowStage(
+  definition: PipelineDefinition,
+  stage: PipelineStage & { kind: "workflow" },
+  context: PipelineContext,
+  priorArtifact: PipelineStageArtifact | undefined,
+  deps: PipelineStageResolveDeps,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<PipelineStageResolutionResult> {
+  if (stage.review !== "light" && stage.review !== "debate") {
+    return unmappedResult(stage);
+  }
+  const loadRun = deps.loadRun;
+  if (loadRun === undefined) {
+    return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
+  }
+  const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
+  if (!priorResult.ok) return priorResult;
+
+  // Implement never re-fans out: the pipeline already branched at plan, so this stage resolves
+  // exactly one input. Mutation checkpoint: fanning out here must turn the
+  // "later stages do not re-fan out" regression RED.
+  const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
+  if (!result.ok || definition.terminalAction !== "leave-draft") return result;
+  return { ok: true, steps: leaveDraftWriteStepMapper(singleStageResolutionSteps(result)) };
+}
+
+async function resolvePlanWorkflowStage(
+  stage: PipelineStage & { kind: "workflow" },
+  context: PipelineContext,
+  priorArtifact: PipelineStageArtifact | undefined,
+  presetName: CliWorkflowPresetName,
+  deps: PipelineStageResolveDeps,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<PipelineStageResolutionResult> {
+  const loadRun = deps.loadRun;
+  if (loadRun === undefined) {
+    return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
+  }
+  const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
+  if (!priorResult.ok) return priorResult;
+
+  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior);
+  if (!inputPaths.ok) return inputPaths;
+
+  if (inputPaths.kind === "fan-out") {
+    return resolveForDownstreamPaths(priorResult.prior, inputPaths.paths, (prior) =>
+      resolvePlanStage(stage, prior, context, presetName, builders),
+    );
+  }
+
+  const bound = pathForDownstreamInput(priorResult.prior, inputPaths.path);
+  if (!bound.ok) return bound;
+  const prior = { ...priorResult.prior, specPath: bound.path };
+  return resolvePlanStage(stage, prior, context, presetName, builders);
 }
 
 /**
@@ -334,23 +504,7 @@ export async function resolveStageWorkflowSteps(
   const priorArtifact = findPrecedingWorkflowArtifact(definition.stages, stageIndex, stageArtifacts);
 
   if (stage.workflow === "implement") {
-    if (stage.review !== "light" && stage.review !== "debate") {
-      return unmappedResult(stage);
-    }
-    const loadRun = deps.loadRun;
-    if (loadRun === undefined) {
-      return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
-    }
-    const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
-    if (!priorResult.ok) return priorResult;
-    const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
-    if (!result.ok || definition.terminalAction !== "leave-draft") return result;
-    return {
-      ok: true,
-      steps: result.steps.map((step) =>
-        step.behavior === "write" && step.publishCompletion !== false ? { ...step, skipReadyFinalization: true } : step,
-      ),
-    };
+    return resolveImplementWorkflowStage(definition, stage, context, priorArtifact, deps, builders);
   }
 
   const presetName = WORKFLOW_POSTURE_PRESETS[stage.workflow]?.[stage.review];
@@ -362,13 +516,7 @@ export async function resolveStageWorkflowSteps(
     return resolveIntentStage(stage, context, priorArtifact, presetName, builders);
   }
   if (stage.workflow === "plan") {
-    const loadRun = deps.loadRun;
-    if (loadRun === undefined) {
-      return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
-    }
-    const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
-    if (!priorResult.ok) return priorResult;
-    return resolvePlanStage(stage, priorResult.prior, context, presetName, builders);
+    return resolvePlanWorkflowStage(stage, context, priorArtifact, presetName, deps, builders);
   }
   return unmappedResult(stage);
 }

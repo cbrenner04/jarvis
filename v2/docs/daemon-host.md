@@ -163,8 +163,8 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `resume` | `{ runId: string }` | `{ ok: true }` | Resumes workflow write runs when shared snapshot reconstruction succeeds and the same admission predicate that projects `list`/`wait` `resumable` (`nextAction: "resume"` on the composed operator error; see [Operator error on list and wait](#operator-error-on-list-and-wait)). Rejected `daemon_superseded` if the daemon is retiring (see [Daemon retirement on supersession](#daemon-retirement-on-supersession)). The matching persisted step must retain non-empty rules, artifact path, agents, model config, and resolvable bindings; the reconstructed input preserves step identity, workflow snapshot, and timeout. Missing or invalid context returns `resume_unsupported` before claim/spawn. Accepted reasons include every composition that yields `nextAction: "resume"` (e.g. `resumable_pause`, `resumable_budget`, `resumable_kill`, `completion_commit_failed`, `ready_gate_failed`, `surviving_mutation_failed`, `landing_failed`, `invalid_token`, `missing_blocker`, resumable `contract_miss` on `implement~shrink`); compositions yielding `nextAction: "stop"` / `"inspect_spec"` / `"fix_config"` / `"retry_later"` are rejected with `terminal_run` whose message names the owning recovery from `RUN_OPERATOR_ERROR_RECOVERY` (see `run-operator-error.ts`). Ad-hoc stopped runs remain unsupported. A row owned by a durable review-behavior step (a durable `implement-review`, or a durable `review-debate` last step — never a non-durable light `implement-review` sharing that step ID) whose terminal `loop_finished` names `surviving_mutation_failed`, `ready_gate_failed`, or `completion_commit_failed` does not go through this snapshot-field reconstruction — its own `stepRules`/`expectedArtifactPath` are review-shaped, not write-shaped. It resolves through completion-step / publication-tail reconstruction instead: the durable write step's completed sibling row is resolved by workflow `invocationId`, matching either the authored write stepId or a completed `<stepId>~link-N` row (the shape a linked-implement workflow's terminal pass persists), picking the terminal completed candidate when several exist. That selected row supplies the publication `worktreePath`, base ref, and `specPath`; conflicting fields recorded on the review row itself never override it. Resume then commits any uncommitted worktree changes and replays mutation re-verification, the ready gate, and publication without re-invoking the completed write step's agent. The other two outcome kinds are admitted for self-consistency — only this same resume path ever writes them onto a review-behavior row — not because a fresh review pass can settle them; `runtime_smoke_failed` from this same tail is excluded (retrying cannot change that outcome) and reports `unsupported_resume_context` instead, even when its own `loop_finished` record says `resumable: true`. |
 | `wait` | `{ runId: string }` | `{ runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error? }` | Long-running one-shot wait for the next invocation boundary. On a workflow entry, whichever durable sibling row owns the rollup `surviving_mutation_failed` — a hidden `~shrink` row or a durable review row alike — supplies outcome fields and error detail (chronologically last terminal record wins among multiple candidates); entry resumability remains tied to the entry row. Unsupported stopped write context returns `error: { reason: "unsupported_resume_context", retryable: false, nextAction: "stop" }` and forces `resumable: false`, even when the historical loop record was resumable. Otherwise behavior is unchanged; optional `error` matches `list` for the same run (see [Operator error on list and wait](#operator-error-on-list-and-wait)). |
 | `pipeline_start` | `{ definition: PipelineDefinition, context: PipelineContext }` | `{ pipelineId: string }` | Admit a validated pipeline definition plus execution context: durably record the supplied immutable `context` on the pipeline row in the same transaction as the definition and stage rows, start the ordered daemon-owned loop (`runPipeline`), and return `{ pipelineId }` only after that admission transaction succeeds and the context round-trips on reload — not when the pipeline finishes. Missing `definition` or `context` → `invalid_params`. Context supplied but not durably persisted → `admission_failed` (no pipeline ID returned). The handler does not re-run `validatePipelineDefinition`; callers must validate before RPC. See [Ordered pipeline progression](#ordered-pipeline-progression). |
-| `pipeline_approve` | `{ pipelineId: string, stageId: string }` | `{ kind: "applied", pipelineId, stageId, decision: "approved" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `approved` on the authored `stageId` row through `commitApprovalDecision`, then asynchronously continue the ordered loop from persisted admission context when the write applies. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) return unchanged with no dispatch. Duplicate or racing decisions are refused without a second continuation. The handler resolves after the durable write, not after continuation finishes. See [Pipeline approval decisions](#pipeline-approval-decisions). |
-| `pipeline_reject` | `{ pipelineId: string, stageId: string }` | `{ kind: "applied", pipelineId, stageId, decision: "rejected" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `rejected` on the authored `stageId` row through `commitApprovalDecision` and never dispatch later stages. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) propagate without mutation or dispatch. The handler resolves after the durable write. See [Pipeline approval decisions](#pipeline-approval-decisions). |
+| `pipeline_approve` | `{ pipelineId: string, stageId: string, branchKey?: string }` | `{ kind: "applied", pipelineId, stageId, decision: "approved" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `approved` on the authored `stageId` row through `commitApprovalDecision`, then asynchronously continue the ordered loop from persisted admission context when the write applies. Optional `branchKey` targets one branch row; when multiple non-`skipped` branch rows exist at the stage and `branchKey` is omitted, the handler refuses with `branch_key_required`. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) return unchanged with no dispatch. Duplicate or racing decisions are refused without a second continuation. The handler resolves after the durable write, not after continuation finishes. See [Pipeline approval decisions](#pipeline-approval-decisions). |
+| `pipeline_reject` | `{ pipelineId: string, stageId: string, branchKey?: string }` | `{ kind: "applied", pipelineId, stageId, decision: "rejected" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `rejected` on the authored `stageId` row through `commitApprovalDecision` and never dispatch later stages for that branch. Optional `branchKey` targets one branch row; when multiple non-`skipped` branch rows exist at the stage and `branchKey` is omitted, the handler refuses with `branch_key_required`. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) propagate without mutation or dispatch. The handler resolves after the durable write. See [Pipeline approval decisions](#pipeline-approval-decisions). |
 | `pipeline_resume` | `{ pipelineId: string }` | `{ kind: "resumed", pipelineId } \| { kind: "refused", pipelineId, reason }` | Stage-scoped resume for failed and `awaiting-approval` pipelines only. Missing/empty `pipelineId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Derived `succeeded` → `pipeline_terminal_succeeded`; derived `rejected` → `pipeline_terminal_rejected`; derived `running`, fresh `pending`, or `interrupted` → `pipeline_not_resumable` — each without stage dispatch. Derived `failed` applies `reopenFailedPipeline` when a `failed` row remains, then asynchronously continues via `continuePipeline` from persisted admission context; already-reopened failures (`reopenedFailurePermitsActivation`, derived `pending`) skip reopen and continue only the eligible failed stage while preserving every predecessor `workflowInvocationId`. Derived `awaiting-approval` claims ownership via `claimPipelineContinuation` but never calls `continuePipeline` — the gate row stays `awaiting` with no later dispatch; missing persisted admission context → `missing_context`; `claimPipelineContinuation` refusal → `claim_refused`. `isPipelineContinuable` and startup `recoverContinuablePipelines` do not treat awaiting pipelines as continuable. Ineligible failed shapes surface the store reopen refusal (`no_failed_stage`, `multiple_failed_stages`, `malformed_continuation`, etc.) without dispatch. The handler resolves after reopen and/or claim admission (or refusal), not after detached continuation finishes. See [Pipeline stage-scoped resume](#pipeline-stage-scoped-resume). |
 | `pipeline_list` | — | `{ pipelines: Array<{ pipelineId, name, state, stages: Array<{ stageId, status, workflowInvocationId }> }> }` | Parameterless durable snapshot of every admitted pipeline without following live transitions. Empty store → `{ pipelines: [] }`. Stage order follows stored authored `position`. Derived `state` uses `derivePipelineState` (see [Pipeline snapshots](#pipeline-snapshots)). |
 | `pipeline_wait` | `{ pipelineId: string }` | `{ kind: "terminal", state } \| { kind: "awaiting-approval", stageId }` | Block until the named pipeline reaches a wait boundary or the request `AbortSignal` aborts. Returns immediately when already at a boundary. Missing/empty `pipelineId` → `invalid_params`; unknown ID → `unknown_pipeline` (no wait begins). Abort throws `pipeline_wait aborted` with no boundary payload. Other failures propagate without masking as abort. See [Pipeline wait](#pipeline-wait). |
@@ -798,7 +798,7 @@ structured stream is the durable run timeline once records exist. See
 
 ## Pipeline stage resolution
 
-`pipeline_stages` rows are keyed by `(stageId, branchKey)`; admission and `createPipelineStageBranch` persist branch rows, but stage resolution and dispatch in this build still target the default branch only. Persisted stage artifacts may include `downstreamInputs: string[]` of worktree-relative ready-intent file paths; multi-file intent completion records those paths on the stage artifact but resolution and dispatch still use today's `specPath`/single-input behavior until fan-out (`pipeline-intent-split-fans-out-downstream-stages`) consumes them.
+`pipeline_stages` rows are keyed by `(stageId, branchKey)`; admission and `createPipelineStageBranch` persist branch rows. Persisted stage artifacts may include `downstreamInputs: string[]` of worktree-relative ready-intent file paths; multi-file intent completion records those paths on the stage artifact. The first chained stage after a splitting intent fans out one preset binding per `downstreamInputs` entry (`resolveStageWorkflowSteps` returns `{ ok: true; results }` with one element per path when length ≥ 2); later chained stages resolve from the branch-local preceding artifact and return a single `{ ok: true; steps }`; single-file handoff (file `specPath`, no `downstreamInputs`) is unchanged. See [Branch fan-out execution](#branch-fan-out-execution) for daemon dispatch and settlement.
 
 `v2/src/daemon/pipeline-stage-resolve.ts` turns one `pipeline_stages` row plus
 pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission holds a
@@ -834,7 +834,15 @@ back to find it): resolution loads the prior stage's entry run via
 `worktreePath`. Artifact `specPath` is worktree-relative and is passed through
 unchanged as `readyIntent` for the `plan`/`plan-reviewed*` presets or
 `specPath` for the implement builder — never joined to admission `cwd` and
-never absolutized in the store. Chained implement resolution takes its
+never absolutized in the store. When the preceding artifact carries
+`downstreamInputs` with length ≥ 2, the first chained stage after that
+splitting artifact resolves one preset per listed file path (each bound as
+`readyIntent`); length 1 binds that path only; absent `downstreamInputs` keeps
+file `specPath` single-resolution. A listed path missing from the prior
+worktree fails without falling back to directory `specPath`. Later chained
+stages (e.g. implement after per-branch plan) resolve from the branch-local
+preceding artifact only and do not re-iterate intent `downstreamInputs`.
+Chained implement resolution takes its
 `baseRef` from the prior entry run's `branch` and checks spec availability
 against that run's `worktreePath`, not admission `cwd` and not the default
 branch. The `fast` integration case is the inter-stage worktree handoff
@@ -964,6 +972,27 @@ pipeline inspection remains unavailable. Internal repository reads
 `loadPipeline` and `listPipelines` can inspect persisted pipeline and stage
 state; [`state-store.md`](./state-store.md) is their single contract home.
 
+### Branch fan-out execution
+
+When a splitting intent stage succeeds with `downstreamInputs` length ≥ 2,
+`runPipeline` admits one pending branch row per downstream ready-intent file
+for every authored stage after the splitting stage. `branchKey` is the ready-intent
+file basename without `.md`. Pre-admitted `default` rows for those downstream
+stages are reconciled to `skipped` so they never dispatch. The first chained
+workflow stage after the split resolves fan-out (`{ ok: true; results }`) and
+dispatches each result to its matching `branchKey`; later workflow stages on a
+branch resolve from branch-local preceding artifacts only. `skipRemainingStages`
+applies within one `branchKey` — one branch failure does not skip sibling
+branches. `pipeline_approve` / `pipeline_reject` accept optional `branchKey`
+and refuse with `branch_key_required` when multiple branch rows exist and it is
+omitted. `derivePipelineState` aggregates across fan-out branches; terminal
+`succeeded` requires every branch to succeed. `derivePipelineFailureDetail` names
+failed or rejected `branchKey`s when aggregate state is non-`succeeded` at
+derivation time (not yet projected through `pipeline_list` / `pipeline_wait` —
+deferred to the operator-CLI sibling). Multi-branch terminal publication when
+every implement branch succeeds is unchanged / deferred. Slug:
+`pipeline-intent-split-fan-out-execution`.
+
 ### Restart-safe pipeline continuation
 
 On daemon startup, after run orphan reconciliation and before pipeline orphan
@@ -999,13 +1028,15 @@ satisfy these guards when derived state is `pending`.
 ### Pipeline approval decisions
 
 `pipeline_approve` and `pipeline_reject` (`handlePipelineApprovalDecisionHandler`
-in `daemon.ts`) target one authored `stageId` under a `pipelineId`. The handler
-resolves that `stageId` to a single durable stage row, then admits the decision
-through `StateStore.commitApprovalDecision` on the row's stable
-`PipelineStageRecord.id` — never by pipeline ID alone. Missing or empty
-`pipelineId`/`stageId` → `invalid_params`. A retiring (superseded) daemon
-rejects both methods with `daemon_superseded`, matching other mutating pipeline
-RPC retirement.
+in `daemon.ts`) target one authored `stageId` under a `pipelineId`, optionally
+scoped by `branchKey` when multiple branch rows exist. The handler resolves that
+`stageId` (and `branchKey` when supplied) to a single durable stage row, then
+admits the decision through `StateStore.commitApprovalDecision` on the row's
+stable `PipelineStageRecord.id` — never by pipeline ID alone. When multiple
+non-`skipped` branch rows exist at the stage and `branchKey` is omitted, the
+handler refuses with `branch_key_required`. Missing or empty `pipelineId`/`stageId`
+→ `invalid_params`. A retiring (superseded) daemon rejects both methods with
+`daemon_superseded`, matching other mutating pipeline RPC retirement.
 
 On an applied `pipeline_approve`, the handler returns the applied outcome and
 detaches; `continuePipeline` runs asynchronously from the persisted admission

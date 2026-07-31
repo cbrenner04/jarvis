@@ -17,7 +17,7 @@ Pre-TUI — convert seeds to intents in this order; skip a row only when the ses
 | 3 | `seeds/gate-repair-does-not-run-the-formatter` | **Open.** No formatter autofix before agent repair. | Formatter-only red gates exhaust repair budget; standing stopgap is hand `bun run fix` + resume. |
 | 4 | `seeds/human-only-marker…` done → **TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md) | Brief written; prerequisites below. | Primary operator surface after the three seeds above. |
 
-**Defer unless you hit them in session**
+### Defer unless you hit them in session
 
 | Seed / intent | Status | Notes |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ Pre-TUI — convert seeds to intents in this order; skip a row only when the ses
 | `ready-intents/aggregate-timeout-reaps-the-test-process-group.md` | Ready | Only if a hung test descendant is observed. |
 | `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Prereq to later review work only. |
 
-**Fold into TUI (do not queue separately)**
+### Fold into TUI (do not queue separately)
 
 - `seeds/tui-tests-bypass-the-render-path` — resolve in TUI slice 1 as a doc decision: no real ink painting on CI (#2417–#2418); assert via injected input hook + production monitor state.
 - `pipeline_list` timestamps (`createdAt`, stage `startedAt`/`endedAt`) — `branchKey` is already on the wire; add timestamps in TUI slice 3 (elapsed columns), not as a standalone seed.

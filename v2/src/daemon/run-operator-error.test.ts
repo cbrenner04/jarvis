@@ -65,6 +65,24 @@ function persistedTerminal(seq: number, event: TerminalLogRecord["event"]): Pers
   return { runId: "run-1", seq, ts: "2026-01-01T00:00:00.000Z", event };
 }
 
+function contractMissDetailRecord(
+  seq: number,
+  opts: { failureReason?: string; failedContractId?: string } = {},
+): PersistedRecord {
+  return {
+    runId: "run-1",
+    seq,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "contract_miss_detail",
+      attemptId: "attempt-1",
+      failedContractId: opts.failedContractId ?? "plan.draft.shape",
+      responseText: "agent stdout",
+      ...(opts.failureReason !== undefined ? { failureReason: opts.failureReason } : {}),
+    },
+  };
+}
+
 function err(reason: RunOperatorErrorReason, nextAction: RunOperatorNextAction, retryable = false): RunOperatorError {
   return { reason, retryable, nextAction };
 }
@@ -101,6 +119,77 @@ test("composeRunOperatorError returns agent_blocked and contract_miss from loop_
   expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"))).toEqual(
     err("contract_miss", "inspect_spec"),
   );
+});
+
+test("composeRunOperatorError projects contract_miss_detail.failureReason onto contractMissDetail", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failureReason }),
+    persistedTerminal(2, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual({
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  });
+});
+
+test("composeRunOperatorError omits contractMissDetail when contract_miss_detail lacks failureReason", () => {
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failedContractId: "spec.criteria-ticked" }),
+    persistedTerminal(2, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test("composeRunOperatorError omits contractMissDetail when last contract_miss_detail lacks failureReason", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failureReason }),
+    contractMissDetailRecord(2, { failedContractId: "spec.criteria-ticked" }),
+    persistedTerminal(3, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual(
+    err("contract_miss", "inspect_spec"),
+  );
+});
+
+test("composeRunOperatorError projects contractMissDetail from last contract_miss_detail with failureReason", () => {
+  const failureReason = "plan draft normalizer: broken index link";
+  const logRecords: PersistedRecord[] = [
+    contractMissDetailRecord(1, { failedContractId: "spec.criteria-ticked" }),
+    contractMissDetailRecord(2, { failureReason }),
+    persistedTerminal(3, {
+      kind: "loop_finished",
+      loopOutcomeKind: "contract_miss",
+      iterationsConsumed: 1,
+      resumable: false,
+    }),
+  ];
+  expect(composeRunOperatorError(runWith("failed"), loopFinished("contract_miss"), logRecords)).toEqual({
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  });
 });
 
 test("post-commit shrink contract_miss composes to resume", () => {

@@ -5,4 +5,4 @@ repo: cbrenner04/jarvis
 `contract_miss_detail` already lands in the run log; `jarvis run list` and `jarvis run wait`
 still expose only `error.reason: "contract_miss"`.
 
-- [ ] [00 - Project contract_miss_detail onto list and wait rows](./00-project-contract-miss-detail-on-run-rows.md)
+- [x] [00 - Project contract_miss_detail onto list and wait rows](./00-project-contract-miss-detail-on-run-rows.md)

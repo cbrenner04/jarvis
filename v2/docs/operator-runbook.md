@@ -339,7 +339,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 | `jarvis run log <run-id> --follow` | Same replay, then keeps tailing new records until the daemon closes the stream — which happens automatically once the followed run settles — or the client disconnects |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
 
-`list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait).
+`list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 
 **Overlapping daemons after rebuild:** When the executable is rebuilt, a new daemon with a different digest starts and automatically sends `supersede` to every other keyed daemon socket (best-effort, fire-and-forget after the new daemon's server is listening). A superseded daemon continues answering on its socket but stops admitting new `start` and `resume` requests (rejected with code `daemon_superseded`). Runs launched by a superseded daemon remain in-progress until settled; once settled, the daemon disappears on its own as callers switch to the new keyed socket. No manual stop command is needed.
 

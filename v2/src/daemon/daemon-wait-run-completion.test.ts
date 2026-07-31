@@ -385,6 +385,47 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
   });
 });
 
+test("list and wait report contractMissDetail from persisted contract_miss_detail for contract_miss", async () => {
+  const failureReason =
+    "plan draft normalizer: acceptance bullets must enumerate a single touched surface per criterion";
+  const runId = createRun();
+  logSink.append(runId, {
+    kind: "contract_miss_detail",
+    attemptId: "attempt-1",
+    failedContractId: "plan.draft.shape",
+    responseText: "agent stdout excerpt",
+    failureReason,
+  });
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "contract_miss",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = {
+    reason: "contract_miss",
+    retryable: false,
+    nextAction: "inspect_spec",
+    contractMissDetail: failureReason,
+  };
+  // guard inversion checkpoint: contract_miss_detail.failureReason → contractMissDetail (composeRunOperatorError in run-operator-error.ts)
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+  expect(await expectResponse(await waitDirect("contract-miss-detail", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "contract_miss",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
 test("list and wait report surviving_mutation_failed as failed, resumable, and mutation-specific", async () => {
   const workflowSnapshot = {
     invocationId: "inv-surviving-mutation",

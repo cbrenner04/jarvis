@@ -106,3 +106,8 @@ tests only — no edits to those production modules.
 
 - None — shared guard-inversion doc already updated by
   `write-step-rules-forbid-production-invert-hooks`.
+
+## Blocker
+
+Artifact contract check failed: Unticked non-human-only acceptance criteria:
+- (Manual) Inverting the pre-admission resolution guard-inversion mutation

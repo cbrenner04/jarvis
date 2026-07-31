@@ -107,6 +107,9 @@ export type OutcomeKind =
 /** Durable ready-gate repair fence provenance persisted across process restart and resume. */
 export type ReadyGateRepairFenceProvenance = {
   allowedPaths: readonly string[];
+  /** True when the originating write step was intent/plan markdown-only. */
+  markdownOnly?: boolean;
+  markdownOutputRoots?: readonly string[];
   offendingPath?: string;
   outcomeKind: "frozen" | "completion_commit_failed";
 };
@@ -868,6 +871,17 @@ function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepa
   try {
     const parsed = JSON.parse(json) as ReadyGateRepairFenceProvenance;
     if (!Array.isArray(parsed.allowedPaths)) return "invalid";
+    if (parsed.markdownOnly !== undefined && parsed.markdownOnly !== true) {
+      return "invalid";
+    }
+    if (
+      parsed.markdownOutputRoots !== undefined &&
+      (!Array.isArray(parsed.markdownOutputRoots) ||
+        parsed.markdownOutputRoots.length === 0 ||
+        parsed.markdownOutputRoots.some((root) => typeof root !== "string"))
+    ) {
+      return "invalid";
+    }
     if (parsed.outcomeKind !== "frozen" && parsed.outcomeKind !== "completion_commit_failed") {
       return "invalid";
     }

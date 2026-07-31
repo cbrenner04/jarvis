@@ -23,16 +23,16 @@ repair loop already rejected.
 
 ## Acceptance criteria
 
-- [ ] Focused `write-loop.test.ts` completed-run recovery coverage proves process restart followed by
+- [x] Focused `write-loop.test.ts` completed-run recovery coverage proves process restart followed by
       completed-run retry cannot commit or publish a rejected non-markdown path on a markdown-only run,
       retaining persisted markdown roots and offending-path evidence; fails against recovery that
       omits or bypasses the markdown-only layer.
-- [ ] A separate `jarvis run resume` regression proves resume cannot commit or publish that same
+- [x] A separate `jarvis run resume` regression proves resume cannot commit or publish that same
       rejected path after restart on a markdown-only run; fails against recovery that recomputes or
       omits persisted markdown-only provenance.
-- [ ] Recovery regression tests fail when the persisted markdown-only validation is inverted or
+- [x] Recovery regression tests fail when the persisted markdown-only validation is inverted or
       bypassed.
-- [ ] `v2/docs/write-behavior.md` documents markdown-only provenance persistence, fail-closed
+- [x] `v2/docs/write-behavior.md` documents markdown-only provenance persistence, fail-closed
       reconstruction, and the completed-run retry/resume boundary.
 
 ## Documentation updates

@@ -31,6 +31,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
+import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import {
@@ -878,11 +879,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     ) {
       const worktreePath = getExternalWorktreePath(completionStep.worktree);
       try {
-        publicationSpecPath = (await landPublication(completionStep.landing, worktreePath)).specPath;
+        const landed = await landPublication(completionStep.landing, worktreePath);
+        publicationSpecPath = landed.specPath;
         persistIntentHandoff(
           store,
           completionStep.landing,
-          publicationSpecPath,
+          landed,
           completionStep.worktree.projectName,
           completionStep.worktree.branchName,
           completionStep.stepId,
@@ -1867,7 +1869,7 @@ function commitReviewDebateOutcome(
 function persistIntentHandoff(
   store: StateStore,
   landing: PublicationLanding | undefined,
-  handoffSpecPath: string,
+  handoff: IntentPipelineHandoff,
   project: string,
   branch: string,
   writeTarget: string | { reviewRunId: string },
@@ -1879,7 +1881,13 @@ function persistIntentHandoff(
       : findDurableWriteStepId(store.loadRun(writeTarget.reviewRunId)?.workflowSnapshot?.steps ?? []);
   if (writeStepId === undefined) return;
   const writeRun = store.findRunByProjectBranch({ project, branch, stepId: writeStepId });
-  if (writeRun !== null) store.setRunSpecPath(writeRun.id, handoffSpecPath);
+  if (writeRun === null) return;
+  store.setRunSpecPath(writeRun.id, handoff.specPath);
+  if (handoff.downstreamInputs !== undefined) {
+    store.setRunDownstreamInputs(writeRun.id, handoff.downstreamInputs);
+  } else {
+    store.clearRunDownstreamInputs(writeRun.id);
+  }
 }
 
 /** Lands a review step's deferred publication output, failing the attempt on error. */
@@ -2149,7 +2157,7 @@ async function landReviewedPublicationOutput(
       persistIntentHandoff(
         trace.persistHandoff.store,
         deferred,
-        result.specPath,
+        result,
         trace.persistHandoff.project,
         trace.persistHandoff.branch,
         trace.persistHandoff.writeTarget,

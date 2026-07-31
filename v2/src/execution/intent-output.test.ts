@@ -37,6 +37,7 @@ describe("landIntentWorkflowOutput", () => {
     expect(result.files).toEqual(["one.md"]);
     expect(result.specPath).toBe("ready-intents/one.md");
     expect(result.specPath).not.toBe("ready-intents");
+    expect(result.downstreamInputs).toBeUndefined();
     expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
   });
 
@@ -47,7 +48,7 @@ describe("landIntentWorkflowOutput", () => {
     );
   });
 
-  test("multi-file landing keeps specPath on the durable directory", async () => {
+  test("multi-file landing records downstreamInputs with directory specPath", async () => {
     const repo = createRepo();
     stage(repo, ["one", "two"]);
     const result = await landIntentWorkflowOutput({
@@ -57,9 +58,65 @@ describe("landIntentWorkflowOutput", () => {
     });
     expect(result.files).toEqual(["one.md", "two.md"]);
     expect(result.specPath).toBe("ready-intents");
-    expect(intentHandoffSpecPath(repo, "ready-intents", result.files, { invertSingleFileGuardForTest: true })).toBe(
-      "ready-intents/one.md",
+    // Mutation checkpoint: intent-output.test.ts multi-file downstreamInputs
+    expect(result.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+  });
+
+  test("multi-file landing scopes downstreamInputs to this invocation only", async () => {
+    const repo = createRepo();
+    mkdirSync(join(repo, "ready-intents"), { recursive: true });
+    writeFileSync(
+      join(repo, "ready-intents", "old.md"),
+      "---\nname: old\n---\n\n# old\n\n## Prerequisites\n",
+      "utf8",
     );
+    execFileSync("git", ["add", "ready-intents/old.md"], { cwd: repo });
+    execFileSync("git", ["commit", "-qm", "old intent"], { cwd: repo });
+    stage(repo, ["one", "two"]);
+    const result = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+    });
+    // Mutation checkpoint: intent-output.test.ts unrelated ready-intents files
+    expect(result.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+    expect(result.downstreamInputs).not.toContain("ready-intents/old.md");
+  });
+
+  test("multi-file idempotent re-land preserves downstreamInputs and directory specPath", async () => {
+    const repo = createRepo();
+    stage(repo, ["one", "two"]);
+    const invocationId = "re-land-multi";
+    const first = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+      invocationId,
+    });
+    expect(first.specPath).toBe("ready-intents");
+    expect(first.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+    const second = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+      invocationId,
+    });
+    expect(second.specPath).toBe("ready-intents");
+    // Mutation checkpoint: intent-output.test.ts multi-file idempotent re-land
+    expect(second.downstreamInputs).toEqual(["ready-intents/one.md", "ready-intents/two.md"]);
+  });
+
+  test("downstreamInputs order matches landing validation order", async () => {
+    const repo = createRepo();
+    stage(repo, ["alpha", "beta"]);
+    const result = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+    });
+    expect(result.files).toEqual(["alpha.md", "beta.md"]);
+    // Mutation checkpoint: intent-output.test.ts downstreamInputs order
+    expect(result.downstreamInputs).toEqual(["ready-intents/alpha.md", "ready-intents/beta.md"]);
   });
 
   test("idempotent re-land early-return applies the same handoff rules", async () => {

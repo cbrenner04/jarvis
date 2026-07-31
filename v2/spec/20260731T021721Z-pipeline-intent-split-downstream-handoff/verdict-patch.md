@@ -1,0 +1,8 @@
+Verifying the advocate's key claims against the implementation before issuing the verdict.
+## Verdict: required outcomes
+
+1. **Single-file handoff must leave the step-0 entry/write run row without `downstreamInputs`.** The spec requires N=1 to record file-shaped `specPath` and **no** `downstreamInputs`. `persistIntentHandoff` updates `spec_path` but only writes `downstream_inputs` when the handoff carries an array; it never clears a prior value. A run row can therefore hold a stale multi-file array alongside a file-shaped `specPath`, and dispatch can copy that array onto the stage artifact. After any single-file intent handoff persist, the run row must not retain `downstreamInputs`.
+
+2. **Pin the N=1 “no `downstreamInputs`” invariant on the run row.** Landing tests already assert `downstreamInputs` is absent on the landing result; preservation tests for single-file completion do not assert the persisted run row. Add or extend coverage so a stale or leftover `downstream_inputs` column on single-file persist fails—e.g. pre-seed multi-file inputs on the run row then complete with N=1 and assert the column is cleared or absent, and that dispatch would not emit `downstreamInputs` from that row.
+
+**Rationale:** Run-row/artifact parity and additive storage semantics require N=1 to mean file `specPath` only. Stale arrays break the recorded handoff contract and can mis-record stage artifacts before fan-out consumes `downstreamInputs`. Other raised gaps (publication return typing, run-row store round-trip without stage-artifact tests, `carryForwardArtifact` regression tests, `intent.md` drift) do not block this slice’s deliverable; `carryForwardArtifact` and terminal validation already retain full artifacts including optional `downstreamInputs`.

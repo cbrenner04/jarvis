@@ -156,4 +156,52 @@ describe("dispatchPipelineStage", () => {
     });
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
   });
+
+  test("a completed rollup records downstreamInputs from the entry run on the stage artifact", async () => {
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "entry-multi",
+      invocationId: "inv-multi",
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store, patches } = fakeStore({
+      "entry-multi": {
+        specPath: "ready-intents",
+        downstreamInputs: ["ready-intents/one.md", "ready-intents/two.md"],
+      },
+    });
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    // Mutation checkpoint: pipeline-stage-dispatch.test.ts multi-file downstreamInputs artifact
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId: "entry-multi",
+      invocationId: "inv-multi",
+      specPath: "ready-intents",
+      downstreamInputs: ["ready-intents/one.md", "ready-intents/two.md"],
+    });
+  });
+
+  test("a completed rollup omits downstreamInputs when the entry run has a file specPath only", async () => {
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "entry-single-file",
+      invocationId: "inv-single-file",
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store, patches } = fakeStore({
+      "entry-single-file": { specPath: "ready-intents/single.md" },
+    });
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    // Mutation checkpoint: pipeline-stage-dispatch.test.ts single-file no downstreamInputs artifact
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId: "entry-single-file",
+      invocationId: "inv-single-file",
+      specPath: "ready-intents/single.md",
+    });
+  });
 });

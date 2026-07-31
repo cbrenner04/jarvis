@@ -17,7 +17,13 @@ export type IntentOutputConfig = {
   durableDir: string;
 };
 
-export type IntentOutputResult = { specPath: string; files: string[] };
+export type IntentOutputResult = {
+  specPath: string;
+  files: string[];
+  downstreamInputs?: string[];
+};
+
+export type IntentPipelineHandoff = Pick<IntentOutputResult, "specPath" | "downstreamInputs">;
 
 /** Relative file paths currently present under `worktreePath`, excluding `.git`. */
 function listFiles(worktreePath: string, dir: string = worktreePath, out: string[] = []): string[] {
@@ -67,6 +73,26 @@ export function intentPublicationSpecPath(worktreePath: string, durableDir: stri
   return relative(worktreePath, resolve(worktreePath, durableDir)).replace(/\\/g, "/");
 }
 
+/** Pipeline handoff for intent landing: one file → file `specPath`; N≥2 → directory `specPath` plus per-file `downstreamInputs`. */
+export function intentPipelineHandoff(
+  worktreePath: string,
+  durableDir: string,
+  files: readonly string[],
+): IntentPipelineHandoff {
+  const durableRel = intentPublicationSpecPath(worktreePath, durableDir).replace(/\/$/, "");
+  // Mutation checkpoint: intent-output.test.ts multi-file downstreamInputs
+  if (files.length >= 2) {
+    return {
+      specPath: durableRel,
+      downstreamInputs: files.map((file) => `${durableRel}/${file}`),
+    };
+  }
+  if (files.length === 1) {
+    return { specPath: `${durableRel}/${files[0]}` };
+  }
+  return { specPath: durableRel };
+}
+
 /** Worktree-relative handoff path: one landed file → file; otherwise the durable directory. */
 export function intentHandoffSpecPath(
   worktreePath: string,
@@ -74,12 +100,18 @@ export function intentHandoffSpecPath(
   files: string[],
   options?: { invertSingleFileGuardForTest?: boolean },
 ): string {
-  const durableRel = intentPublicationSpecPath(worktreePath, durableDir);
-  const singleFile = options?.invertSingleFileGuardForTest ? files.length !== 1 : files.length === 1;
-  if (singleFile && files.length > 0) {
-    return `${durableRel.replace(/\/$/, "")}/${files[0]}`;
+  if (options?.invertSingleFileGuardForTest) {
+    const durableRel = intentPublicationSpecPath(worktreePath, durableDir);
+    if (files.length !== 1 && files.length > 0) {
+      return `${durableRel.replace(/\/$/, "")}/${files[0]}`;
+    }
+    return durableRel;
   }
-  return durableRel;
+  return intentPipelineHandoff(worktreePath, durableDir, files).specPath;
+}
+
+function landingResult(worktreePath: string, durableDir: string, files: string[]): IntentOutputResult {
+  return { files, ...intentPipelineHandoff(worktreePath, durableDir, files) };
 }
 
 /** Configured durable ready-intents directory from a file- or directory-shaped handoff path. */
@@ -149,10 +181,7 @@ export async function landIntentWorkflowOutput(input: {
   const ownership = readOwnership(ownershipFile);
   const ownedFiles = input.invocationId === undefined ? [] : (ownership[input.invocationId] ?? []);
   if (!existsSync(stageDir) && ownedFiles.length > 0) {
-    return {
-      specPath: intentHandoffSpecPath(input.worktreePath, input.output.durableDir, ownedFiles),
-      files: ownedFiles,
-    };
+    return landingResult(input.worktreePath, input.output.durableDir, ownedFiles);
   }
   if (!existsSync(stageDir) || !statSync(stageDir).isDirectory()) {
     failure("intent: .jarvis-intent-stage is missing");
@@ -211,7 +240,7 @@ export async function landIntentWorkflowOutput(input: {
     }
     rmSync(stageDir, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
-    return { specPath: intentHandoffSpecPath(input.worktreePath, input.output.durableDir, files), files };
+    return landingResult(input.worktreePath, input.output.durableDir, files);
   } catch (error) {
     for (const destination of created) rmSync(destination, { force: true });
     for (const [destination, backup] of backups) {

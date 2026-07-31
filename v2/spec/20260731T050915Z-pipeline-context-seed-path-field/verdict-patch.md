@@ -1,0 +1,8 @@
+Reviewing the implementation and spec artifacts to issue an independent verdict.
+## Verdict — required outcomes
+
+1. **Align `intent.md` acceptance criteria with the completed subspec.** The draft intent still has unchecked, pre-sharpening ACs (no typed pre-fix `bun run typecheck` failure surface, no `Mutation checkpoint:` guards). After alignment, the intent ACs must reflect the same contract as `00-pipeline-context-seed-path-field.md` and be marked satisfied. **Rationale:** Verdict-plan item 7; intent is part of the draft package and must not understate or diverge from the landed acceptance contract.
+
+2. **Finish `PipelineContext` JSDoc per the task checklist.** The one-liner must state that `seed` and `seedPath` are optional, that admission enforces **at most one** (not exactly one), and that the store does not require either field; ambiguous or dual-populated rows load as stored. **Rationale:** Checklist item “Extend `PipelineContext` JSDoc”; subspec decision that mutual exclusivity is documented on `PipelineContext`; current “xor at admission” wording alone contradicts `state-store.md` (“neither required”) and reads like a required field.
+
+**No other actuator work required.** Core persistence behavior, tests, durable docs (`state-store.md`, `v1-behaviors.md`), and the `pipeline-stage-resolve.ts` compile-site fix are in spec scope. Interim `seedPath`-only non-dispatch, stale `daemon-host.md`, absent store-validation/dual-populated tests, and CLI admission still inlining `--seed` into `seed` are bounded by explicit sibling intents and out-of-scope decisions — not defects in this slice.

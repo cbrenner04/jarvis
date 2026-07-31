@@ -692,6 +692,42 @@ describe("pipelines", () => {
     expect(pipeline.stages.map((stage) => stage.position)).toEqual([0, 1, 2]);
   });
 
+  test("retains admitted seedPath context without seed across createPipeline and store reload", () => {
+    const context: PipelineContext = {
+      cwd: "/repo",
+      seedPath: "v2/spec/seeds/feature.md",
+      configPath: "/repo/.jarvis/config.json",
+    };
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });
+
+    const beforeClose = store.loadPipeline(pipelineId);
+    if (!beforeClose) throw new Error("Pipeline should exist");
+    // Mutation checkpoint: omitting `seedPath` from the admitted snapshot makes the test fail.
+    expect(beforeClose.context).toEqual(context);
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    const reopened = store.loadPipeline(pipelineId);
+    if (!reopened) throw new Error("Pipeline should exist");
+    expect(reopened.context).toEqual(context);
+  });
+
+  test("legacy context JSON with only seed loads unchanged without synthesizing seedPath", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const legacyContext = { cwd: "/repo", seed: "legacy inline seed" };
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET context = ? WHERE id = ?").run(JSON.stringify(legacyContext), pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline) throw new Error("Pipeline should exist");
+    // Mutation checkpoint: asserting `seedPath` is present on reload makes the test fail.
+    expect(pipeline.context).toEqual(legacyContext);
+  });
+
   test("retains the admitted context snapshot after the live source context is mutated, and round-trips across close and reopen", () => {
     const context: PipelineContext = { ...SAMPLE_PIPELINE_CONTEXT };
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });

@@ -148,13 +148,14 @@ export type Run = {
 
 export type PipelineStatus = "active" | "interrupted";
 
-/** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. */
+/** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. Optional `seed` and `seedPath` are not required by the store; admission sets at most one; dual-populated or ambiguous rows load as stored. */
 export type PipelineContext = {
   cwd: string;
   configPath?: string;
   targetDir?: string;
   projectRegistry?: Record<string, { root: string; origin?: string }>;
-  seed: string;
+  seed?: string;
+  seedPath?: string;
 };
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */

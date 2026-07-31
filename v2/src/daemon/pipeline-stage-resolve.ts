@@ -383,9 +383,9 @@ async function resolveIntentStage(
   }
   const input: IntentWorkflowInput = {
     cwd: context.cwd,
-    seedText: context.seed,
     reviewPasses: stage.review === "none" ? 0 : FIXED_REVIEW_PASSES,
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
+    ...(context.seed !== undefined ? { seedText: context.seed } : {}),
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };

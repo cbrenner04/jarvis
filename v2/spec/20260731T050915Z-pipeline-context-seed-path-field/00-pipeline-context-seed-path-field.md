@@ -26,9 +26,9 @@ Sibling intents `pipeline-start-seed-path-admission` and `pipeline-intent-stage-
 
 ## Acceptance criteria
 
-- [ ] Typed `PipelineContext` admission with `seedPath` and without `seed` fails `bun run typecheck` pre-fix (required `seed`, missing `seedPath` on the type); `state-store.test.ts` round-trip through `createPipeline` / store reload passes after the type change; `Mutation checkpoint:` omitting `seedPath` from the admitted snapshot makes the test fail.
-- [ ] `state-store.test.ts` — legacy context JSON with only `seed` still loads unchanged; `Mutation checkpoint:` asserting `seedPath` is present on reload makes the test fail.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] Typed `PipelineContext` admission with `seedPath` and without `seed` fails `bun run typecheck` pre-fix (required `seed`, missing `seedPath` on the type); `state-store.test.ts` round-trip through `createPipeline` / store reload passes after the type change; `Mutation checkpoint:` omitting `seedPath` from the admitted snapshot makes the test fail.
+- [x] `state-store.test.ts` — legacy context JSON with only `seed` still loads unchanged; `Mutation checkpoint:` asserting `seedPath` is present on reload makes the test fail.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -21,8 +21,8 @@ import {
   reconciliationStableStageStatus,
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
-  stageRowsIncludeBranchKeys,
   type StateStore,
+  stageRowsIncludeBranchKeys,
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
@@ -881,7 +881,13 @@ describe("pipelines", () => {
         insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1, branchKey: "default" }),
       ).toThrow();
 
-      insertStageRow(raw, { id: "stage-branch-sibling", pipelineId, stageId: "plan", position: 0, branchKey: "branch-a" });
+      insertStageRow(raw, {
+        id: "stage-branch-sibling",
+        pipelineId,
+        stageId: "plan",
+        position: 0,
+        branchKey: "branch-a",
+      });
       const branchRow = raw
         .prepare("SELECT branch_key AS branchKey, position FROM pipeline_stages WHERE id = ?")
         .get("stage-branch-sibling") as { branchKey: string; position: number };
@@ -1374,7 +1380,13 @@ describe("pipelines", () => {
         .prepare(
           "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
         )
-        .run(pipelineId, "legacy-branch-pipeline", Date.now(), "legacy-owner:1", JSON.stringify(SAMPLE_PIPELINE_DEFINITION));
+        .run(
+          pipelineId,
+          "legacy-branch-pipeline",
+          Date.now(),
+          "legacy-owner:1",
+          JSON.stringify(SAMPLE_PIPELINE_DEFINITION),
+        );
       raw
         .prepare(
           `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)

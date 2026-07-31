@@ -302,9 +302,7 @@ export function stageRowsIncludeBranchKeys(
   if (branchKeys.length === 0) {
     return false;
   }
-  const present = new Set(
-    stages.filter((stage) => stage.stageId === stageId).map((stage) => stage.branchKey),
-  );
+  const present = new Set(stages.filter((stage) => stage.stageId === stageId).map((stage) => stage.branchKey));
   return branchKeys.every((branchKey) => present.has(branchKey));
 }
 
@@ -317,9 +315,7 @@ export function isTwoPathDownstreamInputsArtifact(artifact: unknown): boolean {
   if (!Array.isArray(downstreamInputs) || downstreamInputs.length !== 2) {
     return false;
   }
-  return downstreamInputs.every(
-    (path) => typeof path === "string" && path.length > 0 && !path.endsWith("/"),
-  );
+  return downstreamInputs.every((path) => typeof path === "string" && path.length > 0 && !path.endsWith("/"));
 }
 
 /**
@@ -424,12 +420,7 @@ export interface StateStore {
   createPipelineStageBranch(args: { pipelineId: string; stageId: string; branchKey: string }): string;
 
   /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
-  updateStage(args: {
-    pipelineId: string;
-    stageId: string;
-    branchKey?: string;
-    patch: StageLifecyclePatch;
-  }): void;
+  updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void;
 
   /**
    * Conditionally mark one `kind: "approval"` row `pending` → `awaiting` by durable
@@ -1108,9 +1099,7 @@ class StateStoreImpl implements StateStore {
     }
 
     const defaultSibling = this.db
-      .prepare(
-        "SELECT position FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?",
-      )
+      .prepare("SELECT position FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?")
       .get(args.pipelineId, args.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY) as { position: number } | undefined;
     if (defaultSibling === undefined) {
       throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
@@ -1318,12 +1307,7 @@ class StateStoreImpl implements StateStore {
     return row === null ? null : mapStageRow(row);
   }
 
-  updateStage(args: {
-    pipelineId: string;
-    stageId: string;
-    branchKey?: string;
-    patch: StageLifecyclePatch;
-  }): void {
+  updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void {
     const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
     const patch = args.patch;
     const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);

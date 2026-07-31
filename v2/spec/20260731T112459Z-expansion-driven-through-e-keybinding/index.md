@@ -1,3 +1,3 @@
 # Expansion is driven through the real e-keybinding control path
 
-- [ ] [00 - E key drives workflow expansion in rendered output](./00-e-key-expansion-regression.md)
+- [x] [00 - E key drives workflow expansion in rendered output](./00-e-key-expansion-regression.md)

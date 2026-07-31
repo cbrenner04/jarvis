@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { Writable } from "node:stream";
+import { createElement, type ReactElement } from "react";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
+import type { InkRender } from "./tui-ink-feedback.tsx";
+import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
 import type {
   RunTuiEntryDeps,
@@ -58,6 +62,131 @@ const RUN_QUEUED: DaemonListRunRow = {
   status: "queued",
   isLive: false,
 };
+
+const WORKFLOW_FILTER_NOW_MS = 1_700_000_000_000;
+const WORKFLOW_INVOCATION_ID = "inv-implement-review";
+
+const WORKFLOW_STEPS = [
+  { stepId: "implement", role: "implement", status: "completed", attemptCount: 2, terminalOutcome: "complete" },
+  { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
+  { stepId: "verify", role: "verify", status: "pending", attemptCount: 0 },
+] as const;
+
+function workflowRun(
+  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "branch" | "status">,
+): DaemonListRunRow {
+  return {
+    project: "demo",
+    isLive: overrides.status === "in-progress",
+    workflow: {
+      invocationId: WORKFLOW_INVOCATION_ID,
+      steps: [...WORKFLOW_STEPS],
+    },
+    ...overrides,
+  };
+}
+
+function workflowListFixture(): DaemonListRunRow[] {
+  return [
+    workflowRun({
+      runId: "run-implement",
+      stepId: "implement",
+      branch: "feature",
+      status: "completed",
+      isLive: false,
+      finishedAtMs: WORKFLOW_FILTER_NOW_MS - 1_000,
+    }),
+    workflowRun({
+      runId: "run-review",
+      stepId: "implement-review",
+      branch: "feature-review",
+      status: "in-progress",
+      isLive: true,
+    }),
+    workflowRun({
+      runId: "run-verify",
+      stepId: "verify",
+      branch: "feature-verify",
+      status: "queued",
+      isLive: false,
+    }),
+  ];
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g"), "");
+}
+
+function flattenRenderedText(stdoutText: string): string {
+  return stripAnsi(stdoutText).replace(/\s+/g, " ").trim();
+}
+
+function tableBodyText(rendered: string): string {
+  const text = flattenRenderedText(rendered);
+  const header = "runId project branch status liveness";
+  const headerIndex = text.indexOf(header);
+  if (headerIndex === -1) return text;
+  const start = headerIndex + header.length;
+  const queueIndex = text.indexOf(" Queue ", start);
+  const end = queueIndex === -1 ? text.length : queueIndex;
+  return text.slice(start, end);
+}
+
+function inkInputHarness() {
+  let inputHandler: Parameters<InkUseInput>[0] | undefined;
+  let instance: Awaited<ReturnType<InkRender>> | undefined;
+  let stdoutText = "";
+  const opened = deferred<void>();
+  let openedOnce = false;
+
+  const stdout = new Writable({
+    write(chunk, _encoding, callback) {
+      stdoutText += chunk.toString();
+      callback();
+    },
+  }) as NodeJS.WriteStream;
+  stdout.isTTY = true;
+  stdout.columns = 120;
+
+  const useInput: InkUseInput = (nextHandler) => {
+    inputHandler = nextHandler;
+  };
+
+  return {
+    async injection(): Promise<InjectedInkUi> {
+      const ink = await import("ink");
+      return {
+        renderFn: ((element: ReactElement) => {
+          if (!openedOnce) {
+            openedOnce = true;
+            opened.resolve();
+          }
+          instance = ink.render(element, { exitOnCtrlC: false, stdout, patchConsole: false });
+          return instance;
+        }) as InkRender,
+        Text: ({ children, color }) => createElement(ink.Text, color === undefined ? null : { color }, children),
+        useInput,
+      };
+    },
+    async waitUntilOpen() {
+      await opened.promise;
+      if (instance === undefined) throw new Error("expected ink instance");
+      await instance.waitUntilRenderFlush();
+      await flush();
+      await instance.waitUntilRenderFlush();
+    },
+    async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
+      if (inputHandler === undefined) throw new Error("expected input handler");
+      stdoutText = "";
+      inputHandler(input, key);
+      if (instance === undefined) throw new Error("expected ink instance");
+      await instance.waitUntilRenderFlush();
+    },
+    renderedText() {
+      return flattenRenderedText(stdoutText);
+    },
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -269,6 +398,53 @@ describe("runTuiEntry", () => {
     expect(attempted).toBe(true);
     expect(view.feedbackStates).toEqual([{ kind: "unavailable" }]);
     expect(TUI_DAEMON_SOCKET_DISPLAY).toBe("~/.jarvis/daemon.sock");
+  });
+
+  // Guard inversion: remove or bypass the `input === "e"` branch in tui-ink-monitor.tsx — test goes RED.
+  // Guard inversion: empty `toggleSelectedWorkflowExpansion` in tui-entry.tsx — test goes RED.
+  test("drives workflow expansion through the injected input hook", async () => {
+    const input = inkInputHarness();
+    const refresh = createRefreshScheduler();
+    const injection = await input.injection();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: workflowListFixture() }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        refreshScheduler: refresh.scheduler,
+        inkRender: injection,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await input.waitUntilOpen();
+
+    const collapsed = input.renderedText();
+    const collapsedTable = tableBodyText(collapsed);
+    expect(collapsedTable).toContain("workflow-step:implement-review/actuator");
+    expect(collapsedTable).not.toContain("run-implement");
+
+    await input.press("e");
+    const expanded = input.renderedText();
+    const expandedTable = tableBodyText(expanded);
+    expect(expandedTable).toContain("run-implement");
+    expect(expandedTable).toContain("role:implement");
+    expect(expandedTable).toContain("run-review");
+    expect(expandedTable).toContain("workflow-step:implement-review/actuator");
+
+    await input.press("e");
+    const recollapsed = input.renderedText();
+    const recollapsedTable = tableBodyText(recollapsed);
+    expect(recollapsedTable).toContain("workflow-step:implement-review/actuator");
+    expect(recollapsedTable).not.toContain("run-implement");
+    expect(recollapsedTable).not.toContain("role:implement");
+    expect(recollapsedTable).toBe(collapsedTable);
+
+    await input.press("q");
+    expect(await pending).toBe(0);
+    expect(refresh.isClosed()).toBe(true);
   });
 
   test("reachable daemon proves health and status, enters the monitor on one open client, and exits 0 on quit", async () => {

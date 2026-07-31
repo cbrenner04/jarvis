@@ -3,9 +3,6 @@ import type { PipelineTerminalAction } from "./pipeline-definition.ts";
 import { ReadyGateError } from "./ready-finalize.ts";
 import {
   createExecuteTerminalPublication,
-  setInvertFailurePreservationGuardForTest,
-  setInvertLeaveDraftNoMutationGuardForTest,
-  setInvertRedGateBeforeFlipGuardForTest,
   TerminalPublicationError,
   type TerminalPublicationInput,
 } from "./terminal-publication.ts";
@@ -36,11 +33,7 @@ function trackPreservationSeams(closeCalls: string[], deleteCalls: string[]) {
   };
 }
 
-afterEach(() => {
-  setInvertLeaveDraftNoMutationGuardForTest(false);
-  setInvertRedGateBeforeFlipGuardForTest(false);
-  setInvertFailurePreservationGuardForTest(false);
-});
+afterEach(() => {});
 
 describe("executeTerminalPublication", () => {
   it("executes each terminal action type once against fake publication", async () => {
@@ -260,56 +253,5 @@ describe("executeTerminalPublication", () => {
     });
     expect(leaveDraft).toEqual({});
     expect(ghCalls).toHaveLength(0);
-  });
-});
-
-describe("terminal publication guard inversion", () => {
-  it("fails when leave-draft no-mutation guard is inverted", async () => {
-    setInvertLeaveDraftNoMutationGuardForTest(true);
-
-    const flipCalls: string[] = [];
-    const execute = createExecuteTerminalPublication({
-      runReadyGate: async () => {},
-      ghReadyFlip: async (branch, worktreePath) => {
-        flipCalls.push(`${branch}:${worktreePath}`);
-      },
-    });
-
-    await execute({ ...baseInput, terminalAction: "leave-draft" });
-    expect(flipCalls).toEqual(["feature-branch:/tmp/worktree"]);
-  });
-
-  it("fails when red-gate-before-flip guard is inverted", async () => {
-    setInvertRedGateBeforeFlipGuardForTest(true);
-
-    const flipCalls: string[] = [];
-    const execute = createExecuteTerminalPublication({
-      runReadyGate: async () => {
-        throw new ReadyGateError("bun run ready", 1, "red\n");
-      },
-      ghReadyFlip: async () => {
-        flipCalls.push("flip");
-      },
-    });
-
-    await execute({ ...baseInput, terminalAction: "ready" });
-    expect(flipCalls).toEqual(["flip"]);
-  });
-
-  it("fails when failure-preservation guard is inverted", async () => {
-    setInvertFailurePreservationGuardForTest(true);
-
-    const closeCalls: string[] = [];
-    const deleteCalls: string[] = [];
-    const execute = createExecuteTerminalPublication({
-      runReadyGate: async () => {
-        throw new ReadyGateError("bun run ready", 1, "red\n");
-      },
-      ...trackPreservationSeams(closeCalls, deleteCalls),
-    });
-
-    await expect(execute({ ...baseInput, terminalAction: "ready" })).rejects.toBeInstanceOf(TerminalPublicationError);
-    expect(closeCalls).toEqual(["feature-branch:/tmp/worktree"]);
-    expect(deleteCalls).toEqual(["feature-branch:/tmp/worktree"]);
   });
 });

@@ -21,7 +21,7 @@ and `invertFence` into `enforcePersistedReadyGateRepairFence`.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module variable,
+- [x] `workflow-runner.ts` carries no `setInvert*ForTest` export, `invert*ForTest` module variable,
   `invert*` function parameter, or `invert*ForTest` type member.
 
 ## Documentation updates

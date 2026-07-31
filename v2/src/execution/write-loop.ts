@@ -162,24 +162,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   requiredIntegrationScope?: string;
   /** When true, completion publication skips ready finalization (pipeline leave-draft). */
   skipReadyFinalization?: boolean;
-  /**
-   * Test seam: when true, flips which settlement kind the abort/watchdog races produce, proving the
-   * abort-vs-watchdog precedence guard is load-bearing rather than vacuous. Carried per-call so no
-   * test can leave a stale setting that alters another run's settlement.
-   */
-  invertAbortWatchdogPrecedenceForTest?: boolean;
-  /** Test seam: skip aborting the repair controller before join. */
-  invertRepairAbortPropagationForTest?: boolean;
-  /** Test seam: return from repair settlement without joining the invocation promise. */
-  invertRepairJoinForTest?: boolean;
-  /** Test seam: commit a terminal boundary before the repair invocation joins. */
-  invertRepairTerminalBeforeJoinForTest?: boolean;
   /** When true, idle-output stall waits for the child process to close (finalization repair). */
   joinProcessOnIdleStall?: boolean;
-  /** Test seam: skip ready-gate repair completion fencing. */
-  invertReadyGateRepairFenceForTest?: boolean;
-  /** Test seam: skip ready-gate repair harness-sidecar basename fencing. */
-  invertReadyGateRepairSidecarFenceForTest?: boolean;
   /** Test seam: skip persisted-fence enforcement on completed-run retry and resume recovery. */
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
@@ -353,13 +337,7 @@ export async function enumerateRepairCompletionCandidates(worktreePath: string):
   }
 }
 
-function findFirstHarnessSidecarBasenameViolation(
-  candidates: readonly string[],
-  invertSidecarFence: boolean,
-): string | undefined {
-  if (invertSidecarFence) {
-    return undefined;
-  }
+function findFirstHarnessSidecarBasenameViolation(candidates: readonly string[]): string | undefined {
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
     const normalized = validateRepoRelativePath(raw);
@@ -380,11 +358,7 @@ function findFirstHarnessSidecarBasenameViolation(
 export function findFirstRepairFenceViolation(
   candidates: readonly string[],
   allowedPaths: Set<string>,
-  invertFence = false,
 ): string | undefined {
-  if (invertFence) {
-    return undefined;
-  }
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
     const normalized = validateRepoRelativePath(raw);
@@ -405,21 +379,19 @@ export function findFirstRepairFenceViolation(
 export async function validateReadyGateRepairCompletion(
   scope: ReadyGateScopeInput,
   allowedPaths: Set<string>,
-  invertFence = false,
-  invertSidecarFence = false,
 ): Promise<{ error: Error; offendingPath?: string } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
     return { error: new Error("Ready-gate repair fence could not enumerate completion candidates") };
   }
-  const sidecarViolation = findFirstHarnessSidecarBasenameViolation(candidates, invertSidecarFence);
+  const sidecarViolation = findFirstHarnessSidecarBasenameViolation(candidates);
   if (sidecarViolation !== undefined) {
     return {
       offendingPath: sidecarViolation,
       error: new Error(`${REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE}${sidecarViolation}`),
     };
   }
-  const violation = findFirstRepairFenceViolation(candidates, allowedPaths, invertFence);
+  const violation = findFirstRepairFenceViolation(candidates, allowedPaths);
   if (violation === undefined) {
     return undefined;
   }
@@ -455,7 +427,7 @@ export async function enforcePersistedReadyGateRepairFence(
   scope: ReadyGateScopeInput,
   store: StateStore,
   runId: string,
-  options?: { invertFence?: boolean; invertSidecarFence?: boolean; bypass?: boolean },
+  options?: { bypass?: boolean },
 ): Promise<Error | undefined> {
   if (options?.bypass === true) {
     return undefined;
@@ -468,14 +440,7 @@ export async function enforcePersistedReadyGateRepairFence(
   if (provenance === undefined || provenance === null) {
     return undefined;
   }
-  return (
-    await validateReadyGateRepairCompletion(
-      scope,
-      new Set(provenance.allowedPaths),
-      options?.invertFence === true,
-      options?.invertSidecarFence === true,
-    )
-  )?.error;
+  return (await validateReadyGateRepairCompletion(scope, new Set(provenance.allowedPaths)))?.error;
 }
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
@@ -521,8 +486,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             prepared.result.runId,
             {
               bypass: args.bypassPersistedReadyGateRepairFenceForTest === true,
-              invertFence: args.invertReadyGateRepairFenceForTest === true,
-              invertSidecarFence: args.invertReadyGateRepairSidecarFenceForTest === true,
             },
           );
           if (recoveryFenceError !== undefined) {
@@ -1042,8 +1005,8 @@ export type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
 
 /** Pure precedence predicate: which settlement kind a given race role produces. */
-export function resolveIterationSettlementKind(role: AbortWatchdogRole, invert: boolean): "aborted" | "timed_out" {
-  return (role === "abort") !== invert ? "aborted" : "timed_out";
+function resolveIterationSettlementKind(role: AbortWatchdogRole): "aborted" | "timed_out" {
+  return role === "abort" ? "aborted" : "timed_out";
 }
 
 function isInterruptedRace(raced: RaceOutcome): raced is { kind: "aborted" | "timed_out" } {
@@ -1051,17 +1014,11 @@ function isInterruptedRace(raced: RaceOutcome): raced is { kind: "aborted" | "ti
 }
 
 async function settleFinalizationRepair(
-  args: WriteLoopInput,
   raced: RaceOutcome,
   execution: Promise<QuiescedExecutionOutcome>,
   abortExecution: () => void,
 ): Promise<IterationSettlement> {
-  if (!args.invertRepairAbortPropagationForTest) abortExecution();
-  if (args.invertRepairJoinForTest) {
-    return isInterruptedRace(raced)
-      ? { kind: raced.kind, quiesced: { kind: "threw", error: new Error("invert repair join") } }
-      : raced;
-  }
+  abortExecution();
   const quiesced = await execution;
   return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
 }
@@ -1090,16 +1047,11 @@ async function awaitIteration(
   sessionLog: SessionLog,
   settlementPolicy: IterationSettlementPolicy = "bounded",
 ): Promise<IterationSettlement> {
-  const skipRepairAbortPropagation =
-    settlementPolicy === "finalization-repair" && args.invertRepairAbortPropagationForTest === true;
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
-  if (!skipRepairAbortPropagation) {
-    if (args.signal?.aborted) abortExecution();
-    args.signal?.addEventListener("abort", abortExecution, { once: true });
-  }
+  if (args.signal?.aborted) abortExecution();
+  args.signal?.addEventListener("abort", abortExecution, { once: true });
 
-  const invertPrecedence = args.invertAbortWatchdogPrecedenceForTest ?? false;
   const schedule = args.schedule ?? defaultWallSegmentSchedule;
   const wallSegmentMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
   let wallSchedule: WallSegmentScheduleHandle | undefined;
@@ -1111,7 +1063,7 @@ async function awaitIteration(
     if (watchdogSettled) return;
     watchdogSettled = true;
     abortExecution();
-    resolveWatchdog({ kind: resolveIterationSettlementKind("watchdog", invertPrecedence) });
+    resolveWatchdog({ kind: resolveIterationSettlementKind("watchdog") });
   };
 
   const bumpWallSegment = () => {
@@ -1140,8 +1092,7 @@ async function awaitIteration(
   let removeAbort: (() => void) | undefined;
   const abort = new Promise<RaceOutcome>((resolve) => {
     if (!args.signal) return;
-    const resolveAbort = () =>
-      queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort", invertPrecedence) }));
+    const resolveAbort = () => queueMicrotask(() => resolve({ kind: resolveIterationSettlementKind("abort") }));
     if (args.signal.aborted) return resolveAbort();
     const onAbort = () => resolveAbort();
     args.signal.addEventListener("abort", onAbort, { once: true });
@@ -1152,13 +1103,11 @@ async function awaitIteration(
   watchdogSettled = true;
   wallSchedule?.cancel();
   if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
-  if (!skipRepairAbortPropagation) {
-    args.signal?.removeEventListener("abort", abortExecution);
-  }
+  args.signal?.removeEventListener("abort", abortExecution);
   removeAbort?.();
 
   if (settlementPolicy === "finalization-repair") {
-    return settleFinalizationRepair(args, raced, execution, abortExecution);
+    return settleFinalizationRepair(raced, execution, abortExecution);
   }
   return settleBoundedIteration(raced, execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS);
 }
@@ -1649,9 +1598,6 @@ async function runReadyRepairIteration(
       GATE_OUTPUT: gateError.output.slice(-READY_GATE_OUTPUT_MAX_CHARS),
     },
   };
-  if (args.invertRepairTerminalBeforeJoinForTest) {
-    store.setRunStatus(result.runId, "failed");
-  }
   const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");
   if (settled.kind !== "settled") {
     closeSessionLog(
@@ -1830,7 +1776,7 @@ async function initializeFrozenRepairAllowset(
 }
 
 async function enforceRepairIterationFence(
-  args: WriteLoopInput,
+  _args: WriteLoopInput,
   store: StateStore,
   runId: string,
   input: CompletionPublishInput,
@@ -1847,8 +1793,6 @@ async function enforceRepairIterationFence(
       specPath: input.specPath,
     },
     frozenRepairAllowset,
-    args.invertReadyGateRepairFenceForTest === true,
-    args.invertReadyGateRepairSidecarFenceForTest === true,
   );
   if (fenceResult === undefined) {
     return undefined;

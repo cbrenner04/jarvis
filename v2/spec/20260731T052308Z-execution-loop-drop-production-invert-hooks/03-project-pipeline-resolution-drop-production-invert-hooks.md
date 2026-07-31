@@ -19,11 +19,11 @@ variable so guard-inversion tests pass without mutating the real `lacksImplement
 
 ## Acceptance criteria
 
-- [ ] `project-pipeline-resolution.ts` carries no `setInvert*ForTest` export, `invert*ForTest`
+- [x] `project-pipeline-resolution.ts` carries no `setInvert*ForTest` export, `invert*ForTest`
   module variable, `invert*` function parameter, or `invert*ForTest` type member.
-- [ ] In `project-pipeline-resolution.test.ts`, the documented `lacksImplementStage` mutation turns
+- [x] In `project-pipeline-resolution.test.ts`, the documented `lacksImplementStage` mutation turns
   `rejects terminal-action approval conflicts` RED. (Manual)
-- [ ] `project-pipeline-resolution.test.ts` — `rejects terminal-action approval conflicts` stays
+- [x] `project-pipeline-resolution.test.ts` — `rejects terminal-action approval conflicts` stays
   green.
 
 ## Documentation updates

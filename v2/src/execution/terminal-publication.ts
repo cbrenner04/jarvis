@@ -47,22 +47,6 @@ type PublicationDeps = {
 
 const OUTPUT_TAIL_MAX_CHARS = 4096;
 
-let invertLeaveDraftNoMutationGuardForTest = false;
-let invertRedGateBeforeFlipGuardForTest = false;
-let invertFailurePreservationGuardForTest = false;
-
-export function setInvertLeaveDraftNoMutationGuardForTest(value: boolean): void {
-  invertLeaveDraftNoMutationGuardForTest = value;
-}
-
-export function setInvertRedGateBeforeFlipGuardForTest(value: boolean): void {
-  invertRedGateBeforeFlipGuardForTest = value;
-}
-
-export function setInvertFailurePreservationGuardForTest(value: boolean): void {
-  invertFailurePreservationGuardForTest = value;
-}
-
 function wrapReadyGateFailure(error: ReadyGateError): PublicationFailure {
   const messageParts = [error.message, `gateFailureKind=${error.gateFailureKind}`];
   if (error.timedOut) messageParts.push("timedOut=true");
@@ -81,13 +65,13 @@ function wrapReadyGateFailure(error: ReadyGateError): PublicationFailure {
 }
 
 async function maybeDestroyPrEvidence(
-  input: TerminalPublicationInput,
-  ghClose: GhReadyFlip,
-  ghDelete: GhReadyFlip,
+  _input: TerminalPublicationInput,
+  _ghClose: GhReadyFlip,
+  _ghDelete: GhReadyFlip,
 ): Promise<void> {
-  if (!invertFailurePreservationGuardForTest) return;
-  await ghClose(input.branch, input.worktreePath);
-  await ghDelete(input.branch, input.worktreePath);
+  // Mutation checkpoint: closing/deleting the PR here instead of returning early discards the
+  // PR evidence and must turn `retains PR evidence on ready gate failure` RED.
+  return;
 }
 
 async function failTerminalPublication(
@@ -117,7 +101,9 @@ function successEvidence(input: TerminalPublicationInput): TerminalPublicationRe
 }
 
 function requiresReadyOrMergePublication(input: TerminalPublicationInput): boolean {
-  return input.terminalAction === "ready" || input.terminalAction === "merge" || invertLeaveDraftNoMutationGuardForTest;
+  // Mutation checkpoint: returning true for `leave-draft` must turn the leave-draft
+  // no-mutation test RED.
+  return input.terminalAction === "ready" || input.terminalAction === "merge";
 }
 
 async function runReadyGateOrFail(
@@ -129,7 +115,9 @@ async function runReadyGateOrFail(
   try {
     await deps.runReadyGate(input.worktreePath, input.baseRef);
   } catch (error) {
-    if (error instanceof ReadyGateError && !invertRedGateBeforeFlipGuardForTest) {
+    // Mutation checkpoint: dropping this branch ready-flips over a red gate and must turn
+    // `does not ready-flip or merge after a red ready gate` RED.
+    if (error instanceof ReadyGateError) {
       await failTerminalPublication(input, wrapReadyGateFailure(error), prNumber, prUrl, deps.ghClose, deps.ghDelete);
     }
     if (!(error instanceof ReadyGateError)) throw error;
@@ -215,7 +203,9 @@ export function createExecuteTerminalPublication(seams?: TerminalPublicationSeam
   };
 
   return async (input: TerminalPublicationInput): Promise<TerminalPublicationResult> => {
-    if (input.terminalAction === "leave-draft" && !invertLeaveDraftNoMutationGuardForTest) {
+    // Mutation checkpoint: dropping this early return mutates a leave-draft PR and must turn
+    // the leave-draft no-mutation test RED.
+    if (input.terminalAction === "leave-draft") {
       return successEvidence(input);
     }
 

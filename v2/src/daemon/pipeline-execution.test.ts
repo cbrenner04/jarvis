@@ -5,7 +5,14 @@ import { join } from "node:path";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import type { Pipeline, PipelineStageRecord, Run, RunStatus, StateStore, PipelineContext } from "../persistence/state-store.ts";
+import type {
+  Pipeline,
+  PipelineContext,
+  PipelineStageRecord,
+  Run,
+  RunStatus,
+  StateStore,
+} from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
@@ -45,10 +52,7 @@ import type {
   PipelineWorkflowDispatch,
   PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
-import type {
-  PipelineStageResolutionResult,
-  PipelineStageResolveDeps,
-} from "./pipeline-stage-resolve.ts";
+import type { PipelineStageResolutionResult, PipelineStageResolveDeps } from "./pipeline-stage-resolve.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -159,7 +163,9 @@ function fakeStore(
       const defaultSibling = stages.find((s) => s.stageId === args.stageId && s.branchKey === "default");
       if (!defaultSibling) throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
       if (stages.some((s) => s.stageId === args.stageId && s.branchKey === args.branchKey)) {
-        throw new Error(`Branch ${args.branchKey} already exists for stage ${args.stageId} in pipeline ${args.pipelineId}`);
+        throw new Error(
+          `Branch ${args.branchKey} already exists for stage ${args.stageId} in pipeline ${args.pipelineId}`,
+        );
       }
       const id = `row-${args.stageId}-${args.branchKey}`;
       stages.push({
@@ -2442,10 +2448,7 @@ const FAN_OUT_LINEAR_DEFINITION: PipelineDefinition = {
 };
 
 function fanOutResolveStageStub(
-  options: {
-    failBranchIndex?: number;
-    failAtStageIndex?: number;
-  } = {},
+  _options: { failBranchIndex?: number; failAtStageIndex?: number } = {},
 ): (
   definition: PipelineDefinition,
   stageIndex: number,
@@ -2462,8 +2465,7 @@ function fanOutResolveStageStub(
       };
     }
     const priorPlan = stageArtifacts.get("plan");
-    const branchKey =
-      typeof priorPlan?.entryRunId === "string" ? priorPlan.entryRunId.split("-")[1] : undefined;
+    const branchKey = typeof priorPlan?.entryRunId === "string" ? priorPlan.entryRunId.split("-")[1] : undefined;
     return { ok: true, steps: [fanOutTaggedStep(stageIndex, branchKey)] };
   };
 }
@@ -2491,7 +2493,12 @@ function fanOutPipelineDeps(
 ) {
   const instrumentedStore = {
     ...store,
-    updateStage: (args: { pipelineId: string; stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
+    updateStage: (args: {
+      pipelineId: string;
+      stageId: string;
+      branchKey?: string;
+      patch: Record<string, unknown>;
+    }) => {
       if (args.patch.status === "running") {
         dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
       }
@@ -2550,10 +2557,12 @@ describe("pipeline branch fan-out execution", () => {
     expect(dispatchLog.filter((entry) => entry.stageId === "implement" && entry.branchKey === "default")).toEqual([]);
     expect(stageRecord(stages(), "plan", "default")?.status).toBe("skipped");
     expect(stageRecord(stages(), "implement", "default")?.status).toBe("skipped");
-    expect(dispatchLog.filter((entry) => entry.stageId === "plan").map((entry) => entry.branchKey).sort()).toEqual([
-      "alpha",
-      "beta",
-    ]);
+    expect(
+      dispatchLog
+        .filter((entry) => entry.stageId === "plan")
+        .map((entry) => entry.branchKey)
+        .sort(),
+    ).toEqual(["alpha", "beta"]);
     expect(!dispatchLog.some((entry) => entry.stageId === "plan" && entry.branchKey === "default")).toBe(true);
   });
 

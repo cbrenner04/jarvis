@@ -1914,13 +1914,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
       }
       const { pipelineId, stageId, branchKey } = params;
-      const outcome = applyPipelineApprovalDecision(
-        pipelineId,
-        stageId,
-        decision,
-        pipelineExecutionDeps(),
-        branchKey,
-      );
+      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps(), branchKey);
       return { kind: "response", result: outcome };
     };
 

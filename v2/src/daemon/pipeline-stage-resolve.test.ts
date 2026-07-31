@@ -40,11 +40,7 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
 
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
 
-function stageArtifact(
-  entryRunId: string,
-  specPath: string,
-  downstreamInputs?: string[],
-): PipelineStageArtifact {
+function stageArtifact(entryRunId: string, specPath: string, downstreamInputs?: string[]): PipelineStageArtifact {
   return downstreamInputs !== undefined ? { entryRunId, specPath, downstreamInputs } : { entryRunId, specPath };
 }
 
@@ -411,7 +407,9 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(
-      singleStageResolutionSteps(result).some((step) => step.behavior === "review" || step.behavior === "review-debate"),
+      singleStageResolutionSteps(result).some(
+        (step) => step.behavior === "review" || step.behavior === "review-debate",
+      ),
     ).toBe(false);
   });
 
@@ -438,7 +436,9 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(
-      singleStageResolutionSteps(result).some((step) => step.behavior === "review" || step.behavior === "review-debate"),
+      singleStageResolutionSteps(result).some(
+        (step) => step.behavior === "review" || step.behavior === "review-debate",
+      ),
     ).toBe(false);
   });
 
@@ -762,9 +762,7 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
       ],
     };
-    const stageArtifacts = new Map([
-      ["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])],
-    ]);
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])]]);
     const deps = { builders, ...chainedDeps(intentWorktree) };
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
@@ -842,9 +840,7 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
       ],
     };
-    const stageArtifacts = new Map([
-      ["plan", stageArtifact("run-plan", planSpecRel, [ignoredA, ignoredB])],
-    ]);
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel, [ignoredA, ignoredB])]]);
     const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
@@ -913,9 +909,7 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
       ],
     };
-    const stageArtifacts = new Map([
-      ["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])],
-    ]);
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])]]);
     const deps = { builders, ...chainedDeps(intentWorktree) };
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);

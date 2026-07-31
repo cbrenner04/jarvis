@@ -554,7 +554,9 @@ function fastStageStatusVector(pipeline: LoadedPipeline): string[] {
 }
 
 function fastStageStatusForBranch(pipeline: LoadedPipeline, stageId: string, branchKey: string): string {
-  return pipeline.stages.find((stage) => stage.stageId === stageId && stage.branchKey === branchKey)?.status ?? "missing";
+  return (
+    pipeline.stages.find((stage) => stage.stageId === stageId && stage.branchKey === branchKey)?.status ?? "missing"
+  );
 }
 
 function fastTwoBranchStatusVector(pipeline: LoadedPipeline): string[] {
@@ -948,7 +950,8 @@ describe("pipeline end-to-end fast", () => {
 
       await waitFor(
         () =>
-          fastTwoBranchStatusVector(readPipeline(store, pipelineId)).join(",") === FAST_TWO_BRANCH_SUCCESS_VECTOR.join(","),
+          fastTwoBranchStatusVector(readPipeline(store, pipelineId)).join(",") ===
+          FAST_TWO_BRANCH_SUCCESS_VECTOR.join(","),
         10_000,
         `fast fan-out vector=${fastTwoBranchStatusVector(readPipeline(store, pipelineId)).join(",")} detail=${JSON.stringify(readPipeline(store, pipelineId)?.stages.map((s) => ({ id: s.stageId, branch: s.branchKey, status: s.status, failure: s.failureDetail })))}`,
       );

@@ -275,6 +275,49 @@ function chainedStageAllowsFanOut(stage: PipelineStage & { kind: "workflow" }): 
   return refanOutOnLaterStagesForTest && stage.workflow !== "intent";
 }
 
+function chainedReadyIntentFallbackOrError(
+  prior: PriorArtifactContext,
+  verified: { ok: false; error: string },
+): ChainedReadyIntentPaths {
+  if (fallbackToDirectorySpecPathOnMissingForTest) {
+    return { ok: true, kind: "single", path: prior.specPath };
+  }
+  return verified;
+}
+
+function verifyChainedReadyIntentPath(
+  prior: PriorArtifactContext,
+  path: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!isChainedPlanReadyIntentPath(path)) {
+    return {
+      ok: false,
+      error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
+    };
+  }
+  if (!existsSync(join(prior.worktreePath, path))) {
+    if (fallbackToDirectorySpecPathOnMissingForTest) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
+    };
+  }
+  return { ok: true };
+}
+
+function resolveVerifiedChainedReadyIntentPath(
+  prior: PriorArtifactContext,
+  path: string,
+  asFanOut: boolean,
+): ChainedReadyIntentPaths {
+  const verified = verifyChainedReadyIntentPath(prior, path);
+  if (!verified.ok) return chainedReadyIntentFallbackOrError(prior, verified);
+  if (asFanOut) return { ok: true, kind: "fan-out", paths: [path] };
+  return { ok: true, kind: "single", path };
+}
+
 function resolveChainedReadyIntentPaths(
   prior: PriorArtifactContext,
   stage: PipelineStage & { kind: "workflow" },
@@ -293,60 +336,17 @@ function resolveChainedReadyIntentPaths(
     return { ok: true, kind: "single", path: prior.specPath };
   }
 
-  const verifyPath = (path: string): { ok: true } | { ok: false; error: string } => {
-    if (!isChainedPlanReadyIntentPath(path)) {
-      return {
-        ok: false,
-        error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
-      };
-    }
-    if (!existsSync(join(prior.worktreePath, path))) {
-      if (fallbackToDirectorySpecPathOnMissingForTest) {
-        return { ok: true };
-      }
-      return {
-        ok: false,
-        error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
-      };
-    }
-    return { ok: true };
-  };
-
   if (downstreamInputs.length === 1) {
-    const path = downstreamInputs[0]!;
-    const verified = verifyPath(path);
-    if (!verified.ok) {
-      if (fallbackToDirectorySpecPathOnMissingForTest) {
-        return { ok: true, kind: "single", path: prior.specPath };
-      }
-      return verified;
-    }
-    if (treatLength1AsMultiFanOutForTest) {
-      return { ok: true, kind: "fan-out", paths: [path] };
-    }
-    return { ok: true, kind: "single", path };
+    return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, treatLength1AsMultiFanOutForTest);
   }
 
   if (collapseFanOutToFirstInputForTest) {
-    const path = downstreamInputs[0]!;
-    const verified = verifyPath(path);
-    if (!verified.ok) {
-      if (fallbackToDirectorySpecPathOnMissingForTest) {
-        return { ok: true, kind: "single", path: prior.specPath };
-      }
-      return verified;
-    }
-    return { ok: true, kind: "single", path };
+    return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, false);
   }
 
   for (const path of downstreamInputs) {
-    const verified = verifyPath(path);
-    if (!verified.ok) {
-      if (fallbackToDirectorySpecPathOnMissingForTest) {
-        return { ok: true, kind: "single", path: prior.specPath };
-      }
-      return verified;
-    }
+    const verified = verifyChainedReadyIntentPath(prior, path);
+    if (!verified.ok) return chainedReadyIntentFallbackOrError(prior, verified);
   }
   return { ok: true, kind: "fan-out", paths: downstreamInputs };
 }
@@ -471,6 +471,78 @@ async function resolvePlanStage(
   return toResolution(await invokePlanPresetBuilder(presetName, input, context, builders));
 }
 
+function leaveDraftWriteStepMapper(steps: AnyWorkflowStep[]): AnyWorkflowStep[] {
+  return steps.map((step) =>
+    step.behavior === "write" && step.publishCompletion !== false ? { ...step, skipReadyFinalization: true } : step,
+  );
+}
+
+async function resolveImplementWorkflowStage(
+  definition: PipelineDefinition,
+  stage: PipelineStage & { kind: "workflow" },
+  context: PipelineContext,
+  priorArtifact: PipelineStageArtifact | undefined,
+  deps: PipelineStageResolveDeps,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<PipelineStageResolutionResult> {
+  if (stage.review !== "light" && stage.review !== "debate") {
+    return unmappedResult(stage);
+  }
+  const loadRun = deps.loadRun;
+  if (loadRun === undefined) {
+    return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
+  }
+  const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
+  if (!priorResult.ok) return priorResult;
+
+  if (refanOutOnLaterStagesForTest) {
+    const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
+    if (!inputPaths.ok) return inputPaths;
+    if (inputPaths.kind === "fan-out") {
+      return resolveForDownstreamPaths(
+        priorResult.prior,
+        inputPaths.paths,
+        (prior) => resolveImplementStage(stage, prior, context, builders),
+        definition.terminalAction === "leave-draft" ? leaveDraftWriteStepMapper : undefined,
+      );
+    }
+  }
+
+  const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
+  if (!result.ok || definition.terminalAction !== "leave-draft") return result;
+  return { ok: true, steps: leaveDraftWriteStepMapper(singleStageResolutionSteps(result)) };
+}
+
+async function resolvePlanWorkflowStage(
+  stage: PipelineStage & { kind: "workflow" },
+  context: PipelineContext,
+  priorArtifact: PipelineStageArtifact | undefined,
+  presetName: CliWorkflowPresetName,
+  deps: PipelineStageResolveDeps,
+  builders: typeof WORKFLOW_PRESET_BUILDERS,
+): Promise<PipelineStageResolutionResult> {
+  const loadRun = deps.loadRun;
+  if (loadRun === undefined) {
+    return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
+  }
+  const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
+  if (!priorResult.ok) return priorResult;
+
+  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
+  if (!inputPaths.ok) return inputPaths;
+
+  if (inputPaths.kind === "fan-out") {
+    return resolveForDownstreamPaths(priorResult.prior, inputPaths.paths, (prior) =>
+      resolvePlanStage(stage, prior, context, presetName, builders),
+    );
+  }
+
+  const bound = pathForDownstreamInput(priorResult.prior, inputPaths.path);
+  if (!bound.ok) return bound;
+  const prior = { ...priorResult.prior, specPath: bound.path };
+  return resolvePlanStage(stage, prior, context, presetName, builders);
+}
+
 /**
  * Resolve one pipeline stage into buildable workflow steps.
  *
@@ -492,44 +564,7 @@ export async function resolveStageWorkflowSteps(
   const priorArtifact = findPrecedingWorkflowArtifact(definition.stages, stageIndex, stageArtifacts);
 
   if (stage.workflow === "implement") {
-    if (stage.review !== "light" && stage.review !== "debate") {
-      return unmappedResult(stage);
-    }
-    const loadRun = deps.loadRun;
-    if (loadRun === undefined) {
-      return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
-    }
-    const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
-    if (!priorResult.ok) return priorResult;
-
-    if (refanOutOnLaterStagesForTest) {
-      const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
-      if (!inputPaths.ok) return inputPaths;
-      if (inputPaths.kind === "fan-out") {
-        return resolveForDownstreamPaths(
-          priorResult.prior,
-          inputPaths.paths,
-          (prior) => resolveImplementStage(stage, prior, context, builders),
-          definition.terminalAction === "leave-draft"
-            ? (steps) =>
-                steps.map((step) =>
-                  step.behavior === "write" && step.publishCompletion !== false
-                    ? { ...step, skipReadyFinalization: true }
-                    : step,
-                )
-            : undefined,
-        );
-      }
-    }
-
-    const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
-    if (!result.ok || definition.terminalAction !== "leave-draft") return result;
-    return {
-      ok: true,
-      steps: singleStageResolutionSteps(result).map((step) =>
-        step.behavior === "write" && step.publishCompletion !== false ? { ...step, skipReadyFinalization: true } : step,
-      ),
-    };
+    return resolveImplementWorkflowStage(definition, stage, context, priorArtifact, deps, builders);
   }
 
   const presetName = WORKFLOW_POSTURE_PRESETS[stage.workflow]?.[stage.review];
@@ -541,26 +576,7 @@ export async function resolveStageWorkflowSteps(
     return resolveIntentStage(stage, context, priorArtifact, presetName, builders);
   }
   if (stage.workflow === "plan") {
-    const loadRun = deps.loadRun;
-    if (loadRun === undefined) {
-      return { ok: false, error: "pipeline-stage-resolve: loadRun is required for chained stage resolution" };
-    }
-    const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
-    if (!priorResult.ok) return priorResult;
-
-    const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, stage);
-    if (!inputPaths.ok) return inputPaths;
-
-    if (inputPaths.kind === "fan-out") {
-      return resolveForDownstreamPaths(priorResult.prior, inputPaths.paths, (prior) =>
-        resolvePlanStage(stage, prior, context, presetName, builders),
-      );
-    }
-
-    const bound = pathForDownstreamInput(priorResult.prior, inputPaths.path);
-    if (!bound.ok) return bound;
-    const prior = { ...priorResult.prior, specPath: bound.path };
-    return resolvePlanStage(stage, prior, context, presetName, builders);
+    return resolvePlanWorkflowStage(stage, context, priorArtifact, presetName, deps, builders);
   }
   return unmappedResult(stage);
 }

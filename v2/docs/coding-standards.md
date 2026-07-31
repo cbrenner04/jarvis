@@ -59,6 +59,15 @@ runner seam; new allowlist entries need a CLI-only reason. `bun run check`
 enforces this, including v2 imports of synchronous runner seams and Git helpers.
 Small synchronous filesystem reads remain permitted.
 
+## Production invert-for-test hooks
+
+Production code under `v2/src`, `v1/src`, and `shared` must not carry the four
+invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest`
+module variables, `invert*` function parameters, and `invert*ForTest` type
+members. `bun run check` enforces this via
+`scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of
+scope.
+
 ## Workflow composition gate
 
 New workflow behavior must compose the existing publication, review, landing,

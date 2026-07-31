@@ -32,12 +32,12 @@ matching all four shapes across `v2/src/**`, `v1/src/**`, and `shared/**`.
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-production-test-flags.test.ts` — a rejected-fixture case for `export function setInvertFooForTest` in a non-test file under each of `v2/src/**`, `v1/src/**`, and `shared/**` fails against the pre-guard tree and passes after; matching `.test.ts` and `.test.tsx` fixtures for the same export pass.
-- [ ] `scripts/guard-production-test-flags.test.ts` — rejected-fixture cases for a non-test `invertFooForTest` module variable, an `invertFoo` / `invertFooForTest` function parameter, and an `invertFooForTest` type member each fail pre-guard and pass post-guard; matching `.test.ts` and `.test.tsx` fixtures pass; at least one rejected fixture uses a `*.tsx` production path.
-- [ ] `scripts/guard-production-test-flags.test.ts` — inverting the `.test.` basename exclusion on `scripts/guard-production-test-flags.ts` (per the pinning-test comment checkpoint naming that mutation) makes the extension-gate subcase RED.
-- [ ] `bun run check` runs the guard and passes against the current tree with zero hook-name allowlist entries and only the `shared/prompts/step-rules.ts` path skip.
-- [ ] `v1/test/ready-script.sandbox-unrunnable.test.ts` test `package biome scripts use bun's resolved biome binary` pins the updated `check` script string including the new guard.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `scripts/guard-production-test-flags.test.ts` — a rejected-fixture case for `export function setInvertFooForTest` in a non-test file under each of `v2/src/**`, `v1/src/**`, and `shared/**` fails against the pre-guard tree and passes after; matching `.test.ts` and `.test.tsx` fixtures for the same export pass.
+- [x] `scripts/guard-production-test-flags.test.ts` — rejected-fixture cases for a non-test `invertFooForTest` module variable, an `invertFoo` / `invertFooForTest` function parameter, and an `invertFooForTest` type member each fail pre-guard and pass post-guard; matching `.test.ts` and `.test.tsx` fixtures pass; at least one rejected fixture uses a `*.tsx` production path.
+- [x] `scripts/guard-production-test-flags.test.ts` — inverting the `.test.` basename exclusion on `scripts/guard-production-test-flags.ts` (per the pinning-test comment checkpoint naming that mutation) makes the extension-gate subcase RED.
+- [x] `bun run check` runs the guard and passes against the current tree with zero hook-name allowlist entries and only the `shared/prompts/step-rules.ts` path skip.
+- [x] `v1/test/ready-script.sandbox-unrunnable.test.ts` test `package biome scripts use bun's resolved biome binary` pins the updated `check` script string including the new guard.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

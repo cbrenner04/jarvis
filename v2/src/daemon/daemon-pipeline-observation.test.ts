@@ -129,6 +129,7 @@ function pipelineWithStages(
       id: `row-${index}`,
       pipelineId,
       stageId: stage.stageId,
+      branchKey: "default",
       position: index,
       status: statuses[stage.stageId]?.status ?? "pending",
       workflowInvocationId: statuses[stage.stageId]?.workflowInvocationId ?? null,

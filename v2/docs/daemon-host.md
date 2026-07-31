@@ -794,6 +794,8 @@ structured stream is the durable run timeline once records exist. See
 
 ## Pipeline stage resolution
 
+`pipeline_stages` rows are keyed by `(stageId, branchKey)`; admission and `createPipelineStageBranch` persist branch rows, but stage resolution and dispatch in this build still target the default branch only. Persisted stage artifacts may include `downstreamInputs: string[]` of worktree-relative ready-intent file paths; resolution and dispatch still use today's `specPath`/single-input behavior until downstream-handoff/fan-out land.
+
 `v2/src/daemon/pipeline-stage-resolve.ts` turns one `pipeline_stages` row plus
 pipeline-level context into a `WORKFLOW_PRESET_BUILDERS` call. Admission holds a
 `PipelineContext` in daemon memory for the pipeline loop's lifetime (not

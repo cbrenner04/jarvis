@@ -274,11 +274,16 @@ export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageR
   return { kind: "valid", failedStageRecordId: failedStage.id, suffixStageRecordIds };
 }
 
+export const DEFAULT_PIPELINE_STAGE_BRANCH_KEY = "default";
+
+export const PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL = `(branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}') DESC, branch_key ASC`;
+
 /** A durable stage record belonging to an admitted pipeline. */
 export type PipelineStageRecord = {
   id: string;
   pipelineId: string;
   stageId: string;
+  branchKey: string;
   position: number;
   status: string;
   workflowInvocationId: string | null;
@@ -287,6 +292,35 @@ export type PipelineStageRecord = {
   artifact: unknown | null;
   failureDetail: unknown | null;
 };
+
+/** True when every listed branch key has a stored row for the authored stage. */
+export function stageRowsIncludeBranchKeys(
+  stages: readonly PipelineStageRecord[],
+  stageId: string,
+  branchKeys: readonly string[],
+): boolean {
+  if (branchKeys.length === 0) {
+    return false;
+  }
+  const present = new Set(
+    stages.filter((stage) => stage.stageId === stageId).map((stage) => stage.branchKey),
+  );
+  return branchKeys.every((branchKey) => present.has(branchKey));
+}
+
+/** True when artifact JSON stores exactly two worktree-relative ready-intent file paths. */
+export function isTwoPathDownstreamInputsArtifact(artifact: unknown): boolean {
+  if (artifact === null || typeof artifact !== "object") {
+    return false;
+  }
+  const downstreamInputs = (artifact as { downstreamInputs?: unknown }).downstreamInputs;
+  if (!Array.isArray(downstreamInputs) || downstreamInputs.length !== 2) {
+    return false;
+  }
+  return downstreamInputs.every(
+    (path) => typeof path === "string" && path.length > 0 && !path.endsWith("/"),
+  );
+}
 
 /**
  * A targeted patch to one stage's durable lifecycle fields. Omitted fields are
@@ -380,18 +414,22 @@ export interface StateStore {
     beforeStageInsert?: (stageIndex: number) => void;
   }): string;
 
-  /** Load an admitted pipeline and its stages, ordered by authored position; null when unknown. */
+  /** Load an admitted pipeline and its stages, ordered by position then branch key; null when unknown. */
   loadPipeline(pipelineId: string): (Pipeline & { stages: PipelineStageRecord[] }) | null;
 
-  /** Every admitted pipeline with its stages ordered by authored position; pipeline order is unspecified. */
+  /** Every admitted pipeline with its stages ordered by position then branch key; pipeline order is unspecified. */
   listPipelines(): Array<Pipeline & { stages: PipelineStageRecord[] }>;
 
-  /**
-   * Apply a targeted lifecycle patch to one stage row in place, preserving its
-   * durable ID, pipeline ID, stage ID, and position. Rejects an empty patch and
-   * an unknown `(pipelineId, stageId)`.
-   */
-  updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void;
+  /** Admit an additional branch row for one authored stage; returns the new row's durable `id`. */
+  createPipelineStageBranch(args: { pipelineId: string; stageId: string; branchKey: string }): string;
+
+  /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
+  updateStage(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+    patch: StageLifecyclePatch;
+  }): void;
 
   /**
    * Conditionally mark one `kind: "approval"` row `pending` → `awaiting` by durable
@@ -525,9 +563,16 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
 
 const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt`;
 
-const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
+const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
   artifact AS artifactJson, failure_detail AS failureDetailJson`;
+
+const INSERT_PIPELINE_STAGE_SQL = `
+  INSERT INTO pipeline_stages (
+    id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+  )
+  VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)
+`;
 
 const SCHEMA_MIGRATIONS = [
   {
@@ -617,6 +662,36 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "019-run-retained-finalization-checkpoint",
     up: "ALTER TABLE runs ADD COLUMN retained_finalization_checkpoint TEXT",
+  },
+  {
+    id: "020-pipeline-stage-branch-key",
+    up: `
+      ALTER TABLE pipeline_stages ADD COLUMN branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}';
+      CREATE TABLE pipeline_stages_new (
+        id TEXT PRIMARY KEY,
+        pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+        stage_id TEXT NOT NULL,
+        branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}',
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        workflow_invocation_id TEXT,
+        started_at INTEGER,
+        ended_at INTEGER,
+        artifact TEXT,
+        failure_detail TEXT,
+        UNIQUE (pipeline_id, stage_id, branch_key)
+      );
+      INSERT INTO pipeline_stages_new (
+        id, pipeline_id, stage_id, branch_key, position, status,
+        workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+      )
+      SELECT
+        id, pipeline_id, stage_id, branch_key, position, status,
+        workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+      FROM pipeline_stages;
+      DROP TABLE pipeline_stages;
+      ALTER TABLE pipeline_stages_new RENAME TO pipeline_stages;
+    `,
   },
 ] as const;
 
@@ -992,13 +1067,8 @@ class StateStoreImpl implements StateStore {
       args.definition.stages.forEach((stage, index) => {
         args.beforeStageInsert?.(index);
         this.db
-          .prepare(`
-            INSERT INTO pipeline_stages (
-              id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail
-            )
-            VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)
-          `)
-          .run(crypto.randomUUID(), pipelineId, stage.stageId, index);
+          .prepare(INSERT_PIPELINE_STAGE_SQL)
+          .run(crypto.randomUUID(), pipelineId, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY, index);
       });
     })();
 
@@ -1025,9 +1095,41 @@ class StateStoreImpl implements StateStore {
   private loadPipelineStages(pipelineId: string): PipelineStageRecord[] {
     return (
       this.db
-        .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC`)
+        .prepare(
+          `SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE pipeline_id = ? ORDER BY position ASC, ${PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL}`,
+        )
         .all(pipelineId) as StageRow[]
     ).map(mapStageRow);
+  }
+
+  createPipelineStageBranch(args: { pipelineId: string; stageId: string; branchKey: string }): string {
+    if (this.db.prepare("SELECT 1 FROM pipelines WHERE id = ?").get(args.pipelineId) === null) {
+      throw new Error(`Pipeline ${args.pipelineId} not found`);
+    }
+
+    const defaultSibling = this.db
+      .prepare(
+        "SELECT position FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?",
+      )
+      .get(args.pipelineId, args.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY) as { position: number } | undefined;
+    if (defaultSibling === undefined) {
+      throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
+    }
+
+    const id = crypto.randomUUID();
+    try {
+      this.db
+        .prepare(INSERT_PIPELINE_STAGE_SQL)
+        .run(id, args.pipelineId, args.stageId, args.branchKey, defaultSibling.position);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT_UNIQUE") {
+        throw new Error(
+          `Branch ${args.branchKey} already exists for stage ${args.stageId} in pipeline ${args.pipelineId}`,
+        );
+      }
+      throw error;
+    }
+    return id;
   }
 
   commitApprovalBoundary(args: { stageRecordId: string }): ApprovalOperationOutcome {
@@ -1216,7 +1318,13 @@ class StateStoreImpl implements StateStore {
     return row === null ? null : mapStageRow(row);
   }
 
-  updateStage(args: { pipelineId: string; stageId: string; patch: StageLifecyclePatch }): void {
+  updateStage(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+    patch: StageLifecyclePatch;
+  }): void {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
     const patch = args.patch;
     const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);
     if (keys.length === 0) {
@@ -1241,13 +1349,15 @@ class StateStoreImpl implements StateStore {
       setClauses.push(`${columnByField[key]} = ?`);
       params.push(value as SQLQueryBindings);
     }
-    params.push(args.pipelineId, args.stageId);
+    params.push(args.pipelineId, args.stageId, branchKey);
 
     const result = this.db
-      .prepare(`UPDATE pipeline_stages SET ${setClauses.join(", ")} WHERE pipeline_id = ? AND stage_id = ?`)
+      .prepare(
+        `UPDATE pipeline_stages SET ${setClauses.join(", ")} WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
+      )
       .run(...params);
     if (result.changes === 0) {
-      throw new Error(`Stage ${args.stageId} not found in pipeline ${args.pipelineId}`);
+      throw new Error(`Stage ${args.stageId} (branch ${branchKey}) not found in pipeline ${args.pipelineId}`);
     }
   }
 

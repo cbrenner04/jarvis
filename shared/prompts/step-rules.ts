@@ -4,5 +4,7 @@
  * from v2.
  */
 export const DEFAULT_WRITE_STEP_RULES =
+  "Guard-inversion criteria require a source mutation on the real guard and a comment checkpoint on the pinning test that names that mutation — production invert hooks are forbidden.\n" +
+  "Do not add `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, or `invert*ForTest` type members in production code.\n" +
   "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.\n" +
   "done and no-work end the step. Use progress when work remains and you are not stuck. Use blocked when stuck; record the blocker where your mode's rules require.";

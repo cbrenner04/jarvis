@@ -64,6 +64,17 @@ function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding
   };
 }
 
+function expectGuardInversionWriteStepRules(prompt: string): void {
+  expect(prompt).toContain("require a source mutation on the real guard");
+  expect(prompt).toContain("comment checkpoint on the pinning test");
+  expect(prompt).toContain("production invert hooks are forbidden");
+  expect(prompt).toContain("Do not add");
+  expect(prompt).toContain("`setInvert*ForTest` exports");
+  expect(prompt).toContain("`invert*ForTest` module variables");
+  expect(prompt).toContain("`invert*` function parameters");
+  expect(prompt).toContain("`invert*ForTest` type members");
+}
+
 async function runPlanDraftWrite(args: {
   jarvisRoot: string;
   branchName: string;
@@ -273,6 +284,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).not.toContain("Read the spec at");
   });
 
+  // Inversion target: DEFAULT_WRITE_STEP_RULES — removing, gutting, or inverting polarity in the guard-inversion paragraph turns this test RED.
   test("patch.prompt.body resolves step placeholders and invokes binding", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -325,6 +337,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expectGuardInversionWriteStepRules(capturedPrompt);
     expect(capturedPrompt).toContain(
       "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
     );
@@ -431,6 +444,7 @@ describe("write behavior", () => {
     expect(existsSync(join(result.worktreePath, ".jarvis-intent-stage", "plan-intent-flag.md"))).toBe(true);
   });
 
+  // Inversion target: DEFAULT_WRITE_STEP_RULES — removing, gutting, or inverting polarity in the guard-inversion paragraph turns this test RED.
   test("intentSeed branch: agent-instructed write path matches the seeded/validated spec directory", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -471,6 +485,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
     expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
+    expectGuardInversionWriteStepRules(capturedPrompt);
 
     const intentPath = join(result.worktreePath, ".jarvis-plan-stage", "intent.md");
     expect(existsSync(intentPath)).toBe(true);

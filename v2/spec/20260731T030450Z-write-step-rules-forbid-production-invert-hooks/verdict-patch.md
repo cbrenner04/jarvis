@@ -1,0 +1,10 @@
+Reviewing the implementation against the spec and durable docs to issue a verdict.
+## Verdict: required outcomes
+
+1. **`v2/docs/test-writing.md` must not describe static enforcement as live today.** The guard-inversion section names `scripts/guard-production-test-flags.ts` as if it already runs under `bun run check`; that script does not exist—only the ready intent does. Operators reading the doc should understand enforcement is planned (`guard-production-test-flags`), not currently active.
+
+2. **`v2/docs/test-writing.md` must state that injected write-step rules are necessary but not sufficient to stop production invert hooks.** The subspec decision assigns prompt/`test-writing.md` the evidence contract and invert-hook prohibition, with static enforcement owned elsewhere. Without an explicit “necessary but not sufficient” handoff, the doc overstates what prompt text alone achieves.
+
+3. **Render-test comments (and any related wording tied to AC #2) must accurately describe what makes `write.test.ts` fail.** Current comments claim “removing or inverting” the guard-inversion paragraph turns the tests RED, but the six substring pins only catch removal or gutting of those fragments—not semantic reversal (e.g. `require` → `forbid`, `Do not add` → `Always add`) while substrings remain. Either narrow the stated guarantee to removal/gutting of the contract text, or extend pins so polarity-bearing fragments must match the intended prohibition. The outcome must match what maintainers are told the tests protect.
+
+**Rationale:** Outcomes 1–2 fix durable-doc misrepresentation and complete the spec’s documentation handoff. Outcome 3 aligns test metadata with actual regression coverage so future edits do not rely on a false inversion guarantee. No other changes are required for merge: core constant, six substring pins on both named render surfaces, v1 fixture refresh, and evidence/forbidden-shapes documentation are otherwise satisfied; plan-draft vs `draft.md` tension is explicitly out of scope.

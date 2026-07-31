@@ -23,12 +23,12 @@ partition guard-inversion ACs pass without mutating the real `bulletsForBoundary
 
 ## Acceptance criteria
 
-- [ ] `shared/**/*.ts` outside `*.test.ts` exports no `setInvert*ForTest` and declares no `invert*ForTest` module variables.
-- [ ] (Manual) `module-boundary-surfaces.test.ts` — `inverting partition guard fails k2 draft-scope preservation` is removed; guard inversion is documented in a comment checkpoint on `normalizes the k2 staged tree without provenance` naming bypass via `bulletsForBoundary` filter mutation (`return bullets.filter(...)` → `return [...bullets]`); operator verifies that test turns red under that mutation.
-- [ ] (Manual) `module-boundary-surfaces.test.ts` — `normalizes the k2 staged tree without provenance` turns red when the named `bulletsForBoundary` filter mutation is applied (other k2 assertions may also fail).
-- [ ] `module-boundary-surfaces.test.ts` — `normalizes the k2 staged tree without provenance` stays green (k2 draft-scope preservation under the real guard; behavior unchanged by hook removal).
-- [ ] `module-boundary-surfaces.test.ts` — `inverting draft dependency order guard fails k4` stays green (behavior unchanged by partition-hook removal).
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass for touched shared files.
+- [x] `shared/**/*.ts` outside `*.test.ts` exports no `setInvert*ForTest` and declares no `invert*ForTest` module variables.
+- [x] `module-boundary-surfaces.test.ts` — `inverting partition guard fails k2 draft-scope preservation` is removed; guard inversion is documented in a comment checkpoint on `normalizes the k2 staged tree without provenance` naming bypass via `bulletsForBoundary` filter mutation (`return bullets.filter(...)` → `return [...bullets]`); operator verifies that test turns red under that mutation. (Manual)
+- [x] `module-boundary-surfaces.test.ts` — `normalizes the k2 staged tree without provenance` turns red when the named `bulletsForBoundary` filter mutation is applied (other k2 assertions may also fail). (Manual)
+- [x] `module-boundary-surfaces.test.ts` — `normalizes the k2 staged tree without provenance` stays green (k2 draft-scope preservation under the real guard; behavior unchanged by hook removal).
+- [x] `module-boundary-surfaces.test.ts` — `inverting draft dependency order guard fails k4` stays green (behavior unchanged by partition-hook removal).
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass for touched shared files.
 
 ## Documentation updates
 

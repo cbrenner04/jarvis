@@ -7,7 +7,6 @@ import {
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
   orderModuleBoundariesForSplit,
-  setInvertPartitionGuardForTest,
   spansMultipleModuleBoundaries,
   splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
@@ -89,7 +88,6 @@ function assertManifestUnion(
 }
 
 afterEach(() => {
-  setInvertPartitionGuardForTest(false);
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -177,34 +175,6 @@ describe("module boundary surfaces", () => {
       }
     });
   }
-
-  test("inverting partition guard fails k2 draft-scope preservation", () => {
-    const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k2");
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture("k2");
-    setInvertPartitionGuardForTest(true);
-
-    normalizePlanDraftSpecDir(dir);
-
-    const persistenceBody = readFileSync(join(dir, "00-persistence.md"), "utf8");
-    const cliBody = readFileSync(join(dir, "01-cli.md"), "utf8");
-    const persistenceChild = fixture.expectedChildren.find((child) => child.file === "00-persistence.md");
-    const cliChild = fixture.expectedChildren.find((child) => child.file === "01-cli.md");
-    if (!persistenceChild || !cliChild) throw new Error("k2 child expectations are missing");
-
-    for (const section of PRESERVED_SECTIONS) {
-      expect(sectionBulletLines(persistenceBody, section.heading, section.checkbox)).not.toEqual(
-        persistenceChild[section.key],
-      );
-    }
-    expect(sectionBulletLines(cliBody, "## Decisions", false)).toContain("- Validate CLI flags before dispatch.");
-    expect(sectionBulletLines(cliBody, "## Acceptance criteria", true)).toContain(
-      "- [ ] The CLI validates run flags before dispatch.",
-    );
-    expect(sectionBulletLines(cliBody, "## Documentation updates", false)).toContain(
-      "- Document CLI flag validation in install-and-config.",
-    );
-  });
 
   test("inverting draft dependency order guard fails k4", () => {
     const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k4");

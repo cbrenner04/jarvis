@@ -13,7 +13,7 @@ import {
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers, setInvertAdmissionContextHandoffForTest } from "./daemon.ts";
+import { createRunControlHandlers } from "./daemon.ts";
 import { derivePipelineState } from "./pipeline-execution.ts";
 import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 
@@ -164,24 +164,6 @@ test("pipeline_start persists supplied context before returning pipelineId", asy
 
   const admitted = stateStore.loadPipeline(pipelineId);
   if (!admitted) throw new Error("expected pipeline to exist");
+  // In `handlePipelineStartHandler`, `createPipeline({ definition, context })` → `createPipeline({ definition })` turns this test RED.
   expect(admitted.context).toEqual(ADMISSION_CONTEXT);
-});
-
-test("inverting admission-context handoff fails persistence regression", async () => {
-  setInvertAdmissionContextHandoffForTest(true);
-  try {
-    const handlers = createPipelineStartHandlers(async () => ({ ok: true, steps: [] }));
-
-    const response = await handlers.pipeline_start(
-      requestFrame("ctx-inv", "pipeline_start", { definition: SINGLE_STAGE_DEFINITION, context: ADMISSION_CONTEXT }),
-      new AbortController().signal,
-    );
-    expect(response).toEqual({
-      kind: "error",
-      code: "admission_failed",
-      message: "pipeline context was not durably persisted",
-    });
-  } finally {
-    setInvertAdmissionContextHandoffForTest(false);
-  }
 });

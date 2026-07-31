@@ -127,13 +127,6 @@ type ActiveRun =
 
 const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
 
-let invertAdmissionContextHandoffForTest = false;
-
-/** Test seam: omit `context` from `createPipeline` to exercise admission-context handoff. */
-export function setInvertAdmissionContextHandoffForTest(value: boolean): void {
-  invertAdmissionContextHandoffForTest = value;
-}
-
 /** Test seam: lookup a live run row for a specific handler instance. */
 export function activeRunForHandler(handlers: object, id: string): ActiveRun | undefined {
   return activeRunsByHandler.get(handlers)?.get(id);
@@ -377,29 +370,12 @@ export function resetWriteLoopBindingSourceDepsForTests(): void {
   writeLoopBindingSourceDeps = {};
 }
 
-let invertWorkflowKillBeforeRepairQuiescenceForTest = false;
-let invertWorkflowRegistryReleaseBeforeKillForTest = false;
-
-export function setInvertWorkflowKillBeforeRepairQuiescenceForTest(value: boolean): void {
-  invertWorkflowKillBeforeRepairQuiescenceForTest = value;
-}
-
-export function setInvertWorkflowRegistryReleaseBeforeKillForTest(value: boolean): void {
-  invertWorkflowRegistryReleaseBeforeKillForTest = value;
-}
-
 /** Release workflow registry claim and persist deferred kills in settlement order. */
 export function settleKilledWorkflowOwnership(args: {
   killedRunIds: readonly string[];
   releaseRegistry: () => void;
   commitGuardedKill: (runId: string) => void;
-  invertRegistryReleaseBeforeKill?: boolean;
 }): void {
-  if (args.invertRegistryReleaseBeforeKill) {
-    args.releaseRegistry();
-    for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
-    return;
-  }
   for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
   args.releaseRegistry();
 }
@@ -1136,7 +1112,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             killedRunIds: killedWorkflowRuns,
             releaseRegistry: () => _registry.release(workflowKey, claimRunId),
             commitGuardedKill: (runId) => store.commitGuardedKill(runId),
-            invertRegistryReleaseBeforeKill: invertWorkflowRegistryReleaseBeforeKillForTest,
           });
           if (workflowInvocationId !== undefined) {
             clearLiveReviewProgress(workflowInvocationId);
@@ -1496,9 +1471,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       activeRun.abortController.abort();
       if (activeRun.kind === "workflow") {
         activeRun.pendingKill = true;
-        if (invertWorkflowKillBeforeRepairQuiescenceForTest) {
-          store.commitGuardedKill(runId);
-        }
         return { kind: "response", result: { ok: true } };
       }
       store.commitGuardedKill(runId);
@@ -1886,9 +1858,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return { kind: "error", code: "invalid_params", message: "definition and context required" };
     }
     const { definition, context } = params;
-    const pipelineId = store.createPipeline(
-      invertAdmissionContextHandoffForTest ? { definition } : { definition, context },
-    );
+    const pipelineId = store.createPipeline({ definition, context });
     const admitted = store.loadPipeline(pipelineId);
     if (!admitted?.context) {
       return {

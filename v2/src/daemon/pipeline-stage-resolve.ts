@@ -60,14 +60,8 @@ const WORKFLOW_POSTURE_PRESETS: Record<string, Partial<Record<string, CliWorkflo
 
 const FIXED_REVIEW_PASSES = 1;
 
-let invertPriorWorktreeRootGuardForTest = false;
-
-export function setInvertPriorWorktreeRootGuardForTest(value: boolean): void {
-  invertPriorWorktreeRootGuardForTest = value;
-}
-
-function selectChainedStageCwd(contextCwd: string, priorWorktreePath: string): string {
-  return invertPriorWorktreeRootGuardForTest ? contextCwd : priorWorktreePath;
+function selectChainedStageCwd(_contextCwd: string, priorWorktreePath: string): string {
+  return priorWorktreePath;
 }
 
 function unmappedResult(stage: PipelineStage & { kind: "workflow" }): { ok: false; error: string } {

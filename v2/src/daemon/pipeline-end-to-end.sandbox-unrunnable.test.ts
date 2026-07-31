@@ -20,13 +20,9 @@ import {
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
-import { derivePipelineState, setInvertResumeFailedRequiresReopenForTest } from "./pipeline-execution.ts";
+import { derivePipelineState } from "./pipeline-execution.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import {
-  createChainedStageProjectMatch,
-  resolveStageWorkflowSteps,
-  setInvertPriorWorktreeRootGuardForTest,
-} from "./pipeline-stage-resolve.ts";
+import { createChainedStageProjectMatch, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const PROJECT_KEY = "demo";
 const STAGE_IDS = ["intent", "approve-intent", "plan", "approve-plan", "implement"] as const;
@@ -626,7 +622,6 @@ describe("pipeline end-to-end full-review", () => {
   });
 
   afterEach(async () => {
-    setInvertResumeFailedRequiresReopenForTest(false);
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     await flushBackgroundRuns();
@@ -682,6 +677,7 @@ describe("pipeline end-to-end full-review", () => {
     const intentInvocationId = pipeline.stages.find((stage) => stage.stageId === "intent")?.workflowInvocationId;
     expect(intentInvocationId).toBeTruthy();
 
+    // In `resumeFailedRequiresReopen`, `derivedState === "failed"` → `derivedState !== "failed"` turns this test RED.
     const resume = await handlers.pipeline_resume(
       requestFrame("resume", "pipeline_resume", { pipelineId }),
       new AbortController().signal,
@@ -766,41 +762,6 @@ describe("pipeline end-to-end full-review", () => {
     expect(harness.dispatchCounts.intent).toBe(0);
     harness.fakeExecutor.abortAll();
   });
-
-  test("inverting resumeFailedRequiresReopen refuses resume after plan failure", async () => {
-    setInvertResumeFailedRequiresReopenForTest(true);
-    const harness = createHarness(repoRoot, jarvisRoot, configPath, { failFirstPlanWait: true });
-    const { store, handlers, definition, context } = harness;
-
-    const start = await handlers.pipeline_start(
-      requestFrame("start", "pipeline_start", { definition, context }),
-      new AbortController().signal,
-    );
-    const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
-
-    await waitFor(
-      () =>
-        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,awaiting,pending,pending,pending",
-    );
-    await handlers.pipeline_approve(
-      requestFrame("approve-intent", "pipeline_approve", { pipelineId, stageId: "approve-intent" }),
-      new AbortController().signal,
-    );
-    await waitFor(
-      () =>
-        stageStatusVector(readPipeline(store, pipelineId)).join(",") === "succeeded,approved,failed,skipped,skipped",
-    );
-
-    const resume = await handlers.pipeline_resume(
-      requestFrame("resume", "pipeline_resume", { pipelineId }),
-      new AbortController().signal,
-    );
-    expect(resume).toEqual({
-      kind: "response",
-      result: { kind: "refused", pipelineId, reason: "pipeline_not_resumable" },
-    });
-    harness.fakeExecutor.abortAll();
-  });
 });
 
 describe("pipeline end-to-end fast", () => {
@@ -837,8 +798,6 @@ describe("pipeline end-to-end fast", () => {
   });
 
   afterEach(async () => {
-    setInvertPriorWorktreeRootGuardForTest(false);
-    setInvertResumeFailedRequiresReopenForTest(false);
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     await flushBackgroundRuns();
@@ -867,27 +826,10 @@ describe("pipeline end-to-end fast", () => {
       `fast vector=${fastStageStatusVector(readPipeline(store, pipelineId)).join(",")} implement=${readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.status} detail=${JSON.stringify(readPipeline(store, pipelineId)?.stages.find((s) => s.stageId === "implement")?.failureDetail)}`,
     );
     const pipeline = readPipeline(store, pipelineId);
+    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(fastStageStatusVector(pipeline)).toEqual(["succeeded", "succeeded", "succeeded"]);
     expect(derivePipelineState(pipeline)).toBe("succeeded");
     expect(harness.dispatchCounts).toEqual({ intent: 1, plan: 1, implement: 1 });
-    harness.fakeExecutor.abortAll();
-  });
-
-  test("inverting prior-worktree guard fails chained resolution", async () => {
-    setInvertPriorWorktreeRootGuardForTest(true);
-    const harness = createFastHarness(repoRoot, jarvisRoot, configPath, artifactTemplatesDir);
-    const { store, handlers, definition, context } = harness;
-
-    const start = await handlers.pipeline_start(
-      requestFrame("start", "pipeline_start", { definition, context }),
-      new AbortController().signal,
-    );
-    const pipelineId = (start as { result: { pipelineId: string } }).result.pipelineId;
-
-    await waitFor(() => derivePipelineState(readPipeline(store, pipelineId)) !== "pending");
-    const pipeline = readPipeline(store, pipelineId);
-    expect(fastStageStatusVector(pipeline)).not.toEqual(["succeeded", "succeeded", "succeeded"]);
-    expect(derivePipelineState(pipeline)).not.toBe("succeeded");
     harness.fakeExecutor.abortAll();
   });
 

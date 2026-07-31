@@ -15,7 +15,7 @@ Primary: `v2/src/commands/pipeline.ts`, `v2/src/cli/usage.ts`. In-scope: `pipeli
 
 ## Decisions
 
-- CLI remains a thin daemon RPC wrapper; fan-out execution stays in the daemon — rules out reimplementing branch scheduling in the CLI.
+- CLI remains a thin daemon RPC wrapper — rules out reimplementing branch scheduling in the CLI.
 - `jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>` and `jarvis pipeline reject <pipeline-id> <stage-id> <branch-key>` — three required positionals (non-empty after trim); usage error before daemon connect when missing, extra, or whitespace-only — rules out `stageId`-only decisions that leak across branches.
 - Issue one `pipeline_approve` / `pipeline_reject` RPC with `{ pipelineId, stageId, branchKey }` — rules out omitting `branchKey` at the CLI boundary.
 - `jarvis pipeline list` continues one `pipeline_list` RPC with JSON passthrough; stage rows mirror daemon `branchKey` projection — rules out CLI-side collapsing.

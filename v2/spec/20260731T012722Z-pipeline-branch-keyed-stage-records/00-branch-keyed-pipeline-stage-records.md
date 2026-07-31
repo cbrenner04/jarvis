@@ -39,16 +39,16 @@
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts` — two branch rows for the same `stageId` persist distinct `branchKey`, status, and artifact payloads; the non-default row is created via `createPipelineStageBranch`; collapsing to one row per `stageId` makes the test fail.
-- [ ] `state-store.test.ts` — inverting the branch-row guard (duplicate `branchKey`, unknown `stageId`, a `createPipelineStageBranch` stub that always throws, or missing second row) makes the branch-key test fail.
-- [ ] `state-store.test.ts` — a stage artifact with two downstream-input file paths round-trips through write and read; storing only one path or a directory path makes the test fail.
-- [ ] `state-store.test.ts` — inverting the two-path guard (single path, directory path, or omitted `downstreamInputs`) makes the artifact round-trip test fail.
-- [ ] `state-store.test.ts` — a pre-019 fixture with `pipeline_stages` rows upgrades through `020`, backfills `branch_key = 'default'`, enforces `UNIQUE (pipeline_id, stage_id, branch_key)`, and can load pipelines afterward; missing backfill or retaining `UNIQUE (pipeline_id, stage_id)` makes the test fail.
-- [ ] `state-store.test.ts` — `listPipelines enumerates complete durable active and interrupted pipelines with ordered stages after reopen` stays green (default-branch behavior unchanged; fixture SQL and enumeration expectations include `branch_key` and position-tie ordering with `"default"` first).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `state-store.test.ts` — two branch rows for the same `stageId` persist distinct `branchKey`, status, and artifact payloads; the non-default row is created via `createPipelineStageBranch`; collapsing to one row per `stageId` makes the test fail.
+- [x] `state-store.test.ts` — inverting the branch-row guard (duplicate `branchKey`, unknown `stageId`, a `createPipelineStageBranch` stub that always throws, or missing second row) makes the branch-key test fail.
+- [x] `state-store.test.ts` — a stage artifact with two downstream-input file paths round-trips through write and read; storing only one path or a directory path makes the test fail.
+- [x] `state-store.test.ts` — inverting the two-path guard (single path, directory path, or omitted `downstreamInputs`) makes the artifact round-trip test fail.
+- [x] `state-store.test.ts` — a pre-019 fixture with `pipeline_stages` rows upgrades through `020`, backfills `branch_key = 'default'`, enforces `UNIQUE (pipeline_id, stage_id, branch_key)`, and can load pipelines afterward; missing backfill or retaining `UNIQUE (pipeline_id, stage_id)` makes the test fail.
+- [x] `state-store.test.ts` — `listPipelines enumerates complete durable active and interrupted pipelines with ordered stages after reopen` stays green (default-branch behavior unchanged; fixture SQL and enumeration expectations include `branch_key` and position-tie ordering with `"default"` first).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/state-store.md` — `branch_key` column, revised uniqueness, `createPipelineStageBranch`, `updateStage` branch targeting, secondary stage ordering, and that enumeration returns one entry per stored row (row count may exceed authored stage count when branches exist).
-- [ ] `v2/docs/daemon-host.md` § Pipeline stage resolution — persistence may store `downstreamInputs`; stage resolution and dispatch still use today's `specPath`/single-input behavior until downstream-handoff/fan-out land.
-- [ ] `v2/docs/v1-behaviors.md` — record branch-keyed pipeline stage persistence and that current execution still targets the default branch only.
+- [x] `v2/docs/state-store.md` — `branch_key` column, revised uniqueness, `createPipelineStageBranch`, `updateStage` branch targeting, secondary stage ordering, and that enumeration returns one entry per stored row (row count may exceed authored stage count when branches exist).
+- [x] `v2/docs/daemon-host.md` § Pipeline stage resolution — persistence may store `downstreamInputs`; stage resolution and dispatch still use today's `specPath`/single-input behavior until downstream-handoff/fan-out land.
+- [x] `v2/docs/v1-behaviors.md` — record branch-keyed pipeline stage persistence and that current execution still targets the default branch only.

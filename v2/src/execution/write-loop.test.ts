@@ -407,6 +407,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
     findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
     createPipeline: (args) => inner.createPipeline(args),
+    createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
     loadPipeline: (pipelineId) => inner.loadPipeline(pipelineId),
     listPipelines: () => inner.listPipelines(),
     updateStage: (args) => inner.updateStage(args),

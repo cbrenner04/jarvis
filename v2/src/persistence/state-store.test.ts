@@ -13,6 +13,7 @@ import {
   openStateStore,
   orphanSettlementReconciledAt,
   orphanSettlementShouldStampAttempt,
+  PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL,
   type Pipeline,
   type PipelineContext,
   type PipelineStageRecord,
@@ -41,6 +42,10 @@ const SAMPLE_PIPELINE_CONTEXT: PipelineContext = {
   projectRegistry: { jarvis: { root: "/repo", origin: "git@github.com:cbrenner04/jarvis.git" } },
   seed: "ship durable context",
 };
+
+function singlePlanStagePipeline(name: string): PipelineDefinition {
+  return { name, stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }] };
+}
 
 function seedRun(store: StateStore, overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return store.createRun({
@@ -496,14 +501,14 @@ describe("commitGuardedKill", () => {
 
 function insertStageRow(
   raw: Database,
-  args: { id: string; pipelineId: string; stageId: string; position: number },
+  args: { id: string; pipelineId: string; stageId: string; position: number; branchKey?: string },
 ): void {
   raw
     .prepare(
-      `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
-       VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+      `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
     )
-    .run(args.id, args.pipelineId, args.stageId, args.position);
+    .run(args.id, args.pipelineId, args.stageId, args.branchKey ?? "default", args.position);
 }
 
 describe("pipelines", () => {
@@ -600,15 +605,17 @@ describe("pipelines", () => {
       }>;
       const expectedStages = raw
         .prepare(
-          `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, position, status,
+          `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
                   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
                   artifact, failure_detail AS failureDetail
-           FROM pipeline_stages WHERE pipeline_id IN (?, ?) ORDER BY pipeline_id, position ASC`,
+           FROM pipeline_stages WHERE pipeline_id IN (?, ?)
+           ORDER BY pipeline_id, position ASC, ${PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL}`,
         )
         .all(activeId, interruptedId) as Array<{
         id: string;
         pipelineId: string;
         stageId: string;
+        branchKey: string;
         position: number;
         status: string;
         workflowInvocationId: string | null;
@@ -664,6 +671,7 @@ describe("pipelines", () => {
     expect(pipeline.stages.map((stage) => stage.stageId)).toEqual(["plan", "gate", "implement"]);
     for (const stage of pipeline.stages) {
       expect(stage.pipelineId).toBe(pipelineId);
+      expect(stage.branchKey).toBe("default");
       expect(stage.status).toBe("pending");
       expect(stage.workflowInvocationId).toBeNull();
       expect(stage.startedAt).toBeNull();
@@ -850,14 +858,14 @@ describe("pipelines", () => {
     expect(() =>
       (store as unknown as { db: Database }).db
         .prepare(
-          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
-           VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+           VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)`,
         )
-        .run("stage-orphan", "missing-pipeline", "plan", 0),
+        .run("stage-orphan", "missing-pipeline", "plan", "default", 0),
     ).toThrow();
   });
 
-  test("rejects duplicate stage IDs and duplicate authored positions within one pipeline", () => {
+  test("rejects duplicate (pipeline_id, stage_id, branch_key) but allows duplicate positions across branch siblings", () => {
     const pipelineId = store.createPipeline({
       definition: {
         name: "dup-check",
@@ -867,11 +875,22 @@ describe("pipelines", () => {
 
     const raw = new Database(TEST_DB_PATH);
     try {
-      expect(() => insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1 })).toThrow();
-
       expect(() =>
-        insertStageRow(raw, { id: "stage-dup-position", pipelineId, stageId: "other", position: 0 }),
+        insertStageRow(raw, { id: "stage-dup-id", pipelineId, stageId: "plan", position: 1, branchKey: "default" }),
       ).toThrow();
+
+      insertStageRow(raw, {
+        id: "stage-branch-sibling",
+        pipelineId,
+        stageId: "plan",
+        position: 0,
+        branchKey: "branch-a",
+      });
+      const branchRow = raw
+        .prepare("SELECT branch_key AS branchKey, position FROM pipeline_stages WHERE id = ?")
+        .get("stage-branch-sibling") as { branchKey: string; position: number };
+      expect(branchRow.branchKey).toBe("branch-a");
+      expect(branchRow.position).toBe(0);
     } finally {
       raw.close();
     }
@@ -1184,6 +1203,236 @@ describe("pipelines", () => {
     expect(!approvalDecisionAllowsStatus("awaiting")).toBe(false);
   });
 
+  test("two branch rows for the same stageId persist distinct branchKey, status, and artifact payloads", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("branch-rows") });
+    const branchRecordId = store.createPipelineStageBranch({
+      pipelineId,
+      stageId: "plan",
+      branchKey: "branch-a",
+    });
+
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { specPath: "default-spec.md" } },
+    });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      branchKey: "branch-a",
+      patch: {
+        status: "failed",
+        artifact: { downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"] },
+      },
+    });
+
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    // Mutation checkpoint: collapsing storage to one row per stageId must turn this RED.
+    expect(pipeline.stages.map((stage) => stage.branchKey).sort()).toEqual(["branch-a", "default"]);
+    expect(pipeline.stages).toHaveLength(2);
+    const defaultRow = pipeline.stages.find((stage) => stage.branchKey === "default");
+    const branchRow = pipeline.stages.find((stage) => stage.branchKey === "branch-a");
+    expect(defaultRow?.status).toBe("succeeded");
+    expect(defaultRow?.artifact).toEqual({ specPath: "default-spec.md" });
+    expect(branchRow?.id).toBe(branchRecordId);
+    expect(branchRow?.status).toBe("failed");
+    expect(branchRow?.artifact).toEqual({
+      downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"],
+    });
+  });
+
+  test("inverting branch-row guard fails branch-key regression", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("branch-guard") });
+    store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" });
+    expect(() => store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" })).toThrow(
+      /Branch branch-a already exists for stage plan/u,
+    );
+    expect(() =>
+      store.createPipelineStageBranch({ pipelineId, stageId: "unknown-stage", branchKey: "branch-b" }),
+    ).toThrow(/Stage unknown-stage not found in pipeline/u);
+    expect(() =>
+      store.createPipelineStageBranch({ pipelineId: "unknown-pipeline", stageId: "plan", branchKey: "branch-b" }),
+    ).toThrow(/Pipeline unknown-pipeline not found/u);
+    expect(loadPipelineOrThrow(store, pipelineId).stages.filter((stage) => stage.stageId === "plan")).toHaveLength(2);
+  });
+
+  test("stage artifact with two downstream-input file paths round-trips through write and read", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("downstream-inputs") });
+    const artifact = { downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"] };
+    store.updateStage({ pipelineId, stageId: "plan", patch: { artifact } });
+    store.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const loaded = loadPipelineOrThrow(store, pipelineId).stages[0]?.artifact;
+    expect(loaded).toEqual(artifact);
+    // Mutation checkpoint: storing only one path, a directory path, or dropping downstreamInputs
+    // must turn this RED.
+    expect((loaded as { downstreamInputs: string[] }).downstreamInputs).toEqual([
+      "ready-intents/a.md",
+      "ready-intents/b.md",
+    ]);
+  });
+
+  test("createPipelineStageBranch admits pending branch rows on workflow and approval stages", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const admitted = loadPipelineOrThrow(store, pipelineId);
+    const defaultPlan = admitted.stages.find((stage) => stage.stageId === "plan");
+    const defaultGate = admitted.stages.find((stage) => stage.stageId === "gate");
+    if (!defaultPlan || !defaultGate) throw new Error("default siblings should exist");
+
+    const planBranchId = store.createPipelineStageBranch({
+      pipelineId,
+      stageId: "plan",
+      branchKey: "plan-branch",
+    });
+    const gateBranchId = store.createPipelineStageBranch({
+      pipelineId,
+      stageId: "gate",
+      branchKey: "gate-branch",
+    });
+
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    const planBranch = pipeline.stages.find((stage) => stage.id === planBranchId);
+    const gateBranch = pipeline.stages.find((stage) => stage.id === gateBranchId);
+    if (!planBranch || !gateBranch) throw new Error("branch rows should exist");
+
+    for (const [branch, defaultSibling] of [
+      [planBranch, defaultPlan],
+      [gateBranch, defaultGate],
+    ] as const) {
+      expect(branch.status).toBe("pending");
+      expect(branch.workflowInvocationId).toBeNull();
+      expect(branch.startedAt).toBeNull();
+      expect(branch.endedAt).toBeNull();
+      expect(branch.artifact).toBeNull();
+      expect(branch.failureDetail).toBeNull();
+      expect(branch.position).toBe(defaultSibling.position);
+    }
+  });
+
+  test("loadPipeline and listPipelines order branch siblings at the same position with default first", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("position-tie") });
+    store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-z" });
+    store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey: "branch-a" });
+
+    const loaded = loadPipelineOrThrow(store, pipelineId);
+    expect(loaded.stages.map((stage) => stage.branchKey)).toEqual(["default", "branch-a", "branch-z"]);
+    expect(new Set(loaded.stages.map((stage) => stage.position))).toEqual(new Set([0]));
+
+    const listed = store.listPipelines().find((pipeline) => pipeline.id === pipelineId);
+    expect(listed?.stages.map((stage) => stage.branchKey)).toEqual(["default", "branch-a", "branch-z"]);
+  });
+
+  test("a pre-019 fixture with pipeline_stages rows upgrades through 020, backfills branch_key, and enforces branch uniqueness", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-branch-key.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE pipelines (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          definition TEXT NOT NULL,
+          owner_identity TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          context TEXT,
+          terminal_publication_failure TEXT,
+          terminal_publication_succeeded_at INTEGER
+        );
+        CREATE TABLE pipeline_stages (
+          id TEXT PRIMARY KEY,
+          pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+          stage_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          workflow_invocation_id TEXT,
+          started_at INTEGER,
+          ended_at INTEGER,
+          artifact TEXT,
+          failure_detail TEXT,
+          UNIQUE (pipeline_id, stage_id),
+          UNIQUE (pipeline_id, position)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+        "011-run-owner-identity",
+        "012-run-pr-evidence",
+        "013-pipelines-and-stages",
+        "014-pipeline-owner-identity-and-status",
+        "015-pipeline-context",
+        "016-run-reconciled-at",
+        "017-run-ready-gate-repair-fence",
+        "018-pipeline-terminal-publication",
+        "019-run-retained-finalization-checkpoint",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const pipelineId = "legacy-branch-pipeline";
+      raw
+        .prepare(
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
+        )
+        .run(
+          pipelineId,
+          "legacy-branch-pipeline",
+          Date.now(),
+          "legacy-owner:1",
+          JSON.stringify(SAMPLE_PIPELINE_DEFINITION),
+        );
+      raw
+        .prepare(
+          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+           VALUES (?, ?, 'plan', 0, 'succeeded', 'workflow-plan', 100, 200, ?, NULL)`,
+        )
+        .run("legacy-stage", pipelineId, JSON.stringify({ specPath: "spec/plan.md" }));
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      const pipeline = migrated.loadPipeline(pipelineId);
+      if (!pipeline) throw new Error("Pipeline should exist");
+      expect(pipeline.stages).toHaveLength(1);
+      expect(pipeline.stages[0]?.branchKey).toBe("default");
+      expect(pipeline.stages[0]?.artifact).toEqual({ specPath: "spec/plan.md" });
+
+      const verify = new Database(legacyDbPath);
+      const branchKeyRow = verify
+        .prepare("SELECT branch_key AS branchKey FROM pipeline_stages WHERE id = ?")
+        .get("legacy-stage") as { branchKey: string };
+      expect(branchKeyRow.branchKey).toBe("default");
+      expect(() =>
+        verify
+          .prepare(
+            `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail)
+             VALUES (?, ?, 'plan', 'default', 0, 'pending', NULL, NULL, NULL, NULL, NULL)`,
+          )
+          .run("duplicate-default-branch", pipelineId),
+      ).toThrow();
+      insertStageRow(verify, {
+        id: "legacy-branch-sibling",
+        pipelineId,
+        stageId: "plan",
+        position: 0,
+        branchKey: "branch-a",
+      });
+      verify.close();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
+  });
+
   test("createPipeline stamps owner_identity and status='active'; loadPipeline reads both back across close and reopen", () => {
     const identity = "admitter:1234";
     store.close();
@@ -1275,7 +1524,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(16);
+      expect(migrationCount.total).toBe(17);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -1985,6 +2234,7 @@ describe("failed pipeline reopen", () => {
       id: "failed-id",
       pipelineId: "pipeline-id",
       stageId: "stage-1",
+      branchKey: "default",
       position: 1,
       status: "failed",
       workflowInvocationId: null,
@@ -1997,6 +2247,7 @@ describe("failed pipeline reopen", () => {
       id: "suffix-id",
       pipelineId: "pipeline-id",
       stageId: "stage-2",
+      branchKey: "default",
       position: 2,
       status: "skipped",
       workflowInvocationId: null,

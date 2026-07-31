@@ -152,6 +152,23 @@ function inkInputHarness() {
     inputHandler = nextHandler;
   };
 
+  /**
+   * Waits for a complete painted frame. A fixed flush-render-flush sequence can return before ink
+   * paints on a loaded machine (empty text), or mid-paint (partial text), so drain until the
+   * rendered text is non-empty and stops changing.
+   */
+  async function drainUntilFrameSettles(inkInstance: NonNullable<typeof instance>): Promise<void> {
+    let previous: string | undefined;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await inkInstance.waitUntilRenderFlush();
+      await flush();
+      await inkInstance.waitUntilRenderFlush();
+      const current = flattenRenderedText(stdoutText);
+      if (current !== "" && current === previous) return;
+      previous = current;
+    }
+  }
+
   return {
     async injection(): Promise<InjectedInkUi> {
       const ink = await import("ink");
@@ -171,23 +188,14 @@ function inkInputHarness() {
     async waitUntilOpen() {
       await opened.promise;
       if (instance === undefined) throw new Error("expected ink instance");
-      await instance.waitUntilRenderFlush();
-      await flush();
-      await instance.waitUntilRenderFlush();
+      await drainUntilFrameSettles(instance);
     },
     async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
       if (inputHandler === undefined) throw new Error("expected input handler");
       stdoutText = "";
       inputHandler(input, key);
       if (instance === undefined) throw new Error("expected ink instance");
-      // A single flush is not enough: the state update this keypress schedules can land after the
-      // first render pass on a loaded machine, leaving `stdoutText` empty. Drain until ink has
-      // actually written a frame (matching `waitUntilOpen`'s flush-render-flush sequence).
-      for (let attempt = 0; attempt < 20 && stdoutText === ""; attempt += 1) {
-        await instance.waitUntilRenderFlush();
-        await flush();
-        await instance.waitUntilRenderFlush();
-      }
+      await drainUntilFrameSettles(instance);
     },
     renderedText() {
       return flattenRenderedText(stdoutText);

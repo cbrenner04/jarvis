@@ -35,10 +35,10 @@ daemon exports only — CLI spec restores comment-checkpoint coverage on daemon 
 ## Acceptance criteria
 
 - [ ] `v2/src/daemon/**/*.ts` outside `*.test.ts` carry no `setInvert*ForTest` export, `invert*ForTest` module variable, `invert*` function parameter, or `invert*ForTest` type member.
-- [ ] (Manual) Inverting the admission-context handoff mutation documented in `daemon-pipeline-start.test.ts` (`createPipeline({ definition, context })` → `createPipeline({ definition })`) turns `pipeline_start persists supplied context before returning pipelineId` RED.
-- [ ] (Manual) Inverting the `selectChainedStageCwd` mutation documented in `pipeline-stage-resolve.test.ts` turns its chained-resolution pinning tests RED.
-- [ ] (Manual) Inverting the `resumeFailedRequiresReopen` mutation documented in `pipeline-end-to-end.sandbox-unrunnable.test.ts` turns `admits through handlers, fails first plan via faked wait, resumes, approves gates, and settles ready` RED.
-- [ ] (Manual) Inverting the `hasPipelineTerminalPublicationFailure` mutation documented in `pipeline-execution.test.ts` turns `fails a pipeline when its terminal action fails` RED.
+- [ ] (Manual) In `daemon-pipeline-start.test.ts`, the documented admission-context mutation turns `pipeline_start persists supplied context before returning pipelineId` RED.
+- [ ] (Manual) In `pipeline-stage-resolve.test.ts`, the documented `selectChainedStageCwd` mutation turns its chained-resolution pinning tests RED.
+- [ ] (Manual) In `pipeline-end-to-end.sandbox-unrunnable.test.ts`, the documented `resumeFailedRequiresReopen` mutation turns its resume-and-settle test RED.
+- [ ] (Manual) In `pipeline-execution.test.ts`, the documented `hasPipelineTerminalPublicationFailure` mutation turns `fails a pipeline when its terminal action fails` RED.
 - [ ] `daemon-pipeline-start.test.ts` — `pipeline_start persists supplied context before returning pipelineId` stays green.
 - [ ] `pipeline-end-to-end.sandbox-unrunnable.test.ts` — `walks intent → plan → implement with chained artifacts only on stage worktrees` stays green.
 - [ ] `pipeline-execution.test.ts` — `fails a pipeline when its terminal action fails` stays green.

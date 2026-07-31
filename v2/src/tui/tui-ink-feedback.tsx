@@ -1,6 +1,6 @@
 import { createElement, type ReactElement } from "react";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
-import { loadInkUi, type InjectedInkUi } from "./tui-ink-runtime.ts";
+import { type InjectedInkUi, loadInkUi } from "./tui-ink-runtime.ts";
 import type { TuiViewState } from "./tui-monitor-types.ts";
 
 /** Injectable ink `render` seam for tests. */

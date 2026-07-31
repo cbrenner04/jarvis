@@ -58,33 +58,33 @@ source, script, or test edits even when the existing run-diff fence would allow 
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `rejects ready-gate repair staging a source-path edit on intent workflow`
+- [x] `write-loop.test.ts` test `rejects ready-gate repair staging a source-path edit on intent workflow`
       returns `completion_commit_failed` with the markdown-only error prefix before repair republish,
       names the staged `v2/src/**` path, leaves `publishCalls` at one and records no repair commit,
       and fails against the pre-fix baseline.
-- [ ] `write-loop.test.ts` test `rejects ready-gate repair staging a script-path edit on intent workflow`
+- [x] `write-loop.test.ts` test `rejects ready-gate repair staging a script-path edit on intent workflow`
       returns `completion_commit_failed` with the markdown-only error prefix before repair republish,
       names the staged `scripts/**` path, leaves `publishCalls` at one and records no repair commit,
       and fails against the pre-fix baseline.
-- [ ] `write-loop.test.ts` test `rejects ready-gate repair staging a test-path edit on intent workflow`
+- [x] `write-loop.test.ts` test `rejects ready-gate repair staging a test-path edit on intent workflow`
       returns `completion_commit_failed` with the markdown-only error prefix before repair republish,
       names the staged `v1/test/**` path, leaves `publishCalls` at one and records no repair commit,
       and fails against the pre-fix baseline.
-- [ ] `write-loop.test.ts` test `rejects ready-gate repair staging a source-path edit on plan workflow`
+- [x] `write-loop.test.ts` test `rejects ready-gate repair staging a source-path edit on plan workflow`
       returns `completion_commit_failed` naming a staged non-markdown path outside frozen
       `durablePath` / `.jarvis-plan-stage/` roots, leaves `publishCalls` at one and records no repair
       commit, and fails against the pre-fix baseline.
-- [ ] `write-loop.test.ts` test `completes ready-gate repair limited to markdown under intent output roots`
+- [x] `write-loop.test.ts` test `completes ready-gate repair limited to markdown under intent output roots`
       finishes `complete` through the existing bounded repair loop and fails when the markdown-only
       fence is inverted.
-- [ ] `write-loop.test.ts` test `rejects ready-gate repairs outside the run diff and spec tree` stays green
+- [x] `write-loop.test.ts` test `rejects ready-gate repairs outside the run diff and spec tree` stays green
       (implement workflows unchanged).
-- [ ] Inverting only the markdown-only fence makes all three intent surface-class rejection regressions
+- [x] Inverting only the markdown-only fence makes all three intent surface-class rejection regressions
       red.
-- [ ] `v2/docs/write-behavior.md` documents the markdown-only repair prohibition (originating workflow
+- [x] `v2/docs/write-behavior.md` documents the markdown-only repair prohibition (originating workflow
       identity, frozen output roots, `.md` suffix, evaluation order, error prefix, failure boundary,
       coexistence with the run-diff fence).
-- [ ] `v2/docs/v1-behaviors.md` carries the parity entry for the markdown-only repair restriction.
+- [x] `v2/docs/v1-behaviors.md` carries the parity entry for the markdown-only repair restriction.
 
 ## Documentation updates
 

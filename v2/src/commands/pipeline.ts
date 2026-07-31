@@ -382,13 +382,7 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       io.stderr(PIPELINE_RESUME_USAGE);
       return 1;
     }
-    return runPipelineMutationCommand(
-      "pipeline_resume",
-      { pipelineId },
-      "resumed",
-      io,
-      deps,
-    );
+    return runPipelineMutationCommand("pipeline_resume", { pipelineId }, "resumed", io, deps);
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

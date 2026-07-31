@@ -82,8 +82,9 @@ tests only — no edits to those production modules.
 - [x] `v2/src/commands/**/*.ts` outside `*.test.ts` carry no `setInvert*ForTest`
   export, `invert*ForTest` module variable, `invert*` function parameter, or
   `invert*ForTest` type member in the worktree.
-- [ ] (Manual) Inverting the pre-admission resolution guard-inversion mutation
-  documented in `pipeline.test.ts` turns its pinning test RED.
+- [x] Mutating the pre-admission resolution guard in `pipeline.ts` (falling back to the
+  `fast` definition instead of exiting non-zero) turns its `pipeline.test.ts` pinning
+  test RED. (Manual)
 - [x] `pipeline.test.ts` — `failed daemon admission exits non-zero with stderr detail
   and no pipeline ID on stdout` stays green.
 - [x] `pipeline.test.ts` — `pipeline approve exits 0 on applied decision and sends both

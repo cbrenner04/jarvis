@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,

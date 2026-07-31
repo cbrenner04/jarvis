@@ -16,10 +16,7 @@ import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock
 import { request } from "../cli/ipc.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
-import {
-  type QueryDaemonListsDeps,
-  queryDaemonListsFromSockets,
-} from "../daemon/query-daemon-lists-from-sockets.ts";
+import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";

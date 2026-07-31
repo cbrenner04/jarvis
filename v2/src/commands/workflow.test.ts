@@ -14,10 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import {
-  createRunControlHandlers,
-  WorktreeOwnershipRegistry,
-} from "../daemon/daemon.ts";
+import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
 import {
   type BuildImplementWorkflowStepsInput,
@@ -53,10 +50,7 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
-import {
-  setAttachWaitRunIdOverrideForTest,
-  setForceSkipAttachClientWaitForTest,
-} from "./workflow.ts";
+import { setAttachWaitRunIdOverrideForTest, setForceSkipAttachClientWaitForTest } from "./workflow.ts";
 
 let fx: CliRepoFixture;
 

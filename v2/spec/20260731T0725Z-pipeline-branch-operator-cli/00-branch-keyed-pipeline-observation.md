@@ -31,11 +31,11 @@ Primary: `v2/src/daemon/pipeline-observation.ts`. In-scope: `daemon-pipeline-obs
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-observation.test.ts` — two-branch pipeline: `pipeline_list` projection shows distinguishable `branchKey` values and per-branch statuses for every branch row; flattening to one row per `stageId` makes the test fail.
-- [ ] `daemon-pipeline-observation.test.ts` — two-branch pipeline with one gate row `awaiting` and one sibling branch `running`: `derivePipelineBoundary` returns `{ kind: "awaiting-approval", stageId, branchKey }` naming the awaiting branch; omitting `branchKey` makes the test fail.
-- [ ] `daemon-pipeline-observation.test.ts` — inverting the branch-row projection guard or the `awaiting-approval` `branchKey` guard makes the two-branch regression fail; negative cases prove collapsed projection and anonymous boundaries are absent.
-- [ ] `daemon-pipeline-observation.test.ts` — `"pipeline_list returns an empty pipelines array for an empty store"` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-pipeline-observation.test.ts` — two-branch pipeline: `pipeline_list` projection shows distinguishable `branchKey` values and per-branch statuses for every branch row; flattening to one row per `stageId` makes the test fail.
+- [x] `daemon-pipeline-observation.test.ts` — two-branch pipeline with one gate row `awaiting` and one sibling branch `running`: `derivePipelineBoundary` returns `{ kind: "awaiting-approval", stageId, branchKey }` naming the awaiting branch; omitting `branchKey` makes the test fail.
+- [x] `daemon-pipeline-observation.test.ts` — source-mutating the branch-row projection (collapse to one row per `stageId`) or hardcoding the `awaiting-approval` `branchKey` makes the two-branch regression RED; comment checkpoints name both mutations. Verified by hand.
+- [x] `daemon-pipeline-observation.test.ts` — `"pipeline_list returns an empty pipelines array for an empty store"` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -530,13 +530,17 @@ jarvis pipeline list
 jarvis pipeline wait <pipeline-id>
 ```
 
-**Approval gates:** when `pipeline wait` prints `{kind:"awaiting-approval",stageId}`,
-approve the named gate (`approve-intent`, then `approve-plan` on `full-review`):
+**Approval gates:** when `pipeline wait` prints `{kind:"awaiting-approval",stageId,branchKey}`,
+approve the named gate (`approve-intent`, then `approve-plan` on `full-review`). After an
+intent split, `pipeline list` shows one row per branch (`branchKey` per row); read
+`branchKey` from wait boundary JSON or list rows before approving:
 
 ```bash
-jarvis pipeline approve <pipeline-id> <stage-id>
+jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>
 jarvis pipeline wait <pipeline-id>
 ```
+
+Single-default-branch pipelines use `branchKey: "default"`.
 
 **Failure resume:** after a failed workflow stage (for example `plan`), reopen
 without a new admission:

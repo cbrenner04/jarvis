@@ -166,8 +166,8 @@ Valid JSON with missing or invalid `kind` closes the connection.
 | `pipeline_approve` | `{ pipelineId: string, stageId: string, branchKey?: string }` | `{ kind: "applied", pipelineId, stageId, decision: "approved" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `approved` on the authored `stageId` row through `commitApprovalDecision`, then asynchronously continue the ordered loop from persisted admission context when the write applies. Optional `branchKey` targets one branch row; when multiple non-`skipped` branch rows exist at the stage and `branchKey` is omitted, the handler refuses with `branch_key_required`. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) return unchanged with no dispatch. Duplicate or racing decisions are refused without a second continuation. The handler resolves after the durable write, not after continuation finishes. See [Pipeline approval decisions](#pipeline-approval-decisions). |
 | `pipeline_reject` | `{ pipelineId: string, stageId: string, branchKey?: string }` | `{ kind: "applied", pipelineId, stageId, decision: "rejected" } \| { kind: "refused", pipelineId, stageId, reason }` | Admit `rejected` on the authored `stageId` row through `commitApprovalDecision` and never dispatch later stages for that branch. Optional `branchKey` targets one branch row; when multiple non-`skipped` branch rows exist at the stage and `branchKey` is omitted, the handler refuses with `branch_key_required`. Missing/empty `pipelineId` or `stageId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Refused store outcomes (`pipeline_not_found`, `stage_not_found`, `not_approval_stage`, `status_not_awaiting`, etc.) propagate without mutation or dispatch. The handler resolves after the durable write. See [Pipeline approval decisions](#pipeline-approval-decisions). |
 | `pipeline_resume` | `{ pipelineId: string }` | `{ kind: "resumed", pipelineId } \| { kind: "refused", pipelineId, reason }` | Stage-scoped resume for failed and `awaiting-approval` pipelines only. Missing/empty `pipelineId` → `invalid_params`. Retiring daemon → `daemon_superseded`. Derived `succeeded` → `pipeline_terminal_succeeded`; derived `rejected` → `pipeline_terminal_rejected`; derived `running`, fresh `pending`, or `interrupted` → `pipeline_not_resumable` — each without stage dispatch. Derived `failed` applies `reopenFailedPipeline` when a `failed` row remains, then asynchronously continues via `continuePipeline` from persisted admission context; already-reopened failures (`reopenedFailurePermitsActivation`, derived `pending`) skip reopen and continue only the eligible failed stage while preserving every predecessor `workflowInvocationId`. Derived `awaiting-approval` claims ownership via `claimPipelineContinuation` but never calls `continuePipeline` — the gate row stays `awaiting` with no later dispatch; missing persisted admission context → `missing_context`; `claimPipelineContinuation` refusal → `claim_refused`. `isPipelineContinuable` and startup `recoverContinuablePipelines` do not treat awaiting pipelines as continuable. Ineligible failed shapes surface the store reopen refusal (`no_failed_stage`, `multiple_failed_stages`, `malformed_continuation`, etc.) without dispatch. The handler resolves after reopen and/or claim admission (or refusal), not after detached continuation finishes. See [Pipeline stage-scoped resume](#pipeline-stage-scoped-resume). |
-| `pipeline_list` | — | `{ pipelines: Array<{ pipelineId, name, state, stages: Array<{ stageId, status, workflowInvocationId }> }> }` | Parameterless durable snapshot of every admitted pipeline without following live transitions. Empty store → `{ pipelines: [] }`. Stage order follows stored authored `position`. Derived `state` uses `derivePipelineState` (see [Pipeline snapshots](#pipeline-snapshots)). |
-| `pipeline_wait` | `{ pipelineId: string }` | `{ kind: "terminal", state } \| { kind: "awaiting-approval", stageId }` | Block until the named pipeline reaches a wait boundary or the request `AbortSignal` aborts. Returns immediately when already at a boundary. Missing/empty `pipelineId` → `invalid_params`; unknown ID → `unknown_pipeline` (no wait begins). Abort throws `pipeline_wait aborted` with no boundary payload. Other failures propagate without masking as abort. See [Pipeline wait](#pipeline-wait). |
+| `pipeline_list` | — | `{ pipelines: Array<{ pipelineId, name, state, stages: Array<{ stageId, branchKey, status, workflowInvocationId }> }> }` | Parameterless durable snapshot of every admitted pipeline without following live transitions. Empty store → `{ pipelines: [] }`. Stage order follows stored authored `position` then `branch_key`. Derived `state` uses `derivePipelineState` (see [Pipeline snapshots](#pipeline-snapshots)). |
+| `pipeline_wait` | `{ pipelineId: string }` | `{ kind: "terminal", state } \| { kind: "awaiting-approval", stageId, branchKey }` | Block until the named pipeline reaches a wait boundary or the request `AbortSignal` aborts. Returns immediately when already at a boundary. Missing/empty `pipelineId` → `invalid_params`; unknown ID → `unknown_pipeline` (no wait begins). Abort throws `pipeline_wait aborted` with no boundary payload. Other failures propagate without masking as abort. See [Pipeline wait](#pipeline-wait). |
 
 Unknown `method` returns `error` correlated to the request `id` (connection
 stays open).
@@ -988,9 +988,10 @@ and refuse with `branch_key_required` when multiple branch rows exist and it is
 omitted. `derivePipelineState` aggregates across fan-out branches; terminal
 `succeeded` requires every branch to succeed. `derivePipelineFailureDetail` names
 failed or rejected `branchKey`s when aggregate state is non-`succeeded` at
-derivation time (not yet projected through `pipeline_list` / `pipeline_wait` —
-deferred to the operator-CLI sibling). Multi-branch terminal publication when
-every implement branch succeeds is unchanged / deferred. Slug:
+derivation time. `pipeline_list` and `pipeline_wait` project `branchKey` on
+every durable stage row and name `awaiting-approval` boundaries with the
+blocking gate's `branchKey`. Multi-branch terminal publication when every
+implement branch succeeds is unchanged / deferred. Slug:
 `pipeline-intent-split-fan-out-execution`.
 
 ### Restart-safe pipeline continuation
@@ -1094,11 +1095,11 @@ detached continuation finishes.
 admitted pipeline without following live transitions:
 
 ```json
-{ "pipelines": [{ "pipelineId", "name", "state", "stages": [{ "stageId", "status", "workflowInvocationId" }] }] }
+{ "pipelines": [{ "pipelineId", "name", "state", "stages": [{ "stageId", "branchKey", "status", "workflowInvocationId" }] }] }
 ```
 
 An empty store returns `{ "pipelines": [] }`. Stage snapshots preserve stored
-authored-position order; pipeline order is unspecified. The response promises
+authored-position order (then `branch_key` within each position); pipeline order is unspecified. The response promises
 no stronger cross-pipeline or concurrent-row isolation than that single
 `listPipelines` read — observation does not hold execution writes.
 
@@ -1167,13 +1168,17 @@ Wait boundaries:
 
 ```json
 { "kind": "terminal", "state": "succeeded" | "failed" | "rejected" | "interrupted" }
-{ "kind": "awaiting-approval", "stageId": "<first undecided approval after satisfied predecessors>" }
+{ "kind": "awaiting-approval", "stageId": "<first undecided approval after satisfied predecessors>", "branchKey": "<blocking gate row branchKey>" }
 ```
 
-`pending` and `running` are not boundaries; a live wait keeps observing
-through workflow-stage transitions until the first durable terminal or
-`awaiting-approval` state. Boundary derivation reuses the same
-`derivePipelineState` precedence walk as `pipeline_list`.
+`pending` and `running` are not boundaries unless an approval gate row with
+satisfied branch-suffix predecessors reads `awaiting` or `pending`; a live wait
+returns that `awaiting-approval` envelope even when a sibling branch workflow
+stage is `running`. Otherwise a live wait keeps observing through workflow-stage
+transitions until the first durable terminal or `awaiting-approval` boundary.
+Boundary derivation walks durable stage rows in `loadPipeline` order for the
+first unsatisfied approval row after satisfied predecessors within that row's
+branch suffix. Terminal states still take precedence over approval boundaries.
 
 Observation substrate: re-read durable pipeline/stage rows after each
 in-process `updateStage` (via an in-daemon observer) and on bounded polling

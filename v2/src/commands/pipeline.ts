@@ -39,7 +39,7 @@ type PipelineStartCliInput =
 
 function parsePipelineWaitBoundary(value: unknown): PipelineBoundaryResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; state?: unknown; stageId?: unknown };
+  const record = value as { kind?: unknown; state?: unknown; stageId?: unknown; branchKey?: unknown };
   if (record.kind === "terminal") {
     const state = record.state;
     if (state === "succeeded" || state === "failed" || state === "rejected" || state === "interrupted") {
@@ -47,8 +47,14 @@ function parsePipelineWaitBoundary(value: unknown): PipelineBoundaryResult | und
     }
     return undefined;
   }
-  if (record.kind === "awaiting-approval" && typeof record.stageId === "string" && record.stageId.length > 0) {
-    return { kind: "awaiting-approval", stageId: record.stageId };
+  if (
+    record.kind === "awaiting-approval" &&
+    typeof record.stageId === "string" &&
+    record.stageId.length > 0 &&
+    typeof record.branchKey === "string" &&
+    record.branchKey.length > 0
+  ) {
+    return { kind: "awaiting-approval", stageId: record.stageId, branchKey: record.branchKey };
   }
   return undefined;
 }
@@ -63,7 +69,7 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
   return Array.isArray(pipelines) ? { pipelines } : undefined;
 }
 
-type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
+export type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
 
 function parsePipelineMutationOutcome(
   value: unknown,
@@ -80,13 +86,16 @@ function parsePipelineMutationOutcome(
 
 function parsePipelineDecisionArgs(
   argv: readonly string[],
-): { ok: true; pipelineId: string; stageId: string } | { ok: false } {
-  if (argv.length !== 2) return { ok: false };
+): { ok: true; pipelineId: string; stageId: string; branchKey: string } | { ok: false } {
+  if (argv.length !== 3) return { ok: false };
   const pipelineId = argv[0];
   const stageId = argv[1];
-  if (pipelineId === undefined || stageId === undefined) return { ok: false };
-  if (pipelineId.trim().length === 0 || stageId.trim().length === 0) return { ok: false };
-  return { ok: true, pipelineId, stageId };
+  const branchKey = argv[2];
+  if (pipelineId === undefined || stageId === undefined || branchKey === undefined) return { ok: false };
+  if (pipelineId.trim().length === 0 || stageId.trim().length === 0 || branchKey.trim().length === 0) {
+    return { ok: false };
+  }
+  return { ok: true, pipelineId, stageId, branchKey };
 }
 
 function resolvePipelineSeed(
@@ -342,6 +351,8 @@ async function runPipelineMutationCommand(
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
     }
+    // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision
+    // exit-code tests RED.
     return outcome.kind === successKind ? 0 : 1;
   });
 }
@@ -370,7 +381,9 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
     }
     return runPipelineMutationCommand(
       subcommand === "approve" ? "pipeline_approve" : "pipeline_reject",
-      { pipelineId: parsed.pipelineId, stageId: parsed.stageId },
+      // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped
+      // approve/reject RPC tests RED.
+      { pipelineId: parsed.pipelineId, stageId: parsed.stageId, branchKey: parsed.branchKey },
       "applied",
       io,
       deps,

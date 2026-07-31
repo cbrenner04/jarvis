@@ -1,95 +1,235 @@
-# TUI overhaul — build brief
+# TUI — build brief
 
-Meta-index phase after [per-project pipelines](per-project-pipelines-brief.md). Build against the pipeline state model so rows are not rewritten immediately.
+Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Folded from former `ready-intents/daemon-inventory-and-retirement.md` and `ready-intents/run-list-reports-active-agent-binding.md` (2026-07-27 priorities). The monitor-honesty seed fanned out (#2283) into five ready-intents — store/list fixes may precede this phase; `terminal-window-renders-finishless-rows` and `expansion-driven-through-e-keybinding` stay here. See [implement-queue.md](implement-queue.md).
+Replaces the 2026-07-27 brief. Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
 
-## North star
+## Goal
 
-- Pipeline-first rows; expandable stages and constituent runs
-- Elapsed and completed times; active agent/model; queue/admission; current role
-- Honest terminal rows, attempts, errors, resumability
-- Cross-daemon inventory / retirement visibility
-- Approval/rejection controls for human gates
-- Keep log follow
-- **No tmux** — daemon already owns process lifecycle
+`jarvis tui` is the primary operator surface for **pipelines**. Runs nest under pipeline stages (and `branchKey` when fan-out is active). Ad-hoc runs without a pipeline parent appear in a separate segment.
 
----
+CLI remains for scripting; the TUI must reach parity for interactive pipeline operation.
 
-## Daemon inventory and retirement
+## Layout — command center (reference: 245×72)
 
-### Problem
+Design target is a **full-window** terminal (operator reference: **245 cols × 72 lines**). Layout is **horizontal split + bottom command dock**, not a single vertical scroll. Tree rows use a **fixed-width column grid** (truncate with `…`; never wrap). The **detail pane may wrap** long values.
 
-On 2026-07-24 seventeen live daemons held `~/.jarvis/state/v2.sqlite` open. Nothing in the harness
-could see or clear them:
+```
+┌─ Pipelines ────────────────-┬─ Detail ─────────────────────────────────────────────-┐
+│ ▼ full-review  jarvis       │  Pipeline  full-review                                │
+│   running        12m34s     │  id        7f3a9c2e-4b1d-4e8a-9f0c-1a2b3c4d5e6f       │
+│   ▼ intent [default]        │  project   jarvis · terminalAction ready              │
+│     running      4m02s      │  elapsed   12m34s (created 22:01:03)                  │
+│     run abc… in-prog 4m     │                                                       │
+│       live  claude          │  Stages                                               │
+│   ▶ approve-intent awaiting │  > intent [default]  running  4m02s                   │
+│                             │    artifact  v2/spec/…/index.md                       │
+│ ▶ other-pipeline  plan      │  · approve-intent  awaiting                           │
+│                             │                                                       │
+│ ─ Unattributed (0) ─        │  (selection: stage → stage fields; run → run fields)  │
+│                             │                                                       │
+│  (~94×68 scroll)            │  (~151×68 scroll)                                     │
+├────────────────────────────-┴─────────────────────────────────────────────────────-─┤
+│ 2 active · home daemon · refresh 1s                                                 │
+│ > start jarvis --seed seeds/foo.md                                                  │
+│ : approve approve-intent   │  j/k select  e expand  a/r gate  Enter run  ? hints    │
+└──────────────────────────────────────────────────────────────────────────────────-──┘
+```
 
-- `jarvis daemon status` answers for the invoking keyed socket only, so it truthfully said `running` while the pile was findable only with `lsof`/`ps`. Daemon count being invisible produced two wrong lock-contention diagnoses before the real cause was found; `ps`/`lsof` were needed twice again on 2026-07-25.
-- `jarvis cleanup` enumerates `~/.jarvis/daemon-*.sock` but removes a socket only on an `ECONNREFUSED`/`ENOENT` connect probe. All sixteen stale sockets had live listeners, so cleanup preserved every one by design and reported them healthy. `pkill` is the only reaping path today.
-- At least two of the seventeen started *after* both `starting-daemon-supersedes-older-daemons` and `retire-superseded-daemon-when-idle` shipped, and still coexisted for over a day. Why they failed to exit is not established — candidates are that supersede was never delivered (peer discovery found no peers) and that `activeRuns` retained a stuck entry so `hasActiveRuns()` never went false.
+### Region geometry
 
-### Decisions
+Measured from `stdout.columns` / `stdout.rows` on each render.
 
-- Extend `jarvis daemon status` rather than add a subcommand — `status` is where an operator already looks, and the north star is fewer commands. Rules out a `daemon list`/`daemon ps` subcommand.
-- Enumerate `~/.jarvis/daemon-*.sock` and probe each, reusing the peer-socket enumeration the supersede pass uses. Rules out shelling out to `lsof`/`ps` for the inventory.
-- Per daemon report: PID, socket path, loaded revision/digest, retiring flag, active-run count — the fields the reaping and retirement questions are actually asked with.
-- Sockets that fail their probe are reported as unreachable, not omitted; an unreachable entry is operator-visible evidence, not noise.
-- **Instrument the retirement check only; do not change `shouldShutdownNow`.** Four prior attempts at the adjacent `reapable` discriminant failed by editing the condition against a guess (`wedged-workflow-kill-needs-a-live-stall-signal`). Rules out a speculative condition fix.
-- A daemon that is retiring but not exiting records the active-run count and the **blocking run IDs** in its process log — IDs, not just a count, since a count cannot distinguish a real run from a wedged entry. Rate-limit or dedupe so a 100 ms check interval does not flood the log.
-- Cleanup retires a live daemon only when it reports retiring/superseded **and** zero active runs — the same evidence the daemon uses to retire itself. Rules out a blanket kill of every peer socket.
-- Cleanup names every daemon it left alone and why (not superseded / has active runs). Rules out the silent preservation that made the pile invisible.
-- Retire via the daemon's own shutdown path, not a signal, so in-flight state is respected. Rules out `SIGKILL` by PID. The invoking/current daemon is never retired by cleanup.
+| Region                   | Reference size (245×72)             | Role                                                                                                                |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Left — pipeline tree** | **94 cols × 68 lines** (38% width)  | Scrollable pipeline → stage[branch] → run hierarchy; segments for Pipelines, Unattributed, Queue                    |
+| **Right — detail**       | **151 cols × 68 lines** (62% width) | Structured detail for the **current selection** (pipeline, stage, or run); workflow steps and errors live here only |
+| **Command dock**         | **full width × 4 lines** (fixed)    | Status, input, hints — not scrollable with the panes                                                                |
 
-### Acceptance criteria
+Split ratio default **38 / 62** (left / right). Session `[` / `]` nudges the divider ±2 cols (floor left 72 cols, ceil left 40% of width) so the tree never disappears.
 
-- [ ] `jarvis daemon status` lists every live keyed daemon with PID, socket, loaded digest, retiring state, and active-run count; a test with several live daemons fails if any one is hidden.
-- [ ] With one daemon up, `status` still names that daemon — the single-daemon case does not regress.
-- [ ] A socket whose probe fails is reported as unreachable rather than dropped.
-- [ ] A daemon that is retiring and has not exited records, in its process log, the active-run count and the run IDs blocking its exit, without repeating once per check interval.
-- [ ] A superseded daemon with no active runs still exits on its own without operator action (pin the existing contract so this work cannot regress it).
-- [ ] `jarvis cleanup` retires a live superseded daemon reporting no active runs; its socket is gone afterward.
-- [ ] `jarvis cleanup` leaves a live non-superseded daemon, and a superseded daemon with an active run, untouched — naming each with its reason. Inverting either guard fails a test.
-- [ ] Dead-socket reaping still works unchanged.
+Below **120 cols** width: fall back to stacked layout (tree above detail, same dock) — reference design is full-window; small terminals degrade.
 
-### Documentation updates
+### Left pane — retention (FIFO)
 
-- `v2/docs/daemon-host.md` — the `status` reply shape covering all live daemons; the retirement-blocked log record and how to read it; cleanup's live-daemon retirement gate.
-- `v2/docs/operator-runbook.md` — § Overlapping daemons: how to inventory daemons and how cleanup retires them.
+No time-based window (not the current run monitor's 1h / 20-row cap). The left tree is a **FIFO viewport**:
 
-### Plan order
+- **Active** pipelines (non-terminal derived state) are always shown and never dropped.
+- **Terminal** pipelines stay until the expanded tree would exceed the pane; then **oldest by finish time** fall off first (FIFO among terminals only). Finish time = derived terminal settle (`terminalPublicationSucceededAt` when present, else stage/pipeline failure or reject timestamp).
+- Sort key within the pane: active pipelines top (by `createdAt`), then terminal pipelines below (by finish time, oldest first). New admissions append at the bottom among actives.
+- Falling off is **display-only**; store and `jarvis pipeline list` unchanged.
+- Unattributed runs and queue segments use the same FIFO rule within their segment.
 
-Three subspecs: inventory (`status`), retirement instrumentation, cleanup retirement. Cleanup reuses the inventory peer-socket query path.
+### Left pane — auto-expand
 
----
+No strong operator preference — ship the minimum first, add polish if dogfooding asks for it.
 
-## Run list agent and model columns
+**Ship (slice 2):**
 
-`jarvis run list` exposes status and workflow metadata but not which agent/model binding the active attempt is using. Operators discover `adapterModel` only from `telemetry.jsonl` after the run finishes.
+- **Reveal on select** — expand ancestors so the selected row is always visible; siblings stay collapsed.
+- **Post-start focus** — after `start`, select the new pipeline and reveal it (ancestors only; pipeline row visible).
 
-### Decisions
+**Add if cheap during slice 2, else defer:**
 
-- Daemon `list` run objects expose wire fields `agent` and `model` for the active attempt's resolved binding.
-- `jarvis run list` extends the existing tab-separated row with `agent` and `model` columns (same contract surface as `write-behavior.md`).
-- Fields reflect the binding actually used or about to be used for the current attempt, not merely the first snapshot write.
-- Deferred: row-level “diverges from current profile” flag when a deliberate replay path ships.
+- **Active-path expand** — on pipeline select, also open the current stage (first non-satisfied stage in position order, correct `branchKey` under fan-out). Skips succeeded/approved stages unless selected.
 
-### Acceptance criteria
+**Always:** manual `e` toggles expand on the selected pipeline or stage.
 
-- [ ] `jarvis run list` (daemon `list` wire) includes agent and model for the active attempt on each     run row; a test removes either field and fails.
-- [ ] CLI list rendering surfaces the same agent/model without reading telemetry; removing the     rendered fields fails the test.
+### Left pane — tree columns (245-col reference)
 
-### Documentation updates
+At reference width the left pane (~94 cols) shows **all** scan columns without tiering:
 
-- `v2/docs/v1-behaviors.md`, `v2/docs/daemon-host.md`, `v2/docs/write-behavior.md`, `v2/docs/agent-model-config.md`, `v2/docs/operator-runbook.md` — list row agent/model fields.
+| Col     | Width | Pipeline | Stage     | Run     |
+| ------- | ----- | -------- | --------- | ------- |
+| marker  | 1     | ▼/▶      | ▼/▶       | ·       |
+| indent  | 2     | —        | —         | yes     |
+| label   | 22    | name     | stageId   | role    |
+| project | 10    | project  | —         | —       |
+| branch  | 14    | —        | branchKey | branch  |
+| state   | 12    | derived  | status    | status  |
+| elapsed | 8     | wall     | wall      | wall    |
+| live    | 5     | —        | —         | live    |
+| agent   | 10    | —        | —         | binding |
+| id      | 8     | short    | —         | short   |
 
-### Prerequisites
+Narrower left panes drop columns from the right (agent → id → branch → project) per the width table in § Column degradation; state and elapsed are never dropped.
 
-`snapshot-continue-resolves-current-agent-binding` — **satisfied** (`v2/spec/completed/20260725T134744Z-snapshot-continue-resolves-current-agent-binding`).
+### Right pane — detail content
 
----
+**Be generous.** The right pane (~151 cols at reference size) is the command center's information surface — show everything the operator would otherwise grep CLI output for. Wrap long values; never truncate ids, paths, or error text here. Tree columns stay scannable; detail carries the full picture.
 
-## Monitor row honesty
+**Sticky pipeline context** — whenever selection is inside a pipeline (pipeline, stage, or run), the top of the right pane always shows that pipeline's identity block:
 
-Fanned out (#2283) into `ready-intents/`: `list-row-step-honesty`,
-`store-timestamps-terminal-reconciliation`, and `workflow-collapse-drops-test-flag` may land before
-the full TUI phase; `terminal-window-renders-finishless-rows` and
-`expansion-driven-through-e-keybinding` belong to it.
+- Full `pipelineId`, name, registered project, admitted definition name
+- Derived state, pipeline wall-clock elapsed, `createdAt`
+- `terminalAction`, seed path/excerpt from admission `context`
+- Terminal publication outcome / PR when settled
+- Compact stage roll-up (every stage: id, branch when not `default`, status, elapsed)
+
+Below the sticky block, **selection detail** adds depth:
+
+| Selection | Additional detail                                                                                                                                                                                           |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pipeline  | Full admitted definition summary (stage list + review postures); owner daemon hint when multi-daemon                                                                                                        |
+| Stage     | Full stage record id, `workflowInvocationId`, artifact JSON, approval state, `failureDetail`, started/ended timestamps                                                                                      |
+| Run       | Full run id, branch, spec path, worktree, status, elapsed, agent/model, `loopOutcomeKind`, iterations, resumability, `error`, PR fields, **full workflow step list** with per-step status/attempts/outcomes |
+
+Queued runs selected from the Unattributed segment get a run-only block (no pipeline header).
+
+Empty selection: short welcome + example `start` command; optional registered-project list with configured pipeline names.
+
+### Command dock (4 lines)
+
+| Line | Content                                                                                                           |
+| ---- | ----------------------------------------------------------------------------------------------------------------- |
+| 1    | **Status** — active pipeline count, daemon profile/socket digest, refresh interval, last RPC error if any         |
+| 2    | **Input** — prompt `>` when editing; mirrors CLI grammar (`start jarvis --seed path`, `approve <stage-id>`, …)    |
+| 3    | **Input continuation** — second line for wrapped/pasted `--seed-text`; collapses to one line when empty           |
+| 4    | **Hints** — context keybindings for current selection (gate: `a`/`r`; run: kill/pause; global: `:` focus command) |
+
+Activate command focus with `:` or `/`; Esc returns focus to tree. Enter submits; Shift+Enter inserts newline on line 3 when entering multiline seed text.
+
+Pipeline kill/pause: **out of scope** for v1.
+
+Command grammar: **CLI mirror** for v1.
+
+## Information architecture
+
+```
+Pipeline  <name>  <project>  <state>  <elapsed>
+  stage <id> [<branch>]  <status>  <elapsed>
+    run <short-id>  <role/step>  <status>  <live>  <elapsed>  <agent>
+```
+
+- Join runs to stages via `workflowInvocationId` (same as CLI mental model).
+- **Elapsed** = wall-clock from durable start to now (active) or end timestamp (terminal). See timing below.
+- Queued admission rows stay in their own segment; not nested under a pipeline.
+
+**Selection** is three deep: pipeline → stage (branch-scoped when needed) → run. Commands and keybindings apply to the deepest selected node that supports the action.
+
+## Timing (required columns)
+
+Wall-clock duration is a first-class column at **pipeline**, **stage**, and **run** levels.
+
+| Level    | Start                                       | End (terminal)                                              | Active display                 |
+| -------- | ------------------------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| Pipeline | `createdAt`                                 | `terminalPublicationSucceededAt` or derived terminal settle | `now - createdAt`              |
+| Stage    | `startedAt`                                 | `endedAt`                                                   | `now - startedAt` when running |
+| Run      | `createdAt` (or active attempt `startedAt`) | `finishedAtMs` on list row                                  | `now - start`                  |
+
+`pipeline_list` today omits timestamps and `branchKey` — extend the observation wire before the TUI can render elapsed columns honestly. Run-level `finishedAtMs` already exists on daemon `list`; attempt `startedAt` may need projection for in-progress elapsed within a run.
+
+Refresh every second; elapsed columns tick locally between polls without extra RPC.
+
+## Command line
+
+Commands are entered in the **command dock** (bottom 4 lines). Grammar mirrors CLI for v1.
+
+| Command                         | Example                            | Maps to                                                     |
+| ------------------------------- | ---------------------------------- | ----------------------------------------------------------- |
+| `start`                         | `start jarvis --seed seeds/foo.md` | `pipeline_start` (pre-admission resolution in-process)      |
+| `approve` / `reject`            | `approve approve-intent`           | `pipeline_approve` / `pipeline_reject` on selected pipeline |
+| `resume`                        | `resume`                           | `pipeline_resume` on selected pipeline                      |
+| `kill` / `pause` / `resume-run` | `kill`                             | `run` RPC on selected nested run                            |
+| `log`                           | `log`                              | `jarvis tui log <run-id>` for selected run                  |
+| `expand` / `collapse`           | `expand`                           | Toggle selected pipeline/stage node                         |
+
+Keybindings remain for frequent actions (`j`/`k`, `e`, `a`/`r` on gates, etc.). Command dock and keys share one dispatch layer.
+
+## Operator actions
+
+| Selection                    | Actions             |
+| ---------------------------- | ------------------- |
+| Pipeline (non-terminal)      | Resume              |
+| Approval stage (`awaiting`)  | Approve, reject     |
+| Constituent run (live owner) | Pause, resume, kill |
+| Run leaf                     | Log follow          |
+
+Pipeline kill/pause: **out of scope** v1.
+
+## What exists today
+
+Daemon + CLI: `pipeline start | list | wait | approve | reject | resume`; `run pause | resume | kill | list | log`.
+
+TUI: flat run table, space-separated columns, workflow collapse, no pipelines, no command line, no elapsed columns, detail crammed into the same scroll as the table.
+
+## Non-goals
+
+- tmux
+- Daemon inventory UI (stay on `daemon status` / `cleanup`)
+- Replacing CLI entirely
+
+## Prerequisites
+
+| Dependency                                                                     | Why                                                                    |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Intent fan-out (`20260731T030451Z-pipeline-intent-split-fan-out-execution`)    | Multi-branch stage rows                                                |
+| Richer `pipeline_list` (`branchKey`, `createdAt`, stage `startedAt`/`endedAt`) | Nesting labels and elapsed                                             |
+| `terminal-window-renders-finishless-rows`                                      | Terminal nested runs stay visible until FIFO drops the parent pipeline |
+
+## Minimum slices
+
+Serialize 1 → 6. Each row is a seed.
+
+| #   | Slice               | Delivers                                                                                                       |
+| --- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | **Shell layout**    | Left/right split + 4-line command dock; fixed-width tree columns; reference 245×72; stacked fallback <120 cols |
+| 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 |
+| 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              |
+| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   |
+| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    |
+| 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        |
+
+Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.
+
+## Column degradation (left pane width)
+
+When the left pane is narrower than the reference (~94 cols), drop columns from right to left:
+
+| Left pane width | Visible tree columns               |
+| --------------- | ---------------------------------- |
+| ≥ 90            | full set (see layout table)        |
+| 72–89           | drop agent, short id               |
+| 58–71           | drop branch                        |
+| 48–57           | drop project                       |
+| < 48            | marker, label, state, elapsed only |

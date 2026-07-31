@@ -19,7 +19,7 @@ runbook already says this. What was not known until 2026-07-31 is the other half
 attempt and failed on the GitHub runner with `Received: ""` — ink never paints to that fake
 stdout there. Two flush-drain fixes were tried and both failed, because it is not a timing
 problem. The test was admin-merged over a red check (#2417) and reddened `main`; recovery was
-#2418, which moved the proof off painting entirely:
+PR #2418, which moved the proof off painting entirely:
 
 - the `e` keybinding is pinned in `tui-ink-monitor.test.tsx` through the injected input hook
   (no painting involved), and

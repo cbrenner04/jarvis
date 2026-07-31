@@ -184,6 +184,21 @@ export type WriteLoopInput = WriteExecuteInput & {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
 };
 
+let invertContractMissDetailFailureReasonForTest = false;
+let capturedContractMissStepFailureReasonForTest: string | undefined;
+
+export function setInvertContractMissDetailFailureReasonForTest(value: boolean): void {
+  invertContractMissDetailFailureReasonForTest = value;
+}
+
+export function getContractMissStepFailureReasonForTest(): string | undefined {
+  return capturedContractMissStepFailureReasonForTest;
+}
+
+export function resetContractMissStepFailureReasonForTest(): void {
+  capturedContractMissStepFailureReasonForTest = undefined;
+}
+
 /**
  * Attaches `operatorSessionId` to `input.telemetry`, whether or not the input already
  * carries a `telemetry` block. Merge policy: the given `operatorSessionId` always
@@ -757,11 +772,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
-        const targetSpecPath =
+        const blockerPath =
           result.failedContractId === "spec.criteria-ticked"
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : resolveSpecPath(worktreePath, args.specPath);
-        appendBlockerToSpec(targetSpecPath, reason);
+            : args.promptId === "plan.prompt.draft" && result.failedContractId === "artifact.exists"
+              ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
+              : resolveSpecPath(worktreePath, args.specPath);
+        appendBlockerToSpec(blockerPath, reason);
       }
 
       // Run coverage advisory for completing implement writes before terminal boundary
@@ -844,11 +861,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         });
       }
       if (result.kind === "contract_miss") {
+        capturedContractMissStepFailureReasonForTest = result.failureReason;
         args.logSink?.append(runId, {
           kind: "contract_miss_detail",
           attemptId,
           failedContractId: result.failedContractId,
           responseText: truncateLogText(stepResponseTextForLog(result)),
+          ...(result.failureReason !== undefined && !invertContractMissDetailFailureReasonForTest
+            ? { failureReason: result.failureReason }
+            : {}),
         });
       }
       if (result.kind === "blocked" && result.blockerText !== undefined) {

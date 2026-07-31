@@ -40,23 +40,23 @@ missing index links, cross-boundary decisions) are discarded; the operator sees
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` drives plan-draft `contract_miss` with agent output under
+- [x] `write.test.ts` drives plan-draft `contract_miss` with agent output under
       `expectedArtifactPath` (`.jarvis-plan-stage`) on a staged subspec with a multi-surface
       acceptance bullet and asserts `failureReason` contains the normalizer message, including
       the offending subspec filename and bullet text; it fails against the pre-fix code.
-- [ ] `write.test.ts` drives plan-draft `contract_miss` with agent output under
+- [x] `write.test.ts` drives plan-draft `contract_miss` with agent output under
       `expectedArtifactPath` (`.jarvis-plan-stage`) on a staged tree whose `index.md` omits a link
       to a present subspec and asserts `failureReason` contains the normalizer index-link
       message; it fails against the pre-fix code.
-- [ ] `write.test.ts` drives plan-draft `contract_miss` on a stage directory with no `index.md`
+- [x] `write.test.ts` drives plan-draft `contract_miss` on a stage directory with no `index.md`
       and asserts `failureReason` is `plan.draft.shape` without normalizer wording; it fails
       against the pre-fix code.
-- [ ] `write.test.ts` drives plan-draft `contract_miss` on a stage directory with `index.md` but
+- [x] `write.test.ts` drives plan-draft `contract_miss` on a stage directory with `index.md` but
       zero `NN-*.md` subspecs and asserts `failureReason` is `plan.draft.shape` without
       normalizer wording; it fails against the pre-fix code.
-- [ ] Plan-draft normalizer `contract_miss` rows keep `failedContractId` `"artifact.exists"`; a
+- [x] Plan-draft normalizer `contract_miss` rows keep `failedContractId` `"artifact.exists"`; a
       regression test in `write.test.ts` fails against the pre-fix code.
-- [ ] Inverting the guard that propagates the normalizer throw message through `validatePlanDraft`
+- [x] Inverting the guard that propagates the normalizer throw message through `validatePlanDraft`
       turns the first two tests RED.
 
 ## Documentation updates

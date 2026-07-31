@@ -31,11 +31,13 @@ describe("log-stream", () => {
       attemptId: "attempt-1",
       failedContractId: "artifact.exists",
       responseText: "agent output",
+      failureReason: "plan.draft.shape",
     };
     expect(event.kind).toBe("contract_miss_detail");
     expect(event.attemptId).toBe("attempt-1");
     expect(event.failedContractId).toBe("artifact.exists");
     expect(event.responseText).toBe("agent output");
+    expect(event.failureReason).toBe("plan.draft.shape");
   });
 
   it("persists structured records with round-trip kind and payload fields", () => {

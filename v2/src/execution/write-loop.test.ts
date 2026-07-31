@@ -44,6 +44,9 @@ import {
   persistRetainedFinalizationCheckpoint,
   resolveIterationSettlementKind,
   runMutationRepairIteration,
+  setInvertContractMissDetailFailureReasonForTest,
+  getContractMissStepFailureReasonForTest,
+  resetContractMissStepFailureReasonForTest,
   shouldFailTerminalCompletionForDirtyWorktree,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -51,6 +54,22 @@ import {
 } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
+
+const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
+const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
+const MULTI_SURFACE_BULLET =
+  "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
+
+function writeMultiSurfacePlanDraftStage(stagePath: string, subspecFile = "00-one.md"): void {
+  mkdirSync(stagePath, { recursive: true });
+  writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+  writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+  writeFileSync(
+    join(stagePath, subspecFile),
+    `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+    "utf8",
+  );
+}
 
 function loopTelemetry(sinkPath: string): NonNullable<WriteLoopInput["telemetry"]> {
   return {
@@ -234,6 +253,8 @@ async function runLoop(args: {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   stepId?: string;
   workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
+  promptId?: WriteLoopInput["promptId"];
+  intentSeed?: WriteLoopInput["intentSeed"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -271,6 +292,8 @@ async function runLoop(args: {
       : {}),
     ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
     ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
+    ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -443,6 +466,8 @@ describe("write loop", () => {
 
   afterEach(() => {
     mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    setInvertContractMissDetailFailureReasonForTest(false);
+    resetContractMissStepFailureReasonForTest();
   });
 
   test("calls executeWrite repeatedly until terminal", async () => {
@@ -601,6 +626,111 @@ describe("write loop", () => {
     const responseText = detail && "responseText" in detail ? detail.responseText : undefined;
     expect(responseText).toMatch(/^a+…$/);
     expect(responseText?.length).toBeLessThanOrEqual(501);
+  });
+
+  test("plan-draft normalizer contract_miss carries failureReason on contract_miss_detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const agentStdout = "agent claimed done";
+    const subspecFile = "00-one.md";
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "plan-draft-normalizer-log-detail",
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
+            return { kind: "ok", stdout: agentStdout, stderr: "" };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toMatchObject({
+      kind: "contract_miss_detail",
+      failedContractId: "artifact.exists",
+      responseText: agentStdout,
+    });
+    const stepFailureReason = getContractMissStepFailureReasonForTest();
+    expect(stepFailureReason).toBeDefined();
+    expect(detail && "failureReason" in detail ? detail.failureReason : undefined).toBe(stepFailureReason);
+    expect(detail && "responseText" in detail ? detail.responseText : "").not.toContain("multi-surface");
+  });
+
+  test("plan-draft normalizer contract_miss appends blocker to staged intent.md", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const subspecFile = "00-one.md";
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "plan-draft-normalizer-blocker",
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const intentPath = join(jarvisRoot, "worktrees", "demo", "plan-draft-normalizer-blocker", ".jarvis-plan-stage", "intent.md");
+    const intent = readFileSync(intentPath, "utf8");
+    expect(intent).toContain("## Blocker");
+    expect(intent).toContain("multi-surface");
+    expect(intent).toContain(subspecFile);
+    expect(intent).toContain(MULTI_SURFACE_BULLET);
+    const specPath = join(jarvisRoot, "worktrees", "demo", "plan-draft-normalizer-blocker", PLAN_DRAFT_SPEC_PATH);
+    if (existsSync(specPath)) {
+      expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
+    }
+  });
+
+  test("inverting contract_miss_detail failureReason guard fails plan-draft log-detail regression", async () => {
+    setInvertContractMissDetailFailureReasonForTest(true);
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "plan-draft-normalizer-log-invert",
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail && "failureReason" in detail ? detail.failureReason : undefined).toBeUndefined();
   });
 
   test("blocked with blocker text stops immediately with distinct outcome", async () => {

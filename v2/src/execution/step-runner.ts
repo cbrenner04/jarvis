@@ -18,11 +18,13 @@ const BLOCKER_REPROMPT_PROMPT_ID = "write.blocker-reprompt";
 
 type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 
+type StepContractCheckResult = boolean | { ok: true } | { ok: false; reason?: string };
+
 /** A deterministic, side-effect-free pass/fail check run after a terminal token. */
 export type StepContract = {
   id: string;
   reason?: string;
-  check: (args: { cwd: string }) => boolean | Promise<boolean>;
+  check: (args: { cwd: string }) => StepContractCheckResult | Promise<StepContractCheckResult>;
 };
 
 /** Before/after check that a blocked token appended a new non-empty `## Blocker` to the spec file. */
@@ -192,11 +194,16 @@ type ContractEvalResult = { ok: true } | { ok: false; failedContractId: string; 
 
 async function evaluateContracts(contracts: readonly StepContract[], cwd: string): Promise<ContractEvalResult> {
   for (const contract of contracts) {
-    if (!(await contract.check({ cwd }))) {
+    const checkResult = await contract.check({ cwd });
+    const passed = typeof checkResult === "boolean" ? checkResult : checkResult.ok === true;
+    if (!passed) {
+      const failureReason =
+        (typeof checkResult === "object" && checkResult.ok === false ? checkResult.reason : undefined) ??
+        contract.reason;
       return {
         ok: false,
         failedContractId: contract.id,
-        ...(contract.reason !== undefined ? { failureReason: contract.reason } : {}),
+        ...(failureReason !== undefined ? { failureReason } : {}),
       };
     }
   }

@@ -122,6 +122,7 @@ export type ContractMissDetailEvent = {
   attemptId: string;
   failedContractId: string;
   responseText: string;
+  failureReason?: string;
 };
 
 /** Agent's `## Blocker` body text persisted when a `blocked` outcome satisfies the blocker-text contract; truncated at append time. */

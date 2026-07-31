@@ -36,10 +36,10 @@ during the write loop.
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/intent-split.test.ts` `intent split prompt states landing filename contract`
+- [x] `shared/prompts/intent-split.test.ts` `intent split prompt states landing filename contract`
       asserts `buildIntentSplitPrompt` output requires `<name>.md` with no `NN-` ordering
       prefix; it fails against the pre-fix prompt.
-- [ ] `shared/prompts/intent-split.test.ts` `includes governed layering, file output, and optional step rules`
+- [x] `shared/prompts/intent-split.test.ts` `includes governed layering, file output, and optional step rules`
       stays green (existing coverage pins prerequisites one-bullet-per-line).
 
 ## Documentation updates

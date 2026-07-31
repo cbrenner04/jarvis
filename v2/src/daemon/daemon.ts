@@ -42,7 +42,12 @@ import {
   resumeReviewMutationFinalization,
   workflowTelemetryLabel,
 } from "../execution/workflow-runner.ts";
-import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import {
+  applyOperatorSessionId,
+  executeWriteLoop,
+  findLandingContractRepromptFromLog,
+  type WriteLoopInput,
+} from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
@@ -519,7 +524,7 @@ function mapImplementRecoverOutcome(
   };
 }
 
-function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
+function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
   const snapshot = run.workflowSnapshot;
   const stepId = run.stepId;
   const hiddenShrink = stepId?.endsWith("~shrink") === true;
@@ -536,6 +541,8 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
   if (!step.stepRules || !step.expectedArtifactPath || !step.agents?.length || !step.agentModelConfig) {
     return { ok: false, message: "snapshot step is missing write resume context" };
   }
+
+  const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
 
   return resolveWriteLoopBindings({
     worktree: {
@@ -555,9 +562,12 @@ function reconstructWriteResume(run: Run): ResolvedWriteLoopInput {
     },
     stepId,
     workflowSnapshot: snapshot,
+    ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
+    ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
     ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
     iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
     ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
+    ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
   });
 }
 
@@ -615,6 +625,7 @@ function resumeContextForRun(
   store: StateStore,
   terminalRecord?: TerminalLogRecord,
   intentFinalizationResumable?: boolean,
+  logRecords?: PersistedRecord[],
 ): ResolvedWriteLoopInput | undefined {
   // Admission is derived from the advertised row contract: if nextAction is
   // "resume", snapshot reconstruction proceeds; otherwise undefined.
@@ -627,7 +638,7 @@ function resumeContextForRun(
   ) {
     return undefined;
   }
-  return reconstructWriteResume(run);
+  return reconstructWriteResume(run, logRecords);
 }
 
 function resumeContextForTerminalRecord(
@@ -635,9 +646,10 @@ function resumeContextForTerminalRecord(
   store: StateStore,
   terminalRecord: TerminalLogRecord | undefined,
   intentFinalizationResumable?: boolean,
+  logRecords?: PersistedRecord[],
 ): ResolvedWriteLoopInput | undefined {
   if (!run) return undefined;
-  return resumeContextForRun(run, store, terminalRecord, intentFinalizationResumable);
+  return resumeContextForRun(run, store, terminalRecord, intentFinalizationResumable, logRecords);
 }
 
 function runListRowError(
@@ -1485,7 +1497,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     key: OwnershipKey,
     runId: string,
   ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
-    const reconstructed = reconstructWriteResume(run);
+    const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
       return {
         kind: "error",
@@ -1717,7 +1729,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       return resumePausedRun(run, key, runId);
     }
 
-    const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord);
+    const logRecords = logReader?.tail(runId);
+    const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord, undefined, logRecords);
     if (!reconstructed?.ok) {
       return {
         kind: "error",

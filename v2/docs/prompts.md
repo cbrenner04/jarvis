@@ -16,6 +16,10 @@ One-shot re-prompt issued when the agent's first response carries no terminal to
 
 One-shot re-prompt issued when a `blocked` token misses the blocker-text contract. No placeholders. Used by the step runner; see [`write-behavior.md`](./write-behavior.md#terminal-token).
 
+### `write.landing-contract-reprompt`
+
+Re-prompt issued when `intent.prompt.split` staged output fails landing-shape validation before write-loop completion. Injects `VIOLATION`, `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#intent-split-landing-contracts).
+
 ### `write.ready-repair`
 
 Re-prompt issued when the ready gate fails during completion publication. Injects `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, and `GATE_OUTPUT`. Used by the write loop's publication boundary; see [`write-behavior.md`](./write-behavior.md#ready-finalization).

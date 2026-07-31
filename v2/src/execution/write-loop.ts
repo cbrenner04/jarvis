@@ -8,11 +8,18 @@ import {
   type InvocationExecution,
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
+import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { type LogSink, type LoopFinishedEvent, truncateLogText } from "../persistence/log-stream.ts";
+import {
+  type LandingContractRepromptEvent,
+  type LogSink,
+  type LoopFinishedEvent,
+  type PersistedRecord,
+  truncateLogText,
+} from "../persistence/log-stream.ts";
 import {
   type OutcomeKind,
   openStateStore,
@@ -26,6 +33,7 @@ import { type CompletionCommitter, createCompletionCommitter } from "./completio
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
@@ -166,6 +174,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   joinProcessOnIdleStall?: boolean;
   /** Test seam: skip persisted-fence enforcement on completed-run retry and resume recovery. */
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
+  /** Reprompt context for the next intent-split iteration after a landing-contract miss. */
+  landingContractReprompt?: { violation: string; offendingFile: string };
 };
 
 /**
@@ -176,6 +186,20 @@ export type WriteLoopInput = WriteExecuteInput & {
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
+}
+
+/** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
+export function findLandingContractRepromptFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): WriteLoopInput["landingContractReprompt"] {
+  if (logRecords === undefined) return undefined;
+  let latest: LandingContractRepromptEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "landing_contract_reprompt") {
+      latest = record.event;
+    }
+  }
+  return latest === undefined ? undefined : { violation: latest.violation, offendingFile: latest.offendingFile };
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -587,6 +611,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     args.onRunCreated?.(runId);
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
+    let pendingLandingReprompt = args.landingContractReprompt;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -607,7 +632,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       });
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
-      const settled = await awaitIteration(args, runId, attemptId, sessionLog);
+      const settled = await awaitIteration(args, runId, attemptId, sessionLog, "bounded", pendingLandingReprompt);
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
         return finishControlledLoss(
@@ -716,6 +741,86 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
 
         continue;
+      }
+
+      if (result.kind === "complete" && args.promptId === INTENT_SPLIT_PROMPT_ID) {
+        const gate = await evaluateIntentSplitLandingGate({
+          worktreePath,
+          baseRef: args.worktree.baseRef,
+          stagingDir: args.expectedArtifactPath,
+          durableDir: args.specPath,
+        });
+        // Mutation checkpoint: skipping the pre-completion landing-validation guard must turn
+        // "intent split landing-contract violation reprompts before settle" RED.
+        if (!gate.ok) {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          if (!gate.repromptable || iterationsConsumed >= maxIterations) {
+            store.commitCompletionBoundary({
+              attemptId,
+              runStatus: "failed",
+              outcomeKind: "landing_failed",
+            });
+            args.logSink?.append(runId, {
+              kind: "boundary_committed",
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            });
+            // Mutation checkpoint: inverting this branch to contract_miss or blocked must turn
+            // "intent split landing-contract budget exhaustion settles landing_failed" RED.
+            store.setRunStatus(runId, "failed");
+            args.logSink?.append(runId, {
+              kind: "loop_finished",
+              loopOutcomeKind: "landing_failed",
+              iterationsConsumed,
+              resumable: true,
+            });
+            return {
+              kind: "landing_failed",
+              runId,
+              iterationsConsumed,
+              resumable: true,
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            };
+          }
+
+          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "progress",
+            runStatus: "in-progress",
+          });
+          args.logSink?.append(runId, {
+            kind: "landing_contract_reprompt",
+            attemptId,
+            violation: truncateLogText(gate.error),
+            offendingFile: gate.offendingFile,
+          });
+          pendingLandingReprompt = { violation: gate.error, offendingFile: gate.offendingFile };
+          if (args.signal?.aborted) {
+            return finishLoop(args, runId, "progress", iterationsConsumed, true);
+          }
+          if (args.pauseSignal?.aborted) {
+            store.setRunStatus(runId, "paused");
+            return finishLoop(args, runId, "paused", iterationsConsumed, true);
+          }
+          continue;
+        }
+        pendingLandingReprompt = undefined;
       }
 
       if (result.kind === "contract_miss") {
@@ -1046,6 +1151,7 @@ async function awaitIteration(
   attemptId: string,
   sessionLog: SessionLog,
   settlementPolicy: IterationSettlementPolicy = "bounded",
+  landingContractReprompt?: { violation: string; offendingFile: string },
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
@@ -1083,7 +1189,7 @@ async function awaitIteration(
   });
 
   const execution: Promise<QuiescedExecutionOutcome> = executeWrite({
-    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog),
+    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog, landingContractReprompt),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
     (result): QuiescedExecutionOutcome => ({ kind: "settled", result }),
@@ -1360,6 +1466,7 @@ function buildWriteExecuteInput(
   attemptId: string,
   signal: AbortSignal,
   sessionLog: SessionLog,
+  landingContractReprompt?: { violation: string; offendingFile: string },
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -1408,6 +1515,7 @@ function buildWriteExecuteInput(
     ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
   };
 }
 
@@ -1462,6 +1570,9 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
   }
   if (run.status === "failed") {
     const outcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
+    if (outcomeKind === "landing_failed") {
+      return null;
+    }
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
       kind:

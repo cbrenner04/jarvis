@@ -1270,6 +1270,8 @@ function buildWorkflowSnapshot(
       ? {
           stepRules: step.stepRules,
           expectedArtifactPath: step.expectedArtifactPath,
+          ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
+          ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
           agents: step.agents,
           agentModelConfig: step.agentModelConfig,
           iterationTimeoutMs: step.iterationTimeoutMs,

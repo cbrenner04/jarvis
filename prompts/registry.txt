@@ -25,6 +25,7 @@ write/execute.md
 write/principles.md
 write/token-reprompt.md
 write/blocker-reprompt.md
+write/landing-contract-reprompt.md
 write/ready-repair.md
 write/mutation-repair.md
 write/coverage-advisory.md

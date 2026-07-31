@@ -247,6 +247,9 @@ async function runLoop(args: {
   workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
   promptId?: WriteLoopInput["promptId"];
   intentSeed?: WriteLoopInput["intentSeed"];
+  promptPlaceholders?: WriteLoopInput["promptPlaceholders"];
+  publishCompletion?: boolean;
+  freshDispatch?: boolean;
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -280,6 +283,9 @@ async function runLoop(args: {
     ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
+    ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
+    ...(args.publishCompletion !== undefined ? { publishCompletion: args.publishCompletion } : {}),
+    ...(args.freshDispatch === true ? { freshDispatch: true } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -449,6 +455,7 @@ function progressThenDone(n: number): InvocationBinding[] {
 }
 
 describe("write loop", () => {
+  // Intent-split landing-contract pre-completion gate: write-loop-intent-landing.test.ts
   beforeEach(() => {
     mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
   });

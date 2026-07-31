@@ -37,18 +37,18 @@ prefixes are mechanical — the harness should normalize them, not reprompt or f
 
 ## Acceptance criteria
 
-- [ ] `shared/intent-stage.test.ts` `normalizes NN- ordering prefix on staged filename`
+- [x] `shared/intent-stage.test.ts` `normalizes NN- ordering prefix on staged filename`
       stages `01-example.md` with valid `name: example` content, runs the stage pipeline,
       and asserts the stage holds `example.md` not `01-example.md`; it fails against the
       pre-fix code.
-- [ ] `shared/intent-stage.test.ts` `rejects duplicate basename after NN- prefix normalize`
+- [x] `shared/intent-stage.test.ts` `rejects duplicate basename after NN- prefix normalize`
       stages `01-foo.md` and `02-foo.md`, runs the stage pipeline, and asserts duplicate-name
       validation failure; it fails against the pre-fix code.
-- [ ] `intent-output.test.ts` `lands NN-prefixed staged filename under unprefixed durable name`
+- [x] `intent-output.test.ts` `lands NN-prefixed staged filename under unprefixed durable name`
       stages `01-example.md`, calls `landIntentWorkflowOutput`, and asserts
       `ready-intents/example.md` exists with no reprompt surface exercised; it fails against
       the pre-fix code (which rejects the prefixed name).
-- [ ] Skipping the normalize-before-validate pipeline guard (run filename validation before
+- [x] Skipping the normalize-before-validate pipeline guard (run filename validation before
       prefix strip) turns `normalizes NN- ordering prefix on staged filename` RED; the pinning
       test names that mutation checkpoint.
 

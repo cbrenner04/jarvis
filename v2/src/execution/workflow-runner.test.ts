@@ -8108,6 +8108,11 @@ describe("executeWorkflow review dispatch", () => {
       specPath: durableDir,
       expectedArtifactPath: ".jarvis-intent-stage",
       stepRules: "Return exactly one terminal token.",
+      promptId: "intent.prompt.split",
+      promptPlaceholders: {
+        SEED_LABEL: "inline",
+        SEED_CONTENT: "Split into ready intents for review-last landing test",
+      },
       agents: ["claude"],
       agentModelConfig: splitConfig,
       creationTitle: `intent: ${branchName}`,
@@ -8197,6 +8202,33 @@ describe("executeWorkflow review dispatch", () => {
     });
     expect(log).toContain("ready-intents/one.md");
     expect(log).toContain("ready-intents/two.md");
+  });
+
+  test("review-last deferred landing does not reprompt on already-valid staging", async () => {
+    const branchName = "intent-review-last-no-reprompt";
+    const { harness, durableDir, stagingDir, writeStep, reviewStep } = twoFileIntentWorkflow(branchName, {
+      criticStdout: "looks good",
+    });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete" });
+    });
+
+    expect(readFileSync(join(durableDir, "one.md"), "utf8")).toContain("# One");
+    expect(existsSync(stagingDir)).toBe(false);
+    const repromptEvents = logSink.events.filter((entry) => entry.event.kind === "landing_contract_reprompt");
+    expect(repromptEvents).toHaveLength(0);
+    expect(harness.workspace).toBeDefined();
   });
 
   test("write-last intent completion with N=2 records downstreamInputs on the step-0 entry run", async () => {

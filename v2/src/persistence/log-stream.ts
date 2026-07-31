@@ -109,6 +109,14 @@ export type BlockerRepromptEvent = {
   responseText: string;
 };
 
+/** Emitted when intent-split landing-shape validation fails and the write loop schedules a reprompt. */
+export type LandingContractRepromptEvent = {
+  kind: "landing_contract_reprompt";
+  attemptId: string;
+  violation: string;
+  offendingFile: string;
+};
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -166,6 +174,7 @@ export type LogEvent =
   | InvalidTokenDetailEvent
   | TokenRepromptEvent
   | BlockerRepromptEvent
+  | LandingContractRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

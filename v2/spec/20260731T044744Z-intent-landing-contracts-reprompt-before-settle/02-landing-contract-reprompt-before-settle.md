@@ -64,30 +64,30 @@ the iteration budget.
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` `intent split landing-contract violation reprompts before settle`
+- [x] `write-loop.test.ts` `intent split landing-contract violation reprompts before settle`
       drives `intent.prompt.split` with staged prerequisites prose violation, asserts a
       landing-contract reprompt carrying the validation message and offending file, asserts the
       loop `continue`s (consumes iteration budget) without terminal `landing_failed` on the
       first miss, and asserts no `contract_miss` / `appendBlockerToSpec` on `specPath`; it
       fails against the pre-fix code (write loop completes, then publication tail settles
       `landing_failed`).
-- [ ] `write-loop.test.ts` `intent split landing-contract budget exhaustion settles landing_failed`
+- [x] `write-loop.test.ts` `intent split landing-contract budget exhaustion settles landing_failed`
       keeps the violation through `maxIterations`, asserts terminal write-loop `landing_failed`
       with `resumable: true` and stage bytes unchanged; it fails against the pre-fix code.
-- [ ] `daemon-resume.test.ts` `resumes write-step intent-split landing_failed via reconstructWriteResume`
+- [x] `daemon-resume.test.ts` `resumes write-step intent-split landing_failed via reconstructWriteResume`
       drives budget-exhausted write-row `landing_failed`, asserts `jarvis run resume` admits via
       `reconstructWriteResume` (not `resolveIntentFinalizationResumeContext`) and re-enters the
       write loop with staged bytes intact; it fails against the pre-fix code.
-- [ ] `workflow-runner.test.ts` `review-last deferred landing does not reprompt on already-valid staging`
+- [x] `workflow-runner.test.ts` `review-last deferred landing does not reprompt on already-valid staging`
       asserts write-step pre-completion validation leaves valid staging and deferred landing lands
       without a landing-contract reprompt event; it fails against the pre-fix code if deferred
       landing re-validates with a second reprompt pass.
-- [ ] `intent-output.test.ts` `rejects differing collisions without overwrite` stays green
+- [x] `intent-output.test.ts` `rejects differing collisions without overwrite` stays green
       (workflow-tail non-repromptable `landing_failed` unchanged).
-- [ ] Skipping the pre-completion landing-validation guard (accept `done` before shape validate)
+- [x] Skipping the pre-completion landing-validation guard (accept `done` before shape validate)
       turns `intent split landing-contract violation reprompts before settle` RED; the pinning
       test names that mutation checkpoint.
-- [ ] Inverting the budget-exhaustion `landing_failed` branch (settle `contract_miss` or
+- [x] Inverting the budget-exhaustion `landing_failed` branch (settle `contract_miss` or
       `blocked` instead) turns `intent split landing-contract budget exhaustion settles
       landing_failed` RED; the pinning test names that mutation checkpoint.
 

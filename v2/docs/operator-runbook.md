@@ -575,14 +575,32 @@ one was removed. `jarvis cleanup --abandon` uses the same retirement sequence.
 A reviewed intent workflow can fail after critic/actuator succeed but landing
 (promotion, commit, push, or PR) fails, leaving `.jarvis-intent-stage/` still
 populated. `jarvis run list` / `jarvis run wait <id>` show `landing_failed`
-(`nextAction: "resume"`) on the review step's row.
+(`nextAction: "resume"`).
+
+**Write row** (`runId` on the intent-split write step) settled `landing_failed`
+means the reprompt budget was already spent — hand-edit `.jarvis-intent-stage/`,
+then resume the **write step's** `runId` (the split row from `jarvis run list`,
+not the review row):
+
+```sh
+jarvis run list              # find the failed write-step row (intent-split / split)
+jarvis run resume <runId>    # write-step runId — re-enters the write loop
+```
+
+`reconstructWriteResume` preserves stage bytes and restores any pending
+landing-contract reprompt context from the last `landing_contract_reprompt` log
+event (including after pause).
+
+**Review row** (`runId` on the review/finalization step) settled `landing_failed`
+with populated stage replays finalization only
+(`resolveIntentFinalizationResumeContext`), not the write loop.
 
 Prerequisites: the failure must be git-enabled (git-disabled runs have nothing
 to commit/push and aren't covered by this recovery path) and the stage must
 still hold files — an empty/missing stage reports `unsupported_resume_context`
 instead and needs manual inspection.
 
-Recover with:
+Recover a **review row** with:
 
 ```sh
 jarvis run resume <runId>   # the review step's runId from `run list`/`run wait`

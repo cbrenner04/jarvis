@@ -14,8 +14,8 @@ expose only `error.reason: "contract_miss"` with remediation text that tells the
 
 - `RunOperatorError.contractMissDetail` carries the propagated contract-miss diagnostic — rules out
   a fix that only improves log events the operator must know to open.
-- Composition reads the terminal `contract_miss_detail.failureReason` for the run (same tail the log
-  already stores) — rules out duplicating validation in the daemon.
+- Composition reads the chronologically last `contract_miss_detail.failureReason` for the run (same
+  tail the log already stores) — rules out duplicating validation in the daemon.
 - Only `contract_miss` terminals with a `contract_miss_detail` event that carries `failureReason`
   gain `contractMissDetail`; other operator errors stay unchanged — rules out widening every error
   row with free text.

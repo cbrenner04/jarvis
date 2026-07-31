@@ -22,6 +22,12 @@ import {
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import {
+  buildPipelineDecisionRpcParams,
+  parsePipelineDecisionArgs,
+  parsePipelineMutationOutcome,
+  pipelineMutationCommandExitCode,
+} from "./pipeline.ts";
 
 let fx: CliRepoFixture;
 
@@ -135,9 +141,9 @@ const SAMPLE_PIPELINE_SNAPSHOT = {
   name: "sample-pipeline",
   state: "awaiting-approval",
   stages: [
-    { stageId: "plan", status: "succeeded", workflowInvocationId: "inv-plan" },
-    { stageId: "gate", status: "awaiting", workflowInvocationId: null },
-    { stageId: "implement", status: "pending", workflowInvocationId: null },
+    { stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" },
+    { stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null },
+    { stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null },
   ],
 };
 
@@ -146,10 +152,57 @@ const LIVE_RUNNING_SNAPSHOT = {
   name: "fast",
   state: "running",
   stages: [
-    { stageId: "s1", status: "running", workflowInvocationId: "inv-1" },
-    { stageId: "s2", status: "pending", workflowInvocationId: null },
+    { stageId: "s1", branchKey: "default", status: "running", workflowInvocationId: "inv-1" },
+    { stageId: "s2", branchKey: "default", status: "pending", workflowInvocationId: null },
   ],
 };
+
+const TWO_BRANCH_FAN_STAGES = [
+  { stageId: "intent", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-intent" },
+  { stageId: "gate", branchKey: "default", status: "skipped", workflowInvocationId: null },
+  { stageId: "gate", branchKey: "alpha", status: "pending", workflowInvocationId: null },
+  { stageId: "gate", branchKey: "beta", status: "pending", workflowInvocationId: null },
+  { stageId: "plan", branchKey: "default", status: "skipped", workflowInvocationId: null },
+  { stageId: "plan", branchKey: "alpha", status: "pending", workflowInvocationId: null },
+  { stageId: "plan", branchKey: "beta", status: "pending", workflowInvocationId: null },
+  { stageId: "implement", branchKey: "default", status: "skipped", workflowInvocationId: null },
+  { stageId: "implement", branchKey: "alpha", status: "pending", workflowInvocationId: null },
+  { stageId: "implement", branchKey: "beta", status: "pending", workflowInvocationId: null },
+] as const;
+
+function twoBranchFanSnapshot(
+  state: string,
+  gate: { alpha: string; beta: string },
+  planBeta?: { status: string; workflowInvocationId?: string | null },
+) {
+  return {
+    pipelineId: "pipe-fan",
+    name: "fan-out",
+    state,
+    stages: TWO_BRANCH_FAN_STAGES.map((row) => {
+      if (row.stageId === "gate" && row.branchKey === "alpha") return { ...row, status: gate.alpha };
+      if (row.stageId === "gate" && row.branchKey === "beta") return { ...row, status: gate.beta };
+      if (planBeta !== undefined && row.stageId === "plan" && row.branchKey === "beta") {
+        return {
+          ...row,
+          status: planBeta.status,
+          workflowInvocationId: planBeta.workflowInvocationId ?? null,
+        };
+      }
+      return { ...row };
+    }),
+  };
+}
+
+const TWO_BRANCH_PIPELINE_SNAPSHOT = twoBranchFanSnapshot(
+  "running",
+  { alpha: "awaiting", beta: "approved" },
+  { status: "running", workflowInvocationId: "inv-beta-plan" },
+);
+const TWO_BRANCH_AWAITING_SNAPSHOT = twoBranchFanSnapshot("awaiting-approval", {
+  alpha: "awaiting",
+  beta: "awaiting",
+});
 
 function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
   return sent.filter((frame) => (frame as { method?: string }).method === method);
@@ -283,7 +336,7 @@ describe("pipeline start", () => {
         connectIpcClient: async () =>
           makeIpcClient(
             pipelineFrames("pipe-att", ["pipe-w1", "pipe-w2"], "pipe-att-1", [
-              { kind: "awaiting-approval", stageId: "approve-intent" },
+              { kind: "awaiting-approval", stageId: "approve-intent", branchKey: "default" },
               { kind: "terminal", state: "failed" },
             ]),
             { sent },
@@ -469,6 +522,33 @@ describe("pipeline list", () => {
     expect(JSON.parse(cap.read().stdout.trim())).toEqual({ pipelines: [LIVE_RUNNING_SNAPSHOT] });
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
   });
+
+  test("two-branch list stdout shows distinguishable branchKey values and per-branch statuses", async () => {
+    // Inversion target: runPipelineListCommand JSON passthrough in pipeline.ts — collapsing stage rows to one per stageId turns this test RED.
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-fan"], () =>
+      main(["pipeline", "list"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineListFrame("pipe-list-fan", [TWO_BRANCH_PIPELINE_SNAPSHOT])], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const snapshot = JSON.parse(cap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_PIPELINE_SNAPSHOT[] };
+    const stages = snapshot.pipelines[0]?.stages ?? [];
+    expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
+    expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([
+      { stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null },
+    ]);
+    expect(stages.filter((row) => row.stageId === "plan" && row.branchKey === "beta")).toEqual([
+      { stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: "inv-beta-plan" },
+    ]);
+    expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
+    expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
+  });
 });
 
 describe("pipeline wait", () => {
@@ -477,7 +557,7 @@ describe("pipeline wait", () => {
     [{ kind: "terminal", state: "failed" }, 1],
     [{ kind: "terminal", state: "rejected" }, 1],
     [{ kind: "terminal", state: "interrupted" }, 1],
-    [{ kind: "awaiting-approval", stageId: "approve-intent" }, 0],
+    [{ kind: "awaiting-approval", stageId: "approve-intent", branchKey: "default" }, 0],
   ] as const)("prints wait boundary %p with exit %i", async (boundary, expectedExit) => {
     // Inversion target: runPipelineWaitCommand pipeline_wait path in pipeline.ts — resolving on pending/running from pipeline_list alone turns this test RED.
     const cap = captureIo();
@@ -499,7 +579,7 @@ describe("pipeline wait", () => {
   test("returns promptly when the pipeline is already at a boundary", async () => {
     const cap = captureIo();
     const startedAt = Date.now();
-    const boundary = { kind: "awaiting-approval", stageId: "gate" } as const;
+    const boundary = { kind: "awaiting-approval", stageId: "gate", branchKey: "default" } as const;
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-wait-now"], () =>
       main(["pipeline", "wait", "pipe-1"], cap.io, {
@@ -588,19 +668,35 @@ describe("pipeline wait", () => {
     expect(cap.read().stderr).toContain("IPC connection lost");
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(1);
   });
+
+  test("two-branch wait names awaiting branchKey while sibling branch runs", async () => {
+    // Inversion target: parsePipelineWaitBoundary branchKey requirement in pipeline.ts — accepting awaiting-approval without branchKey turns this test RED.
+    const cap = captureIo();
+    const boundary = { kind: "awaiting-approval", stageId: "gate", branchKey: "alpha" } as const;
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-fan"], () =>
+      main(["pipeline", "wait", "pipe-fan"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-wait-fan", boundary)]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(`${JSON.stringify(boundary)}\n`);
+  });
 });
 
 describe("pipeline approve and reject", () => {
   test.each([
     ["approve", "pipeline_approve", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" }],
     ["reject", "pipeline_reject", { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" }],
-  ] as const)("pipeline %s exits 0 on applied decision and sends both IDs", async (subcommand, method, result) => {
+  ] as const)("pipeline %s exits 0 on applied decision and sends branch-keyed IDs", async (subcommand, method, result) => {
     // Inversion target: runPipelineMutationCommand exit mapping in pipeline.ts — treating applied outcomes as failure turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
 
     const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}`], () =>
-      main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
+      main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}`, result)], { sent }),
       }),
@@ -609,15 +705,204 @@ describe("pipeline approve and reject", () => {
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "", stderr: "" });
     expect(ipcFramesWithMethod(sent, method)).toEqual([
-      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate" } }),
+      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate", branchKey: "default" } }),
     ]);
+  });
+
+  test("pipeline approve/reject branchKey RPC guard inversion: omitting branchKey breaks branch-targeted params", () => {
+    const parsed = parsePipelineDecisionArgs(["pipe-fan", "gate", "alpha"]);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const params = buildPipelineDecisionRpcParams(parsed);
+    expect(params).toEqual({ pipelineId: "pipe-fan", stageId: "gate", branchKey: "alpha" });
+    const { branchKey: _omit, ...withoutBranchKey } = params;
+    expect(withoutBranchKey).not.toHaveProperty("branchKey");
+    expect(expect.objectContaining({ params: withoutBranchKey })).not.toEqual(
+      expect.objectContaining({ params }),
+    );
+    expect(
+      TWO_BRANCH_AWAITING_SNAPSHOT.stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status,
+    ).toBe("awaiting");
+  });
+
+  test("pipeline mutation applied-vs-refused exit guard inversion", () => {
+    const applied = parsePipelineMutationOutcome(
+      { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "approved" },
+      "applied",
+    );
+    expect(applied).toEqual({ kind: "applied" });
+    expect(pipelineMutationCommandExitCode({ kind: "applied" }, "applied")).toBe(0);
+    expect(
+      pipelineMutationCommandExitCode({ kind: "refused", reason: "status_not_awaiting" }, "applied"),
+    ).toBe(1);
+    const invertExit = (outcome: { kind: string }, successKind: string) =>
+      outcome.kind === successKind ? 1 : 0;
+    expect(invertExit({ kind: "applied" }, "applied")).toBe(1);
+    expect(invertExit({ kind: "refused" }, "applied")).toBe(0);
+  });
+
+  test("pipeline approve on one branch sends branchKey and leaves sibling gate awaiting", async () => {
+    // Inversion target: approve/reject RPC branchKey wiring in pipeline.ts — omitting branchKey from pipeline_approve params turns this test RED.
+    // Inversion target: runPipelineMutationCommand exit mapping in pipeline.ts — treating applied outcomes as failure turns this test RED.
+    const approveCap = captureIo();
+    const approveSent: unknown[] = [];
+
+    const approveCode = await withFixedUuid([SESSION_UUID, "pipe-approve-alpha"], () =>
+      main(["pipeline", "approve", "pipe-fan", "gate", "alpha"], approveCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              pipelineWaitFrame("pipe-approve-alpha", {
+                kind: "applied",
+                pipelineId: "pipe-fan",
+                stageId: "gate",
+                decision: "approved",
+              }),
+            ],
+            { sent: approveSent },
+          ),
+      }),
+    );
+
+    expect(approveCode).toBe(0);
+    expect(ipcFramesWithMethod(approveSent, "pipeline_approve")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-fan", stageId: "gate", branchKey: "alpha" } }),
+    ]);
+
+    const listCap = captureIo();
+    const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-after-approve"], () =>
+      main(["pipeline", "list"], listCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineListFrame("pipe-list-after-approve", [
+              {
+                ...TWO_BRANCH_AWAITING_SNAPSHOT,
+                stages: TWO_BRANCH_AWAITING_SNAPSHOT.stages.map((row) =>
+                  row.stageId === "gate" && row.branchKey === "alpha"
+                    ? { ...row, status: "approved" }
+                    : row,
+                ),
+              },
+            ]),
+          ]),
+      }),
+    );
+
+    expect(listCode).toBe(0);
+    const stages = (
+      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
+    ).pipelines[0]?.stages ?? [];
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("awaiting");
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("approved");
+  });
+
+  test("pipeline reject on one branch sends branchKey and leaves sibling gate awaiting", async () => {
+    const rejectCap = captureIo();
+    const rejectSent: unknown[] = [];
+
+    const rejectCode = await withFixedUuid([SESSION_UUID, "pipe-reject-beta"], () =>
+      main(["pipeline", "reject", "pipe-fan", "gate", "beta"], rejectCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              pipelineWaitFrame("pipe-reject-beta", {
+                kind: "applied",
+                pipelineId: "pipe-fan",
+                stageId: "gate",
+                decision: "rejected",
+              }),
+            ],
+            { sent: rejectSent },
+          ),
+      }),
+    );
+
+    expect(rejectCode).toBe(0);
+    expect(ipcFramesWithMethod(rejectSent, "pipeline_reject")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-fan", stageId: "gate", branchKey: "beta" } }),
+    ]);
+
+    const listCap = captureIo();
+    const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-after-reject"], () =>
+      main(["pipeline", "list"], listCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineListFrame("pipe-list-after-reject", [
+              {
+                ...TWO_BRANCH_AWAITING_SNAPSHOT,
+                stages: TWO_BRANCH_AWAITING_SNAPSHOT.stages.map((row) =>
+                  row.stageId === "gate" && row.branchKey === "beta"
+                    ? { ...row, status: "rejected" }
+                    : row,
+                ),
+              },
+            ]),
+          ]),
+      }),
+    );
+
+    expect(listCode).toBe(0);
+    const stages = (
+      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
+    ).pipelines[0]?.stages ?? [];
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("awaiting");
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("rejected");
+  });
+
+  test("pipeline approve on wrong branchKey leaves untouched branch awaiting", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-wrong"], () =>
+      main(["pipeline", "approve", "pipe-fan", "gate", "beta"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              pipelineWaitFrame("pipe-approve-wrong", {
+                kind: "refused",
+                pipelineId: "pipe-fan",
+                stageId: "gate",
+                reason: "status_not_awaiting",
+              }),
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "status_not_awaiting\n" });
+    expect(ipcFramesWithMethod(sent, "pipeline_approve")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-fan", stageId: "gate", branchKey: "beta" } }),
+    ]);
+
+    const listCap = captureIo();
+    const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-wrong-branch"], () =>
+      main(["pipeline", "list"], listCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineListFrame("pipe-list-wrong-branch", [TWO_BRANCH_AWAITING_SNAPSHOT])]),
+      }),
+    );
+
+    expect(listCode).toBe(0);
+    const stages = (
+      JSON.parse(listCap.read().stdout.trim()) as { pipelines: typeof TWO_BRANCH_AWAITING_SNAPSHOT[] }
+    ).pipelines[0]?.stages ?? [];
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "alpha")?.status).toBe("awaiting");
+    expect(stages.find((row) => row.stageId === "gate" && row.branchKey === "beta")?.status).toBe("awaiting");
   });
 
   test("pipeline approve prints status_not_awaiting on stderr and exits non-zero", async () => {
     const cap = captureIo();
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-approve-refused"], () =>
-      main(["pipeline", "approve", "pipe-1", "gate"], cap.io, {
+      main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([
@@ -639,7 +924,7 @@ describe("pipeline approve and reject", () => {
     const cap = captureIo();
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-reject-refused"], () =>
-      main(["pipeline", "reject", "pipe-1", "gate"], cap.io, {
+      main(["pipeline", "reject", "pipe-1", "gate", "default"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([
@@ -660,14 +945,18 @@ describe("pipeline approve and reject", () => {
   test.each([
     ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve"]],
     ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1"]],
-    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "gate", "extra"]],
-    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "   ", "gate"]],
-    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "   "]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "gate"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "gate", "branch", "extra"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "   ", "gate", "alpha"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "   ", "alpha"]],
+    ["approve", PIPELINE_APPROVE_USAGE, ["pipeline", "approve", "pipe-1", "gate", "   "]],
     ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject"]],
     ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1"]],
-    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "gate", "extra"]],
-    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "   ", "gate"]],
-    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "   "]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "gate"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "gate", "branch", "extra"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "   ", "gate", "alpha"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "   ", "alpha"]],
+    ["reject", PIPELINE_REJECT_USAGE, ["pipeline", "reject", "pipe-1", "gate", "   "]],
   ] as const)("%s usage error %p prints usage before daemon connect", async (_subcommand, usage, argv) => {
     const cap = captureIo();
     let contacted = false;
@@ -692,7 +981,7 @@ describe("pipeline approve and reject", () => {
     const cap = captureIo();
 
     const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}-bad`], () =>
-      main(["pipeline", subcommand, "pipe-1", "gate"], cap.io, {
+      main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}-bad`, { kind: "unknown" })]),
       }),

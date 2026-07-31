@@ -183,9 +183,9 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
     name: "sample-pipeline",
     state: "awaiting-approval",
     stages: [
-      { stageId: "plan", status: "succeeded", workflowInvocationId: "inv-plan" },
-      { stageId: "gate", status: "awaiting", workflowInvocationId: null },
-      { stageId: "implement", status: "pending", workflowInvocationId: null },
+      { stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" },
+      { stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null },
+      { stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null },
     ],
   });
 });
@@ -428,6 +428,7 @@ test("pipeline_wait returns terminal and awaiting-approval boundaries for durabl
   expect((approvalResponse as { result: unknown }).result).toEqual({
     kind: "awaiting-approval",
     stageId: "gate",
+    branchKey: "default",
   });
 });
 
@@ -440,7 +441,7 @@ test("pipeline_wait returns promptly when the pipeline is already at a boundary"
   const response = await pipelineWaitDirect(handlers(), "w-immediate", pipelineId);
   expect(Date.now() - startedAt).toBeLessThan(500);
   expect(response.kind).toBe("response");
-  expect((response as { result: unknown }).result).toEqual({ kind: "awaiting-approval", stageId: "gate" });
+  expect((response as { result: unknown }).result).toEqual({ kind: "awaiting-approval", stageId: "gate", branchKey: "default" });
 });
 
 test("live pipeline_wait remains pending through pending and running then resolves at the first boundary", async () => {
@@ -575,7 +576,7 @@ test("awaiting-approval boundary names the first unsatisfied approval stage in p
     { s1: { status: "succeeded" }, gate: { status: "awaiting" }, later: { status: "pending" } },
   );
 
-  expect(derivePipelineBoundary(pipeline)).toEqual({ kind: "awaiting-approval", stageId: "gate" });
+  expect(derivePipelineBoundary(pipeline)).toEqual({ kind: "awaiting-approval", stageId: "gate", branchKey: "default" });
 });
 
 test("pending and running durable rows yield no wait boundary", () => {
@@ -584,4 +585,195 @@ test("pending and running durable rows yield no wait boundary", () => {
 
   expect(derivePipelineBoundary(pending)).toBeNull();
   expect(derivePipelineBoundary(running)).toBeNull();
+});
+
+const FAN_OUT_OBS_DEFINITION: PipelineDefinition = {
+  name: "fan-out-obs",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "gate", kind: "approval" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
+
+const FAN_OUT_OBS_DOWNSTREAM = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+
+function fanOutObservationPipeline(
+  rowStatuses: Record<string, Partial<PipelineStageRecord>>,
+): Pipeline & { stages: PipelineStageRecord[] } {
+  const pipelineId = "pipeline-fan-out";
+  const stages: PipelineStageRecord[] = [
+    {
+      id: "r-intent",
+      pipelineId,
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: "inv-intent",
+      startedAt: null,
+      endedAt: null,
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_OBS_DOWNSTREAM],
+      },
+      failureDetail: null,
+    },
+  ];
+
+  for (const [stageId, position] of [
+    ["gate", 1],
+    ["plan", 2],
+    ["implement", 3],
+  ] as const) {
+    for (const branchKey of ["default", "alpha", "beta"] as const) {
+      const patch = branchKey === "default" ? { status: "skipped" as const } : (rowStatuses[`${stageId}/${branchKey}`] ?? {});
+      stages.push({
+        id: `r-${stageId}-${branchKey}`,
+        pipelineId,
+        stageId,
+        branchKey,
+        position,
+        status: patch.status ?? "pending",
+        workflowInvocationId: patch.workflowInvocationId ?? null,
+        startedAt: patch.startedAt ?? null,
+        endedAt: patch.endedAt ?? null,
+        artifact: patch.artifact ?? null,
+        failureDetail: patch.failureDetail ?? null,
+      });
+    }
+  }
+
+  return {
+    id: pipelineId,
+    name: FAN_OUT_OBS_DEFINITION.name,
+    createdAt: 0,
+    ownerIdentity: null,
+    status: "active",
+    definition: FAN_OUT_OBS_DEFINITION,
+    context: null,
+    terminalPublicationFailure: null,
+    terminalPublicationSucceededAt: null,
+    stages,
+  };
+}
+
+test("two-branch pipeline_list projection includes branchKey per durable row", async () => {
+  const pipelineId = stateStore.createPipeline({ definition: FAN_OUT_OBS_DEFINITION });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_OBS_DOWNSTREAM],
+      },
+    },
+  });
+  for (const branchKey of ["alpha", "beta"]) {
+    for (const stageId of ["gate", "plan", "implement"]) {
+      stateStore.createPipelineStageBranch({ pipelineId, stageId, branchKey });
+    }
+  }
+  for (const stageId of ["gate", "plan", "implement"]) {
+    stateStore.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+  }
+  stateStore.updateStage({ pipelineId, stageId: "gate", branchKey: "alpha", patch: { status: "awaiting" } });
+  stateStore.updateStage({ pipelineId, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+  stateStore.updateStage({ pipelineId, stageId: "plan", branchKey: "beta", patch: { status: "running" } });
+
+  const response = await handlers().pipeline_list(requestFrame("l-fan-out", "pipeline_list"), new AbortController().signal);
+  const pipelines = (response as { result: { pipelines: Array<Record<string, unknown>> } }).result.pipelines;
+  const snapshot = pipelines.find((pipeline) => pipeline.pipelineId === pipelineId) as {
+    stages: Array<{ stageId: string; branchKey: string; status: string; workflowInvocationId: string | null }>;
+  };
+  expect(snapshot).toBeDefined();
+  const stages = snapshot.stages;
+  // Mutation checkpoint: omitting branchKey from projectPipelineSnapshot stage projection must turn this test RED.
+  expect(stages.every((row) => typeof row.branchKey === "string" && row.branchKey.length > 0)).toBe(true);
+  expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
+  expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([
+    { stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null },
+  ]);
+  expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "beta")).toEqual([
+    { stageId: "gate", branchKey: "beta", status: "approved", workflowInvocationId: null },
+  ]);
+  expect(stages.filter((row) => row.stageId === "plan" && row.branchKey === "beta")).toEqual([
+    { stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: null },
+  ]);
+  expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
+});
+
+test("two-branch derivePipelineBoundary names awaiting branchKey while sibling branch runs", () => {
+  const pipeline = fanOutObservationPipeline({
+    "gate/alpha": { status: "awaiting" },
+    "gate/beta": { status: "approved" },
+    "plan/beta": { status: "running" },
+  });
+
+  // Mutation checkpoint: omitting branchKey from derivePipelineBoundary awaiting-approval envelope must turn this test RED.
+  expect(derivePipelineBoundary(pipeline)).toEqual({
+    kind: "awaiting-approval",
+    stageId: "gate",
+    branchKey: "alpha",
+  });
+  expect(derivePipelineState(pipeline)).toBe("running");
+});
+
+test("branch-row projection guard inversion: collapsed projection and omitted branchKey are absent", () => {
+  const pipeline = fanOutObservationPipeline({
+    "gate/alpha": { status: "awaiting" },
+    "gate/beta": { status: "approved" },
+    "plan/beta": { status: "running" },
+  });
+  const snapshot = projectPipelineSnapshot(pipeline);
+  const rowsNameBranchKey = (rows: Array<{ branchKey?: string }>) =>
+    rows.every((row) => typeof row.branchKey === "string" && row.branchKey.length > 0);
+  const collapseToOneRowPerStageId = (rows: typeof snapshot.stages) => {
+    const seen = new Set<string>();
+    return rows.filter((row) => {
+      if (seen.has(row.stageId)) return false;
+      seen.add(row.stageId);
+      return true;
+    });
+  };
+  const omitBranchKeyFromRows = (rows: typeof snapshot.stages) =>
+    rows.map(({ stageId, status, workflowInvocationId }) => ({ stageId, status, workflowInvocationId }));
+
+  expect(rowsNameBranchKey(snapshot.stages)).toBe(true);
+  expect(snapshot.stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
+  expect(rowsNameBranchKey(omitBranchKeyFromRows(snapshot.stages) as Array<{ branchKey?: string }>)).toBe(
+    false,
+  );
+  const collapsed = collapseToOneRowPerStageId(snapshot.stages);
+  expect(collapsed.filter((row) => row.stageId === "gate")).toHaveLength(1);
+  expect(collapsed.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toHaveLength(0);
+});
+
+test("awaiting-approval branchKey guard inversion: anonymous boundaries are absent", () => {
+  const pipeline = fanOutObservationPipeline({
+    "gate/alpha": { status: "awaiting" },
+    "gate/beta": { status: "approved" },
+    "plan/beta": { status: "running" },
+  });
+  const boundary = derivePipelineBoundary(pipeline);
+  const namesBranchKey = (
+    value: ReturnType<typeof derivePipelineBoundary>,
+  ): value is { kind: "awaiting-approval"; stageId: string; branchKey: string } =>
+    value?.kind === "awaiting-approval" &&
+    typeof value.branchKey === "string" &&
+    value.branchKey.length > 0;
+
+  expect(namesBranchKey(boundary)).toBe(true);
+  expect(namesBranchKey({ kind: "awaiting-approval", stageId: "gate" } as ReturnType<typeof derivePipelineBoundary>)).toBe(
+    false,
+  );
+  expect(derivePipelineBoundary(pipeline)).not.toEqual({
+    kind: "awaiting-approval",
+    stageId: "gate",
+  });
 });

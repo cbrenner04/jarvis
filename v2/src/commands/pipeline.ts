@@ -39,7 +39,7 @@ type PipelineStartCliInput =
 
 function parsePipelineWaitBoundary(value: unknown): PipelineBoundaryResult | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; state?: unknown; stageId?: unknown };
+  const record = value as { kind?: unknown; state?: unknown; stageId?: unknown; branchKey?: unknown };
   if (record.kind === "terminal") {
     const state = record.state;
     if (state === "succeeded" || state === "failed" || state === "rejected" || state === "interrupted") {
@@ -47,8 +47,14 @@ function parsePipelineWaitBoundary(value: unknown): PipelineBoundaryResult | und
     }
     return undefined;
   }
-  if (record.kind === "awaiting-approval" && typeof record.stageId === "string" && record.stageId.length > 0) {
-    return { kind: "awaiting-approval", stageId: record.stageId };
+  if (
+    record.kind === "awaiting-approval" &&
+    typeof record.stageId === "string" &&
+    record.stageId.length > 0 &&
+    typeof record.branchKey === "string" &&
+    record.branchKey.length > 0
+  ) {
+    return { kind: "awaiting-approval", stageId: record.stageId, branchKey: record.branchKey };
   }
   return undefined;
 }
@@ -63,9 +69,9 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
   return Array.isArray(pipelines) ? { pipelines } : undefined;
 }
 
-type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
+export type PipelineMutationOutcome = { kind: "applied" } | { kind: "resumed" } | { kind: "refused"; reason: string };
 
-function parsePipelineMutationOutcome(
+export function parsePipelineMutationOutcome(
   value: unknown,
   successKind: "applied" | "resumed",
 ): PipelineMutationOutcome | undefined {
@@ -78,15 +84,37 @@ function parsePipelineMutationOutcome(
   return undefined;
 }
 
-function parsePipelineDecisionArgs(
+export function parsePipelineDecisionArgs(
   argv: readonly string[],
-): { ok: true; pipelineId: string; stageId: string } | { ok: false } {
-  if (argv.length !== 2) return { ok: false };
+): { ok: true; pipelineId: string; stageId: string; branchKey: string } | { ok: false } {
+  if (argv.length !== 3) return { ok: false };
   const pipelineId = argv[0];
   const stageId = argv[1];
-  if (pipelineId === undefined || stageId === undefined) return { ok: false };
-  if (pipelineId.trim().length === 0 || stageId.trim().length === 0) return { ok: false };
-  return { ok: true, pipelineId, stageId };
+  const branchKey = argv[2];
+  if (pipelineId === undefined || stageId === undefined || branchKey === undefined) return { ok: false };
+  if (
+    pipelineId.trim().length === 0 ||
+    stageId.trim().length === 0 ||
+    branchKey.trim().length === 0
+  ) {
+    return { ok: false };
+  }
+  return { ok: true, pipelineId, stageId, branchKey };
+}
+
+export function buildPipelineDecisionRpcParams(parsed: {
+  pipelineId: string;
+  stageId: string;
+  branchKey: string;
+}): Record<string, string> {
+  return { pipelineId: parsed.pipelineId, stageId: parsed.stageId, branchKey: parsed.branchKey };
+}
+
+export function pipelineMutationCommandExitCode(
+  outcome: PipelineMutationOutcome,
+  successKind: "applied" | "resumed",
+): number {
+  return outcome.kind === successKind ? 0 : 1;
 }
 
 function resolvePipelineSeed(
@@ -342,7 +370,7 @@ async function runPipelineMutationCommand(
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
     }
-    return outcome.kind === successKind ? 0 : 1;
+    return pipelineMutationCommandExitCode(outcome, successKind);
   });
 }
 
@@ -370,7 +398,7 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
     }
     return runPipelineMutationCommand(
       subcommand === "approve" ? "pipeline_approve" : "pipeline_reject",
-      { pipelineId: parsed.pipelineId, stageId: parsed.stageId },
+      buildPipelineDecisionRpcParams(parsed),
       "applied",
       io,
       deps,

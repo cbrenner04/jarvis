@@ -1,8 +1,9 @@
 import { FOLLOW_POLL_MS } from "../persistence/log-stream.ts";
 import type { Pipeline, PipelineStageRecord, StateStore } from "../persistence/state-store.ts";
 import {
-  authoredStagesInPositionOrder,
+  branchSuffixPredecessorsSatisfied,
   derivePipelineState,
+  findFanOutSplit,
   isAuthoredStageSatisfied,
   isPipelineTerminal,
   type PipelineDerivedState,
@@ -21,7 +22,7 @@ export type PipelineTerminalState = Extract<PipelineDerivedState, "succeeded" | 
 
 export type PipelineBoundaryResult =
   | { kind: "terminal"; state: PipelineTerminalState }
-  | { kind: "awaiting-approval"; stageId: string };
+  | { kind: "awaiting-approval"; stageId: string; branchKey: string };
 
 export function derivePipelineBoundary(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -30,16 +31,16 @@ export function derivePipelineBoundary(
   if (isPipelineTerminal(state)) {
     return { kind: "terminal", state: state as PipelineTerminalState };
   }
-  if (state !== "awaiting-approval") {
-    return null;
-  }
 
-  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+  const split = findFanOutSplit(pipeline);
+  for (const record of pipeline.stages) {
+    const stage = pipeline.definition.stages[record.position];
+    if (stage === undefined) continue;
+    if (stage.kind !== "approval") continue;
     if (isAuthoredStageSatisfied(stage, record)) continue;
-    if (stage.kind === "approval") {
-      return { kind: "awaiting-approval", stageId: stage.stageId };
-    }
-    return null;
+    if (record.status !== "awaiting" && record.status !== "pending") continue;
+    if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) continue;
+    return { kind: "awaiting-approval", stageId: stage.stageId, branchKey: record.branchKey };
   }
   return null;
 }
@@ -134,6 +135,7 @@ export type PipelineSnapshot = {
   state: PipelineDerivedState;
   stages: Array<{
     stageId: string;
+    branchKey: string;
     status: string;
     workflowInvocationId: string | null;
   }>;
@@ -146,6 +148,7 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     state: derivePipelineState(pipeline),
     stages: pipeline.stages.map((stage) => ({
       stageId: stage.stageId,
+      branchKey: stage.branchKey,
       status: stage.status,
       workflowInvocationId: stage.workflowInvocationId,
     })),

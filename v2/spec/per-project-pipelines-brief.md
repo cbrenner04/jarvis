@@ -1,6 +1,6 @@
 # Per-project pipelines — build brief
 
-Phase **shipped** (2026-07-31). Operator ordering and follow-on gaps: [implement-queue.md](implement-queue.md). **Do not send this brief to `plan`** — historical contract reference; fan new work from seeds or dated specs in the queue.
+Phase **shipped and dogfooded** (2026-07-31). Operator ordering and follow-on gaps: [implement-queue.md](implement-queue.md). **Do not send this brief to `plan`** — historical contract reference; fan new work from seeds or dated specs in the queue.
 
 ## Product contract
 
@@ -27,22 +27,29 @@ Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-w
 | 5 | Configured final actions (draft PR / ready / merge) | shipped #2336 #2343 #2348 |
 | 6 | One e2e integration proof | shipped #2352 |
 | 7 | Inter-stage artifact handoff from prior worktree | shipped #2359 #2363 |
+| 8 | Branch-keyed stage persistence + multi-file handoff | shipped #2374 #2379 |
+| 9 | Intent-split fan-out execution | shipped #2385 |
+| 10 | Branch-aware `list` / `wait` / `approve` / `reject` | shipped #2406 |
+| 11 | `--seed <path>` identity and consumption | shipped #2409 #2411 |
 
-`jarvis pipeline start | list | wait | approve | reject | resume` is usable end to end (#2352).
+`jarvis pipeline start | list | wait | approve | reject | resume` is usable end to end (#2352), **including a splitting intent** — the normal intent outcome, which slices 1–7 did not cover (#2385, #2406).
 
-## Follow-on (dogfooding gaps)
+## Follow-on (dogfooding gaps) — all shipped
 
-These surfaced after the phase gate closed; see implement-queue **Start here**.
+These surfaced after the phase gate closed, from running a real seed through `full-review`.
+Each is now shipped and its seed consumed; kept for provenance.
 
-| Gap | Seed / spec |
+| Gap | Outcome |
 | --- | --- |
-| Intent split must fan out downstream stages | `seeds/pipeline-intent-split-fans-out-downstream-stages.md` → `20260731T030451Z-pipeline-intent-split-fan-out-execution` (in flight) |
-| Branch-keyed stage records | shipped — `20260731T012722Z-pipeline-branch-keyed-stage-records` |
-| Multi-file intent downstream handoff | shipped — `20260731T021721Z-pipeline-intent-split-downstream-handoff` |
-| `pipeline start --seed` loses file identity | `seeds/pipeline-start-seed-path-loses-file-identity.md` |
-| Stale pipeline config blocks unrelated implement | `seeds/pipeline-config-validation-blocks-unrelated-implement.md` |
+| Intent split must fan out downstream stages | shipped #2385 (+ #2374, #2379 persistence and handoff) |
+| Branch-keyed stage records | shipped #2374 |
+| Multi-file intent downstream handoff | shipped #2379 |
+| Branch-aware operator CLI | shipped #2406 |
+| `pipeline start --seed` loses file identity and never consumes the seed | shipped #2409, #2411 (+ #2407 context field) |
+| Stale pipeline config blocks unrelated `implement` | shipped #2399 |
 
-Until intent fan-out ships, a pipeline survives only a seed the intent step does **not** split.
+No known pipeline gap is open. New work fans from seeds or dated specs in
+[implement-queue.md](implement-queue.md).
 
 ## Operator UI
 

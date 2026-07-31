@@ -55,16 +55,16 @@ resolution path.
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` — admits implement when `projects.<key>.pipeline` is missing `terminalAction` or structurally invalid (e.g. `reviewOverrides` is not an object); both yield `ok: true` with no `pipelineDefinition`; fails against the baseline.
-- [ ] `implement-workflow-steps.test.ts` — `admits implement when the registered project omits pipeline` stays green.
-- [ ] `implement-workflow-steps.test.ts` — rewrites `rejects implement when the project config record is missing` to pin non-pipeline refusal when `readProjectConfigRecord` returns `undefined`; fails against the baseline.
-- [ ] `implement-workflow-steps.test.ts` — re-enabling the `resolveProjectPipeline` call in `admitProjectPipeline` turns the stale-config admission test RED (source mutation on the real guard; pinning test comment names that mutation).
-- [ ] `workflow.test.ts` — `jarvis run workflow implement` admits stale configs (missing `terminalAction`, structurally invalid `reviewOverrides`) through durable admission effects with no `pipelineDefinition` on the built workflow; fails against the baseline.
-- [ ] `workflow.test.ts` — renames `"project pipeline selection gates implement before durable admission effects"` and rewrites it so present+valid pipeline admits with no `pipelineDefinition`; removes `"pipeline %s failure precedes daemon and implement effects"` matrix expectations that implement runs project-pipeline resolution.
-- [ ] `workflow.test.ts` — `admits implement without pipelineDefinition when projects.demo omits pipeline` stays green.
-- [ ] `pipeline.test.ts` — adds missing-`terminalAction` pre-admission refusal (existing `rejects invalid project pipeline configuration before daemon connect` covers empty `name` only); `jarvis pipeline start` still refuses with `invalid-project-pipeline-config` naming `projects.<name>.pipeline.terminalAction`; inverting `pipeline.ts` pre-admission resolution refusal makes this test fail (source mutation on the real guard; pinning test comment names that mutation).
-- [ ] `pipeline.test.ts` — `rejects invalid project pipeline configuration before daemon connect` stays green.
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/workflow-runner.md`, and `v2/docs/install-and-config.md` state implement ignores `projects.<name>.pipeline` entirely (no present-key resolution on admission); pipeline start still requires a valid block.
+- [x] `implement-workflow-steps.test.ts` — admits implement when `projects.<key>.pipeline` is missing `terminalAction` or structurally invalid (e.g. `reviewOverrides` is not an object); both yield `ok: true` with no `pipelineDefinition`; fails against the baseline.
+- [x] `implement-workflow-steps.test.ts` — `admits implement when the registered project omits pipeline` stays green.
+- [x] `implement-workflow-steps.test.ts` — rewrites `rejects implement when the project config record is missing` to pin non-pipeline refusal when `readProjectConfigRecord` returns `undefined`; fails against the baseline.
+- [x] `implement-workflow-steps.test.ts` — re-enabling the `resolveProjectPipeline` call in `admitProjectPipeline` turns the stale-config admission test RED (source mutation on the real guard; pinning test comment names that mutation).
+- [x] `workflow.test.ts` — `jarvis run workflow implement` admits stale configs (missing `terminalAction`, structurally invalid `reviewOverrides`) through durable admission effects with no `pipelineDefinition` on the built workflow; fails against the baseline.
+- [x] `workflow.test.ts` — renames `"project pipeline selection gates implement before durable admission effects"` and rewrites it so present+valid pipeline admits with no `pipelineDefinition`; removes `"pipeline %s failure precedes daemon and implement effects"` matrix expectations that implement runs project-pipeline resolution.
+- [x] `workflow.test.ts` — `admits implement without pipelineDefinition when projects.demo omits pipeline` stays green.
+- [x] `pipeline.test.ts` — adds missing-`terminalAction` pre-admission refusal (existing `rejects invalid project pipeline configuration before daemon connect` covers empty `name` only); `jarvis pipeline start` still refuses with `invalid-project-pipeline-config` naming `projects.<name>.pipeline.terminalAction`; inverting `pipeline.ts` pre-admission resolution refusal makes this test fail (source mutation on the real guard; pinning test comment names that mutation).
+- [x] `pipeline.test.ts` — `rejects invalid project pipeline configuration before daemon connect` stays green.
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/workflow-runner.md`, and `v2/docs/install-and-config.md` state implement ignores `projects.<name>.pipeline` entirely (no present-key resolution on admission); pipeline start still requires a valid block.
 
 ## Documentation updates
 

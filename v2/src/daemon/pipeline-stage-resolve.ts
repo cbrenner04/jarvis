@@ -284,7 +284,10 @@ function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedRea
   }
 
   if (downstreamInputs.length === 1) {
-    return resolveVerifiedChainedReadyIntentPath(prior, downstreamInputs[0]!, false);
+    const singlePath = downstreamInputs[0];
+    if (singlePath !== undefined) {
+      return resolveVerifiedChainedReadyIntentPath(prior, singlePath, false);
+    }
   }
 
   for (const path of downstreamInputs) {

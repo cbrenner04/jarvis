@@ -129,6 +129,7 @@ function mockProjectDeps(
 function writeRegisteredImplementRepo(
   prefix: string,
   implement?: { reviewPasses?: number; reviewBehavior?: string },
+  pipeline?: unknown,
 ): { root: string; machineConfigPath: string; machineProfile: string } {
   const root = mkdtempSync(join(tmpdir(), prefix));
   mkdirSync(join(root, "specs"));
@@ -137,9 +138,37 @@ function writeRegisteredImplementRepo(
   initGitRepo(root);
   execFileSync("git", ["add", "specs"], { cwd: root });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
-  const project = implement === undefined ? { root } : { root, implement };
+  const project: Record<string, unknown> = { root };
+  if (implement !== undefined) project.implement = implement;
+  if (pipeline !== undefined) project.pipeline = pipeline;
   const machineConfigPath = writeJson("config.json", { projects: { registered: project } });
   return { root, machineConfigPath, machineProfile: writeValidProfile() };
+}
+
+async function expectAdmitsImplementWithoutPipelineDefinition(prefix: string, pipeline?: unknown): Promise<void> {
+  const { root, machineConfigPath, machineProfile } = writeRegisteredImplementRepo(prefix, undefined, pipeline);
+  try {
+    const result = await buildImplementWorkflowSteps(
+      {
+        cwd: root,
+        branchName: "implement-run",
+        baseRef: "HEAD",
+        specPath: "specs/work.md",
+        artifactPath: "specs/work.md",
+        reviewPasses: 0,
+        configPath: machineConfigPath,
+        projectRegistry: { registered: { root } },
+      },
+      {
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.pipelineDefinition).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 async function buildRegisteredImplement(implement?: { reviewPasses?: number; reviewBehavior?: string }) {
@@ -669,38 +698,23 @@ describe("buildImplementWorkflowSteps", () => {
       );
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error).toContain("invalid-project-pipeline-config");
+      expect(result.error).toBe("projects.registered must be an object");
+      expect(result.error).not.toContain("invalid-project-pipeline-config");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
+  test.each([
+    ["missing terminalAction", { name: "fast" }],
+    ["invalid reviewOverrides", { name: "fast", terminalAction: "leave-draft", reviewOverrides: [] }],
+  ])("admits implement when projects.<key>.pipeline is stale (%s)", async (_label, pipeline) => {
+    // Inversion target: resolveProjectPipeline call in admitProjectPipeline — re-enabling resolution on stale pipeline configs turns this test RED.
+    await expectAdmitsImplementWithoutPipelineDefinition("implement-workflow-steps-stale-pipeline-", pipeline);
+  });
+
   test("admits implement when the registered project omits pipeline", async () => {
-    const { root, machineConfigPath, machineProfile } = writeRegisteredImplementRepo(
-      "implement-workflow-steps-no-pipeline-",
-    );
-    try {
-      const result = await buildImplementWorkflowSteps(
-        {
-          cwd: root,
-          branchName: "implement-run",
-          baseRef: "HEAD",
-          specPath: "specs/work.md",
-          artifactPath: "specs/work.md",
-          reviewPasses: 0,
-          configPath: machineConfigPath,
-          projectRegistry: { registered: { root } },
-        },
-        {
-          loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
-        },
-      );
-      expect(result.ok).toBe(true);
-      if (!result.ok) return;
-      expect(result.pipelineDefinition).toBeUndefined();
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    await expectAdmitsImplementWithoutPipelineDefinition("implement-workflow-steps-no-pipeline-");
   });
 
   test("returns an error result naming the unresolved cwd instead of throwing", async () => {

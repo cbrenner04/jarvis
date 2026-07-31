@@ -1,0 +1,4 @@
+Reviewing the implementation against the spec and acceptance criteria to issue a verdict.
+No required outcomes. The implementation satisfies every checked acceptance criterion in the subspec: implement admission no longer resolves or attaches `pipelineDefinition`; stale and valid-present pipeline configs admit through implement; unreadable project records refuse on the non-pipeline path; `pipeline start` validation is unchanged and pinned by the new `terminalAction` test; named inversion comments target the real guards; and the four durable docs supersede the prior shared-resolution narrative.
+
+Remaining review points (misleading unit-test title, unpinned `agentModelConfig` guard, `pipelineDefinition` dead field, `admitProjectPipeline` naming, doc table scoping) are quality follow-ups outside the subspec’s required deliverables and do not block merge.

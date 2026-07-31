@@ -19,8 +19,6 @@ import {
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
-import { getPipelineDefinition } from "./pipeline-registry.ts";
-import { formatProjectPipelineResolutionError, resolveProjectPipeline } from "./project-pipeline-resolution.ts";
 import {
   type ReviewDebateWorkflowSourceStep,
   type ReviewWorkflowSourceStep,
@@ -451,21 +449,14 @@ function admitProjectPipeline(
   configPath: string | undefined,
 ): BuildImplementWorkflowStepsResult {
   if (!built.ok || input.projectRegistry === undefined) return built;
-  const agentModelConfig = built.steps[0]?.agentModelConfig;
-  if (agentModelConfig === undefined) {
+  if (built.steps[0]?.agentModelConfig === undefined) {
     return { ok: false, error: "invalid-pipeline-definition: loaded workflow has no agent model config" };
   }
   const project = readProjectConfigRecord(match.key, configPath ?? MACHINE_CONFIG_PATH);
-  if (project !== undefined && !("pipeline" in project)) {
-    return built;
+  if (project === undefined) {
+    return { ok: false, error: `projects.${match.key} must be an object` };
   }
-  const resolution = resolveProjectPipeline(
-    { projectKey: match.key, pipeline: project?.pipeline },
-    getPipelineDefinition,
-    agentModelConfig,
-  );
-  if (!resolution.ok) return { ok: false, error: formatProjectPipelineResolutionError(resolution) };
-  return { ...built, pipelineDefinition: resolution.definition };
+  return built;
 }
 
 /** Build the implement preset workflow for cwd + run args. */

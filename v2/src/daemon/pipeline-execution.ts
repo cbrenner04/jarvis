@@ -669,7 +669,11 @@ type FanOutSplit = {
   branchKeys: string[];
 };
 
-function isSplittingArtifact(artifact: PipelineStageArtifact): boolean {
+type SplittingPipelineStageArtifact = PipelineStageArtifact & {
+  downstreamInputs: string[];
+};
+
+function isSplittingArtifact(artifact: PipelineStageArtifact): artifact is SplittingPipelineStageArtifact {
   return (artifact.downstreamInputs?.length ?? 0) >= 2;
 }
 
@@ -688,7 +692,7 @@ function findFanOutSplit(pipeline: Pipeline & { stages: PipelineStageRecord[] })
       if (isSplittingArtifact(typed)) {
         return {
           splitPosition: record.position,
-          branchKeys: typed.downstreamInputs!.map(branchKeyFromDownstreamInput),
+          branchKeys: typed.downstreamInputs.map(branchKeyFromDownstreamInput),
         };
       }
     }
@@ -933,7 +937,7 @@ function maybeAdmitFanOutBranches(
   if (artifact === null || typeof artifact !== "object") return null;
   const typed = artifact as PipelineStageArtifact;
   if (isSplittingArtifact(typed)) {
-    return admitFanOutBranches(store, pipelineId, definition, index, typed.downstreamInputs!);
+    return admitFanOutBranches(store, pipelineId, definition, index, typed.downstreamInputs);
   }
   return null;
 }

@@ -4,12 +4,12 @@ import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { computeCost } from "../prices/cost.ts";
+import { loadPrices } from "../prices/load.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
-import { computeCost } from "../prices/cost.ts";
-import { loadPrices } from "../prices/load.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -506,10 +506,7 @@ function finalizeClaudeInvocationResult(result: InvocationResult): InvocationRes
   return output;
 }
 
-function finalizeCursorInvocationResult(
-  result: InvocationResult,
-  priceKey: string,
-): InvocationResult {
+function finalizeCursorInvocationResult(result: InvocationResult, priceKey: string): InvocationResult {
   if (result.kind !== "ok") {
     return result;
   }

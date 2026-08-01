@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
   buildPipelineMonitorTreeRow,
   buildStageMonitorTreeRow,
   flattenMonitorPipelineTree,
+  type MonitorPipelineTreePipelineNode,
   monitorPipelineStageNodeId,
   stageBranchCellValue,
-  type MonitorPipelineTreePipelineNode,
 } from "./tui-monitor-pipeline-tree.ts";
+import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import { monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
@@ -19,9 +19,7 @@ const PIPELINE_ID = "pipe-abc";
 const INVOCATION_MATCHED = "inv-matched";
 const INVOCATION_ORPHAN = "inv-orphan";
 
-function listRun(
-  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId">,
-): DaemonListRunRow {
+function listRun(overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId">): DaemonListRunRow {
   return {
     project: "demo",
     branch: "main",
@@ -87,10 +85,7 @@ function pipelineWithStageAndRun(
   };
 }
 
-function joinTree(
-  snapshots: PipelineSnapshot[],
-  runs: DaemonListRunRow[] = [],
-): MonitorPipelineTreePipelineNode[] {
+function joinTree(snapshots: PipelineSnapshot[], runs: DaemonListRunRow[] = []): MonitorPipelineTreePipelineNode[] {
   return buildMonitorPipelineTreeJoin(snapshots, runs, { nowMs: FILTER_NOW_MS }).pipelineNodes;
 }
 
@@ -148,9 +143,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(pipelineNodes[0]?.stages[0]?.runs).toHaveLength(0);
     expect(unattributedRows).toHaveLength(1);
     expect(unattributedRows[0]?.kind).toBe("workflow-collapsed");
-    expect(unattributedRows[0] !== undefined ? monitorTreeRun(unattributedRows[0]).runId : "").toBe(
-      "run-orphan",
-    );
+    expect(unattributedRows[0] !== undefined ? monitorTreeRun(unattributedRows[0]).runId : "").toBe("run-orphan");
   });
 
   test("fan-out stages with the same stageId but different branchKey get distinct ids and branch cells", () => {
@@ -319,9 +312,7 @@ describe("flattenMonitorPipelineTree collapse", () => {
     const { snapshot, run } = pipelineWithStageAndRun(PIPELINE_ID, INVOCATION_MATCHED, "run-implement");
     const displayNodes = flattenJoined(joinTree([snapshot], [run]), new Set(), null, 10);
 
-    expect(displayNodes).toEqual([
-      expect.objectContaining({ kind: "pipeline", id: PIPELINE_ID, depth: 0 }),
-    ]);
+    expect(displayNodes).toEqual([expect.objectContaining({ kind: "pipeline", id: PIPELINE_ID, depth: 0 })]);
   });
 
   test("a collapsed stage omits only its runs while the stage row stays visible", () => {
@@ -395,12 +386,7 @@ describe("flattenMonitorPipelineTree ordering", () => {
     ];
     const displayNodes = flattenJoined(
       joinTree(snapshots),
-      new Set([
-        "pipe-active-early",
-        "pipe-active-late",
-        "pipe-terminal-early",
-        "pipe-terminal-late",
-      ]),
+      new Set(["pipe-active-early", "pipe-active-late", "pipe-terminal-early", "pipe-terminal-late"]),
       null,
       20,
     );
@@ -520,12 +506,7 @@ describe("flattenMonitorPipelineTree viewport FIFO", () => {
       "pipe-expanded-terminal",
       monitorPipelineStageNodeId("pipe-expanded-terminal", "plan", "default"),
     ]);
-    const displayNodes = flattenJoined(
-      joinTree([collapsedTerminal, expandedTerminal], runs),
-      expanded,
-      null,
-      4,
-    );
+    const displayNodes = flattenJoined(joinTree([collapsedTerminal, expandedTerminal], runs), expanded, null, 4);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
       { kind: "pipeline", id: "pipe-collapsed-terminal" },

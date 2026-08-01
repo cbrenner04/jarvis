@@ -1,10 +1,7 @@
-import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import {
-  buildWorkflowTableRows,
-  type WorkflowTableRow,
-} from "./tui-monitor-workflow-collapse.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
+import { buildWorkflowTableRows, type WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {
   formatTreeCell,
   monitorTreeRun,
@@ -44,11 +41,7 @@ export type MonitorPipelineTreeDisplayNode =
   | MonitorPipelineTreeStageNode
   | MonitorPipelineTreeRunNode;
 
-export function monitorPipelineStageNodeId(
-  pipelineId: string,
-  stageId: string,
-  branchKey: string,
-): string {
+export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
   return `${pipelineId}:${stageId}:${branchKey}`;
 }
 
@@ -56,10 +49,7 @@ export function stageBranchCellValue(branchKey: string): string {
   return branchKey === "default" ? "" : branchKey;
 }
 
-function joinPipelineTreeCells(
-  columnValues: Partial<Record<TreeColumnId, string>>,
-  leftPaneWidth: number,
-): string {
+function joinPipelineTreeCells(columnValues: Partial<Record<TreeColumnId, string>>, leftPaneWidth: number): string {
   return visibleColumns(leftPaneWidth)
     .map((column) => {
       const width = TREE_COLUMN_WIDTHS[column];
@@ -120,10 +110,7 @@ function claimInvocationId(claimed: Set<string>, invocationId: string | null): i
   return true;
 }
 
-function derivePipelineProject(
-  snapshot: PipelineSnapshot,
-  builderRuns: readonly DaemonListRunRow[],
-): string {
+function derivePipelineProject(snapshot: PipelineSnapshot, builderRuns: readonly DaemonListRunRow[]): string {
   const claimedInvocationIds = new Set<string>();
   for (const stage of snapshot.stages) {
     const invocationId = stage.workflowInvocationId;
@@ -161,9 +148,7 @@ function buildStageNodes(
     let tableRows: WorkflowTableRow[] = [];
 
     if (claimInvocationId(claimedInPipeline, invocationId)) {
-      const stageRuns = builderRuns.filter(
-        (run) => run.workflow?.invocationId === invocationId,
-      );
+      const stageRuns = builderRuns.filter((run) => run.workflow?.invocationId === invocationId);
       // Mutation checkpoint: negating the invocationId equality guard must turn stage join RED.
       tableRows = buildWorkflowTableRows(stageRuns, builderRuns, new Set());
     }
@@ -182,10 +167,7 @@ function buildStageNodes(
   return stages;
 }
 
-function isUnattributedCandidate(
-  run: DaemonListRunRow,
-  matchedInvocationIds: ReadonlySet<string>,
-): boolean {
+function isUnattributedCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlySet<string>): boolean {
   const invocationId = run.workflow?.invocationId;
   if (invocationId === undefined) return true;
   // Mutation checkpoint: negating matchedInvocationIds exclusion must turn unattributed filtering RED.
@@ -212,9 +194,7 @@ export function buildMonitorPipelineTreeJoin(
     stages: buildStageNodes(snapshot, builderRuns),
   }));
 
-  const unattributedCandidates = builderRuns.filter((run) =>
-    isUnattributedCandidate(run, matchedInvocationIds),
-  );
+  const unattributedCandidates = builderRuns.filter((run) => isUnattributedCandidate(run, matchedInvocationIds));
   const windowedUnattributed = filterMonitorRunsForLiveWindow(unattributedCandidates, {
     nowMs: options.nowMs,
   });
@@ -294,10 +274,7 @@ function dropOldestTerminalPipeline(
   // Mutation checkpoint: dropping a non-terminal pipeline during FIFO trimming must turn active retention RED.
   if (!isTerminalPipelineNode(dropped!)) return null;
 
-  return [
-    ...orderedPipelines.slice(0, terminalIndex),
-    ...orderedPipelines.slice(terminalIndex + 1),
-  ];
+  return [...orderedPipelines.slice(0, terminalIndex), ...orderedPipelines.slice(terminalIndex + 1)];
 }
 
 export function flattenMonitorPipelineTree(
@@ -306,16 +283,11 @@ export function flattenMonitorPipelineTree(
   selectedNodeId: string | null,
   maxVisibleRows: number,
 ): MonitorPipelineTreeDisplayNode[] {
-  const effectiveExpansion = new Set([
-    ...expandedNodeIds,
-    ...resolveSelectedAncestors(pipelineNodes, selectedNodeId),
-  ]);
+  const effectiveExpansion = new Set([...expandedNodeIds, ...resolveSelectedAncestors(pipelineNodes, selectedNodeId)]);
   let orderedPipelines = orderPipelineNodes(pipelineNodes);
 
   while (true) {
-    const displayNodes = orderedPipelines.flatMap((pipeline) =>
-      flattenPipelineNode(pipeline, effectiveExpansion),
-    );
+    const displayNodes = orderedPipelines.flatMap((pipeline) => flattenPipelineNode(pipeline, effectiveExpansion));
     if (displayNodes.length <= maxVisibleRows) {
       return displayNodes;
     }
@@ -342,12 +314,7 @@ export function buildMonitorPipelineTree(
 } {
   const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(snapshots, runs, options);
   return {
-    displayNodes: flattenMonitorPipelineTree(
-      pipelineNodes,
-      expandedNodeIds,
-      selectedNodeId,
-      maxVisibleRows,
-    ),
+    displayNodes: flattenMonitorPipelineTree(pipelineNodes, expandedNodeIds, selectedNodeId, maxVisibleRows),
     unattributedRows,
   };
 }

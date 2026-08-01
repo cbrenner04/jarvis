@@ -84,18 +84,33 @@ function processTerminalSize(): { columns?: number; rows?: number } {
   return { columns: stdout.columns, rows: stdout.rows };
 }
 
-function monitorShellState(
+function withMeasuredTerminal(
   state: TuiMonitorState,
   terminalSize: () => { columns?: number; rows?: number } = processTerminalSize,
 ): TuiMonitorState {
   const stdout = terminalSize();
-  const next: TuiMonitorState = {
-    ...state,
-    refreshIntervalLabel: state.refreshIntervalLabel ?? tuiRefreshIntervalLabel(),
-  };
+  const next: TuiMonitorState = { ...state };
   if (stdout.columns !== undefined) next.terminalColumns = stdout.columns;
   if (stdout.rows !== undefined) next.terminalRows = stdout.rows;
   return next;
+}
+
+function monitorShellState(
+  state: TuiMonitorState,
+  terminalSize: () => { columns?: number; rows?: number } = processTerminalSize,
+): TuiMonitorState {
+  return withMeasuredTerminal(
+    {
+      ...state,
+      refreshIntervalLabel: state.refreshIntervalLabel ?? tuiRefreshIntervalLabel(),
+    },
+    terminalSize,
+  );
+}
+
+function pipelineNodesForState(state: TuiMonitorState, nowMs: number) {
+  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+  return buildMonitorPipelineTreeJoin(snapshots, state.runs, { nowMs }).pipelineNodes;
 }
 
 function entryErrorFeedback(error: unknown): TuiViewState {
@@ -143,7 +158,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
 
   const setState = (state: TuiMonitorState): void => {
-    currentState = state;
+    currentState = withMeasuredTerminal(state, terminalSizeFn);
     syncMonitor();
   };
 
@@ -275,10 +290,13 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       (selectedNodeId !== null &&
         ((selectedRunId !== null && getOwner(selectedRunId) === undefined) ||
           !monitorSelectableNodeIds(
-            {
-              ...currentState,
-              pipelineSnapshotsBySocketPath: nextSnapshots ?? currentState.pipelineSnapshotsBySocketPath ?? {},
-            },
+            withMeasuredTerminal(
+              {
+                ...currentState,
+                pipelineSnapshotsBySocketPath: nextSnapshots ?? currentState.pipelineSnapshotsBySocketPath ?? {},
+              },
+              terminalSizeFn,
+            ),
             nowMsFn(),
           ).includes(selectedNodeId)));
 
@@ -366,14 +384,17 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         runOwners = owners;
 
         if (initial) {
-          const draftState: TuiMonitorState = {
-            runs: mergedRuns,
-            selectedNodeId: null,
-            waitState: { kind: "none" },
-            steeringFeedback: null,
-            expandedPipelineNodeIds: [],
-            pipelineSnapshotsBySocketPath,
-          };
+          const draftState = withMeasuredTerminal(
+            {
+              runs: mergedRuns,
+              selectedNodeId: null,
+              waitState: { kind: "none" },
+              steeringFeedback: null,
+              expandedPipelineNodeIds: [],
+              pipelineSnapshotsBySocketPath,
+            },
+            terminalSizeFn,
+          );
           const nodeId = firstSelectableNodeId(draftState, nowMsFn());
           const runId = nodeId !== null && mergedRuns.some((run) => run.runId === nodeId) ? nodeId : null;
           currentState = {
@@ -443,9 +464,21 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           setSelection(nodeId);
         },
         selectNextRun() {
-          const ids = monitorSelectableNodeIds(currentState, nowMsFn());
+          const nowMs = nowMsFn();
+          let state = currentState;
+          let ids = monitorSelectableNodeIds(state, nowMs);
+          const selectedNodeId = state.selectedNodeId;
           if (ids.length === 0) return;
-          const selectedIndex = currentState.selectedNodeId === null ? -1 : ids.indexOf(currentState.selectedNodeId);
+          if (
+            selectedNodeId !== null &&
+            isExpandablePipelineNodeId(pipelineNodesForState(state, nowMs), selectedNodeId) &&
+            !(state.expandedPipelineNodeIds ?? []).includes(selectedNodeId)
+          ) {
+            state = { ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), selectedNodeId] };
+            ids = monitorSelectableNodeIds(state, nowMs);
+            setState({ ...state, steeringFeedback: null });
+          }
+          const selectedIndex = selectedNodeId === null ? -1 : ids.indexOf(selectedNodeId);
           const next = ids[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, ids.length - 1)];
           if (next !== undefined && next !== currentState.selectedNodeId) setSelection(next);
         },
@@ -459,12 +492,8 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         toggleSelectedWorkflowExpansion() {
           const selectedNodeId = currentState.selectedNodeId;
           if (selectedNodeId === null) return;
-          const snapshots = mergePipelineSnapshots(currentState.pipelineSnapshotsBySocketPath);
           // Mutation checkpoint: short-circuiting this guard before the toggle body must turn pipeline/stage expansion RED.
-          const { pipelineNodes } = buildMonitorPipelineTreeJoin(snapshots, currentState.runs, {
-            nowMs: nowMsFn(),
-          });
-          if (!isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return;
+          if (!isExpandablePipelineNodeId(pipelineNodesForState(currentState, nowMsFn()), selectedNodeId)) return;
 
           const expanded = new Set(currentState.expandedPipelineNodeIds ?? []);
           if (expanded.has(selectedNodeId)) {

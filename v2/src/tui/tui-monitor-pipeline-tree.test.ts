@@ -336,7 +336,7 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
     expandedNodeIds: ReadonlySet<string>,
     selectedNodeId: string,
   ): MonitorPipelineTreeDisplayNode[] {
-    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const _stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [implementStage(MULTI_INVOCATION)],

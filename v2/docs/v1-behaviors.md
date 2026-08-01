@@ -612,3 +612,13 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (pipeline, stage, or run); the right pane shows pipeline/stage metadata or run
   workflow/outcome/steering by selection kind. Sources:
   `v2/src/tui/tui-monitor-pipeline-tree.ts`, `v2/src/tui/tui-monitor-lines.ts`
+- [v2 additive] TUI pipeline-tree **`e`** and row navigation: **`e`** toggles
+  expansion on the selected pipeline or stage (no-op on run leaves and unattributed
+  rows); stage **`e`** toggles between representative and constituent run rows.
+  **`j`** or ↓/↑ walk tree plus unattributed rows in pane order (queue rows are
+  display-only). ↓ into a collapsed pipeline or stage expands it for the session;
+  ↑ retraces the nodes ↓ visited. Because ↓ into a collapsed node persists that expansion, a large
+  tree on a short terminal can push older pipelines past the FIFO budget, and those do not come
+  back on the way up. Seed: `tui-descend-expansion-evicts-pipelines-permanently`.
+  Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`,
+  `v2/src/tui/tui-monitor-pipeline-tree.ts`

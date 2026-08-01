@@ -26,16 +26,16 @@ usage→dollars math against `data/prices.json`. Add `shared/prices/` with catal
 
 ## Acceptance criteria
 
-- [ ] `shared/prices/cost.test.ts` — `computeCost(COMPOSER_25_FIXTURE_USAGE, "Composer 2.5", loadPrices())` yields `cost_source: "computed"` and `cost_usd: 0.0038492`; fails against a missing `shared/prices/` module.
-- [ ] `shared/prices/cost.test.ts` — `computeCost(COMPOSER_25_FIXTURE_USAGE, "unknown-price-key", loadPrices())` yields `cost_usd: null` and `cost_source: "no-price"`; fails against the pre-fix absent module.
-- [ ] `shared/prices/cost.test.ts` — `computeCost` with `undefined` usage and with all-null token fields yields `cost_usd: null` and `cost_source: "no-usage"`; fails against returning `0.0` or `unavailable`.
-- [ ] `shared/prices/cost.test.ts` — all-null rates for a known `priceKey` yield `cost_usd: null` and `cost_source: "no-price"`; fails against the pre-fix absent module.
-- [ ] `shared/prices/cost.test.ts` — all-zero token fields with valid rates yield `cost_source: "computed"` and `cost_usd: 0`; fails against the pre-fix absent module.
-- [ ] `shared/prices/cost.test.ts` — cache read/write usage with no explicit cache rate columns falls back to `input_per_mtok`; fails against the pre-fix absent module.
-- [ ] `shared/prices/load.test.ts` — temp-file `loadPrices(path)` rejects unknown version and negative rates (mirroring `v1/test/prices.test.ts`); fails against a trivial `JSON.parse` wrapper.
-- [ ] `shared/prices/cost.test.ts` — the Composer 2.5 pin test includes a comment checkpoint naming the required guard-inversion mutation (e.g. omitting `cache_read_input_tokens` from the sum).
+- [x] `shared/prices/cost.test.ts` — `computeCost(COMPOSER_25_FIXTURE_USAGE, "Composer 2.5", loadPrices())` yields `cost_source: "computed"` and `cost_usd: 0.0038492`; fails against a missing `shared/prices/` module.
+- [x] `shared/prices/cost.test.ts` — `computeCost(COMPOSER_25_FIXTURE_USAGE, "unknown-price-key", loadPrices())` yields `cost_usd: null` and `cost_source: "no-price"`; fails against the pre-fix absent module.
+- [x] `shared/prices/cost.test.ts` — `computeCost` with `undefined` usage and with all-null token fields yields `cost_usd: null` and `cost_source: "no-usage"`; fails against returning `0.0` or `unavailable`.
+- [x] `shared/prices/cost.test.ts` — all-null rates for a known `priceKey` yield `cost_usd: null` and `cost_source: "no-price"`; fails against the pre-fix absent module.
+- [x] `shared/prices/cost.test.ts` — all-zero token fields with valid rates yield `cost_source: "computed"` and `cost_usd: 0`; fails against the pre-fix absent module.
+- [x] `shared/prices/cost.test.ts` — cache read/write usage with no explicit cache rate columns falls back to `input_per_mtok`; fails against the pre-fix absent module.
+- [x] `shared/prices/load.test.ts` — temp-file `loadPrices(path)` rejects unknown version and negative rates (mirroring `v1/test/prices.test.ts`); fails against a trivial `JSON.parse` wrapper.
+- [x] `shared/prices/cost.test.ts` — the Composer 2.5 pin test includes a comment checkpoint naming the required guard-inversion mutation (e.g. omitting `cache_read_input_tokens` from the sum).
 - [ ] Source-mutating the rate application (e.g. omitting `cache_read_input_tokens` from the sum) turns the Composer 2.5 pin test RED. Do **not** add a production test flag. (Manual)
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass; `bun run test:shared` passes.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass; `bun run test:shared` passes.
 
 ## Documentation updates
 

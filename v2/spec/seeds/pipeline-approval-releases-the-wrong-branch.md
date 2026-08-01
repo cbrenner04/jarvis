@@ -27,6 +27,13 @@ plan            shared-prices-compute-list-price-cost  pending     <-- gate appr
 succeeded, so the defect is not "the wrong branch instead of the right one": it is that an
 `awaiting` gate does not withhold its own branch at all.
 
+**It costs the whole pipeline, not just the branch.** The prematurely-dispatched branch failed
+(correctly — its prerequisite was unmerged). Its sibling was then approved through `approve-plan`
+and its `implement` stage also failed, with no run row and nothing in the daemon log.
+`jarvis pipeline resume` then refused `multiple_failed_stages`, so the run could not be recovered
+at all and the remaining work had to be finished through `jarvis run workflow implement`. One
+premature dispatch turned a two-branch fan-out into an unresumable pipeline.
+
 The two branches had a real dependency (the prices module must land before the cursor cost
 consumer). Holding the dependent gate is the operator's only lever for ordering a fan-out, and it
 does not hold. A second `approve` of the same branch correctly refuses `status_not_awaiting`, so
@@ -52,6 +59,9 @@ the refusal path is branch-scoped while the dispatch path is not.
 - [ ] While a sibling gate is `awaiting`, no stage on that sibling's `branchKey` reaches
       `running`; a regression asserts it across the full stage list.
 - [ ] Approving both branches dispatches both successors, each on its own `branchKey`.
+- [ ] A fan-out pipeline with exactly one failed branch stage is admitted by `pipeline resume`;
+      `multiple_failed_stages` is reserved for genuinely independent failures. A regression covers
+      the one-failed-branch case, which today refuses.
 - [ ] Source-mutating the successor selection back to first-pending-wins turns the single-approval
       test RED, with a comment checkpoint naming the mutation. Do **not** add a production test
       flag.

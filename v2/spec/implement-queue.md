@@ -9,8 +9,8 @@ The pre-TUI reliability queue is **burned down**. Next: open
 
 ## Start here next
 
-**TUI slice 3** (elapsed columns) from [tui-overhaul-brief.md](tui-overhaul-brief.md) — not yet
-seeded. Shipped 2026-08-01: slice 1 (#2453 layout, #2456 ink shell) and slice 2 (#2462 poll, #2463
+**TUI slice 3** (elapsed columns) from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
+`seeds/tui-elapsed-columns`. Shipped 2026-08-01: slice 1 (#2453 layout, #2456 ink shell) and slice 2 (#2462 poll, #2463
 tree model, #2466 monitor wiring).
 
 `seeds/tui-tree-self-expand-hides-the-e-toggle` shipped (#2471 model, #2473 entry): `e` has a
@@ -23,8 +23,8 @@ Highest-value non-TUI item: `seeds/mutation-checkpoint-criteria-are-ticked-witho
 Three criteria were ticked this session on mutations that turn nothing red; only subagent review
 caught them.
 
-`pipeline_list` already carries `createdAt` and stage timestamps as of #2463, so slice 3's wire
-prerequisite is met.
+`pipeline_list` carries pipeline `createdAt` and `finishedAtMs` as of #2463; **stage** `startedAt`
+and `endedAt` are durable but still not on the wire, so slice 3 adds them.
 
 Two smaller items first if you want a warm-up:
 
@@ -113,7 +113,8 @@ Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-w
 | Intent fan-out (`pipeline-intent-split-fan-out-execution`) | shipped |
 | `terminal-window-renders-finishless-rows` | shipped |
 | `pipeline_list` `branchKey` | shipped |
-| `pipeline_list` timestamps for elapsed columns | **not shipped** — slice 3 |
+| `pipeline_list` pipeline timestamps | shipped #2463 |
+| `pipeline_list` stage timestamps | **not shipped** — slice 3 |
 | Shell layout + ink shell (slice 1) | shipped #2453, #2456 |
 | TUI test strategy (ink vs monitor state) | **decided and shipped** — `v2/docs/test-writing.md` § TUI test strategy |
 

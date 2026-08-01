@@ -430,6 +430,8 @@ test("pipelineList sends one correlated IPC request and parses ordered PipelineS
     pipelineId: "pipe-1",
     name: "sample-pipeline",
     state: "running" as const,
+    createdAt: 1_700_000_000_000,
+    finishedAtMs: null,
     stages: [
       { stageId: "plan", branchKey: "default", status: "running", workflowInvocationId: "inv-plan" },
       { stageId: "gate", branchKey: "default", status: "pending", workflowInvocationId: null },

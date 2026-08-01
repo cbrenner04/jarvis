@@ -30,14 +30,14 @@ ordering pins in [tui-overhaul-brief.md § Left pane — retention](../tui-overh
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-observation.test.ts` — `projectPipelineSnapshot` includes `createdAt` from the durable pipeline row and `finishedAtMs: null` while derived state is non-terminal; fails against the pre-fix projection.
-- [ ] `daemon-pipeline-observation.test.ts` — a terminal pipeline with `terminalPublicationSucceededAt` set projects that value as `finishedAtMs`; fails against the pre-fix projection.
-- [ ] `daemon-pipeline-observation.test.ts` — a terminal pipeline without publication success projects `finishedAtMs` as the max stage `endedAt`; returning `pipeline.createdAt` for finish turns the test RED.
-- [ ] `daemon-pipeline-observation.test.ts` — a terminal pipeline with no publication timestamp and no stage `endedAt` projects non-null `finishedAtMs` via `pipeline.createdAt` fallback; projecting `null` turns the test RED.
-- [ ] `daemon-pipeline-observation.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for `createdAt` projection and terminal `finishedAtMs` derivation.
-- [ ] `v2/docs/daemon-host.md` documents `createdAt` and `finishedAtMs` on `pipeline_list` snapshots and the finish derivation rule.
-- [ ] `v2/docs/v1-behaviors.md` records `createdAt` and `finishedAtMs` on `pipeline_list` snapshots.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-pipeline-observation.test.ts` — `projectPipelineSnapshot` includes `createdAt` from the durable pipeline row and `finishedAtMs: null` while derived state is non-terminal; fails against the pre-fix projection.
+- [x] `daemon-pipeline-observation.test.ts` — a terminal pipeline with `terminalPublicationSucceededAt` set projects that value as `finishedAtMs`; fails against the pre-fix projection.
+- [x] `daemon-pipeline-observation.test.ts` — a terminal pipeline without publication success projects `finishedAtMs` as the max stage `endedAt`; returning `pipeline.createdAt` for finish turns the test RED.
+- [x] `daemon-pipeline-observation.test.ts` — a terminal pipeline with no publication timestamp and no stage `endedAt` projects non-null `finishedAtMs` via `pipeline.createdAt` fallback; projecting `null` turns the test RED.
+- [x] `daemon-pipeline-observation.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for `createdAt` projection and terminal `finishedAtMs` derivation.
+- [x] `v2/docs/daemon-host.md` documents `createdAt` and `finishedAtMs` on `pipeline_list` snapshots and the finish derivation rule.
+- [x] `v2/docs/v1-behaviors.md` records `createdAt` and `finishedAtMs` on `pipeline_list` snapshots.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

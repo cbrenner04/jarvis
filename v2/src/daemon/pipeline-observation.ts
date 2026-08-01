@@ -133,6 +133,8 @@ export type PipelineSnapshot = {
   pipelineId: string;
   name: string;
   state: PipelineDerivedState;
+  createdAt: number;
+  finishedAtMs: number | null;
   stages: Array<{
     stageId: string;
     branchKey: string;
@@ -141,11 +143,30 @@ export type PipelineSnapshot = {
   }>;
 };
 
+function derivePipelineFinishedAtMs(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  state: PipelineDerivedState,
+): number | null {
+  if (!isPipelineTerminal(state)) {
+    return null;
+  }
+  if (pipeline.terminalPublicationSucceededAt !== null) {
+    return pipeline.terminalPublicationSucceededAt;
+  }
+  const endedAts = pipeline.stages
+    .map((stage) => stage.endedAt)
+    .filter((endedAt): endedAt is number => endedAt !== null);
+  return endedAts.length > 0 ? Math.max(...endedAts) : pipeline.createdAt;
+}
+
 export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineSnapshot {
+  const state = derivePipelineState(pipeline);
   return {
     pipelineId: pipeline.id,
     name: pipeline.name,
-    state: derivePipelineState(pipeline),
+    state,
+    createdAt: pipeline.createdAt,
+    finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
     stages: pipeline.stages.map((stage) => ({
       stageId: stage.stageId,
       branchKey: stage.branchKey,

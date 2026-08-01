@@ -40,14 +40,14 @@ terminal retention when the expanded tree exceeds pane height.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `buildMonitorPipelineTree` maps `(snapshots, runs, expandedNodeIds, selectedNodeId, maxVisibleRows)` to ordered display nodes with `kind`, `id`, and `depth`; fails against the pre-fix absent composed entrypoint.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — a collapsed pipeline omits its stage and run descendants; a collapsed stage omits only its runs; fails against the pre-fix absent flatten path.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — selecting a descendant expands ancestors only and leaves sibling pipelines/stages collapsed; fails against the pre-fix absent flatten path.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — actives order above terminals by `createdAt` then `finishedAtMs` respectively; fails against the pre-fix absent flatten path.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — when overflow exceeds one terminal pipeline's subtree, iterative oldest-terminal removal continues until flattened rows are within `maxVisibleRows` while every active pipeline remains and input snapshots/runs are unchanged; inverting the active-retention guard turns the test RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — a collapsed pipeline subtree is excluded from `maxVisibleRows` counting; under budget pressure with multiple terminals, oldest terminals drop while collapsed subtrees do not inflate the count; fails against the pre-fix absent flatten path.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for pipeline collapse, stage collapse, reveal-on-select, ordering, and terminal FIFO drop.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-pipeline-tree.test.ts` — `buildMonitorPipelineTree` maps `(snapshots, runs, expandedNodeIds, selectedNodeId, maxVisibleRows)` to ordered display nodes with `kind`, `id`, and `depth`; fails against the pre-fix absent composed entrypoint.
+- [x] `tui-monitor-pipeline-tree.test.ts` — a collapsed pipeline omits its stage and run descendants; a collapsed stage omits only its runs; fails against the pre-fix absent flatten path.
+- [x] `tui-monitor-pipeline-tree.test.ts` — selecting a descendant expands ancestors only and leaves sibling pipelines/stages collapsed; fails against the pre-fix absent flatten path.
+- [x] `tui-monitor-pipeline-tree.test.ts` — actives order above terminals by `createdAt` then `finishedAtMs` respectively; fails against the pre-fix absent flatten path.
+- [x] `tui-monitor-pipeline-tree.test.ts` — when overflow exceeds one terminal pipeline's subtree, iterative oldest-terminal removal continues until flattened rows are within `maxVisibleRows` while every active pipeline remains and input snapshots/runs are unchanged; inverting the active-retention guard turns the test RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` — a collapsed pipeline subtree is excluded from `maxVisibleRows` counting; under budget pressure with multiple terminals, oldest terminals drop while collapsed subtrees do not inflate the count; fails against the pre-fix absent flatten path.
+- [x] `tui-monitor-pipeline-tree.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for pipeline collapse, stage collapse, reveal-on-select, ordering, and terminal FIFO drop.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -68,6 +68,8 @@ const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
   pipelineId: "pipe-alpha",
   name: "alpha-pipeline",
   state: "running",
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
   stages: [{ stageId: "plan", branchKey: "default", status: "running", workflowInvocationId: "inv-1" }],
 };
 
@@ -75,6 +77,8 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
   pipelineId: "pipe-beta",
   name: "beta-pipeline",
   state: "succeeded",
+  createdAt: 1_700_000_001_000,
+  finishedAtMs: 1_700_000_002_000,
   stages: [{ stageId: "s1", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-2" }],
 };
 

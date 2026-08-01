@@ -48,14 +48,14 @@ merged `list` runs and yields depth-tagged nodes before polling or ink wiring la
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — a run whose `workflow?.invocationId` matches a stage nests under that stage with `kind: "run"`, depth, and `id`; fails against the pre-fix absent module.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — a run with no matching stage appears only in `unattributed`, not under any pipeline; fails against the pre-fix absent module.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — two stages sharing `stageId` but differing `branchKey` produce distinct node ids (`${pipelineId}:${stageId}:${branchKey}`) and `kind: "stage"` rows; `default` branch renders an empty `branch` cell; fails against the pre-fix absent module.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — pipeline `project` derives from the first joined run under that pipeline and is empty when no runs joined; inverting the derivation guard turns the test RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — pipeline and stage row-string helpers produce column-aligned output via `TREE_COLUMN_WIDTHS` / `buildMonitorTreeRow` patterns; inverting a width reservation guard turns the test RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — a stage-matched run is excluded from `unattributed`; unattributed-only rows still pass through `filterMonitorRunsForLiveWindow`; queued runs are excluded from builder input; inverting the exclusion guard turns the test RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for stage join, fan-out node id, and unattributed exclusion.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-pipeline-tree.test.ts` — a run whose `workflow?.invocationId` matches a stage nests under that stage with `kind: "run"`, depth, and `id`; fails against the pre-fix absent module.
+- [x] `tui-monitor-pipeline-tree.test.ts` — a run with no matching stage appears only in `unattributed`, not under any pipeline; fails against the pre-fix absent module.
+- [x] `tui-monitor-pipeline-tree.test.ts` — two stages sharing `stageId` but differing `branchKey` produce distinct node ids (`${pipelineId}:${stageId}:${branchKey}`) and `kind: "stage"` rows; `default` branch renders an empty `branch` cell; fails against the pre-fix absent module.
+- [x] `tui-monitor-pipeline-tree.test.ts` — pipeline `project` derives from the first joined run under that pipeline and is empty when no runs joined; inverting the derivation guard turns the test RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` — pipeline and stage row-string helpers produce column-aligned output via `TREE_COLUMN_WIDTHS` / `buildMonitorTreeRow` patterns; inverting a width reservation guard turns the test RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` — a stage-matched run is excluded from `unattributed`; unattributed-only rows still pass through `filterMonitorRunsForLiveWindow`; queued runs are excluded from builder input; inverting the exclusion guard turns the test RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for stage join, fan-out node id, and unattributed exclusion.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

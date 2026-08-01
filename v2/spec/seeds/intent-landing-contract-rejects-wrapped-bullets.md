@@ -32,8 +32,8 @@ classifying; this contract needs the same treatment.
 
 ## Decisions
 
-- The contract assembles each bullet from its full block (the `- ` line plus continuation lines
-  until the next bullet or a `##` heading) before validating — rules out asking agents or the
+- The contract assembles each bullet from its full block (the list-marker line plus continuation
+  lines until the next bullet or a `##` heading) before validating — rules out asking agents or the
   prompt to avoid wrapping, which does not survive a paraphrase.
 - Reuse the block-assembly helper introduced by `spec-parser-human-only-block-match` rather than
   a second private line-walker — rules out two divergent notions of "a bullet" in the codebase.

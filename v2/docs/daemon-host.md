@@ -833,10 +833,12 @@ builds from the immediately preceding
 workflow stage's recorded artifact (approval stages are skipped when walking
 back to find it): resolution loads the prior stage's entry run via
 `store.loadRun(artifact.entryRunId)` and sets preset `cwd` to that run's
-`worktreePath`. Artifact `specPath` is worktree-relative and is passed through
-unchanged as `readyIntent` for the `plan`/`plan-reviewed*` presets or
-`specPath` for the implement builder — never joined to admission `cwd` and
-never absolutized in the store. When the preceding artifact carries
+`worktreePath`. Artifact `specPath` is worktree-relative: `readyIntent` for
+`plan`/`plan-reviewed*` presets; chained implement normalizes directory
+`specPath` to `<dir>/index.md` in `resolveImplementStage` (see
+[operator-runbook § Pipeline start](./operator-runbook.md#pipeline-start)).
+Never joined to admission `cwd` and never absolutized
+in the store. When the preceding artifact carries
 `downstreamInputs` with length ≥ 2, the first chained stage after that
 splitting artifact resolves one preset per listed file path (each bound as
 `readyIntent`); length 1 binds that path only; absent `downstreamInputs` keeps

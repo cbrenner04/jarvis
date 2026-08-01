@@ -213,6 +213,8 @@ jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return af
 `--seed <path>` matches standalone intent `--seed` (slug, `landing.inputs.paths`, worktree consumption);
 `--seed-text` is inline-only (`seedText`, no seed-file deletion).
 
+Plan completion records a bare spec **directory** on the stage artifact; chained implement resolution normalizes that to `<dir>/index.md` in `resolveImplementStage` before any workflow run row exists. A directory without `index.md` on the plan worktree fails at stage resolution (`failure_detail` with `pipeline-stage-resolve:` prefix, worktree-relative path, index-expected wording) — not later as `Non-index spec requires --artifact` from the implement builder.
+
 **Detach vs attached:** `--detach` runs the same pre-admission validation and daemon `pipeline_start` path as the default attached launch. Detached stdout is the admitted pipeline ID only; exit **`0` means admitted**, not that the pipeline finished. Attached mode loops `pipeline_wait` through `awaiting-approval` boundaries until a terminal state, then prints `{kind:"terminal",state}` JSON.
 
 ### Pipeline list and wait

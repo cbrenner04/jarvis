@@ -448,6 +448,10 @@ function createViewHost() {
     toggleSelectedWorkflowExpansion() {
       controls?.toggleSelectedWorkflowExpansion();
     },
+    async toggleExpansion() {
+      controls?.toggleSelectedWorkflowExpansion();
+      await flush();
+    },
     quit() {
       controls?.quit();
       exit.resolve();
@@ -670,28 +674,28 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
 
+    await view.toggleExpansion();
     view.selectNode(PIPELINE_STAGE_MULTI);
     await flush();
-    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-review");
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
 
-    view.toggleSelectedWorkflowExpansion();
-    await flush();
+    await view.toggleExpansion();
     expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
 
     view.selectNode("run-orphan");
     await flush();
-    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
 
-    view.selectPreviousRun();
-    await flush();
-    view.selectNextRun();
+    view.selectNode(PIPELINE_STAGE_MULTI);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_MULTI);
     expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
 
-    view.toggleSelectedWorkflowExpansion();
-    await flush();
+    await view.toggleExpansion();
     expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
 
     view.selectNode("run-orphan");
     await flush();
@@ -713,8 +717,7 @@ describe("runTuiEntry", () => {
     view.selectNode("pipe-multi");
     await flush();
     expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
-    view.toggleSelectedWorkflowExpansion();
-    await flush();
+    await view.toggleExpansion();
     expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
 
     view.selectNode("run-orphan");
@@ -740,8 +743,7 @@ describe("runTuiEntry", () => {
 
     view.selectNode("pipe-multi");
     await flush();
-    view.toggleSelectedWorkflowExpansion();
-    await flush();
+    await view.toggleExpansion();
     view.selectNode("run-orphan");
     await flush();
     expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(["pipe-multi", "run-orphan"]);
@@ -758,13 +760,13 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
 
+    await view.toggleExpansion();
     view.selectNode("run-review");
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-review");
     const before = [...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort();
 
-    view.toggleSelectedWorkflowExpansion();
-    await flush();
+    await view.toggleExpansion();
     expect([...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort()).toEqual(before);
 
     view.quit();
@@ -920,6 +922,7 @@ describe("runTuiEntry", () => {
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
 
+    await view.toggleExpansion();
     view.selectNextRun();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
@@ -934,7 +937,7 @@ describe("runTuiEntry", () => {
 
     view.selectPreviousRun();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-matched");
 
     view.quit();
     expect(await pending).toBe(0);
@@ -979,6 +982,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
+    await view.toggleExpansion();
     view.selectNode(PIPELINE_STAGE_ALPHA);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
@@ -1009,8 +1013,10 @@ describe("runTuiEntry", () => {
     await flush();
     view.killSelected();
     await flush();
+    await view.toggleExpansion();
     view.selectNode(PIPELINE_STAGE_ALPHA);
     await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
     view.pauseSelected();
     await flush();
     view.killSelected();
@@ -1031,6 +1037,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
+    await view.toggleExpansion();
     view.selectNode(PIPELINE_STAGE_ALPHA);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);

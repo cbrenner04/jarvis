@@ -303,22 +303,7 @@ function resolveEffectiveExpansion(
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
 ): Set<string> {
-  const effective = new Set([...expandedNodeIds, ...resolveSelectedAncestors(pipelineNodes, selectedNodeId)]);
-  if (selectedNodeId === null) return effective;
-
-  for (const pipeline of pipelineNodes) {
-    if (pipeline.id === selectedNodeId) {
-      effective.add(pipeline.id);
-      return effective;
-    }
-    for (const stage of pipeline.stages) {
-      if (stage.id === selectedNodeId) {
-        effective.add(stage.id);
-        return effective;
-      }
-    }
-  }
-  return effective;
+  return new Set([...expandedNodeIds, ...resolveSelectedAncestors(pipelineNodes, selectedNodeId)]);
 }
 
 export function isExpandablePipelineNodeId(

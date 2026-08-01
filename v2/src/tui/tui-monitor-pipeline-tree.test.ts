@@ -7,6 +7,7 @@ import {
   buildPipelineMonitorTreeRow,
   buildStageMonitorTreeRow,
   flattenMonitorPipelineTree,
+  type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
   monitorPipelineStageNodeId,
   stageBranchCellValue,
@@ -331,6 +332,19 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
     ];
   }
 
+  function flattenSelectedMultiMemberStage(
+    expandedNodeIds: ReadonlySet<string>,
+    selectedNodeId: string,
+  ): MonitorPipelineTreeDisplayNode[] {
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [implementStage(MULTI_INVOCATION)],
+    });
+    const runs = multiMemberRuns();
+    return flattenJoined(joinTree([snapshot], runs), expandedNodeIds, selectedNodeId, 10, runs);
+  }
+
   test("collapsed stage under an expanded pipeline emits one workflow-collapsed run row at depth 2", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
@@ -359,6 +373,31 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
       { id: "run-review", depth: 2, kind: "workflow-collapsed" },
       { id: "run-implement", depth: 3, kind: "workflow-child" },
     ]);
+  });
+
+  test("selected stage expansion toggles flatten output", () => {
+    // Mutation checkpoint: re-adding the removed self-expand loop in resolveEffectiveExpansion must turn this RED.
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const collapsed = flattenSelectedMultiMemberStage(new Set(), stageId);
+    const expanded = flattenSelectedMultiMemberStage(new Set([stageId]), stageId);
+
+    expect(collapsed.map((node) => node.id)).not.toEqual(expanded.map((node) => node.id));
+    expect(collapsed.filter((node) => node.kind === "run").map((node) => node.id)).toEqual(["run-review"]);
+    expect(expanded.filter((node) => node.kind === "run").map((node) => node.id)).toEqual([
+      "run-review",
+      "run-implement",
+    ]);
+  });
+
+  test("toggling expandedNodeIds on a selected stage round-trips flatten output", () => {
+    // Mutation checkpoint: re-adding the removed self-expand loop in resolveEffectiveExpansion must turn this RED.
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const collapsed = flattenSelectedMultiMemberStage(new Set(), stageId);
+    const expanded = flattenSelectedMultiMemberStage(new Set([stageId]), stageId);
+    const collapsedAgain = flattenSelectedMultiMemberStage(new Set(), stageId);
+
+    expect(collapsed.map((node) => node.id)).toEqual(collapsedAgain.map((node) => node.id));
+    expect(collapsed.map((node) => node.id)).not.toEqual(expanded.map((node) => node.id));
   });
 });
 

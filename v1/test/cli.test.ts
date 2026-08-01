@@ -788,12 +788,20 @@ describe("run", () => {
 
   test("intent --agent no longer rejected as unsupported", async () => {
     const cap = captureIo();
-    const code = await run(["intent", "--agent", "claude", "seed.md"], {
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(1);
-    expect(cap.err()).not.toContain("--agent is not supported");
+    // Non-git cwd: default process.cwd() is the jarvis checkout, which ad-hoc
+    // repo resolution would target and then POST to the operator's log-server.
+    const isolatedCwd = mkdtempSync(join(tmpdir(), "jarvis-cli-intent-"));
+    try {
+      const code = await run(["intent", "--agent", "claude", "seed.md"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: isolatedCwd,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).not.toContain("--agent is not supported");
+    } finally {
+      rmSync(isolatedCwd, { recursive: true, force: true });
+    }
   });
 
   test("run/init/config bootstrap the config dir", () => {

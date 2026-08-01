@@ -43,6 +43,21 @@ for (const name of ["claude", "codex", "cursor", "opencode"]) {
 }
 setEnv("PATH", `${binDir}:${process.env.PATH ?? ""}`);
 
+// Block v1 command-path tests from POSTing to the operator's long-lived log-server
+// on 127.0.0.1:4310. Production keeps the real client; under test we no-op.
+const LIVE_LOG_SERVER_URL_RE = /^https?:\/\/(127\.0\.0\.1|localhost):4310\//;
+const realFetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = Object.assign(
+  async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (LIVE_LOG_SERVER_URL_RE.test(url)) {
+      return new Response("ok\n", { status: 202 });
+    }
+    return realFetch(input, init);
+  },
+  realFetch,
+);
+
 const gitConfig: [string, string][] = [
   ["core.hooksPath", "/dev/null"],
   ["advice.defaultBranchName", "false"],

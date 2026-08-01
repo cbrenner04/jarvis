@@ -294,32 +294,44 @@ function parseTasksAndSubspecs(lines: string[]): {
   return { tasks, linkedSubspecs };
 }
 
-/** Detect if a criterion text is human-only based on trailing markers.
- * Markers (case-insensitive, trailing-anchored): (Manual), "visual inspection only", "no automated guard"
+/** Detect if a criterion text is human-only based on marker vocabulary.
+ * Markers (case-insensitive, contiguous substring): (Manual), "visual inspection only", "no automated guard"
  */
 export function isHumanOnlyCriterion(text: string): boolean {
-  const trimmed = text.trim();
-  let testText = trimmed;
+  let testText = text.trim();
   if (testText.endsWith(".")) {
     testText = testText.slice(0, -1).trim();
   }
-  const markers = ["(manual)", "visual inspection only", "no automated guard"];
-  return markers.some((marker) => testText.toLowerCase().endsWith(marker));
+  const lower = testText.toLowerCase();
+  return ["(manual)", "visual inspection only", "no automated guard"].some((marker) => lower.includes(marker));
 }
 
 /** Parse acceptance criteria from section lines. */
 function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
   const acceptanceCriteria: AcceptanceCriterion[] = [];
-  for (const line of sectionLines) {
+  let i = 0;
+  while (i < sectionLines.length) {
+    const line = sectionLines[i] ?? "";
     const taskMatch = line.match(taskPattern);
     if (!taskMatch?.[2]) {
+      i += 1;
       continue;
     }
     const text = taskMatch[2].trim();
+    let blockText = text;
+    i += 1;
+    while (i < sectionLines.length) {
+      const nextLine = sectionLines[i] ?? "";
+      if (taskPattern.test(nextLine) || nextLine.match(headingPattern)?.[1] === "##") {
+        break;
+      }
+      blockText += `\n${nextLine.trim()}`;
+      i += 1;
+    }
     acceptanceCriteria.push({
       checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
       text,
-      humanOnly: isHumanOnlyCriterion(text),
+      humanOnly: isHumanOnlyCriterion(blockText),
     });
   }
   return acceptanceCriteria;

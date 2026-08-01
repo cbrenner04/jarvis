@@ -650,17 +650,45 @@ describe("human-only criterion detection", () => {
     }
   });
 
-  test("does not match markers mid-text", () => {
+  test("does not match marker-adjacent prose without exact marker phrase", () => {
     const testCases = [
-      "Feature works. (Manual) if conditions are met.",
-      "Add an automated guard where there is no automated guard today.",
-      "Visual inspection only, not manual.",
+      "Feature must be verified manually before release.",
+      "Requires visual and inspection steps in the test plan.",
+      "Add an automated guard for the edge case.",
     ];
 
     for (const text of testCases) {
       const parsed = parseSpec(`# Title\n\n## Acceptance criteria\n\n- [ ] ${text}\n`);
       expect(parsed.acceptanceCriteria[0]?.humanOnly).toBe(false);
     }
+  });
+
+  test("classifies human-only markers anywhere in the criterion bullet block", () => {
+    const ac = (lines: string) =>
+      parseSpec(`# Title\n\n## Acceptance criteria\n\n${lines}`).acceptanceCriteria[0];
+
+    expect(ac("- [ ] (Manual) Verify in simulator.\n")).toEqual({
+      checked: false,
+      text: "(Manual) Verify in simulator.",
+      humanOnly: true,
+    });
+    expect(ac("- [ ] Verify in simulator. (Manual)\n")).toEqual({
+      checked: false,
+      text: "Verify in simulator. (Manual)",
+      humanOnly: true,
+    });
+    // Mutation checkpoint: reverting block assembly to first-line-only would miss continuation-line (Manual)
+    expect(ac("- [ ] Verify the dashboard redesign.\n      (Manual)\n")).toEqual({
+      checked: false,
+      text: "Verify the dashboard redesign.",
+      humanOnly: true,
+    });
+    expect(ac("- [ ] Feature works when invoked.\n")).toEqual({
+      checked: false,
+      text: "Feature works when invoked.",
+      humanOnly: false,
+    });
+    // Mutation checkpoint: reverting contiguous substring match to trailing .endsWith would miss leading (Manual)
   });
 
   test("classifies unmarked criteria as automated", () => {

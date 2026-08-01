@@ -57,14 +57,14 @@ stage, or run age inside `jarvis tui` without `jarvis run list`.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `active pipeline stage and run rows render independent elapsed from injected nowMs` fails pre-fix and passes after implementation; pin asserts three distinct formatted values from pipeline `createdAt`, stage `startedAt`, and run `createdAt`.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `terminal pipeline stage and run rows freeze elapsed at recorded end times` fails pre-fix and passes after implementation; advancing `nowMs` leaves all three elapsed cells unchanged.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `stage row elapsed is empty when startedAt is null` fails pre-fix and passes after implementation — rules out `0s` when start is unset.
-- [ ] `tui-entry.test.tsx` — `display tick advances elapsed without additional list or pipeline_list RPC` fails pre-fix and passes after implementation; pin drives display ticks with refresh scheduler idle and asserts RPC counts unchanged while elapsed cell text changes.
-- [ ] `tui-monitor-pipeline-tree.test.ts` and `tui-entry.test.tsx` — `Mutation checkpoint:` comments name guard-inversion mutations for terminal freeze, null/ absent start, and display-tick/no-RPC; inverting each named guard turns the corresponding pin RED.
-- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row documents what elapsed measures at pipeline, stage, and run levels; collapsed workflow rows use the representative run's `createdAt` / `finishedAtMs`; elapsed freezes only when the recorded end timestamp is present (`finishedAtMs`, `endedAt`) and keeps advancing on the local tick when status is terminal but the end timestamp is absent.
-- [ ] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns, collapsed-workflow run elapsed from the representative run's timestamps, and the end-timestamp freeze rule (not status alone).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-pipeline-tree.test.ts` — `active pipeline stage and run rows render independent elapsed from injected nowMs` fails pre-fix and passes after implementation; pin asserts three distinct formatted values from pipeline `createdAt`, stage `startedAt`, and run `createdAt`.
+- [x] `tui-monitor-pipeline-tree.test.ts` — `terminal pipeline stage and run rows freeze elapsed at recorded end times` fails pre-fix and passes after implementation; advancing `nowMs` leaves all three elapsed cells unchanged.
+- [x] `tui-monitor-pipeline-tree.test.ts` — `stage row elapsed is empty when startedAt is null` fails pre-fix and passes after implementation — rules out `0s` when start is unset.
+- [x] `tui-entry.test.tsx` — `display tick advances elapsed without additional list or pipeline_list RPC` fails pre-fix and passes after implementation; pin drives display ticks with refresh scheduler idle and asserts RPC counts unchanged while elapsed cell text changes.
+- [x] `tui-monitor-pipeline-tree.test.ts` and `tui-entry.test.tsx` — `Mutation checkpoint:` comments name guard-inversion mutations for terminal freeze, null/ absent start, and display-tick/no-RPC; inverting each named guard turns the corresponding pin RED.
+- [x] `v2/docs/operator-runbook.md` — `jarvis tui` row documents what elapsed measures at pipeline, stage, and run levels; collapsed workflow rows use the representative run's `createdAt` / `finishedAtMs`; elapsed freezes only when the recorded end timestamp is present (`finishedAtMs`, `endedAt`) and keeps advancing on the local tick when status is terminal but the end timestamp is absent.
+- [x] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns, collapsed-workflow run elapsed from the representative run's timestamps, and the end-timestamp freeze rule (not status alone).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

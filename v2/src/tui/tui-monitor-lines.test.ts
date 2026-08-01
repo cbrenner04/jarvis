@@ -23,6 +23,7 @@ const SINGLE_STEP_RUN: DaemonListRunRow = {
   runId: "run-single",
   project: "demo",
   branch: "single",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
 };
@@ -39,6 +40,7 @@ const WORKFLOW_RUN: DaemonListRunRow = {
   runId: "run-wf",
   project: "demo",
   branch: "wf",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
   workflow: {
@@ -106,6 +108,7 @@ function workflowRun(
   return {
     project: "demo",
     branch: "main",
+    createdAt: 0,
     status,
     isLive: true,
     workflow: {
@@ -153,12 +156,14 @@ function overflowPaneMonitorFixture(): {
   return { state, layout, maxVisibleRows, pipelines };
 }
 
+const TEST_NOW_MS = 0;
+
 function indentColumnText(
   tableRow: Parameters<typeof listMonitorTreeCellsAtDepth>[0],
   depth: number,
   selectedNodeId: string | null = null,
 ): string {
-  const cell = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, 90, depth).find(
+  const cell = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, 90, depth, TEST_NOW_MS).find(
     (entry) => entry.column === "indent",
   );
   return cell?.text ?? "";
@@ -166,9 +171,9 @@ function indentColumnText(
 
 const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
   runs: [
-    { runId: "run-alpha", project: "demo", branch: "alpha", status: "in-progress", isLive: true },
-    { runId: "run-beta", project: "demo", branch: "beta", status: "completed", isLive: false },
-    { runId: "run-queued", project: "demo", branch: "queued", status: "queued", isLive: false },
+    { runId: "run-alpha", project: "demo", branch: "alpha", createdAt: 0, status: "in-progress", isLive: true },
+    { runId: "run-beta", project: "demo", branch: "beta", createdAt: 0, status: "completed", isLive: false },
+    { runId: "run-queued", project: "demo", branch: "queued", createdAt: 0, status: "queued", isLive: false },
   ],
   selectedNodeId: "run-alpha",
   waitState: { kind: "ready", runId: "run-alpha", result: { runStatus: "in-progress" } },
@@ -193,6 +198,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-completed-older",
       project: "demo",
       branch: "old",
+      createdAt: 0,
       status: "completed",
       isLive: false,
     };
@@ -200,6 +206,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-active-newer",
       project: "demo",
       branch: "new",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
     };
@@ -207,6 +214,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-active-older",
       project: "demo",
       branch: "active-old",
+      createdAt: 0,
       status: "paused",
       isLive: false,
     };
@@ -223,6 +231,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-awaiting",
       project: "demo",
       branch: "await",
+      createdAt: 0,
       status: "paused",
       isLive: false,
     };
@@ -230,6 +239,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-failed",
       project: "demo",
       branch: "fail",
+      createdAt: 0,
       status: "failed",
       isLive: false,
     };
@@ -245,6 +255,7 @@ describe("orderSelectableRuns", () => {
       runId: "run-queued",
       project: "demo",
       branch: "q",
+      createdAt: 0,
       status: "queued",
       isLive: false,
     };
@@ -259,6 +270,7 @@ describe("firstSelectableRunId", () => {
       runId: "run-beta",
       project: "demo",
       branch: "beta",
+      createdAt: 0,
       status: "completed",
       isLive: false,
     };
@@ -271,6 +283,7 @@ describe("firstSelectableRunId", () => {
       runId: "run-newer",
       project: "demo",
       branch: "new",
+      createdAt: 0,
       status: "killed",
       isLive: false,
     };
@@ -278,6 +291,7 @@ describe("firstSelectableRunId", () => {
       runId: "run-older",
       project: "demo",
       branch: "old",
+      createdAt: 0,
       status: "blocked",
       isLive: false,
     };
@@ -316,6 +330,7 @@ describe("monitorTextLines", () => {
       runId: "run-beta",
       project: "demo",
       branch: "beta",
+      createdAt: 0,
       status: "completed",
       isLive: false,
     };
@@ -323,6 +338,7 @@ describe("monitorTextLines", () => {
       runId: "run-alpha",
       project: "demo",
       branch: "alpha",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
     };
@@ -360,6 +376,7 @@ describe("monitorTextLines", () => {
       runId: `run-authored-review-${status}`,
       project: "demo",
       branch: "plan",
+      createdAt: 0,
       status,
       isLive: false,
       stepId: "authored-plan-review",
@@ -388,6 +405,7 @@ describe("monitorTextLines", () => {
         runId: "run-plan-draft",
         project: "demo",
         branch: "plan",
+        createdAt: 0,
         status: "completed",
         isLive: false,
         stepId: "plan-draft",
@@ -457,6 +475,7 @@ describe("monitorTextLines", () => {
       runId: "run-queued-newer",
       project: "demo",
       branch: "newer",
+      createdAt: 0,
       status: "queued",
       isLive: false,
     };
@@ -464,6 +483,7 @@ describe("monitorTextLines", () => {
       runId: "run-queued-older",
       project: "demo",
       branch: "older",
+      createdAt: 0,
       status: "queued",
       isLive: false,
     };
@@ -488,6 +508,7 @@ describe("monitorTextLines", () => {
       runId: "run-queued",
       project: "demo",
       branch: "q",
+      createdAt: 0,
       status: "queued",
       isLive: false,
     };
@@ -555,7 +576,7 @@ describe("monitorLeftPaneTreeRows", () => {
     expect(indentColumnText({ kind: "standalone", run: matchedRun }, 0).trimEnd()).toBe("");
     expect(indentColumnText({ kind: "standalone", run: matchedRun }, 1)).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
     expect(indentColumnText(runRow.tableRow, 2)).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
-    const labelCell = listMonitorTreeCellsAtDepth(runRow.tableRow, "run-implement", 90, 2).find(
+    const labelCell = listMonitorTreeCellsAtDepth(runRow.tableRow, "run-implement", 90, 2, TEST_NOW_MS).find(
       (entry) => entry.column === "label",
     );
     expect(labelCell?.text.startsWith("  ")).toBe(true);
@@ -597,7 +618,7 @@ describe("monitorLeftPaneTreeRows", () => {
     if (childRow?.kind !== "run") throw new Error("expected run row");
 
     expect(indentColumnText(childRow.tableRow, 3, "run-implement")).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
-    const labelCell = listMonitorTreeCellsAtDepth(childRow.tableRow, "run-implement", 90, 3).find(
+    const labelCell = listMonitorTreeCellsAtDepth(childRow.tableRow, "run-implement", 90, 3, TEST_NOW_MS).find(
       (entry) => entry.column === "label",
     );
     expect(labelCell?.text.startsWith("  ")).toBe(true);

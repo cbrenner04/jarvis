@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
@@ -13,7 +14,7 @@ import {
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
-import { monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
+import { buildMonitorTreeRow, monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";
@@ -24,6 +25,7 @@ function listRun(overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "
   return {
     project: "demo",
     branch: "main",
+    createdAt: 0,
     status: "in-progress",
     isLive: true,
     ...overrides,
@@ -94,7 +96,7 @@ function pipelineWithStageAndRun(
 }
 
 function joinTree(snapshots: PipelineSnapshot[], runs: DaemonListRunRow[] = []): MonitorPipelineTreePipelineNode[] {
-  return buildMonitorPipelineTreeJoin(snapshots, runs, { nowMs: FILTER_NOW_MS }).pipelineNodes;
+  return buildMonitorPipelineTreeJoin(snapshots, runs, { filterNowMs: FILTER_NOW_MS }).pipelineNodes;
 }
 
 function flattenJoined(
@@ -146,7 +148,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
     const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [workflowRun({ runId: "run-orphan", status: "completed", isLive: false }, INVOCATION_ORPHAN)],
-      { nowMs: FILTER_NOW_MS },
+      { filterNowMs: FILTER_NOW_MS },
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs).toHaveLength(0);
@@ -189,8 +191,8 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(defaultStage).toBeDefined();
     expect(altStage).toBeDefined();
     if (!defaultStage || !altStage) throw new Error("expected branch stages");
-    const defaultRow = buildStageMonitorTreeRow(defaultStage, null, 90);
-    const altRow = buildStageMonitorTreeRow(altStage, null, 90);
+    const defaultRow = buildStageMonitorTreeRow(defaultStage, null, 90, FILTER_NOW_MS);
+    const altRow = buildStageMonitorTreeRow(altStage, null, 90, FILTER_NOW_MS);
     expect(columnSlice(defaultRow, 90, "branch").trimEnd()).toBe("");
     expect(columnSlice(altRow, 90, "branch").trimEnd()).toBe("alt");
   });
@@ -229,11 +231,13 @@ describe("buildMonitorPipelineTreeJoin", () => {
       stageId: "implement",
       branchKey: "feature",
       status: "running",
+      startedAt: null,
+      endedAt: null,
       runs: [],
     };
 
-    const pipelineRow = buildPipelineMonitorTreeRow(pipelineNode, null, 90);
-    const stageRow = buildStageMonitorTreeRow(stageNode, null, 90);
+    const pipelineRow = buildPipelineMonitorTreeRow(pipelineNode, null, 90, FILTER_NOW_MS);
+    const stageRow = buildStageMonitorTreeRow(stageNode, null, 90, FILTER_NOW_MS);
 
     expect(pipelineRow.length).toBe(fullWidthRowLength(90));
     expect(stageRow.length).toBe(fullWidthRowLength(90));
@@ -279,7 +283,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
           "inv-fresh",
         ),
       ],
-      { nowMs: FILTER_NOW_MS },
+      { filterNowMs: FILTER_NOW_MS },
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs.some((node) => node.id === "run-matched")).toBe(true);
@@ -290,13 +294,147 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 });
 
+describe("monitor pipeline tree elapsed cells", () => {
+  const PIPELINE_START_MS = 1_700_000_000_000;
+  const STAGE_START_MS = PIPELINE_START_MS + 60_000;
+  const RUN_START_MS = PIPELINE_START_MS + 300_000;
+  const ACTIVE_NOW_MS = PIPELINE_START_MS + 600_000;
+  const PIPELINE_END_MS = PIPELINE_START_MS + 120_000;
+  const STAGE_END_MS = PIPELINE_START_MS + 180_000;
+  const RUN_END_MS = PIPELINE_START_MS + 360_000;
+  const ELAPSED_INVOCATION = "inv-elapsed";
+
+  function elapsedFixture(nowMs: number) {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      createdAt: PIPELINE_START_MS,
+      finishedAtMs: null,
+      stages: [
+        implementStage(ELAPSED_INVOCATION, {
+          startedAt: STAGE_START_MS,
+          endedAt: null,
+        }),
+      ],
+    });
+    const run = workflowRun(
+      { runId: "run-elapsed", status: "in-progress", createdAt: RUN_START_MS },
+      ELAPSED_INVOCATION,
+    );
+    const pipelineNodes = joinTree([snapshot], [run]);
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const displayNodes = flattenJoined(
+      pipelineNodes,
+      new Set([PIPELINE_ID, stageId]),
+      null,
+      10,
+      [run],
+    );
+    const pipelineNode = displayNodes.find((node) => node.kind === "pipeline");
+    const stageNode = displayNodes.find((node) => node.kind === "stage");
+    const runNode = displayNodes.find((node) => node.kind === "run");
+    if (pipelineNode?.kind !== "pipeline" || stageNode?.kind !== "stage" || runNode?.kind !== "run") {
+      throw new Error("expected pipeline, stage, and run nodes");
+    }
+    return {
+      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
+      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
+      runElapsed: columnSlice(
+        buildMonitorTreeRow(runNode.tableRow, null, 90, nowMs),
+        90,
+        "elapsed",
+      ).trimEnd(),
+    };
+  }
+
+  test("active pipeline stage and run rows render independent elapsed from injected nowMs", () => {
+    const elapsed = elapsedFixture(ACTIVE_NOW_MS);
+
+    expect(elapsed.pipelineElapsed).toBe(formatElapsedWallClock(PIPELINE_START_MS, null, ACTIVE_NOW_MS));
+    expect(elapsed.stageElapsed).toBe(formatElapsedWallClock(STAGE_START_MS, null, ACTIVE_NOW_MS));
+    expect(elapsed.runElapsed).toBe(formatElapsedWallClock(RUN_START_MS, null, ACTIVE_NOW_MS));
+    expect(elapsed.pipelineElapsed).not.toBe(elapsed.stageElapsed);
+    expect(elapsed.stageElapsed).not.toBe(elapsed.runElapsed);
+    expect(elapsed.pipelineElapsed).not.toBe(elapsed.runElapsed);
+  });
+
+  test("terminal pipeline stage and run rows freeze elapsed at recorded end times", () => {
+    // Mutation checkpoint: passing null for finishedAtMs/endedAt/finishedAtMs on terminal rows must turn terminal freeze RED.
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      createdAt: PIPELINE_START_MS,
+      finishedAtMs: PIPELINE_END_MS,
+      state: "succeeded",
+      stages: [
+        implementStage(ELAPSED_INVOCATION, {
+          startedAt: STAGE_START_MS,
+          endedAt: STAGE_END_MS,
+          status: "succeeded",
+        }),
+      ],
+    });
+    const run = workflowRun(
+      {
+        runId: "run-elapsed",
+        status: "completed",
+        isLive: false,
+        createdAt: RUN_START_MS,
+        finishedAtMs: RUN_END_MS,
+      },
+      ELAPSED_INVOCATION,
+    );
+    const pipelineNodes = joinTree([snapshot], [run]);
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const displayNodes = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, stageId]), null, 10, [run]);
+    const pipelineNode = displayNodes.find((node) => node.kind === "pipeline");
+    const stageNode = displayNodes.find((node) => node.kind === "stage");
+    const runNode = displayNodes.find((node) => node.kind === "run");
+    if (pipelineNode?.kind !== "pipeline" || stageNode?.kind !== "stage" || runNode?.kind !== "run") {
+      throw new Error("expected pipeline, stage, and run nodes");
+    }
+
+    const frozenNowMs = ACTIVE_NOW_MS + 3_600_000;
+    const atEnd = {
+      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, PIPELINE_END_MS), 90, "elapsed").trimEnd(),
+      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, STAGE_END_MS), 90, "elapsed").trimEnd(),
+      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, RUN_END_MS), 90, "elapsed").trimEnd(),
+    };
+    const later = {
+      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
+      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
+      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
+    };
+
+    expect(atEnd.pipelineElapsed).toBe(formatElapsedWallClock(PIPELINE_START_MS, PIPELINE_END_MS, PIPELINE_END_MS));
+    expect(atEnd.stageElapsed).toBe(formatElapsedWallClock(STAGE_START_MS, STAGE_END_MS, STAGE_END_MS));
+    expect(atEnd.runElapsed).toBe(formatElapsedWallClock(RUN_START_MS, RUN_END_MS, RUN_END_MS));
+    expect(later).toEqual(atEnd);
+  });
+
+  test("stage row elapsed is empty when startedAt is null", () => {
+    // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
+    const stageNode = {
+      kind: "stage" as const,
+      id: monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default"),
+      depth: 1,
+      stageId: "implement",
+      branchKey: "default",
+      status: "pending",
+      startedAt: null,
+      endedAt: null,
+      runs: [],
+    };
+
+    expect(columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, ACTIVE_NOW_MS), 90, "elapsed").trimEnd()).toBe("");
+  });
+});
+
 describe("buildMonitorPipelineTree", () => {
   test("maps snapshots, runs, expansion, selection, and maxVisibleRows to ordered display nodes", () => {
     const { snapshot, run } = pipelineWithStageAndRun(PIPELINE_ID, INVOCATION_MATCHED, "run-implement");
     const expanded = new Set([PIPELINE_ID, monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default")]);
 
     const { displayNodes } = buildMonitorPipelineTree([snapshot], [run], expanded, null, 10, {
-      nowMs: FILTER_NOW_MS,
+      filterNowMs: FILTER_NOW_MS,
     });
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id, depth: node.depth }))).toEqual([

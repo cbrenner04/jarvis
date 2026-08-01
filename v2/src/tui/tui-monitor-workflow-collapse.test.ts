@@ -42,6 +42,7 @@ function workflowRun(
 ): DaemonListRunRow {
   return {
     project: "demo",
+    createdAt: 0,
     isLive: overrides.status === "in-progress",
     workflow: {
       invocationId: INVOCATION_ID,

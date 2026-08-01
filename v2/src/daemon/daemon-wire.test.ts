@@ -12,7 +12,7 @@ test("parseListRuns rejects a malformed envelope (runs not an array)", () => {
 });
 
 test("parseListRuns accepts a well-shaped envelope", () => {
-  const runs: DaemonListRunRow[] = [{ runId: "run-1", project: "p", branch: "b", status: "in-progress", isLive: true }];
+  const runs: DaemonListRunRow[] = [{ runId: "run-1", project: "p", branch: "b", createdAt: 0, status: "in-progress", isLive: true }];
   expect(parseListRuns({ runs })).toEqual({ runs });
 });
 

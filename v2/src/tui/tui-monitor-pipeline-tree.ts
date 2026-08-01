@@ -1,5 +1,6 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
 import { buildWorkflowTableRows, type WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {
@@ -24,6 +25,8 @@ export type MonitorPipelineTreeStageNode = {
   stageId: string;
   branchKey: string;
   status: string;
+  startedAt: number | null;
+  endedAt: number | null;
   runs: MonitorPipelineTreeRunNode[];
 };
 
@@ -63,6 +66,7 @@ export function buildPipelineMonitorTreeRow(
   node: MonitorPipelineTreePipelineNode,
   selectedNodeId: string | null,
   leftPaneWidth: number,
+  nowMs: number,
 ): string {
   return joinPipelineTreeCells(
     {
@@ -70,6 +74,8 @@ export function buildPipelineMonitorTreeRow(
       label: node.snapshot.name,
       project: node.project,
       state: node.snapshot.state,
+      // Mutation checkpoint: passing null for finishedAtMs on terminal pipelines must turn terminal freeze RED.
+      elapsed: formatElapsedWallClock(node.snapshot.createdAt, node.snapshot.finishedAtMs, nowMs),
     },
     leftPaneWidth,
   );
@@ -79,6 +85,7 @@ export function buildStageMonitorTreeRow(
   node: MonitorPipelineTreeStageNode,
   selectedNodeId: string | null,
   leftPaneWidth: number,
+  nowMs: number,
 ): string {
   return joinPipelineTreeCells(
     {
@@ -87,6 +94,8 @@ export function buildStageMonitorTreeRow(
       label: node.stageId,
       branch: stageBranchCellValue(node.branchKey),
       state: node.status,
+      // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
+      elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
     },
     leftPaneWidth,
   );
@@ -160,6 +169,8 @@ function buildStageNodes(
       stageId: stage.stageId,
       branchKey: stage.branchKey,
       status: stage.status,
+      startedAt: stage.startedAt,
+      endedAt: stage.endedAt,
       runs: workflowTableRowsToRunNodes(1, tableRows),
     });
   }
@@ -177,7 +188,7 @@ function isUnattributedCandidate(run: DaemonListRunRow, matchedInvocationIds: Re
 export function buildMonitorPipelineTreeJoin(
   snapshots: readonly PipelineSnapshot[],
   runs: readonly DaemonListRunRow[],
-  options: { nowMs: number },
+  options: { filterNowMs: number },
 ): {
   pipelineNodes: MonitorPipelineTreePipelineNode[];
   unattributedRows: WorkflowTableRow[];
@@ -197,7 +208,7 @@ export function buildMonitorPipelineTreeJoin(
 
   const unattributedCandidates = builderRuns.filter((run) => isUnattributedCandidate(run, matchedInvocationIds));
   const windowedUnattributed = filterMonitorRunsForLiveWindow(unattributedCandidates, {
-    nowMs: options.nowMs,
+    nowMs: options.filterNowMs,
   });
   const unattributedRows = buildWorkflowTableRows(windowedUnattributed, builderRuns, new Set());
 
@@ -324,7 +335,7 @@ export function buildMonitorPipelineTree(
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
   maxVisibleRows: number,
-  options: { nowMs: number },
+  options: { filterNowMs: number },
 ): {
   displayNodes: MonitorPipelineTreeDisplayNode[];
   unattributedRows: WorkflowTableRow[];

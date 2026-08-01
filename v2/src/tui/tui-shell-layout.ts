@@ -1,4 +1,5 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   type WorkflowTableRow,
   workflowCollapsedContextSuffix,
@@ -138,7 +139,12 @@ export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
   }
 }
 
-function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, selectedNodeId: string | null): string {
+function monitorTreeCellValue(
+  column: TreeColumnId,
+  tableRow: WorkflowTableRow,
+  selectedNodeId: string | null,
+  nowMs: number,
+): string {
   const run = monitorTreeRun(tableRow);
   switch (column) {
     case "marker":
@@ -160,7 +166,7 @@ function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, 
     case "state":
       return run.status;
     case "elapsed":
-      return "";
+      return formatElapsedWallClock(run.createdAt, run.finishedAtMs ?? null, nowMs);
     case "live":
       return run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL;
     case "agent":
@@ -174,8 +180,9 @@ export function buildMonitorTreeRow(
   tableRow: WorkflowTableRow,
   selectedNodeId: string | null,
   leftPaneWidth: number,
+  nowMs: number,
 ): string {
-  return listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth)
+  return listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs)
     .map((cell) => cell.text)
     .join("");
 }
@@ -184,12 +191,13 @@ export function listMonitorTreeCells(
   tableRow: WorkflowTableRow,
   selectedNodeId: string | null,
   leftPaneWidth: number,
+  nowMs: number,
 ): { column: TreeColumnId; text: string }[] {
   return visibleColumns(leftPaneWidth).map((column) => {
     const width = TREE_COLUMN_WIDTHS[column];
     return {
       column,
-      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId), width),
+      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId, nowMs), width),
     };
   });
 }
@@ -200,8 +208,9 @@ export function listMonitorTreeCellsAtDepth(
   selectedNodeId: string | null,
   leftPaneWidth: number,
   depth: number,
+  nowMs: number,
 ): { column: TreeColumnId; text: string }[] {
-  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth);
+  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs);
   let remainingIndent = "  ".repeat(depth);
   return cells.map((cell) => {
     if (cell.column === "indent" && remainingIndent.length > 0) {

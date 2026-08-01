@@ -95,11 +95,12 @@ function renderRunGridRow(
   selectedNodeId: string | null,
   leftPaneWidth: number,
   depth: number,
+  nowMs: number,
   Text: MonitorText,
   rowKey: number,
   RowBox?: MonitorBox,
 ): ReactElement {
-  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth);
+  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth, nowMs);
   const rendered = cells.map((cell, index) => {
     const tone = gridCellTone(cell.column, tableRow);
     const props: { key: number; color?: string } = { key: index };
@@ -114,6 +115,7 @@ function renderTreeRow(
   treeRow: MonitorPipelineTreeDisplayNode,
   selectedNodeId: string | null,
   leftPaneWidth: number,
+  nowMs: number,
   Text: MonitorText,
   rowKey: number,
   RowBox?: MonitorBox,
@@ -121,7 +123,7 @@ function renderTreeRow(
   switch (treeRow.kind) {
     case "pipeline":
       return renderPrebuiltTreeRow(
-        buildPipelineMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
+        buildPipelineMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth, nowMs),
         leftPaneWidth,
         Text,
         rowKey,
@@ -129,14 +131,14 @@ function renderTreeRow(
       );
     case "stage":
       return renderPrebuiltTreeRow(
-        buildStageMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
+        buildStageMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth, nowMs),
         leftPaneWidth,
         Text,
         rowKey,
         RowBox,
       );
     case "run":
-      return renderRunGridRow(treeRow.tableRow, selectedNodeId, leftPaneWidth, treeRow.depth, Text, rowKey, RowBox);
+      return renderRunGridRow(treeRow.tableRow, selectedNodeId, leftPaneWidth, treeRow.depth, nowMs, Text, rowKey, RowBox);
   }
 }
 
@@ -192,11 +194,11 @@ function renderLeftPaneContent(
     rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
   } else {
     for (const [index, treeRow] of treeRows.entries()) {
-      rendered.push(renderTreeRow(treeRow, state.selectedNodeId, leftPaneWidth, Text, index, RowBox));
+      rendered.push(renderTreeRow(treeRow, state.selectedNodeId, leftPaneWidth, nowMs, Text, index, RowBox));
     }
     for (const [index, tableRow] of unattributedRows.entries()) {
       rendered.push(
-        renderRunGridRow(tableRow, state.selectedNodeId, leftPaneWidth, 0, Text, treeRows.length + index, RowBox),
+        renderRunGridRow(tableRow, state.selectedNodeId, leftPaneWidth, 0, nowMs, Text, treeRows.length + index, RowBox),
       );
     }
   }

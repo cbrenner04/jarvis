@@ -11,6 +11,7 @@ import {
   TREE_COLUMN_WIDTHS,
   visibleColumns,
 } from "./tui-shell-layout.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 
 const ALL_COLUMNS = [
   "marker",
@@ -162,10 +163,13 @@ describe("formatTreeCell", () => {
   });
 });
 
+const TEST_NOW_MS = 0;
+
 const SAMPLE_RUN: DaemonListRunRow = {
   runId: "run-abc",
   project: "demo",
   branch: "main",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
 };
@@ -185,6 +189,7 @@ const COLLAPSED_WORKFLOW_REP: DaemonListRunRow = {
   runId: "run-review",
   project: "demo",
   branch: "feature-review",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
   workflow: {
@@ -226,7 +231,7 @@ function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TR
 
 describe("buildMonitorTreeRow", () => {
   test("full-width row length matches the sum of reference column widths", () => {
-    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, "run-abc", 90);
+    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, "run-abc", 90, TEST_NOW_MS);
     expect(row.length).toBe(fullWidthRowLength());
     expect(fullWidthRowLength()).toBe(92);
   });
@@ -237,7 +242,7 @@ describe("buildMonitorTreeRow", () => {
       ...SAMPLE_RUN,
       branch: "abcdefghijklmnopqrstuvwxyz",
     };
-    const row = buildMonitorTreeRow({ kind: "standalone", run: longBranchRun }, null, 90);
+    const row = buildMonitorTreeRow({ kind: "standalone", run: longBranchRun }, null, 90, TEST_NOW_MS);
     const branchCell = columnSlice(row, 90, "branch");
     expect(branchCell).toBe("abcdefghijklm…");
     expect(branchCell.length).toBe(TREE_COLUMN_WIDTHS.branch);
@@ -245,15 +250,15 @@ describe("buildMonitorTreeRow", () => {
 
   // Inversion target: formatMonitorTreeCell in tui-shell-layout.ts — omit width padding for absent cell values turns this test RED.
   test("unpopulated column slots reserve their defined widths", () => {
-    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90);
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90);
+    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
+    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90, TEST_NOW_MS);
     expect(columnSlice(child, 90, "project")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.project));
     expect(columnSlice(standalone, 90, "project")).toBe("demo".padEnd(TREE_COLUMN_WIDTHS.project));
     expect(columnSlice(child, 90, "branch")).toBe("child-branch".padEnd(TREE_COLUMN_WIDTHS.branch));
   });
 
   test("drops agent and id at left-pane width 72–89 while state and elapsed remain", () => {
-    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 80);
+    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 80, TEST_NOW_MS);
     const columns = visibleColumns(80);
     expect(columns).not.toContain("agent");
     expect(columns).not.toContain("id");
@@ -264,14 +269,81 @@ describe("buildMonitorTreeRow", () => {
     expect(columnSlice(row, 80, "elapsed")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.elapsed));
   });
 
+  test("run-row elapsed uses createdAt through finishedAtMs or nowMs", () => {
+    const runStartMs = 1_700_000_000_000;
+    const runEndMs = runStartMs + 125_000;
+    const nowMs = runStartMs + 600_000;
+    const activeRun: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      createdAt: runStartMs,
+    };
+    const terminalRun: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-terminal",
+      createdAt: runStartMs,
+      finishedAtMs: runEndMs,
+      status: "completed",
+      isLive: false,
+    };
+
+    const activeElapsed = columnSlice(
+      buildMonitorTreeRow({ kind: "standalone", run: activeRun }, null, 90, nowMs),
+      90,
+      "elapsed",
+    ).trimEnd();
+    const terminalElapsed = columnSlice(
+      buildMonitorTreeRow({ kind: "standalone", run: terminalRun }, null, 90, nowMs),
+      90,
+      "elapsed",
+    ).trimEnd();
+    const frozenLater = columnSlice(
+      buildMonitorTreeRow({ kind: "standalone", run: terminalRun }, null, 90, nowMs + 3_600_000),
+      90,
+      "elapsed",
+    ).trimEnd();
+
+    expect(activeElapsed).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+    expect(terminalElapsed).toBe(formatElapsedWallClock(runStartMs, runEndMs, runEndMs));
+    expect(frozenLater).toBe(terminalElapsed);
+  });
+
+  test("finishless terminal run elapsed keeps advancing when nowMs advances", () => {
+    const runStartMs = 1_700_000_000_000;
+    const nowMs1 = runStartMs + 60_000;
+    const nowMs2 = runStartMs + 120_000;
+    const finishlessRun: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-finishless",
+      createdAt: runStartMs,
+      status: "killed",
+      isLive: false,
+    };
+
+    const elapsedBefore = columnSlice(
+      buildMonitorTreeRow({ kind: "standalone", run: finishlessRun }, null, 90, nowMs1),
+      90,
+      "elapsed",
+    ).trimEnd();
+    const elapsedAfter = columnSlice(
+      buildMonitorTreeRow({ kind: "standalone", run: finishlessRun }, null, 90, nowMs2),
+      90,
+      "elapsed",
+    ).trimEnd();
+
+    expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs1));
+    expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs2));
+    expect(elapsedAfter).not.toBe(elapsedBefore);
+  });
+
   test("workflow-child uses indent and role suffix; standalone and collapsed do not", () => {
-    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90);
+    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
     const collapsed = buildMonitorTreeRow(
       { kind: "workflow-collapsed", representative: SAMPLE_RUN, members: [SAMPLE_RUN] },
       null,
       90,
+      TEST_NOW_MS,
     );
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90);
+    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90, TEST_NOW_MS);
 
     expect(columnSlice(standalone, 90, "indent")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.indent));
     expect(columnSlice(collapsed, 90, "indent")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.indent));
@@ -292,10 +364,10 @@ describe("buildMonitorTreeRow", () => {
       `run-review${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
       TREE_COLUMN_WIDTHS.label,
     ).padEnd(TREE_COLUMN_WIDTHS.label, " ");
-    const labelCell = listMonitorTreeCells(tableRow, null, 90).find((cell) => cell.column === "label");
+    const labelCell = listMonitorTreeCells(tableRow, null, 90, TEST_NOW_MS).find((cell) => cell.column === "label");
     expect(labelCell?.text).toBe(expectedLabel);
     expect(labelCell?.text).toContain("workflow-s");
-    expect(buildMonitorTreeRow(tableRow, null, 90)).toContain("workflow-s");
+    expect(buildMonitorTreeRow(tableRow, null, 90, TEST_NOW_MS)).toContain("workflow-s");
   });
 
   test("expanded workflow-child rows render through grid builder alongside collapsed parent", () => {
@@ -307,6 +379,7 @@ describe("buildMonitorTreeRow", () => {
       },
       "run-review",
       90,
+      TEST_NOW_MS,
     );
     const collapsedMember = COLLAPSED_WORKFLOW_MEMBERS[0];
     expect(collapsedMember).toBeDefined();
@@ -316,7 +389,7 @@ describe("buildMonitorTreeRow", () => {
       runId: "run-implement",
       stepId: "implement",
     };
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: implementChild }, null, 90);
+    const child = buildMonitorTreeRow({ kind: "workflow-child", run: implementChild }, null, 90, TEST_NOW_MS);
 
     expect(columnSlice(collapsed, 90, "label")).toBe(
       formatTreeCell(
@@ -333,8 +406,8 @@ describe("buildMonitorTreeRow", () => {
 
   test("live column uses a five-character non-live token", () => {
     const notLiveRun: DaemonListRunRow = { ...SAMPLE_RUN, isLive: false };
-    const liveRow = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90);
-    const idleRow = buildMonitorTreeRow({ kind: "standalone", run: notLiveRun }, null, 90);
+    const liveRow = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
+    const idleRow = buildMonitorTreeRow({ kind: "standalone", run: notLiveRun }, null, 90, TEST_NOW_MS);
 
     expect(MONITOR_TREE_NOT_LIVE_LABEL.length).toBeLessThanOrEqual(TREE_COLUMN_WIDTHS.live);
     expect(columnSlice(liveRow, 90, "live").trimEnd()).toBe("live");

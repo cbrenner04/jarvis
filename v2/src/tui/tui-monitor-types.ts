@@ -35,6 +35,8 @@ export type TuiMonitorState = {
   refreshIntervalLabel?: string;
   /** Last-good per-daemon `pipeline_list` snapshots keyed by socket path. */
   pipelineSnapshotsBySocketPath?: Readonly<Record<string, PipelineListResult>>;
+  /** Clock snapshot for unattributed terminal retention; updated on daemon refresh only. */
+  terminalWindowNowMs?: number;
 };
 
 /**
@@ -79,10 +81,10 @@ export type TuiViewHost = {
   openMonitor(state: TuiMonitorState, controls: TuiMonitorControls): Promise<TuiMonitorSession>;
 };
 
-/** Refresh scheduler seam for periodic daemon `list` polling. */
+/** Interval scheduler seam for refresh polling or local display ticks. */
 export type TuiRefreshScheduler = {
-  /** Start periodic refresh callbacks. */
-  start(onRefresh: () => void): { close(): void };
+  /** Start periodic callbacks. */
+  start(onTick: () => void): { close(): void };
 };
 
 /** Discover live daemon sockets; injectable seam for testing. */
@@ -96,6 +98,8 @@ export type RunTuiEntryDeps = {
   connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Injectable monitor refresh scheduler; defaults to a 1s interval poller. */
   refreshScheduler?: TuiRefreshScheduler;
+  /** Injectable display-tick scheduler; defaults to a 1s interval rerender. */
+  displayTickScheduler?: TuiRefreshScheduler;
   /** When set, skips production ink rendering. */
   viewHost?: TuiViewHost;
   /** Injectable ink render; defaults to production `render`. */

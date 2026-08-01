@@ -12,6 +12,7 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -20,7 +21,7 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
+import { buildMonitorTreeRow, computeShellLayout, monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
 
@@ -28,6 +29,7 @@ const RUN_ALPHA: DaemonListRunRow = {
   runId: "run-alpha",
   project: "demo",
   branch: "alpha",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
 };
@@ -36,6 +38,7 @@ const RUN_BETA: DaemonListRunRow = {
   runId: "run-beta",
   project: "demo",
   branch: "beta",
+  createdAt: 0,
   status: "completed",
   isLive: false,
   finishedAtMs: TERMINAL_LIST_FINISH_MS,
@@ -45,6 +48,7 @@ const RUN_GAMMA: DaemonListRunRow = {
   runId: "run-gamma",
   project: "demo",
   branch: "gamma",
+  createdAt: 0,
   status: "blocked",
   isLive: false,
   finishedAtMs: TERMINAL_LIST_FINISH_MS,
@@ -54,6 +58,7 @@ const RUN_DELTA: DaemonListRunRow = {
   runId: "run-delta",
   project: "demo",
   branch: "delta",
+  createdAt: 0,
   status: "paused",
   isLive: false,
 };
@@ -62,6 +67,7 @@ const RUN_QUEUED: DaemonListRunRow = {
   runId: "run-queued",
   project: "demo",
   branch: "queued",
+  createdAt: 0,
   status: "queued",
   isLive: false,
 };
@@ -136,6 +142,7 @@ function pipelineMultiRun(
   return {
     project: "demo",
     branch: "main",
+    createdAt: 0,
     isLive: overrides.status === "in-progress",
     workflow: {
       invocationId: PIPELINE_MULTI_INVOCATION,
@@ -186,6 +193,7 @@ function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
     runId: `run-${index}`,
     project: "demo",
     branch: `branch-${index}`,
+    createdAt: 0,
     status: "completed" as const,
     isLive: false,
     finishedAtMs: TERMINAL_LIST_FINISH_MS,
@@ -237,6 +245,7 @@ const PIPELINE_RUN_MATCHED: DaemonListRunRow = {
   runId: "run-matched",
   project: "demo",
   branch: "main",
+  createdAt: 0,
   status: "in-progress",
   isLive: true,
   workflow: {
@@ -249,6 +258,7 @@ const PIPELINE_RUN_ORPHAN: DaemonListRunRow = {
   runId: "run-orphan",
   project: "demo",
   branch: "orphan",
+  createdAt: 0,
   status: "completed",
   isLive: false,
   finishedAtMs: TERMINAL_LIST_FINISH_MS,
@@ -303,6 +313,7 @@ function workflowRun(
 ): DaemonListRunRow {
   return {
     project: "demo",
+    createdAt: 0,
     isLive: overrides.status === "in-progress",
     workflow: {
       invocationId: WORKFLOW_INVOCATION_ID,
@@ -443,13 +454,13 @@ function cloneState(state: TuiMonitorState): TuiMonitorState {
   return structuredClone(state);
 }
 
-function createRefreshScheduler() {
-  let onRefresh: (() => void) | undefined;
+function createIntervalScheduler() {
+  let onTick: (() => void) | undefined;
   let closed = false;
   return {
     scheduler: {
       start(callback: () => void) {
-        onRefresh = callback;
+        onTick = callback;
         return {
           close() {
             closed = true;
@@ -458,7 +469,7 @@ function createRefreshScheduler() {
       },
     },
     tick() {
-      onRefresh?.();
+      onTick?.();
     },
     isClosed() {
       return closed;
@@ -547,11 +558,33 @@ function countRpcMethod(methods: string[] | undefined, method: string): number {
   return methods?.filter((entry) => entry === method).length ?? 0;
 }
 
-async function flushRefreshTick(refresh: ReturnType<typeof createRefreshScheduler>): Promise<void> {
-  refresh.tick();
+async function flushIntervalTick(scheduler: ReturnType<typeof createIntervalScheduler>): Promise<void> {
+  scheduler.tick();
   await flush();
   await flush();
   await flush();
+}
+
+function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
+  let offset = 0;
+  for (const entry of visibleColumns(leftPaneWidth)) {
+    const width = TREE_COLUMN_WIDTHS[entry];
+    if (entry === column) return row.slice(offset, offset + width);
+    offset += width;
+  }
+  return "";
+}
+
+function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, nowMs: number): string {
+  if (state === undefined) return "";
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const leftPaneWidth = layout.leftWidth >= 90 ? 90 : layout.leftWidth;
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const runNode = treeRows.find((row) => row.kind === "run" && monitorTreeRun(row.tableRow).runId === runId);
+  const tableRow =
+    runNode?.kind === "run" ? runNode.tableRow : unattributedRows.find((row) => monitorTreeRun(row).runId === runId);
+  if (tableRow === undefined) return "";
+  return columnSlice(buildMonitorTreeRow(tableRow, null, leftPaneWidth, nowMs), leftPaneWidth, "elapsed").trimEnd();
 }
 
 function dualDaemonEntryDeps(
@@ -851,7 +884,7 @@ describe("runTuiEntry", () => {
 
   test("reachable daemon proves health and status, enters the monitor on one open client, and exits 0 on quit", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const { deps, clientOptions } = entryDeps(
       {
         methods: [],
@@ -922,6 +955,7 @@ describe("runTuiEntry", () => {
       expandedPipelineNodeIds: [],
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
+      terminalWindowNowMs: expect.any(Number),
     });
   });
 
@@ -1272,7 +1306,7 @@ describe("runTuiEntry", () => {
 
   test("when a refresh drops the selected id from the selectable list, selectedNodeId clears and wait-state resets", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const { deps } = entryDeps(
       {
         listResponses: [{ runs: pipelineTreeListFixture() }, { runs: pipelineTreeListFixture() }],
@@ -1360,7 +1394,7 @@ describe("runTuiEntry", () => {
 
   test("navigates from no selection and uses the selected run's refreshed display position", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const { deps } = entryDeps(
       {
         listResponses: [
@@ -1402,7 +1436,7 @@ describe("runTuiEntry", () => {
 
   test("refresh clears selection when the selected run transitions to queued", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const { deps } = entryDeps(
       {
         methods: [],
@@ -1426,7 +1460,7 @@ describe("runTuiEntry", () => {
 
   test("refresh updates displayed status and liveness in place and keeps selection anchored", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const { deps } = entryDeps(
       {
         listResponses: [
@@ -1454,7 +1488,7 @@ describe("runTuiEntry", () => {
 
   test("refresh clears selection and abandons a pending wait when the selected run disappears", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const alphaWait = deferred<WaitRunCompletionResult>();
     const { deps, clientOptions } = entryDeps(
       {
@@ -1494,6 +1528,7 @@ describe("runTuiEntry", () => {
       leftPaneTreeScrollOffset: 0,
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
+      terminalWindowNowMs: expect.any(Number),
     });
   });
 
@@ -1666,7 +1701,7 @@ describe("runTuiEntry", () => {
 
   test("refresh preserves selection changed while list is in flight", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const refreshList = deferred<DaemonListResult>();
     let listCalls = 0;
 
@@ -2385,7 +2420,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: a socket appearing after startup contributes runs on the next tick", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryCallCount = 0;
 
     const mainDaemonOptions: FakeClientOptions = {
@@ -2440,7 +2475,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: a daemon that exits removes its exclusive runs and keeps the monitor open", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const daemon1Options: FakeClientOptions = {
@@ -2493,7 +2528,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: superseded and superseding daemons render together while both are live", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const daemon1Options: FakeClientOptions = {
@@ -2548,7 +2583,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: selection clears when the owning daemon is dropped", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const daemon1Options: FakeClientOptions = {
@@ -2605,7 +2640,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: selection clears when the owning daemon drops a selected pipeline", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const daemon1Options: FakeClientOptions = {
@@ -2663,7 +2698,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: steering targets the daemon owning the selected run after supersession", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const daemon1Options: FakeClientOptions = {
@@ -2722,7 +2757,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: a rediscovery that fails leaves previously connected daemons rendered", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let discoveryPhase = 0;
 
     const mainDaemonOptions: FakeClientOptions = {
@@ -2771,7 +2806,7 @@ describe("runTuiEntry", () => {
 
   test("rediscovery: invoking socket list failure evicts stale client and reconnects", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
 
     const invokingClient1 = fakeClient({ listResponses: [{ runs: [RUN_ALPHA] }] });
     let listCallCount = 0;
@@ -2873,7 +2908,7 @@ describe("runTuiEntry", () => {
     // Mutation checkpoint: skipping `pipeline_list` in the refreshRuns client loop in tui-entry.tsx
     // turns this test RED.
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     const client1Options: FakeClientOptions = {
       methods: [],
       listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
@@ -2893,7 +2928,7 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
     await flush();
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
 
     expect(countRpcMethod(client1Options.methods, "list")).toBe(2);
     expect(countRpcMethod(client2Options.methods, "list")).toBe(2);
@@ -2906,7 +2941,7 @@ describe("runTuiEntry", () => {
 
   test("pipeline_list updates monitor state when list rows are unchanged", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
 
     const { deps } = entryDeps(
       {
@@ -2926,7 +2961,7 @@ describe("runTuiEntry", () => {
     await flush();
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
 
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
 
     expect(view.monitorStates.at(-1)?.runs).toEqual([RUN_ALPHA]);
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
@@ -2971,7 +3006,7 @@ describe("runTuiEntry", () => {
     // Mutation checkpoint: clearing per-daemon snapshots on `pipeline_list` failure in tui-entry.tsx
     // turns this test RED.
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
     let pipelineListCalls = 0;
     const client = fakeClient({
       methods: [],
@@ -3002,7 +3037,7 @@ describe("runTuiEntry", () => {
       pipelines: [PIPELINE_SNAPSHOT_ALPHA],
     });
 
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
 
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
       pipelines: [PIPELINE_SNAPSHOT_ALPHA],
@@ -3014,7 +3049,7 @@ describe("runTuiEntry", () => {
 
   test("invoking-socket list failure evicts pipeline snapshots; non-evicting failures retain others", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
 
     const client1Options: FakeClientOptions = {
       methods: [],
@@ -3092,7 +3127,7 @@ describe("runTuiEntry", () => {
     });
 
     // Tick 1: pipeline_list fails on daemon2; daemon1 snapshot retained.
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
       pipelines: [PIPELINE_SNAPSHOT_ALPHA],
     });
@@ -3101,7 +3136,7 @@ describe("runTuiEntry", () => {
     });
 
     // Tick 2: non-invoking list fails on daemon2; daemon1 snapshot retained.
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
       pipelines: [PIPELINE_SNAPSHOT_ALPHA],
     });
@@ -3111,7 +3146,7 @@ describe("runTuiEntry", () => {
     expect(client2Options.methods).toContain("pipeline_list");
 
     // Tick 3: invoking-socket list fails on daemon1; daemon1 snapshot evicted, daemon2 retained.
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toBeUndefined();
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
       pipelines: [PIPELINE_SNAPSHOT_BETA],
@@ -3153,7 +3188,7 @@ describe("runTuiEntry", () => {
 
   test("successful empty pipeline_list overwrites a prior non-empty snapshot", async () => {
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
+    const refresh = createIntervalScheduler();
 
     const { deps } = entryDeps(
       {
@@ -3175,9 +3210,62 @@ describe("runTuiEntry", () => {
       pipelines: [PIPELINE_SNAPSHOT_ALPHA],
     });
 
-    await flushRefreshTick(refresh);
+    await flushIntervalTick(refresh);
 
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
+
+    view.quit();
+    await pending;
+  });
+
+  test("display tick advances elapsed without additional list or pipeline_list RPC", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const runStartMs = 1_700_000_000_000;
+    let nowMs = runStartMs + 60_000;
+    const run = {
+      ...PIPELINE_RUN_MATCHED,
+      createdAt: runStartMs,
+    };
+    const { deps, clientOptions } = pipelineTreeEntryDeps(
+      view,
+      {
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+        nowMs: () => nowMs,
+      },
+      [run],
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-alpha");
+    await flush();
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    await view.toggleExpansion();
+    await flush();
+
+    const listCountBefore = countRpcMethod(clientOptions.methods, "list");
+    const pipelineListCountBefore = countRpcMethod(clientOptions.methods, "pipeline_list");
+    const elapsedBefore = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
+    expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+
+    nowMs += 60_000;
+    // Mutation checkpoint: calling refreshRuns or list/pipeline_list from the display-tick callback must turn display-tick/no-RPC RED.
+    const statesBeforeTick = view.monitorStates.length;
+    await flushIntervalTick(displayTick);
+    expect(view.monitorStates.length).toBeGreaterThan(statesBeforeTick);
+
+    expect(countRpcMethod(clientOptions.methods, "list")).toBe(listCountBefore);
+    expect(countRpcMethod(clientOptions.methods, "pipeline_list")).toBe(pipelineListCountBefore);
+    const elapsedAfter = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
+    expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+    expect(elapsedAfter).not.toBe(elapsedBefore);
 
     view.quit();
     await pending;

@@ -42,15 +42,15 @@ function packageJsonLacksScript(cwd: string, scriptName: string): boolean {
   }
 }
 
-export function resolveAutofixTokens(fixCommand: string | undefined): string[] {
+function resolveAutofixTokens(fixCommand: string | undefined): string[] {
   return fixCommand !== undefined ? fixCommand.trim().split(/\s+/) : ["bun", "run", "fix"];
 }
 
-export function displayAutofixCommand(fixCommand: string | undefined): string {
+function displayAutofixCommand(fixCommand: string | undefined): string {
   return fixCommand ?? "bun run fix";
 }
 
-export function shouldSkipAutofixForAbsentScript(cwd: string, tokens: string[]): boolean {
+function shouldSkipAutofixForAbsentScript(cwd: string, tokens: string[]): boolean {
   const scriptName = parsePackageManagerRunScript(tokens);
   return scriptName !== null && packageJsonLacksScript(cwd, scriptName);
 }
@@ -62,8 +62,21 @@ export type RunFixCommandOpts = {
   agentLabel?: string;
 };
 
-export function fixCommandTimeoutMessage(command: string, timeoutMs: number, agentLabel: string | undefined): string {
-  return `${command} exceeded ${timeoutMs}ms budget (gate: ${agentLabel ?? ""})`;
+type PreparedFixCommand =
+  | { kind: "skip" }
+  | { kind: "run"; head: string; args: string[]; displayCmd: string };
+
+function prepareFixCommand(opts: RunFixCommandOpts): PreparedFixCommand {
+  const tokens = resolveAutofixTokens(opts.fixCommand);
+  const displayCmd = displayAutofixCommand(opts.fixCommand);
+  if (shouldSkipAutofixForAbsentScript(opts.cwd, tokens)) {
+    return { kind: "skip" };
+  }
+  const [head, ...args] = tokens;
+  if (head === undefined) {
+    throw new FixCommandError(`invalid fix command: ${displayCmd}`);
+  }
+  return { kind: "run", head, args, displayCmd };
 }
 
 function isSyncExecTimeout(err: unknown): boolean {
@@ -75,9 +88,9 @@ function isAsyncExecTimeout(err: unknown): boolean {
   return err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT";
 }
 
-function formatFixCommandFailure(displayCmd: string, err: unknown): FixCommandError {
+function toFixCommandError(displayCmd: string, opts: RunFixCommandOpts, err: unknown): FixCommandError {
   if (isSyncExecTimeout(err) || isAsyncExecTimeout(err)) {
-    throw err;
+    return new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget (gate: ${opts.agentLabel ?? ""})`);
   }
   const out = err as NodeJS.ErrnoException & { stdout?: Buffer | string; stderr?: Buffer | string };
   const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
@@ -86,27 +99,19 @@ function formatFixCommandFailure(displayCmd: string, err: unknown): FixCommandEr
 
 /** Runs project autofix synchronously; skips absent package-manager scripts without error. */
 export function runFixCommandSync(opts: RunFixCommandOpts): void {
-  const tokens = resolveAutofixTokens(opts.fixCommand);
-  const displayCmd = displayAutofixCommand(opts.fixCommand);
-  if (shouldSkipAutofixForAbsentScript(opts.cwd, tokens)) {
+  const prepared = prepareFixCommand(opts);
+  if (prepared.kind === "skip") {
     return;
   }
-  const [head, ...args] = tokens;
-  if (head === undefined) {
-    throw new FixCommandError(`invalid fix command: ${displayCmd}`);
-  }
   try {
-    execFileSync(head, args, {
+    execFileSync(prepared.head, prepared.args, {
       cwd: opts.cwd,
       env: { ...process.env },
       stdio: "pipe",
       timeout: opts.timeoutMs,
     });
   } catch (err) {
-    if (isSyncExecTimeout(err)) {
-      throw new FixCommandError(fixCommandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
-    }
-    throw formatFixCommandFailure(displayCmd, err);
+    throw toFixCommandError(prepared.displayCmd, opts, err);
   }
 }
 
@@ -115,24 +120,16 @@ export async function runFixCommand(
   opts: RunFixCommandOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<void> {
-  const tokens = resolveAutofixTokens(opts.fixCommand);
-  const displayCmd = displayAutofixCommand(opts.fixCommand);
-  if (shouldSkipAutofixForAbsentScript(opts.cwd, tokens)) {
+  const prepared = prepareFixCommand(opts);
+  if (prepared.kind === "skip") {
     return;
   }
-  const [head, ...args] = tokens;
-  if (head === undefined) {
-    throw new FixCommandError(`invalid fix command: ${displayCmd}`);
-  }
   try {
-    await runner.runAsync(head, args, opts.cwd, {
+    await runner.runAsync(prepared.head, prepared.args, opts.cwd, {
       timeoutMs: opts.timeoutMs,
       env: { ...process.env },
     });
   } catch (err) {
-    if (isAsyncExecTimeout(err)) {
-      throw new FixCommandError(fixCommandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
-    }
-    throw formatFixCommandFailure(displayCmd, err);
+    throw toFixCommandError(prepared.displayCmd, opts, err);
   }
 }

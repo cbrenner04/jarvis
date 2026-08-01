@@ -2215,60 +2215,6 @@ async function commitRepairAndRepublish(
   }
 }
 
-type ReadyGateRepairAutofixResult =
-  | { kind: "fix_command_failed"; error: Error }
-  | { kind: "fence_failed"; result: ReadyRepairPublishResult }
-  | { kind: "republished"; outcome: CompletionPublishOutcome };
-
-async function invokeReadyGateRepairFixCommand(args: WriteLoopInput, worktreePath: string): Promise<void> {
-  const fixOpts: RunFixCommandOpts = {
-    cwd: worktreePath,
-    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
-    timeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
-  };
-  if (args.runFixCommand !== undefined) {
-    await args.runFixCommand(fixOpts);
-    return;
-  }
-  await runFixCommand(fixOpts);
-}
-
-async function runReadyGateRepairAutofix(
-  args: WriteLoopInput,
-  store: StateStore,
-  result: WriteLoopResult,
-  input: CompletionPublishInput,
-  frozenRepairAllowset: Set<string>,
-  iterationsConsumed: number,
-): Promise<ReadyGateRepairAutofixResult> {
-  try {
-    await invokeReadyGateRepairFixCommand(args, input.worktreePath);
-  } catch (error) {
-    return { kind: "fix_command_failed", error: error instanceof Error ? error : new Error(String(error)) };
-  }
-
-  const fenceFailure = await enforceRepairIterationFence(
-    args,
-    store,
-    result.runId,
-    input,
-    frozenRepairAllowset,
-    iterationsConsumed,
-  );
-  if (fenceFailure !== undefined) {
-    return { kind: "fence_failed", result: fenceFailure };
-  }
-
-  const republish = await commitRepairAndRepublish(args, input, result, iterationsConsumed, {
-    readyGateAttribution: "autofix",
-  });
-  if (republish.kind === "failure") {
-    return { kind: "fence_failed", result: republish.result };
-  }
-  return { kind: "republished", outcome: republish.outcome };
-}
-
 type ReadyGateRepairLoopResult =
   | { kind: "done"; outcome: CompletionPublishOutcome; iterationsConsumed: number; repairBudgetExhausted: boolean }
   | { kind: "early"; result: ReadyRepairPublishResult };
@@ -2405,29 +2351,46 @@ export async function publishWithReadyRepair(
     frozenRepairAllowset = initialized.allowset;
   }
 
-  const autofixResult = await runReadyGateRepairAutofix(
+  const fixOpts: RunFixCommandOpts = {
+    cwd: input.worktreePath,
+    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+    timeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
+  };
+  try {
+    await (args.runFixCommand ?? runFixCommand)(fixOpts);
+  } catch (error) {
+    return {
+      failure: {
+        kind: "completion_commit_failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      },
+      iterationsConsumed,
+    };
+  }
+
+  const autofixFenceFailure = await enforceRepairIterationFence(
     args,
     store,
-    result,
+    result.runId,
     input,
     frozenRepairAllowset,
     iterationsConsumed,
   );
-  if (autofixResult.kind === "fix_command_failed") {
-    return {
-      failure: { kind: "completion_commit_failed", error: autofixResult.error },
-      iterationsConsumed,
-    };
+  if (autofixFenceFailure !== undefined) {
+    return autofixFenceFailure;
   }
-  if (autofixResult.kind === "fence_failed") {
-    return autofixResult.result;
+
+  const autofixRepublish = await commitRepairAndRepublish(args, input, result, iterationsConsumed, {
+    readyGateAttribution: "autofix",
+  });
+  if (autofixRepublish.kind === "failure") {
+    return autofixRepublish.result;
   }
-  if (autofixResult.kind === "republished") {
-    outcome = autofixResult.outcome;
-    if (!isActiveReadyGateFailure(outcome)) {
-      appendReadyGateTimeoutLog(args, result.runId, outcome);
-      return buildReadyRepairPublishResult(outcome, iterationsConsumed);
-    }
+  outcome = autofixRepublish.outcome;
+  if (!isActiveReadyGateFailure(outcome)) {
+    appendReadyGateTimeoutLog(args, result.runId, outcome);
+    return buildReadyRepairPublishResult(outcome, iterationsConsumed);
   }
 
   const loopResult = await runReadyGateRepairLoop(

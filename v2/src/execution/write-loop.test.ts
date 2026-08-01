@@ -1683,9 +1683,29 @@ describe("write loop", () => {
       return !existsSync(proofPath) || !readFileSync(proofPath, "utf8").endsWith("\n");
     }
 
+    function proofFormattingFixCommand(onCall?: () => void) {
+      return async ({ cwd }: { cwd: string }) => {
+        onCall?.();
+        fixProofFormatting(cwd);
+      };
+    }
+
+    function proofFormattingReadyFinalizer(
+      onGate: () => void,
+      afterFormatting?: () => void | Promise<void>,
+    ) {
+      return async ({ worktreePath }: { worktreePath: string }) => {
+        onGate();
+        if (proofNeedsFormatting(worktreePath)) {
+          throw new ReadyGateError("bun run ready", 1, "formatting required");
+        }
+        await afterFormatting?.();
+      };
+    }
+
     describe("ready-gate repair autofix", () => {
       test("ready-gate repair autofix greens a formatter-only red gate without repair iterations", async () => {
-        // Mutation checkpoint: remove the `runReadyGateRepairAutofix` call in `publishWithReadyRepair`.
+        // Mutation checkpoint: remove the ready-gate repair autofix block in `publishWithReadyRepair`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const logSink = new TestLogSink();
         let gateCalls = 0;
@@ -1707,16 +1727,12 @@ describe("write loop", () => {
           ],
           logSink,
           ...completionHooks,
-          runFixCommand: async ({ cwd }) => {
+          runFixCommand: proofFormattingFixCommand(() => {
             fixCalls += 1;
-            fixProofFormatting(cwd);
-          },
-          readyFinalizer: async ({ worktreePath }) => {
+          }),
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
             gateCalls += 1;
-            if (proofNeedsFormatting(worktreePath)) {
-              throw new ReadyGateError("bun run ready", 1, "formatting required");
-            }
-          },
+          }),
         });
 
         expect(result.kind).toBe("complete");
@@ -1748,17 +1764,17 @@ describe("write loop", () => {
           ],
           logSink,
           ...completionHooks,
-          runFixCommand: async ({ cwd }) => {
+          runFixCommand: proofFormattingFixCommand(() => {
             fixCalls += 1;
-            fixProofFormatting(cwd);
-          },
-          readyFinalizer: async ({ worktreePath }) => {
-            gateCalls += 1;
-            if (proofNeedsFormatting(worktreePath)) {
-              throw new ReadyGateError("bun run ready", 1, "formatting required");
-            }
-            throw new ReadyGateError("bun run ready", 1, "lint still red");
-          },
+          }),
+          readyFinalizer: proofFormattingReadyFinalizer(
+            () => {
+              gateCalls += 1;
+            },
+            () => {
+              throw new ReadyGateError("bun run ready", 1, "lint still red");
+            },
+          ),
         });
 
         expect(result.kind).toBe("ready_gate_failed");
@@ -1771,7 +1787,7 @@ describe("write loop", () => {
       });
 
       test("ready-gate repair autofix rejects out-of-scope formatter changes", async () => {
-        // Mutation checkpoint: remove the `enforceRepairIterationFence` call in `runReadyGateRepairAutofix`.
+        // Mutation checkpoint: remove the `enforceRepairIterationFence` call in the ready-gate repair autofix block of `publishWithReadyRepair`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-autofix-out-of-scope";
         const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
@@ -1878,16 +1894,12 @@ describe("write loop", () => {
               maxIterations: 0,
               completionCommitter: completionHooks.completionCommitter,
               completionPublisher: completionHooks.completionPublisher,
-              runFixCommand: async ({ cwd }) => {
+              runFixCommand: proofFormattingFixCommand(() => {
                 fixCalls += 1;
-                fixProofFormatting(cwd);
-              },
-              readyFinalizer: async ({ worktreePath: cwd }) => {
+              }),
+              readyFinalizer: proofFormattingReadyFinalizer(() => {
                 gateCalls += 1;
-                if (proofNeedsFormatting(cwd)) {
-                  throw new ReadyGateError("bun run ready", 1, "formatting required");
-                }
-              },
+              }),
             },
             store,
             { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
@@ -1934,12 +1946,9 @@ describe("write loop", () => {
             observedFixCommand = opts.fixCommand;
             fixProofFormatting(opts.cwd);
           },
-          readyFinalizer: async ({ worktreePath }) => {
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
             gateCalls += 1;
-            if (proofNeedsFormatting(worktreePath)) {
-              throw new ReadyGateError("bun run ready", 1, "formatting required");
-            }
-          },
+          }),
         });
 
         expect(result.kind).toBe("complete");

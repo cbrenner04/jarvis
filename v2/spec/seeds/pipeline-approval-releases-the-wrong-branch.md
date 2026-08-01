@@ -2,14 +2,13 @@
 name: pipeline-approval-releases-the-wrong-branch
 ---
 
-# A branch-keyed pipeline approval starts a different branch's next stage
+# A pipeline approval dispatches sibling branches whose own gate is still awaiting
 
 ## Problem
 
 On an intent fan-out, `jarvis pipeline approve <id> approve-intent <branchKey>` marks the named
-branch's gate `approved` and then dispatches the **other** branch's next stage, leaving the
-approved branch `pending` and the unapproved branch running past a gate that still reads
-`awaiting`.
+branch's gate `approved` and then dispatches **every** branch's next stage, including siblings
+whose own gate still reads `awaiting`. A held gate does not hold.
 
 Observed 2026-08-01 on pipeline `8cf893f4-e429-4179-a7aa-81191edcf9c1` (`full-review`, project
 `jarvis`). The intent stage split one ready-intent into two branches. After a single approve of
@@ -23,8 +22,10 @@ plan            shared-invocation-cursor-computed-cost running     <-- gate stil
 plan            shared-prices-compute-list-price-cost  pending     <-- gate approved
 ```
 
-`jarvis run list` confirms it is not a display artifact — the live row is
-`plan/shared-invocation-cursor-computed-cost`.
+`jarvis run list` confirms it is not a display artifact — the live row was
+`plan/shared-invocation-cursor-computed-cost`. The approved branch's `plan` did start later and
+succeeded, so the defect is not "the wrong branch instead of the right one": it is that an
+`awaiting` gate does not withhold its own branch at all.
 
 The two branches had a real dependency (the prices module must land before the cursor cost
 consumer). Holding the dependent gate is the operator's only lever for ordering a fan-out, and it
@@ -33,9 +34,8 @@ the refusal path is branch-scoped while the dispatch path is not.
 
 ## Decisions
 
-- Stage dispatch after an approval selects the successor stage **on the approved decision's own
-  `branchKey`** — rules out "release the next pending stage of the pipeline", which is the
-  observed behavior.
+- Stage dispatch after an approval selects successors **only on the approved decision's own
+  `branchKey`** — rules out "release every branch's next stage", which is the observed behavior.
 - A branch whose gate is `awaiting` is never dispatched — rules out treating an approval as a
   pipeline-wide token.
 - Fix the dispatch selection, not the `pipeline list` projection: the refusal path already keys on

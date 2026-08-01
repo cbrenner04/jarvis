@@ -291,8 +291,9 @@ function dropOldestTerminalPipeline(
   if (terminalIndex === -1) return null;
 
   const dropped = orderedPipelines[terminalIndex];
+  if (dropped === undefined) return null;
   // Mutation checkpoint: dropping a non-terminal pipeline during FIFO trimming must turn active retention RED.
-  if (!isTerminalPipelineNode(dropped!)) return null;
+  if (!isTerminalPipelineNode(dropped)) return null;
 
   return [...orderedPipelines.slice(0, terminalIndex), ...orderedPipelines.slice(terminalIndex + 1)];
 }

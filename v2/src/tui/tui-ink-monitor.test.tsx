@@ -494,8 +494,11 @@ describe("openInkMonitor", () => {
     expect(displayStates.at(-1)?.dividerOffset ?? 0).toBe(0);
 
     await input.press("]");
-    expect(displayStates.at(-1)?.dividerOffset).toBe(2);
-    const widerTree = realCreateMonitorDisplay(displayStates.at(-1)!, stubText, stubBox);
+    const widerDisplayState = displayStates.at(-1);
+    expect(widerDisplayState?.dividerOffset).toBe(2);
+    expect(widerDisplayState).toBeDefined();
+    if (!widerDisplayState) throw new Error("expected wider display state");
+    const widerTree = realCreateMonitorDisplay(widerDisplayState, stubText, stubBox);
     expect(regionBoxWidth(findRegion(widerTree, MonitorLeftPane))).toBe(baseWidth + 2);
 
     for (let step = 0; step < 20; step += 1) {

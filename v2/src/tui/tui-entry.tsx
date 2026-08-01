@@ -445,14 +445,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         selectNextRun() {
           const ids = monitorSelectableNodeIds(currentState, nowMsFn());
           if (ids.length === 0) return;
-          const selectedIndex = ids.indexOf(currentState.selectedNodeId);
+          const selectedIndex = currentState.selectedNodeId === null ? -1 : ids.indexOf(currentState.selectedNodeId);
           const next = ids[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, ids.length - 1)];
           if (next !== undefined && next !== currentState.selectedNodeId) setSelection(next);
         },
         selectPreviousRun() {
           const ids = monitorSelectableNodeIds(currentState, nowMsFn());
           if (ids.length === 0) return;
-          const selectedIndex = ids.indexOf(currentState.selectedNodeId);
+          const selectedIndex = currentState.selectedNodeId === null ? -1 : ids.indexOf(currentState.selectedNodeId);
           const previous = ids[selectedIndex < 0 ? ids.length - 1 : Math.max(selectedIndex - 1, 0)];
           if (previous !== undefined && previous !== currentState.selectedNodeId) setSelection(previous);
         },

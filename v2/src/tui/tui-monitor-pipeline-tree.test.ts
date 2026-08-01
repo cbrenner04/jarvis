@@ -178,8 +178,13 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(stageBranchCellValue("default")).toBe("");
     expect(stageBranchCellValue("alt")).toBe("alt");
 
-    const defaultRow = buildStageMonitorTreeRow(stages[0]!, null, 90);
-    const altRow = buildStageMonitorTreeRow(stages[1]!, null, 90);
+    const defaultStage = stages[0];
+    const altStage = stages[1];
+    expect(defaultStage).toBeDefined();
+    expect(altStage).toBeDefined();
+    if (!defaultStage || !altStage) throw new Error("expected branch stages");
+    const defaultRow = buildStageMonitorTreeRow(defaultStage, null, 90);
+    const altRow = buildStageMonitorTreeRow(altStage, null, 90);
     expect(columnSlice(defaultRow, 90, "branch").trimEnd()).toBe("");
     expect(columnSlice(altRow, 90, "branch").trimEnd()).toBe("alt");
   });

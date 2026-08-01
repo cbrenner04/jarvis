@@ -114,6 +114,44 @@ function treeLayout(rows = 72) {
   return computeShellLayout(245, rows, 0);
 }
 
+function overflowPaneMonitorFixture(): {
+  state: TuiMonitorState;
+  layout: ReturnType<typeof computeShellLayout>;
+  maxVisibleRows: number;
+  pipelines: PipelineSnapshot[];
+} {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const layout = computeShellLayout(terminalColumns, terminalRows, 0);
+  const maxVisibleRows = layout.paneHeight;
+  const pipelines = Array.from({ length: maxVisibleRows + 10 }, (_, index) =>
+    pipelineSnapshot({
+      pipelineId: `pipe-${index}`,
+      name: `pipeline-${index}`,
+      state: "succeeded",
+      createdAt: TREE_NOW_MS + index,
+      finishedAtMs: TREE_NOW_MS + 100_000 + index,
+      stages: [
+        {
+          stageId: "plan",
+          branchKey: "default",
+          status: "succeeded",
+          workflowInvocationId: `inv-${index}`,
+        },
+      ],
+    }),
+  );
+  const runs = pipelines.map((_, index) => workflowRun(`run-${index}`, "completed", `inv-${index}`, { isLive: false }));
+  const state = monitorState({
+    runs,
+    selectedNodeId: "pipe-0",
+    pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines } },
+    terminalColumns,
+    terminalRows,
+  });
+  return { state, layout, maxVisibleRows, pipelines };
+}
+
 function indentColumnText(
   tableRow: Parameters<typeof listMonitorTreeCellsAtDepth>[0],
   depth: number,
@@ -625,6 +663,32 @@ describe("monitorSelectableNodeIds", () => {
 
     expect(monitorSelectableNodeIds(state, TREE_NOW_MS)).toEqual([PIPELINE_ID, stageId, "run-implement", "run-orphan"]);
   });
+
+  test("retains every full-flatten tree row id while painted tree rows stay within the pane budget", () => {
+    // Mutation checkpoint: deriving monitorSelectableNodeIds from FIFO-trimmed or viewport-sliced displayNodes must turn this pin RED.
+    const { state, layout, maxVisibleRows, pipelines } = overflowPaneMonitorFixture();
+
+    const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const { treeRows: paintedTreeRows } = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS);
+
+    expect(selectableIds).toEqual(pipelines.map((pipeline) => pipeline.pipelineId));
+    expect(paintedTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
+    expect(paintedTreeRows.length).toBeLessThan(selectableIds.length);
+  });
+
+  test("keeps off-pane tree row ids selectable while omitting them from the painted slice only", () => {
+    const { state, layout } = overflowPaneMonitorFixture();
+
+    const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const paintedIds = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS).treeRows.map((row) => row.id);
+    const offPaneIds = selectableIds.filter((id) => !paintedIds.includes(id));
+
+    expect(offPaneIds.length).toBeGreaterThan(0);
+    for (const id of offPaneIds) {
+      expect(selectableIds).toContain(id);
+      expect(paintedIds).not.toContain(id);
+    }
+  });
 });
 
 describe("monitorRightPaneSegmentRows", () => {
@@ -683,6 +747,27 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines.some((line) => line.startsWith("> implement"))).toBe(true);
     expect(lines).toContain("Outcome");
     expect(lines).toContain("runStatus: in-progress");
+  });
+
+  test("resolves pipeline detail for off-pane tree row selection", () => {
+    // Mutation checkpoint: resolving selection from painted treeRows only must turn off-pane right-pane detail pin RED.
+    const { state, layout, maxVisibleRows, pipelines } = overflowPaneMonitorFixture();
+    const offPanePipelineId = pipelines[maxVisibleRows]!.pipelineId;
+    const paintedIds = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS).treeRows.map((row) => row.id);
+
+    expect(paintedIds).not.toContain(offPanePipelineId);
+
+    const lines = monitorRightPaneSegmentRows({ ...state, selectedNodeId: offPanePipelineId }, TREE_NOW_MS).map(
+      joinMonitorRow,
+    );
+
+    expect(lines).not.toContain("No run selected.");
+    expect(lines).toEqual([
+      `pipelineId: ${offPanePipelineId}`,
+      `name: pipeline-${maxVisibleRows}`,
+      "project: demo",
+      "state: succeeded",
+    ]);
   });
 
   test("pipeline and stage selection hide the wait/outcome panel", () => {

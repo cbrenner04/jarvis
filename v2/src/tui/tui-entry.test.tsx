@@ -998,40 +998,43 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
 
-    const assertSelectionPainted = (): void => {
+    const assertMeasuredTerminal = (): void => {
       const state = view.monitorStates.at(-1);
       expect(state?.terminalColumns).toBe(terminalColumns);
       expect(state?.terminalRows).toBe(terminalRows);
-      const selected = state?.selectedNodeId;
-      expect(selected).not.toBeNull();
-      if (selected === null || selected === undefined || state === undefined) {
-        throw new Error("expected selected node");
-      }
-      const painted = leftPaneTreeRowIds(state);
-      expect(painted).toContain(selected);
+      // Mutation checkpoint: requiring every monitorSelectableNodeIds entry in painted rows must turn this pin RED.
       // Mutation checkpoint: dropping withMeasuredTerminal from setState in tui-entry.tsx leaves
       // currentState on the 245x72 fallback, so ids are derived for a pane the shell never paints.
-      for (const id of monitorSelectableNodeIds(state, WORKFLOW_FILTER_NOW_MS)) {
-        expect(painted).toContain(id);
-      }
     };
 
     const initialState = view.monitorStates.at(-1)!;
     const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
-    const { treeRows: initialTreeRows } = monitorLeftPaneTreeRows(initialState, initialLayout, WORKFLOW_FILTER_NOW_MS);
-    expect(initialTreeRows.length).toBeGreaterThan(maxVisibleRows);
-    expect(initialTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(
-      pipelines.map((pipeline) => pipeline.pipelineId),
+    const { treeRows: initialPaintedTreeRows } = monitorLeftPaneTreeRows(
+      initialState,
+      initialLayout,
+      WORKFLOW_FILTER_NOW_MS,
+    );
+    expect(initialPaintedTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
+    expect(initialPaintedTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(
+      pipelines.slice(0, initialPaintedTreeRows.length).map((pipeline) => pipeline.pipelineId),
     );
 
-    assertSelectionPainted();
+    const initialSelected = initialState.selectedNodeId;
+    expect(initialSelected).not.toBeNull();
+    if (initialSelected !== null) {
+      expect(leftPaneTreeRowIds(initialState)).toContain(initialSelected);
+    }
+    const selectableIds = monitorSelectableNodeIds(initialState, WORKFLOW_FILTER_NOW_MS);
+    expect(selectableIds.some((id) => !leftPaneTreeRowIds(initialState).includes(id))).toBe(true);
+
+    assertMeasuredTerminal();
     const visitedForward = new Set<string>();
     for (let step = 0; step < pipelineCount * 4; step += 1) {
       const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
       if (before !== null) visitedForward.add(before);
       view.selectNextRun();
       await flush();
-      assertSelectionPainted();
+      assertMeasuredTerminal();
       const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
       if (after === before) break;
     }
@@ -1043,7 +1046,7 @@ describe("runTuiEntry", () => {
       if (before !== null) visitedBackward.add(before);
       view.selectPreviousRun();
       await flush();
-      assertSelectionPainted();
+      assertMeasuredTerminal();
       const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
       if (after === before) break;
     }

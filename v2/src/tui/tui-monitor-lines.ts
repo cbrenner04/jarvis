@@ -46,14 +46,14 @@ export function firstSelectableNodeId(state: TuiMonitorState, nowMs = Date.now()
   return monitorSelectableNodeIds(state, nowMs)[0] ?? null;
 }
 
-/** Selectable node ids in left-pane order: visible tree rows, then unattributed runs. */
+/** Selectable node ids in left-pane order: full flattened tree rows, then unattributed runs. */
 export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.now()): string[] {
   const columns = state.terminalColumns ?? 245;
   const rows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   // Mutation checkpoint: omitting unattributed rows from monitorSelectableNodeIds must turn tree+unattributed navigation pin RED.
-  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
+  return [...fullTreeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }
 
 /** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
@@ -185,6 +185,7 @@ export function monitorLeftPaneTreeRows(
   nowMs: number,
 ): {
   treeRows: readonly MonitorPipelineTreeDisplayNode[];
+  fullTreeRows: readonly MonitorPipelineTreeDisplayNode[];
   unattributedRows: readonly WorkflowTableRow[];
 } {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
@@ -198,7 +199,11 @@ export function monitorLeftPaneTreeRows(
     maxVisibleRows,
     { nowMs },
   );
-  return { treeRows: displayNodes, unattributedRows };
+  return {
+    treeRows: displayNodes.slice(0, maxVisibleRows),
+    fullTreeRows: displayNodes,
+    unattributedRows,
+  };
 }
 
 /** Queue block for the left pane (heading + rows). */
@@ -218,8 +223,9 @@ export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date
   const columns = state.terminalColumns ?? 245;
   const terminalRows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, terminalRows, state.dividerOffset ?? 0);
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  const treeRow = treeRows.find((entry) => entry.id === selected);
+  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  // Mutation checkpoint: resolving selection from painted treeRows only must turn off-pane right-pane detail pin RED.
+  const treeRow = fullTreeRows.find((entry) => entry.id === selected);
 
   // Mutation checkpoint: treating pipeline selection as run detail in monitorRightPaneSegmentRows must turn pipeline/stage right-pane pin RED.
   if (treeRow?.kind === "pipeline") {

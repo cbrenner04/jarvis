@@ -16,12 +16,16 @@ cross-reading `jarvis pipeline list` and `jarvis run list`.
 
 - Selection is three deep and drives the right pane; the pane shows the selected node's existing fields only — rules out pulling slice 4's detail contract forward.
 - `e` toggles expansion on the selected pipeline or stage row; run rows are leaves — rules out a second expansion keybinding.
+- `e` replaces `expandedWorkflowInvocationIds` for nested runs — stage expansion shows workflow constituent runs; no dual collapse state on the same key.
+- Tree build uses full merged `list` runs for pipeline matching; `filterMonitorRunsForLiveWindow` applies only to unattributed runs — rules out the 1h/20-row window on pipeline-attributed runs.
 - The unattributed segment renders with existing flat rows; FIFO/label polish is slice 6 — rules out dropping ad-hoc runs while pipelines exist.
 - Tests assert keybindings through the injected input hook; no painted ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Acceptance criteria
 
-- [ ] `e` through the injected input hook toggles the selected pipeline or stage node and is a no-op on a run leaf.
+- [ ] The left pane renders nested pipeline, stage, and run rows with depth indentation from the tree model; unmatched runs render in the flat unattributed segment.
+- [ ] Selecting a pipeline, stage, or run row drives the right pane with that node's existing fields only.
+- [ ] `e` through the injected input hook toggles the selected pipeline or stage node, is a no-op on a run leaf, and does not toggle `expandedWorkflowInvocationIds`.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
@@ -38,5 +42,5 @@ cross-reading `jarvis pipeline list` and `jarvis run list`.
 - Selecting a descendant expands ancestors and leaves siblings collapsed.
 - Terminal pipelines fall off oldest-first when the expanded tree exceeds pane height; every active pipeline is retained; the input snapshot is unmutated.
 - Active pipelines order above terminals by `createdAt` then finish time respectively.
-- The TUI issues `pipeline_list` once per refresh tick per connected daemon; a `pipeline_list` RPC failure leaves run rows rendered.
+- The TUI issues `pipeline_list` once per refresh tick per connected daemon; on RPC failure run rows stay rendered and each daemon retains its last-good pipeline snapshot.
 - The ink command-center shell renders run rows left, detail right, and a 4-line dock.

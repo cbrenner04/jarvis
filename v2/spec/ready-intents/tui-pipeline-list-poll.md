@@ -16,11 +16,12 @@ Nothing in the TUI fetches pipeline snapshots today. Slice 2 needs observation d
 
 - `pipeline_list` runs on the same refresh tick as `list` against the same connected daemons — rules out a second timer or separate refresh cadence.
 - A `pipeline_list` RPC failure leaves run rows rendered — rules out crashing or clearing the pane on pipeline observation errors.
+- Last-good pipeline snapshots persist per daemon on `pipeline_list` failure — rules out clearing the tree on transient observation errors.
 - Deferred to first consumer: how pipeline snapshots merge across multiple daemons — pin when monitor integration wires the tree.
 
 ## Acceptance criteria
 
-- [ ] The TUI issues `pipeline_list` once per refresh tick per connected daemon, and a `pipeline_list` RPC failure leaves the run rows rendered (degraded, not crashed).
+- [ ] The TUI issues `pipeline_list` once per refresh tick per connected daemon; on RPC failure run rows stay rendered and each daemon retains its last-good pipeline snapshot (degraded, not crashed or cleared).
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

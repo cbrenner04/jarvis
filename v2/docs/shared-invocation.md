@@ -56,9 +56,16 @@ Bindings:
   pipe the marker-augmented prompt on stdin, correlate Codex session usage
   best-effort, and settle into `ok | quota | model_config | error` before
   fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
-  --output-format text --model <resolved-cli-model> --force --workspace <cwd>
-  <prompt>`, ignore stdin, and settle into `ok | quota | model_config | error`
-  before fallback continues. Resolved `opencode` bindings spawn `opencode run
+  --output-format stream-json --stream-partial-output --model <resolved-cli-model>
+  --force --workspace <cwd> <prompt>`, ignore stdin, parse the stream-json
+  NDJSON stream: display text from the terminal `type: "result"` event's `result`
+  field (or concatenated `text_delta` frames, or raw stdout when unparseable),
+  with token fields mapped from the terminal result's `usage` object when present.
+  A stream whose terminal result carries `usage` settles `ok` with
+  `usage_source: "agent"` and `cost_source: "no-price"`; otherwise
+  `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`,
+  no warning. It settles into `ok | quota |
+  model_config | error` before fallback continues. Resolved `opencode` bindings spawn `opencode run
   --dir <cwd> --model <adapterModel> --format json <prompt>` (prompt last),
   ignore stdin, classify quota/model-config/transient with their own opencode
   signals (quota phrasing plus a guarded 429; `no provider configured for` as

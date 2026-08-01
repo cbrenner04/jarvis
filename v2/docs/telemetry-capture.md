@@ -80,8 +80,10 @@ omit keys):
   cache_creation_input_tokens }` — each `number | null`
 - `usage_source`: `"agent" | "estimated" | "unavailable" | null`
 - `cost_usd`: `number | null`
-- `cost_source`: `"computed" | "estimated" | "unavailable" | null`
+- `cost_source`: `"agent" | "computed" | "estimated" | "no-price" | "no-usage" | "unavailable" | null`
 - `exit_kind`, `exit_reason`
+
+Cursor `invocation_completed` provenance follows [`shared-invocation.md`](shared-invocation.md) finalize branches (`agent`+`no-price` or `unavailable`+`no-usage`).
 
 Append failure rule: if the JSONL sink append fails after a subprocess settles,
 the write step keeps the underlying invocation result and fallback behavior,

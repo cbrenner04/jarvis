@@ -82,6 +82,51 @@ function fakeSpawn(outcomes: FakeOutcome[]) {
   return { spawn, calls };
 }
 
+const COMPOSER_CURSOR_BINDING = {
+  agentId: "cursor" as const,
+  adapterModel: "Composer 2.5",
+  priceKey: "composer",
+};
+
+const CURSOR_AGENT_USAGE = {
+  input_tokens: 100,
+  output_tokens: 50,
+  cache_read_input_tokens: 10,
+  cache_creation_input_tokens: 0,
+};
+
+function cursorOkNoUsage(stdout: string, stderr = "") {
+  return {
+    kind: "ok" as const,
+    stdout,
+    stderr,
+    usage_source: "unavailable" as const,
+    cost_usd: null,
+    cost_source: "no-usage" as const,
+  };
+}
+
+function telemetryForRows(rows: InvocationCompletedRecord[]) {
+  return {
+    sink: {
+      append(record: InvocationCompletedRecord) {
+        rows.push(record);
+      },
+    },
+    operatorSessionId: "session",
+    runId: "run",
+    attemptId: "attempt",
+    project: "jarvis",
+    workflow: "write",
+    stepId: "implement",
+    role: "implement",
+    worktreePath: "/repo",
+    branch: "branch",
+    specRef: "spec",
+    invocationIds: ["invocation"],
+  };
+}
+
 describe("createResolvedAgentBinding", () => {
   test("binding id distinguishes rungs that differ only by price key", () => {
     const cheap = createResolvedAgentBinding({
@@ -410,24 +455,7 @@ describe("createResolvedAgentBinding", () => {
           { spawn: fake.spawn },
         ),
       ],
-      telemetry: {
-        sink: {
-          append(record) {
-            rows.push(record);
-          },
-        },
-        operatorSessionId: "session",
-        runId: "run",
-        attemptId: "attempt",
-        project: "jarvis",
-        workflow: "write",
-        stepId: "implement",
-        role: "implement",
-        worktreePath: "/repo",
-        branch: "branch",
-        specRef: "spec",
-        invocationIds: ["invocation"],
-      },
+      telemetry: telemetryForRows(rows),
     });
 
     expect(rows[0]?.agent).toBe("claude");
@@ -608,24 +636,7 @@ describe("createResolvedAgentBinding", () => {
           { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
         ),
       ],
-      telemetry: {
-        sink: {
-          append(record) {
-            rows.push(record);
-          },
-        },
-        operatorSessionId: "session",
-        runId: "run",
-        attemptId: "attempt",
-        project: "jarvis",
-        workflow: "write",
-        stepId: "implement",
-        role: "implement",
-        worktreePath: "/repo",
-        branch: "branch",
-        specRef: "spec",
-        invocationIds: ["invocation"],
-      },
+      telemetry: telemetryForRows(rows),
     });
 
     expect(rows[0]?.agent).toBe("codex");
@@ -678,7 +689,7 @@ describe("createResolvedAgentBinding", () => {
       { spawn: fake.spawn },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
+    expect(result).toEqual(cursorOkNoUsage("done"));
     expect(fake.calls[0]?.argv).toContain("custom-cursor-model");
   });
 
@@ -739,7 +750,7 @@ describe("createResolvedAgentBinding", () => {
         { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
         { spawn: normalZeroExit.spawn },
       ).invoke({ prompt: "p", cwd: "/repo" }),
-    ).resolves.toEqual({ kind: "ok", stdout: "completed successfully", stderr: "" });
+    ).resolves.toEqual(cursorOkNoUsage("completed successfully"));
   });
 
   test("cursor spawn failure returns terminal error", async () => {
@@ -769,24 +780,7 @@ describe("createResolvedAgentBinding", () => {
           { spawn: fake.spawn },
         ),
       ],
-      telemetry: {
-        sink: {
-          append(record) {
-            rows.push(record);
-          },
-        },
-        operatorSessionId: "session",
-        runId: "run",
-        attemptId: "attempt",
-        project: "jarvis",
-        workflow: "write",
-        stepId: "implement",
-        role: "implement",
-        worktreePath: "/repo",
-        branch: "branch",
-        specRef: "spec",
-        invocationIds: ["invocation"],
-      },
+      telemetry: telemetryForRows(rows),
     });
 
     expect(rows[0]?.agent).toBe("cursor");
@@ -798,13 +792,13 @@ describe("createResolvedAgentBinding", () => {
     const streamJson = JSON.stringify({ type: "result", result: "implementation complete\n" });
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: streamJson, stderr: "" }]);
     const binding = createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       { spawn: fake.spawn },
     );
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "ok", stdout: "implementation complete", stderr: "" });
+    expect(result).toEqual(cursorOkNoUsage("implementation complete"));
   });
 
   test("cursor binding concatenates text-delta frames when no terminal result event", async () => {
@@ -814,26 +808,83 @@ describe("createResolvedAgentBinding", () => {
     ].join("\n");
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frames, stderr: "" }]);
     const binding = createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       { spawn: fake.spawn },
     );
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "ok", stdout: "part one", stderr: "" });
+    expect(result).toEqual(cursorOkNoUsage("part one"));
+    expect(result.kind === "ok" && "warnings" in result ? result.warnings : undefined).toBeUndefined();
+    // Guard inversion: omitting cost_source: "no-usage" on the no-usage finalize path turns this test RED.
   });
 
   test("cursor binding falls back to verbatim stdout when unparseable", async () => {
     const unparseable = "not json at all\nand more text\n";
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: unparseable, stderr: "" }]);
     const binding = createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       { spawn: fake.spawn },
     );
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
-    expect(result).toEqual({ kind: "ok", stdout: unparseable, stderr: "" });
+    expect(result).toEqual(cursorOkNoUsage(unparseable));
+  });
+
+  test("cursor binding with terminal result usage settles ok agent-usage no-price", async () => {
+    const streamJson = JSON.stringify({
+      type: "result",
+      result: "implementation complete\n",
+      usage: {
+        inputTokens: CURSOR_AGENT_USAGE.input_tokens,
+        outputTokens: CURSOR_AGENT_USAGE.output_tokens,
+        cacheReadTokens: CURSOR_AGENT_USAGE.cache_read_input_tokens,
+        cacheWriteTokens: CURSOR_AGENT_USAGE.cache_creation_input_tokens,
+      },
+    });
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
+      { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
+    ]);
+    const binding = createResolvedAgentBinding(
+      COMPOSER_CURSOR_BINDING,
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "implementation complete",
+      stderr: "",
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
+    // Guard inversion: restoring the pre-fix stdout-only finalize rebuild (dropping parsed usage onto InvocationOk) turns this test RED.
+    // Guard inversion: omitting cost_source: "no-price" on the with-usage finalize path turns this test RED.
+
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          COMPOSER_CURSOR_BINDING,
+          { spawn: fake.spawn },
+        ),
+      ],
+      telemetry: telemetryForRows(rows),
+    });
+
+    expect(rows[0]).toMatchObject({
+      usage: CURSOR_AGENT_USAGE,
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
   });
 
   // The idle watchdog itself is agent-agnostic — it arms off generic stdout data — so this
@@ -846,7 +897,7 @@ describe("createResolvedAgentBinding", () => {
     const expiries: (() => void)[] = [];
     const cleared = new Set<() => void>();
     const binding = createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       {
         spawn: fake.spawn,
         setTimeout: ((callback: () => void, delayMs?: number) => {
@@ -893,7 +944,7 @@ describe("createResolvedAgentBinding", () => {
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" }]);
 
     const result = await createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       { spawn: fake.spawn },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
@@ -904,7 +955,7 @@ describe("createResolvedAgentBinding", () => {
     const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
 
     const result = await createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       { spawn: fake.spawn },
     ).invoke({ prompt: "p", cwd: "/repo" });
 
@@ -915,7 +966,7 @@ describe("createResolvedAgentBinding", () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     let expiry: (() => void) | undefined;
     const binding = createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      COMPOSER_CURSOR_BINDING,
       {
         spawn: fake.spawn,
         setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {

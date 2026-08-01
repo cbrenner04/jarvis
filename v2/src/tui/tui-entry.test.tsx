@@ -3,8 +3,9 @@ import { Writable } from "node:stream";
 import { createElement, type ReactElement } from "react";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
-import type { TuiDaemonClient } from "./tui-daemon-client.ts";
+import type { PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
@@ -62,6 +63,23 @@ const RUN_QUEUED: DaemonListRunRow = {
   status: "queued",
   isLive: false,
 };
+
+const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
+  pipelineId: "pipe-alpha",
+  name: "alpha-pipeline",
+  state: "running",
+  stages: [{ stageId: "plan", branchKey: "default", status: "running", workflowInvocationId: "inv-1" }],
+};
+
+const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
+  pipelineId: "pipe-beta",
+  name: "beta-pipeline",
+  state: "succeeded",
+  stages: [{ stageId: "s1", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-2" }],
+};
+
+const DAEMON1_SOCKET = "/tmp/daemon1.sock";
+const DAEMON2_SOCKET = "/tmp/daemon2.sock";
 
 const WORKFLOW_FILTER_NOW_MS = 1_700_000_000_000;
 const WORKFLOW_INVOCATION_ID = "inv-implement-review";
@@ -308,12 +326,53 @@ function createViewHost() {
   };
 }
 
+function nextFakeResponse<T>(responses: T[] | undefined, index: number): [T | undefined, number] {
+  if (!responses?.length) return [undefined, index + 1];
+  return [responses[Math.min(index, responses.length - 1)], index + 1];
+}
+
+function countRpcMethod(methods: string[] | undefined, method: string): number {
+  return methods?.filter((entry) => entry === method).length ?? 0;
+}
+
+async function flushRefreshTick(refresh: ReturnType<typeof createRefreshScheduler>): Promise<void> {
+  refresh.tick();
+  await flush();
+  await flush();
+  await flush();
+}
+
+function dualDaemonEntryDeps(
+  client1Options: FakeClientOptions,
+  client2Options: FakeClientOptions,
+  overrides: Partial<RunTuiEntryDeps> = {},
+): { deps: RunTuiEntryDeps; client1Options: FakeClientOptions; client2Options: FakeClientOptions } {
+  const clients = [fakeClient(client1Options), fakeClient(client2Options)];
+  let clientIndex = 0;
+  const { deps } = entryDeps(
+    {},
+    {
+      socketPath: DAEMON1_SOCKET,
+      connectTuiDaemon: async () => {
+        const client = clients[clientIndex++];
+        if (!client) throw new Error(`no client at index ${clientIndex - 1}`);
+        return client;
+      },
+      socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
+      ...overrides,
+    },
+  );
+  return { deps, client1Options, client2Options };
+}
+
 type FakeClientOptions = {
   methods?: string[];
   healthError?: RpcError;
   statusError?: RpcError;
   listResponses?: DaemonListResult[];
   listError?: Error;
+  pipelineListResponses?: PipelineListResult[];
+  pipelineListError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
   pauseError?: Error;
   resumeError?: Error;
@@ -326,6 +385,7 @@ type FakeClientOptions = {
 function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
   const methods = options.methods ?? [];
   let listIndex = 0;
+  let pipelineListIndex = 0;
 
   const steer =
     (method: "pause" | "kill") =>
@@ -357,9 +417,16 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
     async list() {
       methods.push("list");
       if (options.listError !== undefined) throw options.listError;
-      const response = options.listResponses?.[Math.min(listIndex, (options.listResponses?.length ?? 1) - 1)];
-      listIndex += 1;
+      const [response, nextIndex] = nextFakeResponse(options.listResponses, listIndex);
+      listIndex = nextIndex;
       return response ?? { runs: [] };
+    },
+    async pipelineList() {
+      methods.push("pipeline_list");
+      if (options.pipelineListError !== undefined) throw options.pipelineListError;
+      const [response, nextIndex] = nextFakeResponse(options.pipelineListResponses, pipelineListIndex);
+      pipelineListIndex = nextIndex;
+      return response ?? { pipelines: [] };
     },
     async start() {
       methods.push("start");
@@ -521,7 +588,7 @@ describe("runTuiEntry", () => {
     const code = await pending;
 
     expect(code).toBe(0);
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
       selectedRunId: "run-alpha",
@@ -547,7 +614,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
     expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
   });
 
@@ -566,7 +633,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
     expect(view.monitorStates[0]).toEqual({
       runs: [],
       selectedRunId: null,
@@ -574,6 +641,7 @@ describe("runTuiEntry", () => {
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
       refreshIntervalLabel: "1s",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
     });
   });
 
@@ -596,7 +664,7 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
   });
 
   test("navigates selectable rows in rendered order, skipping queued rows and clamping", async () => {
@@ -629,6 +697,7 @@ describe("runTuiEntry", () => {
       "health",
       "status",
       "list",
+      "pipeline_list",
       "wait:run-alpha",
       "wait:run-beta",
       "wait:run-gamma",
@@ -659,11 +728,17 @@ describe("runTuiEntry", () => {
     await flush();
     refresh.tick();
     await flush();
+    await flush();
+    await flush();
     view.selectNextRun();
     await flush();
     refresh.tick();
     await flush();
+    await flush();
+    await flush();
     refresh.tick();
+    await flush();
+    await flush();
     await flush();
     view.selectPreviousRun();
     await flush();
@@ -748,7 +823,16 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "list", "close"]);
+    expect(clientOptions.methods).toEqual([
+      "health",
+      "status",
+      "list",
+      "pipeline_list",
+      "wait:run-alpha",
+      "list",
+      "pipeline_list",
+      "close",
+    ]);
     expect(view.monitorStates.at(-1)).toEqual({
       runs: [RUN_BETA],
       selectedRunId: null,
@@ -756,6 +840,7 @@ describe("runTuiEntry", () => {
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
       refreshIntervalLabel: "1s",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
     });
   });
 
@@ -780,7 +865,15 @@ describe("runTuiEntry", () => {
     await pending;
 
     const finalWaitState = view.monitorStates.at(-1)?.waitState;
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "wait:run-beta", "close"]);
+    expect(clientOptions.methods).toEqual([
+      "health",
+      "status",
+      "list",
+      "pipeline_list",
+      "wait:run-alpha",
+      "wait:run-beta",
+      "close",
+    ]);
     expect(view.monitorStates.at(-1)).toMatchObject({
       selectedRunId: "run-beta",
       waitState: {
@@ -819,7 +912,15 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "wait:run-beta", "close"]);
+    expect(clientOptions.methods).toEqual([
+      "health",
+      "status",
+      "list",
+      "pipeline_list",
+      "wait:run-alpha",
+      "wait:run-beta",
+      "close",
+    ]);
     expect(view.monitorStates.at(-2)?.waitState).toEqual({ kind: "pending", runId: "run-beta" });
     expect(view.monitorStates.at(-1)?.waitState).toEqual({
       kind: "ready",
@@ -929,6 +1030,9 @@ describe("runTuiEntry", () => {
           return { runs: [RUN_ALPHA, RUN_BETA] };
         }
         return refreshList.promise;
+      },
+      async pipelineList() {
+        return { pipelines: [] };
       },
       async start() {
         return { runId: "unused" };
@@ -1103,7 +1207,7 @@ describe("runTuiEntry", () => {
     view.pauseSelected();
     await flush();
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list"]);
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("no run selected");
 
     view.quit();
@@ -1330,7 +1434,7 @@ describe("runTuiEntry", () => {
     const code = await pending;
 
     expect(code).toBe(0);
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
       selectedRunId: "run-alpha",
@@ -2014,6 +2118,355 @@ describe("runTuiEntry", () => {
     if (!finalState) throw new Error("finalState is undefined");
     const finalLines = monitorTextLines(finalState);
     expect(finalLines.some((line) => line.includes("run-beta"))).toBe(true);
+
+    view.quit();
+    await pending;
+  });
+
+  test("initial refresh polls pipeline_list once per connected daemon before openMonitor", async () => {
+    const view = createViewHost();
+    const client1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+    };
+    const client2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_BETA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+    const { deps } = dualDaemonEntryDeps(client1Options, client2Options, { viewHost: view.host });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(countRpcMethod(client1Options.methods, "list")).toBe(1);
+    expect(countRpcMethod(client2Options.methods, "list")).toBe(1);
+    expect(countRpcMethod(client1Options.methods, "pipeline_list")).toBe(1);
+    expect(countRpcMethod(client2Options.methods, "pipeline_list")).toBe(1);
+
+    const opened = view.monitorStates[0];
+    expect(opened?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+    expect(opened?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("periodic refresh polls pipeline_list once per connected daemon alongside list", async () => {
+    // Mutation checkpoint: skipping `pipeline_list` in the refreshRuns client loop in tui-entry.tsx
+    // turns this test RED.
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const client1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+    };
+    const client2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_BETA] }, { runs: [RUN_BETA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }, { pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+    const { deps } = dualDaemonEntryDeps(client1Options, client2Options, {
+      viewHost: view.host,
+      refreshScheduler: refresh.scheduler,
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+    await flushRefreshTick(refresh);
+
+    expect(countRpcMethod(client1Options.methods, "list")).toBe(2);
+    expect(countRpcMethod(client2Options.methods, "list")).toBe(2);
+    expect(countRpcMethod(client1Options.methods, "pipeline_list")).toBe(2);
+    expect(countRpcMethod(client2Options.methods, "pipeline_list")).toBe(2);
+
+    view.quit();
+    await pending;
+  });
+
+  test("pipeline_list updates monitor state when list rows are unchanged", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+        pipelineListResponses: [{ pipelines: [] }, { pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
+
+    await flushRefreshTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.runs).toEqual([RUN_ALPHA]);
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("pipeline_list failure keeps the monitor open with merged run rows rendered", async () => {
+    // Mutation checkpoint: evicting the client or closing the monitor on `pipeline_list` failure in
+    // tui-entry.tsx turns this test RED.
+    // Mutation checkpoint: clearing merged run rows when `pipeline_list` fails while `list` succeeds
+    // in tui-entry.tsx turns this test RED.
+    const view = createViewHost();
+    const client1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }],
+      pipelineListError: new RpcConnectionError("pipeline observation failed"),
+    };
+    const client2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_BETA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+    const { deps } = dualDaemonEntryDeps(client1Options, client2Options, { viewHost: view.host });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const finalRuns = view.monitorStates.at(-1)?.runs ?? [];
+    expect(finalRuns.map((run) => run.runId)).toEqual(["run-alpha", "run-beta"]);
+    expect(view.monitorStates.length).toBeGreaterThan(0);
+
+    view.quit();
+    await pending;
+  });
+
+  test("pipeline_list failure retains the last-good per-daemon snapshot", async () => {
+    // Mutation checkpoint: clearing per-daemon snapshots on `pipeline_list` failure in tui-entry.tsx
+    // turns this test RED.
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    let pipelineListCalls = 0;
+    const client = fakeClient({
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    });
+    const succeedPipelineList = client.pipelineList.bind(client);
+    client.pipelineList = async () => {
+      pipelineListCalls += 1;
+      if (pipelineListCalls === 1) return succeedPipelineList();
+      throw new RpcConnectionError("pipeline observation failed");
+    };
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => client,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    await flushRefreshTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("invoking-socket list failure evicts pipeline snapshots; non-evicting failures retain others", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+
+    const client1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+      pipelineListResponses: [
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+      ],
+    };
+    const client2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_BETA] }, { runs: [RUN_BETA] }, { runs: [RUN_BETA] }, { runs: [RUN_BETA] }],
+      pipelineListResponses: [
+        { pipelines: [PIPELINE_SNAPSHOT_BETA] },
+        { pipelines: [PIPELINE_SNAPSHOT_BETA] },
+        { pipelines: [PIPELINE_SNAPSHOT_BETA] },
+        { pipelines: [PIPELINE_SNAPSHOT_BETA] },
+      ],
+    };
+    const client1 = fakeClient(client1Options);
+    const client2 = fakeClient(client2Options);
+
+    let client1ListCalls = 0;
+    const client1List = client1.list.bind(client1);
+    client1.list = async () => {
+      client1ListCalls += 1;
+      if (client1ListCalls === 4) throw new Error("connection reset");
+      return client1List();
+    };
+
+    let client2PipelineListCalls = 0;
+    const client2PipelineList = client2.pipelineList.bind(client2);
+    client2.pipelineList = async () => {
+      client2PipelineListCalls += 1;
+      if (client2PipelineListCalls === 2) throw new RpcConnectionError("pipeline_list failed");
+      return client2PipelineList();
+    };
+
+    let client2ListCalls = 0;
+    const client2List = client2.list.bind(client2);
+    client2.list = async () => {
+      client2ListCalls += 1;
+      if (client2ListCalls === 3) throw new RpcConnectionError("connection lost");
+      return client2List();
+    };
+
+    const clients = [client1, client2];
+    let clientIndex = 0;
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        socketPath: DAEMON1_SOCKET,
+        connectTuiDaemon: async () => {
+          const c = clients[clientIndex++];
+          if (!c) throw new Error(`no client at index ${clientIndex - 1}`);
+          return c;
+        },
+        socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    // Tick 1: pipeline_list fails on daemon2; daemon1 snapshot retained.
+    await flushRefreshTick(refresh);
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    // Tick 2: non-invoking list fails on daemon2; daemon1 snapshot retained.
+    await flushRefreshTick(refresh);
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+    expect(client2Options.methods).toContain("pipeline_list");
+
+    // Tick 3: invoking-socket list fails on daemon1; daemon1 snapshot evicted, daemon2 retained.
+    await flushRefreshTick(refresh);
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toBeUndefined();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("non-invoking-socket list failure still issues pipeline_list on the same tick", async () => {
+    const view = createViewHost();
+    const client1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+    };
+    const client2Options: FakeClientOptions = {
+      methods: [],
+      listError: new RpcConnectionError("connection lost"),
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+    const { deps } = dualDaemonEntryDeps(client1Options, client2Options, { viewHost: view.host });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(client2Options.methods).toContain("pipeline_list");
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
+  test("successful empty pipeline_list overwrites a prior non-empty snapshot", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    await flushRefreshTick(refresh);
+
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.["/tmp/test.sock"]).toEqual({ pipelines: [] });
 
     view.quit();
     await pending;

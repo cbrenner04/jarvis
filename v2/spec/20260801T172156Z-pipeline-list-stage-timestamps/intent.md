@@ -28,6 +28,7 @@ Stage timing exists in the store; observation projection omits it.
 - `v2/docs/daemon-host.md` — `pipeline_list` stage rows include `startedAt` and `endedAt`.
 - `v2/docs/write-behavior.md` — `jarvis pipeline list` stage field list includes `startedAt` and `endedAt`.
 - `v2/docs/operator-runbook.md` — `jarvis pipeline list` stage field list includes `startedAt` and `endedAt`.
+- `v2/docs/v1-behaviors.md` — `pipeline_list` stage row shape includes `startedAt` and `endedAt`.
 
 ## Prerequisites
 

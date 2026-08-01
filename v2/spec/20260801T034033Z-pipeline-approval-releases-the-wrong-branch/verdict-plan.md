@@ -1,0 +1,20 @@
+Verifying key claims in the codebase so the verdict is grounded in the actual continuation and test behavior.
+## Verdict: required refinements
+
+1. **Pin the primary regression test to production ordering.** The main behavioral AC must require approving the **non-first** `branchKey` while the first sibling’s gate remains `awaiting`, and must assert the **held** sibling’s successor (`plan`) stays `pending` with no stage on that branch `running`. Without that ordering, the test may stay green on pre-fix code because the existing preservation test already approves the first branch and never exercises the incident shape. This is required by spec guidance’s failing-test rule for runtime behavior changes.
+
+2. **Fully specify the two-approve AC.** The “approving both fan-out branches” criterion must state approval order (at minimum: non-first then first, to mirror production), assertions **after each** approve (not only terminal state), and that each approve admits only that branch’s next stage until the next approval gate. Otherwise it may not fail on baseline and does not prove per-approve isolation.
+
+3. **Record why the preservation AC does not cover the bug.** Decisions (or equivalent) must explain that `pipeline approve and reject stay isolated per branchKey` approves the **first** `branchKey` in fan-out order; sibling withholding on that path does not prove non-first approval is safe. This closes the gap between the preservation citation and the new behavior ACs.
+
+4. **Clarify continuation scope for non-approve entrypoints.** The spec already carves out restart/recovery walking all branches; it must also state the outcome contract explicitly: post-approve continuation is scoped to the approved `branchKey`; continuation without that context (e.g. `recoverContinuablePipelines`) may still walk all actionable branches, and per-branch gate blocking must continue to withhold `awaiting` siblings on those paths. No new recovery AC is required, but the rationale must be in the spec so implementers do not narrow recovery by accident.
+
+5. **Tighten the task checklist vs fixture requirements.** Replace “new two-branch fixture with `approve-intent`” with an outcome: reproduce the bug on a fan-out with per-branch approval gates immediately after split, using **non-first** approval order. `approve-intent` / `approve-plan` naming is optional `full-review` fidelity; the existing fan-out definition suffices if ACs pin branch order. Task wording should bind to “next stage until the next approval gate,” not an ambiguous full suffix through `implement` after one gate approve.
+
+6. **Strengthen observable assertions where cheap.** The primary AC should prefer dispatch-level evidence (e.g. `dispatchLog` or equivalent “no dispatch on held `branchKey`”) in addition to stage status, matching existing fan-out tests. Status-only checks on `plan` alone are weaker than the production failure (sibling `running` while gate `awaiting`).
+
+7. **Correct documentation scope and framing.** Documentation updates must **preserve** the accurate runbook claim that approve/reject does not mutate sibling **gate rows**; add that post-approve **successor dispatch** is scoped to the approved `branchKey` only. Include `v2/docs/daemon-host.md` (pipeline approve continuation semantics) alongside operator-runbook and v1-behaviors. Do not frame the runbook as falsely claiming gate isolation—the gap is dispatch, not persistence.
+
+8. **Optional one-line continuation contract.** A decision that optional approved-`branchKey` on continuation limits suffix selection, and omission preserves all-branch walks for recovery/resume paths, is sufficient; no API shape prescription needed.
+
+**Rationale:** Items 1–3 ensure behavioral ACs actually fail pre-fix and satisfy spec guidance. Items 4–5 bound the fix without silent recovery regression or over-mandated fixtures. Items 6–7 align verification and docs with the real defect (dispatch scoping) and existing accurate operator text. No subspec split is required—the work remains one module boundary with one continuation-path fix.

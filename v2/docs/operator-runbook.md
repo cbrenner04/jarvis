@@ -560,7 +560,10 @@ Two operational caveats. Verification runs the scoped suites **once per directiv
 a production file mutated — a subspec with several checkpoints multiplies the write step's wall
 clock accordingly. And the scoped run has no timeout and is not wired to the run's abort signal: a
 mutation that induces a hang blocks the step, and `kill` will not interrupt it. If a write step
-stalls with no agent output and a directive is in play, that is the first place to look.
+stalls with no agent output and a directive is in play, that is the first place to look. Every
+in-process path restores the mutated file, including when the scoped run throws, but a `SIGKILL`
+mid-verification leaves the **mutated** production file on disk — and the completion committer
+uses `git add -A`, so check the worktree before re-running after a hard kill.
 
 The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and

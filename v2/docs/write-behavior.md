@@ -1098,7 +1098,16 @@ The loop classifies and routes results:
   1. **`artifact.exists`**: the `--artifact` file (spec or subspec) must exist.
   2. **`spec.criteria-ticked`** (implement writes only): the active subspec's
      non-human-only acceptance criteria must all be ticked; re-reads the spec
-     from the worktree to catch agent edits.
+     from the worktree to catch agent edits. Ticked non-human-only criteria
+     whose text references `Mutation checkpoint:` are also verified on every
+     `done` / `no-work` (including pre-ticked rows): the harness applies each
+     linked production-guard inversion, runs scoped suites, and restores the
+     worktree after each attempt. Hollow checkpoints refuse completion with
+     `spec.criteria-ticked` `contract_miss` and `path:line: comment`
+     coordinates on the active subspec (matching `contract_miss_detail` and a
+     harness `## Blocker`). Unparseable checkpoint comments and linkage failures
+     are durably reported (`mutation_checkpoint_unparseable` on the run log,
+     file and line) without `contract_miss`.
   
   All contracts pass → success (`complete`). Any fail → append `## Blocker`
   to the artifact (spec.criteria-ticked → active subspec; artifact.exists →

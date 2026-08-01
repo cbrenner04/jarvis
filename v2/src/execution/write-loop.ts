@@ -34,6 +34,10 @@ import {
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import {
+  createLogSinkMutationCheckpointReportSink,
+  type MutationCheckpointVerifierSeams,
+} from "./criteria-ticked-mutation-checkpoint-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -1675,6 +1679,19 @@ function resolveAndPersistCreationTitle(
   return title;
 }
 
+function mergeMutationCheckpointSeams(
+  seams: MutationCheckpointVerifierSeams | undefined,
+  logSink: LogSink | undefined,
+  runId: string,
+  attemptId: string,
+): MutationCheckpointVerifierSeams | undefined {
+  const productionReportSink =
+    logSink !== undefined ? createLogSinkMutationCheckpointReportSink(logSink, runId, attemptId) : undefined;
+  if (seams?.reportSink !== undefined) return seams;
+  if (productionReportSink === undefined) return seams;
+  return { ...seams, reportSink: productionReportSink };
+}
+
 function buildWriteExecuteInput(
   args: WriteLoopInput,
   runId: string,
@@ -1699,6 +1716,12 @@ function buildWriteExecuteInput(
           role: telemetry.role,
         }
       : undefined;
+  const mutationCheckpointSeams = mergeMutationCheckpointSeams(
+    args.mutationCheckpointSeams,
+    args.logSink,
+    runId,
+    attemptId,
+  );
   return {
     worktree: args.worktree,
     specPath: args.specPath,
@@ -1731,6 +1754,7 @@ function buildWriteExecuteInput(
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
+    ...(mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams } : {}),
   };
 }
 

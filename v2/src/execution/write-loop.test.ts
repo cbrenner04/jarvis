@@ -34,6 +34,7 @@ import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
+import { stageMutationCheckpointFixtures } from "./write.test.ts";
 import {
   appendRuntimeSmokeOutcome,
   compareRepoPathsByUtf8Bytes,
@@ -258,6 +259,7 @@ async function runLoop(args: {
   fixCommand?: WriteLoopInput["fixCommand"];
   runFixCommand?: WriteLoopInput["runFixCommand"];
   iterationTimeoutMs?: number;
+  mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -298,6 +300,9 @@ async function runLoop(args: {
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
+    ...(args.mutationCheckpointSeams !== undefined
+      ? { mutationCheckpointSeams: args.mutationCheckpointSeams }
+      : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -543,6 +548,73 @@ describe("write loop", () => {
     const spec = readFileSync(join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md"), "utf8");
     expect(spec).toContain("## Blocker");
     expect(spec).toContain("artifact.exists");
+  });
+
+  test("mutation-checkpoint criteria-ticked contract_miss appends blocker on active subspec and logs detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const branchName = "mutation-checkpoint-miss";
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+    stageMutationCheckpointFixtures(worktreePath);
+    const subspec = join(worktreePath, "00-subspec.md");
+    writeFileSync(
+      subspec,
+      "## Acceptance criteria\n\n- [x] `hollow-guard.test.ts` — keepPositive accepts one; Mutation checkpoint: negating `!value` guard must turn pin RED.\n",
+      "utf8",
+    );
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      logSink: sink,
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const subspecText = readFileSync(subspec, "utf8");
+    expect(subspecText).toContain("## Blocker");
+    expect(subspecText).toContain("hollow-guard.test.ts:");
+    expect(subspecText).toContain("negating `!value` guard");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toMatchObject({
+      kind: "contract_miss_detail",
+      failedContractId: "spec.criteria-ticked",
+    });
+    const failureReason = detail && "failureReason" in detail ? detail.failureReason : undefined;
+    expect(failureReason).toContain("hollow-guard.test.ts:");
+  });
+
+  test("unparseable mutation-checkpoint linkage is logged on production path without contract_miss", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const branchName = "mutation-checkpoint-unparseable";
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    const subspec = join(worktreePath, "00-subspec.md");
+    writeFileSync(
+      subspec,
+      "## Acceptance criteria\n\n- [x] `missing-pin.test.ts` — no such pin; Mutation checkpoint: cannot link.\n",
+      "utf8",
+    );
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      logSink: sink,
+    });
+
+    expect(result.kind).toBe("complete");
+    const events = sink.getEventsForRun(result.runId).filter((event) => event.kind === "mutation_checkpoint_unparseable");
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0]).toMatchObject({ path: expect.any(String), line: expect.any(Number) });
   });
 
   test("contract_miss appends contract_miss_detail to the observability log", async () => {

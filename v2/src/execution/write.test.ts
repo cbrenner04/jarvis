@@ -3,6 +3,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSyn
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import type { MutationCheckpointVerifierSeams } from "./criteria-ticked-mutation-checkpoint-verifier.ts";
 import { executeWrite } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
@@ -20,6 +21,7 @@ function runWrite(args: {
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
   idleOutputMs?: number;
+  mutationCheckpointSeams?: MutationCheckpointVerifierSeams;
 }) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -40,6 +42,9 @@ function runWrite(args: {
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.mutationCheckpointSeams !== undefined
+      ? { mutationCheckpointSeams: args.mutationCheckpointSeams }
+      : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }
@@ -62,6 +67,21 @@ function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding
       return { kind: "ok", stdout: "done", stderr: "" };
     },
   };
+}
+
+export function stageMutationCheckpointFixtures(worktreePath: string): void {
+  const fixtureDir = join(import.meta.dir, "testing", "mutation-checkpoint");
+  const targetDir = join(worktreePath, "v2/src/execution/testing/mutation-checkpoint");
+  mkdirSync(targetDir, { recursive: true });
+  for (const file of readdirSync(fixtureDir)) {
+    cpSync(join(fixtureDir, file), join(targetDir, file));
+  }
+}
+
+function copyMutationCheckpointFixtures(jarvisRoot: string): string {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
+  stageMutationCheckpointFixtures(worktreePath);
+  return worktreePath;
 }
 
 function expectGuardInversionWriteStepRules(prompt: string): void {
@@ -1081,4 +1101,162 @@ describe("write behavior: implement-path blocker-text contract", () => {
 
     expect(result.result.kind).toBe("blocked");
   });
+
+  test("ticked mutation-checkpoint criterion with hollow checkpoint refuses done", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    copyMutationCheckpointFixtures(jarvisRoot);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `hollow-guard.test.ts` — keepPositive accepts one; Mutation checkpoint: negating `!value` guard must turn pin RED.\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("Hollow mutation checkpoint");
+      expect(result.result.failureReason).toContain("hollow-guard.test.ts:");
+      expect(result.result.failureReason).toContain("negating `!value` guard");
+    }
+  });
+
+  test("ticked mutation-checkpoint criterion with hollow checkpoint refuses no-work", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    copyMutationCheckpointFixtures(jarvisRoot);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `hollow-guard.test.ts` — keepPositive accepts one; Mutation checkpoint: negating `!value` guard must turn pin RED.\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "no-work", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("Hollow mutation checkpoint");
+      expect(result.result.failureReason).toContain("hollow-guard.test.ts:");
+    }
+  });
+
+  test("ticked mutation-checkpoint criterion with caught checkpoint allows done", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    copyMutationCheckpointFixtures(jarvisRoot);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `caught-guard.test.ts` — keepPositive rejects zero; Mutation checkpoint: negating `!value` guard must turn pin RED.\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("unparseable mutation-checkpoint linkage is reported without contract_miss", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `missing-pin.test.ts` — no such pin; Mutation checkpoint: cannot link.\n",
+    );
+    const reported: { path: string; line: number }[] = [];
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: {
+        reportSink: {
+          reportUnparseable: (entry) => reported.push({ path: entry.path, line: entry.line }),
+        },
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(reported.length).toBeGreaterThan(0);
+  });
+
+  test("multi-pin criterion refuses done when one checkpoint is hollow and one is caught", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    copyMutationCheckpointFixtures(jarvisRoot);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `mixed-guards.test.ts` — mixed hollow and caught checkpoints; Mutation checkpoint: negating gate A `!value` guard must turn pin RED.\n",
+    );
+    let runs = 0;
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: {
+        runScopedTests: async () => {
+          runs += 1;
+          return runs === 1;
+        },
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("gate A");
+    }
+  });
+
+  test("pre-ticked hollow mutation-checkpoint criterion refuses done when all rows are ticked", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    copyMutationCheckpointFixtures(jarvisRoot);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `hollow-guard.test.ts` — keepPositive accepts one; Mutation checkpoint: negating `!value` guard must turn pin RED.\n- [x] unrelated criterion\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+    }
+  });
+
+  for (const testFile of ["hollow-guard.test.ts", "caught-guard.test.ts"] as const) {
+    test(`inverting guard for ${testFile} turns pin RED`, async () => {
+      const guardPath = join(import.meta.dir, "testing/mutation-checkpoint/hollow-guard.ts");
+      const testPath = join(import.meta.dir, "testing/mutation-checkpoint", testFile);
+      const original = readFileSync(guardPath, "utf8");
+      writeFileSync(guardPath, original.replace("if (!value)", "if (value)"), "utf8");
+      try {
+        const exit = await Bun.spawn({ cmd: ["bun", "test", testPath], stdout: "pipe", stderr: "pipe" }).exited;
+        expect(exit).not.toBe(0);
+      } finally {
+        writeFileSync(guardPath, original, "utf8");
+      }
+    });
+  }
 });

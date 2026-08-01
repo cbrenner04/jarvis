@@ -280,6 +280,23 @@ Every subspec that changes runtime behavior must carry an acceptance criterion n
 
 Every subspec whose tasks or acceptance criteria change executable code, including mixed code-and-docs work, must also require tests to fail when each added or modified guard is inverted. When a guard suppresses an effect, its negative case must prove that effect is absent. Documentation-only and spec-only subspecs are exempt.
 
+#### Mutation-checkpoint acceptance criteria (implement writes)
+
+When an AC names a guard-inversion checkpoint the harness must execute at implement completion, shape it so linkage is mechanical:
+
+- Name the pinning test file in backticks (basename is enough), e.g. `` `tui-entry.test.tsx` ``.
+- Name the pinning-test pin title in the criterion prose when a file carries multiple pins.
+- Place `// Mutation checkpoint:` on the named pin, describing the production-guard inversion in plain language (negating a guard, dropping a wrapper call, reintroducing a removed branch, etc.).
+- Place a matching production `// Mutation checkpoint:` on the real guard when possible. The shipped verifier is exemplar-plus-minimum: it scores token overlap across production checkpoint comments (minimum score to link), with TUI-specific fallbacks for the cited regression rows — not broad named-symbol resolution from arbitrary test comments.
+
+Exemplar criterion:
+
+```md
+- [ ] `daemon-workflow-start.test.ts` — start rejects duplicate workflow ids; Mutation checkpoint: negating the duplicate-id guard must turn this pin RED.
+```
+
+Ticked non-human-only criteria whose text includes `Mutation checkpoint:` are verified on every implement `done` / `no-work`, including when every other automated row is already ticked. Hollow checkpoints (scoped suite stays green after inversion) block completion with `path:line: comment` coordinates on the active subspec.
+
 Good (new behavior):
 
 ```md

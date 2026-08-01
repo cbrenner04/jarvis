@@ -27,6 +27,12 @@ import {
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
+import {
+  formatMutationCheckpointFailureReason,
+  getTickedMutationCheckpointCriteria,
+  type MutationCheckpointVerifierSeams,
+  verifyTickedMutationCheckpoints,
+} from "./criteria-ticked-mutation-checkpoint-verifier.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
@@ -174,6 +180,7 @@ export type WriteExecuteInput = {
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
+  mutationCheckpointSeams?: MutationCheckpointVerifierSeams;
 };
 
 type WriteExecuteResult = {
@@ -384,16 +391,28 @@ async function executeDefaultWrite(
   ];
 
   // Add criteria-ticked contract for implement writes (patch.prompt.body)
-  // Check the active subspec for unticked non-human-only acceptance criteria
   if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0) {
+    const subspecContent = existsSync(expectedArtifactPath) ? readFileSync(expectedArtifactPath, "utf8") : "";
     const unticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
-    if (unticked.length > 0) {
+    const tickedMutationCriteria = getTickedMutationCheckpointCriteria(subspecContent);
+    if (unticked.length > 0 || tickedMutationCriteria.length > 0) {
+      const untickedReason = unticked.length > 0 ? buildCriteriaTickedReason(unticked) : undefined;
       contracts.push({
         id: "spec.criteria-ticked",
-        reason: buildCriteriaTickedReason(unticked),
-        check: () => {
-          const current = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
-          return current.length === 0;
+        ...(untickedReason !== undefined ? { reason: untickedReason } : {}),
+        check: async ({ cwd }) => {
+          const currentUnticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
+          if (currentUnticked.length > 0) {
+            return { ok: false as const, reason: buildCriteriaTickedReason(currentUnticked) };
+          }
+          const currentContent = existsSync(expectedArtifactPath) ? readFileSync(expectedArtifactPath, "utf8") : "";
+          if (getTickedMutationCheckpointCriteria(currentContent).length === 0) {
+            return true;
+          }
+          const result = await verifyTickedMutationCheckpoints(cwd, currentContent, args.mutationCheckpointSeams);
+          if (result.ok) return true;
+          const reason = formatMutationCheckpointFailureReason(result);
+          return { ok: false as const, ...(reason !== undefined ? { reason } : {}) };
         },
       });
     }

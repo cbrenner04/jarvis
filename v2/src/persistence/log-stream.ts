@@ -133,6 +133,16 @@ export type ContractMissDetailEvent = {
   failureReason?: string;
 };
 
+/** Emitted when mutation-checkpoint verification cannot parse or link a checkpoint comment. */
+export type MutationCheckpointUnparseableEvent = {
+  kind: "mutation_checkpoint_unparseable";
+  attemptId: string;
+  path: string;
+  line: number;
+  comment: string;
+  reason: string;
+};
+
 /** Agent's `## Blocker` body text persisted when a `blocked` outcome satisfies the blocker-text contract; truncated at append time. */
 export type BlockerTextDetailEvent = {
   kind: "blocker_text_detail";
@@ -177,6 +187,7 @@ export type LogEvent =
   | LandingContractRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
+  | MutationCheckpointUnparseableEvent
   | BlockerTextDetailEvent
   | CoverageAdvisoryEvent
   | IntentFinalizationEvent;

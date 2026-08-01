@@ -71,16 +71,16 @@ tests stay green.
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: comment`; fails against pre-fix code.
-- [ ] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
-- [ ] `write.test.ts` — unparseable `Mutation checkpoint:` comment or linkage failure is reported (injectable log/telemetry with file and line) and does not settle `contract_miss`; fails against pre-fix code.
-- [ ] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
-- [ ] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
-- [ ] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
-- [ ] `criteria-ticked-mutation-checkpoint-regression.test.ts` — replays fixture trees at `56cfcff8` and `1f75bad7` with synthetic ticked non-manual criteria for rows 1–3 above and detects each named inversion as surviving; fails against pre-fix code.
-- [ ] `write.test.ts` — inverting the hollow-checkpoint refusal guard named by the new hollow-refusal pinning test's `Mutation checkpoint:` comment turns that pin RED.
-- [ ] `write.test.ts` — inverting the caught-checkpoint guard named by the new caught-checkpoint pinning test's `Mutation checkpoint:` comment turns that pin RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: comment`; fails against pre-fix code.
+- [x] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
+- [x] `write.test.ts` — unparseable `Mutation checkpoint:` comment or linkage failure is reported (injectable log/telemetry with file and line) and does not settle `contract_miss`; fails against pre-fix code.
+- [x] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
+- [x] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
+- [x] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
+- [x] `criteria-ticked-mutation-checkpoint-regression.test.ts` — replays fixture trees at `56cfcff8` and `1f75bad7` with synthetic ticked non-manual criteria for rows 1–3 above and detects each named inversion as surviving; fails against pre-fix code.
+- [x] `write.test.ts` — inverting the hollow-checkpoint refusal guard named by the new hollow-refusal pinning test's `Mutation checkpoint:` comment turns that pin RED.
+- [x] `write.test.ts` — inverting the caught-checkpoint guard named by the new caught-checkpoint pinning test's `Mutation checkpoint:` comment turns that pin RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -490,6 +490,17 @@ and finalization proceeds rather than erroring. Non-test steps (`check`, `typech
 `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
 insufficient without a green gate on the branch head.
 
+Implement writes (`patch.prompt.body`) verify ticked non-human-only acceptance
+criteria whose text references `Mutation checkpoint:` on every `done` / `no-work`,
+including when every other row is already ticked. The harness links each criterion
+to the pinning test and pin named in the criterion, applies the checkpoint-named
+production inversion, and runs scoped tests. A ticked row proves the inversion
+turned the scoped suite red; if the suite stays green the checkpoint is hollow
+and completion refuses with `spec.criteria-ticked` `contract_miss`, a harness
+`## Blocker` on the active subspec, and `path:line: comment` coordinates in
+`failureReason` / `contract_miss_detail`. Unparseable checkpoint comments are
+reported and skipped without `contract_miss`.
+
 The full aggregate `bun run test` wall clock is currently 326s (mean, 321-330s range, measured
 2026-07-26) — down from a 697s pre-change baseline — because the runner now executes independent
 test files concurrently instead of serially. A gate run's test steps see this figure only when
@@ -541,7 +552,14 @@ is green, and (5) if the active subspec's acceptance criteria reference `bun run
 that command exits zero. Rows that exhausted the repair budget instead remain `failed` /
 `ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
-blocking before any completion commit or PR publication. The completion boundary enforces (2):
+blocking before any completion commit or PR publication. Ticked non-human-only criteria whose
+text references `Mutation checkpoint:` are also verified on every implement `done` / `no-work`
+(independent of whether unticked rows remain): the harness applies each linked production-guard
+inversion named by the pinning-test comment, runs the scoped suite derived from the inverted
+file(s), and treats a still-green suite as a hollow checkpoint. Hollow checkpoints settle
+`spec.criteria-ticked` `contract_miss` with `path:line: comment` coordinates on the active
+subspec, matching `contract_miss_detail`, and a harness `## Blocker`. Unparseable checkpoint
+comments or linkage failures are reported but do not settle `contract_miss`. The completion boundary enforces (2):
 when the committer returns no new commit and the worktree is dirty, the run records
 `completion_commit_failed` and names the uncommitted paths instead of masking them as `complete`.
 The publication boundary enforces (3): when the publisher returns a `pushSha` but no PR evidence

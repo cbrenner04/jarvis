@@ -75,7 +75,7 @@ async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
   }
 }
 
-async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<boolean> {
+export async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<boolean> {
   if (scope.length === 0) return true;
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
@@ -297,7 +297,7 @@ export function maskNonCodeSpans(line: string): string {
   return masked.join("");
 }
 
-function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
+export function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
   const candidates: Candidate[] = [];
 
   // Skip comments and empty lines
@@ -330,7 +330,7 @@ function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): str
   return `${content.slice(0, bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
 }
 
-function applyMutation(fileContent: string, candidate: Candidate): string {
+export function applyMutation(fileContent: string, candidate: Candidate): string {
   const lines = fileContent.split("\n");
   const lineIndex = candidate.line - 1;
 

@@ -100,4 +100,6 @@ export type RunTuiEntryDeps = {
   socketDiscovery?: SocketDiscovery;
   /** Injectable clock for the terminal live window; defaults to `Date.now`. */
   nowMs?: () => number;
+  /** Injectable terminal size; defaults to `process.stdout` columns/rows. */
+  terminalSize?: () => { columns?: number; rows?: number };
 };

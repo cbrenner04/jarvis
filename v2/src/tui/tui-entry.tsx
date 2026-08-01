@@ -72,8 +72,16 @@ function emptyMonitorState(): TuiMonitorState {
   };
 }
 
-function monitorShellState(state: TuiMonitorState): TuiMonitorState {
+function processTerminalSize(): { columns?: number; rows?: number } {
   const stdout = process.stdout;
+  return { columns: stdout.columns, rows: stdout.rows };
+}
+
+function monitorShellState(
+  state: TuiMonitorState,
+  terminalSize: () => { columns?: number; rows?: number } = processTerminalSize,
+): TuiMonitorState {
+  const stdout = terminalSize();
   const next: TuiMonitorState = {
     ...state,
     refreshIntervalLabel: state.refreshIntervalLabel ?? tuiRefreshIntervalLabel(),
@@ -104,6 +112,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
   const refreshScheduler = deps.refreshScheduler ?? createRefreshScheduler();
   const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
+  const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
 
   const clients: Map<string, TuiDaemonClient> = new Map();
   let runOwners: Map<string, TuiDaemonClient> = new Map();
@@ -120,7 +129,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   });
 
   const syncMonitor = (): void => {
-    void Promise.resolve(session?.update(monitorShellState(currentState)));
+    void Promise.resolve(session?.update(monitorShellState(currentState, terminalSizeFn)));
   };
 
   const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
@@ -368,7 +377,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     }
 
     session = await openMonitor(
-      monitorShellState(currentState),
+      monitorShellState(currentState, terminalSizeFn),
       {
         selectRun(runId) {
           if (!monitorSelectableRuns(currentState).some((run) => run.runId === runId)) return;

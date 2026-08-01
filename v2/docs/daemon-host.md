@@ -1052,7 +1052,11 @@ dispatch and no mutation of other stage rows. Refused targets (`pipeline_not_fou
 propagate the store reason without fail-open progression.
 
 `applyPipelineApprovalDecision` in `pipeline-execution.ts` admits through
-`commitPipelineApprovalDecision` and detaches `continuePipeline` on applied approve.
+`commitPipelineApprovalDecision` and detaches `continuePipeline` on applied approve,
+passing the approved `branchKey` when supplied so post-approve suffix selection runs
+only that branch until the next approval gate. Recovery paths (`recoverContinuablePipelines`,
+`resumePipeline`) call `continuePipeline` without a `branchKey` and may walk every
+actionable fan-out branch.
 
 ### Pipeline stage-scoped resume
 

@@ -36,12 +36,12 @@ Out of scope: CLI approve/reject wiring (already branch-scoped), `pipeline list`
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` fails against current dispatch (starts the held sibling's `plan` while its gate is `awaiting`) and passes after the fix: on a two-branch fan-out with per-branch gates immediately after split, approve the **non-first** `branchKey` while the first sibling's gate remains `awaiting`; that approve dispatches only that branch's next stage (`plan`) through `dispatchLog` (or equivalent dispatch evidence) and stage status; the held sibling's `plan` stays `pending` with no dispatch on the held `branchKey` and no stage on that branch `running` while its gate is `awaiting`.
-- [ ] `pipeline-execution.test.ts` — `approving both fan-out branches dispatches each successor on its own branchKey` fails against current dispatch and passes after the fix: same fixture, approve **non-first then first**; after the first approve, only that branch's next stage until the next approval gate is dispatched (dispatch + status); after the second approve, only the second branch's next stage until its next approval gate is dispatched; neither approve releases the other branch's successor prematurely.
-- [ ] Source-mutating successor selection back to pipeline-wide suffix walk (or equivalent first-pending-wins across branches) turns `approve-intent continuation dispatches only the approved branchKey` RED, with a comment checkpoint naming the mutation. Do not add a production test flag.
-- [ ] `pipeline-execution.test.ts` — `pipeline approve and reject stay isolated per branchKey` stays green.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` exits zero.
+- [x] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` fails against current dispatch (starts the held sibling's `plan` while its gate is `awaiting`) and passes after the fix: on a two-branch fan-out with per-branch gates immediately after split, approve the **non-first** `branchKey` while the first sibling's gate remains `awaiting`; that approve dispatches only that branch's next stage (`plan`) through `dispatchLog` (or equivalent dispatch evidence) and stage status; the held sibling's `plan` stays `pending` with no dispatch on the held `branchKey` and no stage on that branch `running` while its gate is `awaiting`.
+- [x] `pipeline-execution.test.ts` — `approving both fan-out branches dispatches each successor on its own branchKey` fails against current dispatch and passes after the fix: same fixture, approve **non-first then first**; after the first approve, only that branch's next stage until the next approval gate is dispatched (dispatch + status); after the second approve, only the second branch's next stage until its next approval gate is dispatched; neither approve releases the other branch's successor prematurely.
+- [x] Source-mutating successor selection back to pipeline-wide suffix walk (or equivalent first-pending-wins across branches) turns `approve-intent continuation dispatches only the approved branchKey` RED, with a comment checkpoint naming the mutation. Do not add a production test flag.
+- [x] `pipeline-execution.test.ts` — `pipeline approve and reject stay isolated per branchKey` stays green.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` exits zero.
 
 ## Documentation updates
 

@@ -51,18 +51,18 @@ its fields without cross-reading `jarvis pipeline list`.
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` — `drives row navigation through the injected input hook` (updated) steps `j`/`k` across pipeline, stage, and run tree rows plus an unattributed row in pane order; fails pre-fix when navigation is run-only.
-- [ ] `tui-entry.test.tsx` — after refresh, `selectedNodeId` is the first selectable tree or unattributed row in pane order; fails pre-fix when selection still prefers a run outside the visible tree.
-- [ ] `tui-entry.test.tsx` — when a refresh drops the selected id from the selectable list, `selectedNodeId` clears and wait-state resets; fails pre-fix when stale pipeline/stage selection persists.
-- [ ] `tui-entry.test.tsx` — kill/pause controls no-op when a pipeline or stage row is selected; fails pre-fix when run steering ignores node kind.
-- [ ] `tui-entry.test.tsx` — programmatic `selectNode` (or renamed equivalent) with a pipeline or stage id updates `selectedNodeId`; fails pre-fix when only run ids are accepted.
-- [ ] `tui-monitor-lines.test.ts` — selecting a pipeline node yields right-pane lines for `pipelineId`, `name`, `project`, and `state` only; selecting a stage node yields `stageId`, branch (empty for `default`), and `status` only; fails pre-fix when the right pane always shows run workflow/outcome.
-- [ ] `tui-monitor-lines.test.ts` — selecting a run leaf under a stage preserves the existing workflow and outcome sections; fails pre-fix when tree run selection drops workflow detail.
-- [ ] `tui-monitor-lines.test.ts` — pipeline/stage selection clears or hides the wait/outcome panel; fails pre-fix when a prior run's wait state remains visible under a pipeline row.
-- [ ] `tui-monitor-lines.test.ts` — pinning tests include `Mutation checkpoint:` comments naming guard-inversion mutations for selectable-list composition and right-pane kind dispatch; inverting each named guard turns the corresponding pin RED.
-- [ ] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` stays green.
-- [ ] `tui-ink-monitor.test.tsx` — `drives row navigation through the injected input hook` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-entry.test.tsx` — `drives row navigation through the injected input hook` (updated) steps `j`/`k` across pipeline, stage, and run tree rows plus an unattributed row in pane order; fails pre-fix when navigation is run-only.
+- [x] `tui-entry.test.tsx` — after refresh, `selectedNodeId` is the first selectable tree or unattributed row in pane order; fails pre-fix when selection still prefers a run outside the visible tree.
+- [x] `tui-entry.test.tsx` — when a refresh drops the selected id from the selectable list, `selectedNodeId` clears and wait-state resets; fails pre-fix when stale pipeline/stage selection persists.
+- [x] `tui-entry.test.tsx` — kill/pause controls no-op when a pipeline or stage row is selected; fails pre-fix when run steering ignores node kind.
+- [x] `tui-entry.test.tsx` — programmatic `selectNode` (or renamed equivalent) with a pipeline or stage id updates `selectedNodeId`; fails pre-fix when only run ids are accepted.
+- [x] `tui-monitor-lines.test.ts` — selecting a pipeline node yields right-pane lines for `pipelineId`, `name`, `project`, and `state` only; selecting a stage node yields `stageId`, branch (empty for `default`), and `status` only; fails pre-fix when the right pane always shows run workflow/outcome.
+- [x] `tui-monitor-lines.test.ts` — selecting a run leaf under a stage preserves the existing workflow and outcome sections; fails pre-fix when tree run selection drops workflow detail.
+- [x] `tui-monitor-lines.test.ts` — pipeline/stage selection clears or hides the wait/outcome panel; fails pre-fix when a prior run's wait state remains visible under a pipeline row.
+- [x] `tui-monitor-lines.test.ts` — pinning tests include `Mutation checkpoint:` comments naming guard-inversion mutations for selectable-list composition and right-pane kind dispatch; inverting each named guard turns the corresponding pin RED.
+- [x] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` stays green.
+- [x] `tui-ink-monitor.test.tsx` — `drives row navigation through the injected input hook` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

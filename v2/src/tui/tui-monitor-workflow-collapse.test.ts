@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
+import {
+  buildWorkflowTableRows,
+  workflowCollapsedContextSuffix,
+  workflowRoleLabel,
+} from "./tui-monitor-workflow-collapse.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
@@ -49,10 +54,9 @@ function workflowRun(
 function monitorState(overrides: Partial<TuiMonitorState>): TuiMonitorState {
   return {
     runs: [],
-    selectedRunId: null,
+    selectedNodeId: null,
     waitState: { kind: "none" },
     steeringFeedback: null,
-    expandedWorkflowInvocationIds: [],
     ...overrides,
   };
 }
@@ -97,7 +101,7 @@ describe("workflow collapse rendering", () => {
       }),
     ];
 
-    const body = tableBodyLines(monitorState({ runs, selectedRunId: "run-review" }));
+    const body = tableBodyLines(monitorState({ runs, selectedNodeId: "run-review" }));
 
     expect(body).toHaveLength(1);
     expect(body[0]).toContain("run-review");
@@ -123,13 +127,17 @@ describe("workflow collapse rendering", () => {
       }),
     ];
 
-    const body = tableBodyLines(
-      monitorState({
-        runs,
-        selectedRunId: "run-review",
-        expandedWorkflowInvocationIds: [INVOCATION_ID],
-      }),
-    );
+    const tableRows = buildWorkflowTableRows(runs, runs, new Set([INVOCATION_ID]));
+    const body = tableRows.map((row) => {
+      const run = row.kind === "workflow-collapsed" ? row.representative : row.run;
+      const suffix =
+        row.kind === "workflow-collapsed"
+          ? workflowCollapsedContextSuffix(row.members)
+          : row.kind === "workflow-child"
+            ? workflowRoleLabel(row.run)
+            : "";
+      return `${run.runId} ${run.project} ${run.branch} ${run.status}${suffix}`;
+    });
 
     const implementLine = body.find((line) => line.includes("run-implement"));
     const reviewLine = body.find((line) => line.includes("run-review"));
@@ -169,7 +177,7 @@ describe("workflow collapse rendering", () => {
       }),
     ];
 
-    const body = tableBodyLines(monitorState({ runs, selectedRunId: "run-implement" }));
+    const body = tableBodyLines(monitorState({ runs, selectedNodeId: "run-implement" }));
     expect(body).toHaveLength(1);
     expect(body[0]).toContain("workflow-status:completed");
   });
@@ -195,7 +203,7 @@ describe("workflow collapse rendering", () => {
       }),
     ];
 
-    const body = tableBodyLines(monitorState({ runs, selectedRunId: "run-implement" }));
+    const body = tableBodyLines(monitorState({ runs, selectedNodeId: "run-implement" }));
     expect(body).toHaveLength(1);
     expect(body[0]).toContain("workflow-status:failed");
     expect(body[0]).not.toContain("workflow-status:completed");
@@ -228,7 +236,7 @@ describe("workflow collapse rendering", () => {
     });
 
     const filtered = filterMonitorRunsForLiveWindow(runs, { nowMs: FILTER_NOW_MS });
-    const body = tableBodyLines(monitorState({ runs: filtered, selectedRunId: "run-cap-0" }));
+    const body = tableBodyLines(monitorState({ runs: filtered, selectedNodeId: "run-cap-0" }));
     expect(body.filter((line) => line.includes("workflow-status:"))).toHaveLength(20);
   });
 });

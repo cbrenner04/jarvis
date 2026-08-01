@@ -5,8 +5,8 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
-import { firstSelectableRunId, monitorSelectableRuns } from "./tui-monitor-lines.ts";
-import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
+import { firstSelectableNodeId, mergePipelineSnapshots, monitorSelectableNodeIds } from "./tui-monitor-lines.ts";
+import { isExpandablePipelineNodeId, buildMonitorPipelineTreeJoin } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -41,7 +41,7 @@ async function openMonitor(
   if (deps.viewHost !== undefined) {
     return deps.viewHost.openMonitor(state, controls);
   }
-  return openInkMonitor(state, controls, deps.inkRender);
+  return openInkMonitor(state, controls, deps.inkRender, deps.nowMs);
 }
 
 function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefreshScheduler {
@@ -61,13 +61,19 @@ function buildWaitStateForSelection(runId: string | null): TuiWaitState {
   return runId === null ? { kind: "none" } : { kind: "pending", runId };
 }
 
+function selectedRunIdFromState(state: TuiMonitorState): string | null {
+  const nodeId = state.selectedNodeId;
+  if (nodeId === null) return null;
+  return state.runs.some((run) => run.runId === nodeId) ? nodeId : null;
+}
+
 function emptyMonitorState(): TuiMonitorState {
   return {
     runs: [],
-    selectedRunId: null,
+    selectedNodeId: null,
     waitState: { kind: "none" },
     steeringFeedback: null,
-    expandedWorkflowInvocationIds: [],
+    expandedPipelineNodeIds: [],
     refreshIntervalLabel: tuiRefreshIntervalLabel(),
     pipelineSnapshotsBySocketPath: {},
   };
@@ -110,6 +116,7 @@ function steeringFeedbackFromError(error: unknown): string {
 
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */
 export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
+  const nowMsFn = deps.nowMs ?? (() => Date.now());
   const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
   const refreshScheduler = deps.refreshScheduler ?? createRefreshScheduler();
   const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
@@ -148,7 +155,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     void (async () => {
       try {
         const result = await owner.wait(runId);
-        if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+        if (waitToken !== activeWaitToken || selectedRunIdFromState(currentState) !== runId) return;
         const readyState = { kind: "ready" as const, runId, result };
         lastReadyByRunId.set(runId, readyState);
         setState({
@@ -156,7 +163,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           waitState: readyState,
         });
       } catch {
-        if (waitToken !== activeWaitToken || currentState.selectedRunId !== runId) return;
+        if (waitToken !== activeWaitToken || selectedRunIdFromState(currentState) !== runId) return;
         const lastReady = lastReadyByRunId.get(runId);
         setState({
           ...currentState,
@@ -166,11 +173,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     })();
   };
 
-  const setSelection = (runId: string | null): void => {
+  const setSelection = (nodeId: string | null): void => {
     activeWaitToken += 1;
+    const runId = nodeId !== null && currentState.runs.some((run) => run.runId === nodeId) ? nodeId : null;
     setState({
       ...currentState,
-      selectedRunId: runId,
+      selectedNodeId: nodeId,
       waitState: buildWaitStateForSelection(runId),
       steeringFeedback: null,
     });
@@ -183,11 +191,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>,
     rewaitOnSuccess: boolean,
   ): void => {
-    const runId = currentState.selectedRunId;
-    if (runId === null) {
+    const runId = selectedRunIdFromState(currentState);
+    if (currentState.selectedNodeId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
       return;
     }
+    if (runId === null) return;
 
     const owner = getOwner(runId);
     if (!owner) {
@@ -198,7 +207,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     void (async () => {
       try {
         await perform(runId, owner);
-        if (currentState.selectedRunId !== runId) return;
+        if (selectedRunIdFromState(currentState) !== runId) return;
         if (rewaitOnSuccess) {
           activeWaitToken += 1;
           lastReadyByRunId.delete(runId);
@@ -212,7 +221,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         }
         setState({ ...currentState, steeringFeedback: null });
       } catch (error) {
-        if (currentState.selectedRunId !== runId) return;
+        if (selectedRunIdFromState(currentState) !== runId) return;
         setState({
           ...currentState,
           steeringFeedback: steeringFeedbackFromError(error),
@@ -234,6 +243,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
     // Close clients for sockets no longer live
     const currentSockets = new Set(clients.keys());
+    let snapshotsChanged = false;
     let selectedRunOwnerDropped = false;
     for (const socketPath of currentSockets) {
       if (!allSockets.has(socketPath)) {
@@ -241,22 +251,50 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         client?.close();
         clients.delete(socketPath);
 
-        // Track if the dropped connection owned the selected run
-        if (currentState.selectedRunId !== null && getOwner(currentState.selectedRunId) === client) {
+        if (currentState.pipelineSnapshotsBySocketPath?.[socketPath] !== undefined) {
+          snapshotsChanged = true;
+        }
+
+        const selectedRunId = selectedRunIdFromState(currentState);
+        if (selectedRunId !== null && getOwner(selectedRunId) === client) {
           selectedRunOwnerDropped = true;
         }
       }
     }
 
-    // Clear selection if the owning daemon was dropped
-    if (selectedRunOwnerDropped) {
+    const nextSnapshots = snapshotsChanged
+      ? Object.fromEntries(
+          Object.entries(currentState.pipelineSnapshotsBySocketPath ?? {}).filter(([path]) => clients.has(path)),
+        )
+      : currentState.pipelineSnapshotsBySocketPath;
+
+    const selectedNodeId = currentState.selectedNodeId;
+    const selectedRunId = selectedRunIdFromState(currentState);
+    const clearSelection =
+      selectedRunOwnerDropped ||
+      (selectedNodeId !== null &&
+        ((selectedRunId !== null && getOwner(selectedRunId) === undefined) ||
+          !monitorSelectableNodeIds(
+            {
+              ...currentState,
+              pipelineSnapshotsBySocketPath: nextSnapshots ?? currentState.pipelineSnapshotsBySocketPath ?? {},
+            },
+            nowMsFn(),
+          ).includes(selectedNodeId)));
+
+    if (clearSelection) {
       activeWaitToken += 1;
       setState({
         ...currentState,
-        selectedRunId: null,
+        selectedNodeId: null,
         waitState: { kind: "none" },
         steeringFeedback: null,
+        ...(snapshotsChanged && nextSnapshots !== undefined
+          ? { pipelineSnapshotsBySocketPath: nextSnapshots }
+          : {}),
       });
+    } else if (snapshotsChanged && nextSnapshots !== undefined) {
+      setState({ ...currentState, pipelineSnapshotsBySocketPath: nextSnapshots });
     }
 
     // Add clients for newly discovered sockets
@@ -327,38 +365,41 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         if (initial && allClientsFailed) throw firstError;
 
         const { rows: mergedRuns, owners } = mergeRunLists(listResults);
-        const runs = filterMonitorRunsForLiveWindow(mergedRuns, { nowMs: deps.nowMs?.() ?? Date.now() });
         runOwners = owners;
 
         if (initial) {
           const draftState: TuiMonitorState = {
-            runs,
-            selectedRunId: null,
+            runs: mergedRuns,
+            selectedNodeId: null,
             waitState: { kind: "none" },
             steeringFeedback: null,
-            expandedWorkflowInvocationIds: [],
+            expandedPipelineNodeIds: [],
             pipelineSnapshotsBySocketPath,
           };
-          const runId = firstSelectableRunId(draftState);
+          const nodeId = firstSelectableNodeId(draftState, nowMsFn());
+          const runId = nodeId !== null && mergedRuns.some((run) => run.runId === nodeId) ? nodeId : null;
           currentState = {
             ...draftState,
-            selectedRunId: runId,
+            selectedNodeId: nodeId,
             waitState: buildWaitStateForSelection(runId),
           };
           return;
         }
 
-        const selectedRunId = currentState.selectedRunId;
+        const selectedNodeId = currentState.selectedNodeId;
         if (
-          selectedRunId !== null &&
-          !monitorSelectableRuns({ ...currentState, runs }).some((run) => run.runId === selectedRunId)
+          selectedNodeId !== null &&
+          !monitorSelectableNodeIds(
+            { ...currentState, runs: mergedRuns, pipelineSnapshotsBySocketPath },
+            nowMsFn(),
+          ).includes(selectedNodeId)
         ) {
           setState({
-            runs,
-            selectedRunId: null,
+            runs: mergedRuns,
+            selectedNodeId: null,
             waitState: { kind: "none" },
             steeringFeedback: null,
-            expandedWorkflowInvocationIds: currentState.expandedWorkflowInvocationIds,
+            expandedPipelineNodeIds: currentState.expandedPipelineNodeIds ?? [],
             pipelineSnapshotsBySocketPath,
           });
           activeWaitToken += 1;
@@ -367,7 +408,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
         setState({
           ...currentState,
-          runs,
+          runs: mergedRuns,
           pipelineSnapshotsBySocketPath,
         });
       } while (refreshQueued);
@@ -391,47 +432,51 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
     await refreshRuns(true);
 
-    if (currentState.selectedRunId !== null) {
-      setSelection(currentState.selectedRunId);
+    if (currentState.selectedNodeId !== null) {
+      setSelection(currentState.selectedNodeId);
     }
 
     session = await openMonitor(
       monitorShellState(currentState, terminalSizeFn),
       {
-        selectRun(runId) {
-          if (!monitorSelectableRuns(currentState).some((run) => run.runId === runId)) return;
-          if (currentState.selectedRunId === runId) return;
-          setSelection(runId);
+        selectNode(nodeId) {
+          if (!monitorSelectableNodeIds(currentState, nowMsFn()).includes(nodeId)) return;
+          if (currentState.selectedNodeId === nodeId) return;
+          setSelection(nodeId);
         },
         selectNextRun() {
-          const rows = monitorSelectableRuns(currentState);
-          if (rows.length === 0) return;
-          const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
-          const next = rows[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, rows.length - 1)];
-          if (next !== undefined && next.runId !== currentState.selectedRunId) setSelection(next.runId);
+          const ids = monitorSelectableNodeIds(currentState, nowMsFn());
+          if (ids.length === 0) return;
+          const selectedIndex = ids.findIndex((id) => id === currentState.selectedNodeId);
+          const next = ids[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, ids.length - 1)];
+          if (next !== undefined && next !== currentState.selectedNodeId) setSelection(next);
         },
         selectPreviousRun() {
-          const rows = monitorSelectableRuns(currentState);
-          if (rows.length === 0) return;
-          const selectedIndex = rows.findIndex((run) => run.runId === currentState.selectedRunId);
-          const previous = rows[selectedIndex < 0 ? rows.length - 1 : Math.max(selectedIndex - 1, 0)];
-          if (previous !== undefined && previous.runId !== currentState.selectedRunId) setSelection(previous.runId);
+          const ids = monitorSelectableNodeIds(currentState, nowMsFn());
+          if (ids.length === 0) return;
+          const selectedIndex = ids.findIndex((id) => id === currentState.selectedNodeId);
+          const previous = ids[selectedIndex < 0 ? ids.length - 1 : Math.max(selectedIndex - 1, 0)];
+          if (previous !== undefined && previous !== currentState.selectedNodeId) setSelection(previous);
         },
         toggleSelectedWorkflowExpansion() {
-          const selectedRunId = currentState.selectedRunId;
-          if (selectedRunId === null) return;
-          const selectedRun = currentState.runs.find((run) => run.runId === selectedRunId);
-          const invocationId = selectedRun?.workflow?.invocationId;
-          if (invocationId === undefined) return;
-          const expanded = new Set(currentState.expandedWorkflowInvocationIds);
-          if (expanded.has(invocationId)) {
-            expanded.delete(invocationId);
+          const selectedNodeId = currentState.selectedNodeId;
+          if (selectedNodeId === null) return;
+          const snapshots = mergePipelineSnapshots(currentState.pipelineSnapshotsBySocketPath);
+          // Mutation checkpoint: short-circuiting this guard before the toggle body must turn pipeline/stage expansion RED.
+          const { pipelineNodes } = buildMonitorPipelineTreeJoin(snapshots, currentState.runs, {
+            nowMs: nowMsFn(),
+          });
+          if (!isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return;
+
+          const expanded = new Set(currentState.expandedPipelineNodeIds ?? []);
+          if (expanded.has(selectedNodeId)) {
+            expanded.delete(selectedNodeId);
           } else {
-            expanded.add(invocationId);
+            expanded.add(selectedNodeId);
           }
           setState({
             ...currentState,
-            expandedWorkflowInvocationIds: [...expanded],
+            expandedPipelineNodeIds: [...expanded],
             steeringFeedback: null,
           });
         },

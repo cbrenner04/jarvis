@@ -57,14 +57,14 @@ flat workflow table from globally window-filtered runs.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` — with pipeline snapshots and stage-matched runs, left-pane derivation emits pipeline → stage → run rows with increasing `depth` and places unmatched runs only in the unattributed segment after tree rows; fails pre-fix when derivation still mirrors flat `monitorLeftPaneTableRows` only.
-- [ ] `tui-monitor-lines.test.ts` — with an expanded pipeline (stage and run visible), left-pane derivation maps `node.depth` to indent column slots (pipeline `0`, stage `1`, run leaf `2`); fails pre-fix when row helpers ignore depth or emit a single flat indent.
-- [ ] `tui-monitor-lines.test.ts` — a run matched to a pipeline stage is excluded from the unattributed segment even when it would fail the 1h/20-row terminal window; fails pre-fix when `tui-entry.tsx` globally pre-filters runs before tree build.
-- [ ] `tui-monitor-lines.test.ts` — merged `pipelineSnapshotsBySocketPath` from two socket paths concatenates both daemons' `pipelines` arrays in stable socket-path order; fails pre-fix when snapshots are ignored.
-- [ ] `tui-monitor-lines.test.ts` — pinning tests include `Mutation checkpoint:` comments naming guard-inversion mutations for global pre-filter removal and tree-row source selection; inverting each named guard turns the corresponding pin RED.
-- [ ] `tui-ink-monitor.test.tsx` — left-pane row source reads from tree derivation (pipeline/stage/run node ids present in render props or equivalent hook output); fails pre-fix when the ink shell still calls flat `monitorLeftPaneTableRows` only for the tree segment.
-- [ ] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` and `drives row navigation through the injected input hook` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-lines.test.ts` — with pipeline snapshots and stage-matched runs, left-pane derivation emits pipeline → stage → run rows with increasing `depth` and places unmatched runs only in the unattributed segment after tree rows; fails pre-fix when derivation still mirrors flat `monitorLeftPaneTableRows` only.
+- [x] `tui-monitor-lines.test.ts` — with an expanded pipeline (stage and run visible), left-pane derivation maps `node.depth` to indent column slots (pipeline `0`, stage `1`, run leaf `2`); fails pre-fix when row helpers ignore depth or emit a single flat indent.
+- [x] `tui-monitor-lines.test.ts` — a run matched to a pipeline stage is excluded from the unattributed segment even when it would fail the 1h/20-row terminal window; fails pre-fix when `tui-entry.tsx` globally pre-filters runs before tree build.
+- [x] `tui-monitor-lines.test.ts` — merged `pipelineSnapshotsBySocketPath` from two socket paths concatenates both daemons' `pipelines` arrays in stable socket-path order; fails pre-fix when snapshots are ignored.
+- [x] `tui-monitor-lines.test.ts` — pinning tests include `Mutation checkpoint:` comments naming guard-inversion mutations for global pre-filter removal and tree-row source selection; inverting each named guard turns the corresponding pin RED.
+- [x] `tui-ink-monitor.test.tsx` — left-pane row source reads from tree derivation (pipeline/stage/run node ids present in render props or equivalent hook output); fails pre-fix when the ink shell still calls flat `monitorLeftPaneTableRows` only for the tree segment.
+- [x] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` and `drives row navigation through the injected input hook` stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -17,12 +17,12 @@ export type TuiWaitState =
 /** Operator-visible monitor snapshot. */
 export type TuiMonitorState = {
   runs: readonly DaemonListRunRow[];
-  selectedRunId: string | null;
+  selectedNodeId: string | null;
   waitState: TuiWaitState;
   /** Session-local steering feedback; cleared on selection change. */
   steeringFeedback: string | null;
-  /** Workflow invocations whose constituent runs are expanded in the run table. */
-  expandedWorkflowInvocationIds: readonly string[];
+  /** Pipeline tree nodes expanded in the left-pane tree. */
+  expandedPipelineNodeIds?: readonly string[];
   /** Session-local left/right divider nudge; not persisted. */
   dividerOffset?: number;
   /** Terminal width for shell layout; defaults when omitted. */
@@ -41,13 +41,13 @@ export type TuiMonitorState = {
  * transport failures surface inline without closing the monitor.
  */
 export type TuiMonitorControls = {
-  /** Change selection to the given run when present in the current list. */
-  selectRun(runId: string): void;
+  /** Change selection to the given tree or unattributed row when present in the selectable list. */
+  selectNode(nodeId: string): void;
   /** Move to the next selectable row in display order. */
   selectNextRun(): void;
   /** Move to the previous selectable row in display order. */
   selectPreviousRun(): void;
-  /** Expand or collapse the selected workflow invocation's constituent runs. */
+  /** Expand or collapse the selected pipeline or stage tree node. */
   toggleSelectedWorkflowExpansion(): void;
   /** Signals pause via daemon `pause`. */
   pauseSelected(): void;

@@ -2,12 +2,17 @@ import { createElement, Fragment, type ReactElement, type ReactNode } from "reac
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
+  buildPipelineMonitorTreeRow,
+  buildStageMonitorTreeRow,
+  type MonitorPipelineTreeDisplayNode,
+} from "./tui-monitor-pipeline-tree.ts";
+import {
   countActiveLiveRuns,
   livenessTone,
   type MonitorLineRow,
   type MonitorSegmentTone,
   monitorLeftPaneQueueRows,
-  monitorLeftPaneTableRows,
+  monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
@@ -15,10 +20,12 @@ import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./t
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {
   computeShellLayout,
-  listMonitorTreeCells,
+  listMonitorTreeCellsAtDepth,
   monitorTreeRun,
   nudgeDividerOffset,
+  TREE_COLUMN_WIDTHS,
   type TreeColumnId,
+  visibleColumns,
 } from "./tui-shell-layout.ts";
 
 type MonitorText = (props: { children?: string; color?: string; key?: number }) => ReactElement;
@@ -60,15 +67,39 @@ function renderSegmentRow(line: MonitorLineRow, Text: MonitorText, rowKey: numbe
   return createElement(Fragment, { key: rowKey }, ...cells);
 }
 
-function renderGridRow(
-  tableRow: WorkflowTableRow,
-  selectedRunId: string | null,
+function splitPrebuiltTreeRow(row: string, leftPaneWidth: number): { column: TreeColumnId; text: string }[] {
+  let offset = 0;
+  return visibleColumns(leftPaneWidth).map((column) => {
+    const width = TREE_COLUMN_WIDTHS[column];
+    const text = row.slice(offset, offset + width);
+    offset += width;
+    return { column, text };
+  });
+}
+
+function renderPrebuiltTreeRow(
+  row: string,
   leftPaneWidth: number,
   Text: MonitorText,
   rowKey: number,
   RowBox?: MonitorBox,
 ): ReactElement {
-  const cells = listMonitorTreeCells(tableRow, selectedRunId, leftPaneWidth);
+  const cells = splitPrebuiltTreeRow(row, leftPaneWidth);
+  const rendered = cells.map((cell, index) => createElement(Text, { key: index }, cell.text));
+  if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...rendered);
+  return createElement(Fragment, { key: rowKey }, ...rendered);
+}
+
+function renderRunGridRow(
+  tableRow: WorkflowTableRow,
+  selectedNodeId: string | null,
+  leftPaneWidth: number,
+  depth: number,
+  Text: MonitorText,
+  rowKey: number,
+  RowBox?: MonitorBox,
+): ReactElement {
+  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth);
   const rendered = cells.map((cell, index) => {
     const tone = gridCellTone(cell.column, tableRow);
     const props: { key: number; color?: string } = { key: index };
@@ -77,6 +108,36 @@ function renderGridRow(
   });
   if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...rendered);
   return createElement(Fragment, { key: rowKey }, ...rendered);
+}
+
+function renderTreeRow(
+  treeRow: MonitorPipelineTreeDisplayNode,
+  selectedNodeId: string | null,
+  leftPaneWidth: number,
+  Text: MonitorText,
+  rowKey: number,
+  RowBox?: MonitorBox,
+): ReactElement {
+  switch (treeRow.kind) {
+    case "pipeline":
+      return renderPrebuiltTreeRow(
+        buildPipelineMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
+        leftPaneWidth,
+        Text,
+        rowKey,
+        RowBox,
+      );
+    case "stage":
+      return renderPrebuiltTreeRow(
+        buildStageMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
+        leftPaneWidth,
+        Text,
+        rowKey,
+        RowBox,
+      );
+    case "run":
+      return renderRunGridRow(treeRow.tableRow, selectedNodeId, leftPaneWidth, treeRow.depth, Text, rowKey, RowBox);
+  }
 }
 
 function renderSegmentRows(
@@ -111,24 +172,37 @@ export function MonitorDock({ children }: { children?: ReactNode }): ReactElemen
   return createElement(Fragment, null, children);
 }
 
+/** Left-pane tree derivation used by the ink shell; exported for tests. */
+export function monitorLeftPaneContentRows(state: TuiMonitorState, nowMs: number) {
+  const { columns, rows } = shellTerminalSize(state);
+  const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
+  return monitorLeftPaneTreeRows(state, layout, nowMs);
+}
+
 function renderLeftPaneContent(
   state: TuiMonitorState,
   leftPaneWidth: number,
   Text: MonitorText,
   RowBox: MonitorBox | undefined,
+  nowMs: number,
 ): ReactElement[] {
-  const tableRows = monitorLeftPaneTableRows(state);
-  const rows: ReactElement[] = [];
-  if (tableRows.length === 0) {
-    rows.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
+  const { treeRows, unattributedRows } = monitorLeftPaneContentRows(state, nowMs);
+  const rendered: ReactElement[] = [];
+  if (treeRows.length === 0 && unattributedRows.length === 0) {
+    rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
   } else {
-    for (const [index, tableRow] of tableRows.entries()) {
-      rows.push(renderGridRow(tableRow, state.selectedRunId, leftPaneWidth, Text, index, RowBox));
+    for (const [index, treeRow] of treeRows.entries()) {
+      rendered.push(renderTreeRow(treeRow, state.selectedNodeId, leftPaneWidth, Text, index, RowBox));
+    }
+    for (const [index, tableRow] of unattributedRows.entries()) {
+      rendered.push(
+        renderRunGridRow(tableRow, state.selectedNodeId, leftPaneWidth, 0, Text, treeRows.length + index, RowBox),
+      );
     }
   }
   const queueRows = monitorLeftPaneQueueRows(state);
-  rows.push(...renderSegmentRows(queueRows, Text, RowBox, rows.length));
-  return rows;
+  rendered.push(...renderSegmentRows(queueRows, Text, RowBox, rendered.length));
+  return rendered;
 }
 
 function renderDockContent(state: TuiMonitorState, Text: MonitorText): ReactElement[] {
@@ -143,7 +217,12 @@ function renderDockContent(state: TuiMonitorState, Text: MonitorText): ReactElem
 }
 
 /** Ink tree for one monitor snapshot; shared by the session host and render tests. */
-export function createMonitorDisplay(state: TuiMonitorState, Text: MonitorText, Box?: MonitorBox): ReactElement {
+export function createMonitorDisplay(
+  state: TuiMonitorState,
+  Text: MonitorText,
+  Box?: MonitorBox,
+  nowMs = Date.now(),
+): ReactElement {
   const { columns, rows } = shellTerminalSize(state);
   const dividerOffset = state.dividerOffset ?? 0;
   const layout = computeShellLayout(columns, rows, dividerOffset);
@@ -152,8 +231,9 @@ export function createMonitorDisplay(state: TuiMonitorState, Text: MonitorText, 
     layout.layoutMode === "split" ? layout.leftWidth : columns,
     Text,
     Box,
+    nowMs,
   );
-  const rightContent = renderSegmentRows(monitorRightPaneSegmentRows(state), Text, Box);
+  const rightContent = renderSegmentRows(monitorRightPaneSegmentRows(state, nowMs), Text, Box);
   const dockContent = renderDockContent(state, Text);
 
   const leftPane = createElement(
@@ -239,13 +319,15 @@ export async function openInkMonitor(
   initialState: TuiMonitorState,
   controls: TuiMonitorControls,
   inkRender?: InkRender | InjectedInkUi,
+  nowMs?: () => number,
 ): Promise<TuiMonitorSession> {
   const { renderFn, Text, Box, useInput: inkUseInput } = await loadInkUi(inkRender);
   const useInput: InkUseInput = inkUseInput ?? (() => {});
   const sessionState = { current: mergeMonitorSessionState(initialState, initialState) };
+  const clock = nowMs ?? (() => Date.now());
 
   const MonitorDisplay = ({ state }: { state: TuiMonitorState }): ReactElement =>
-    createMonitorDisplay(state, Text, Box);
+    createMonitorDisplay(state, Text, Box, clock());
 
   const MonitorSessionRoot = (): ReactElement => {
     useInput((input, key) => {
@@ -266,6 +348,7 @@ export async function openInkMonitor(
         return;
       }
       if (input === "e") {
+        // Mutation checkpoint: skipping this `e` binding in tui-ink-monitor.tsx must turn pipeline/stage expansion RED.
         controls.toggleSelectedWorkflowExpansion();
         return;
       }

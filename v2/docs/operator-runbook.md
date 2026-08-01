@@ -499,9 +499,7 @@ design; on an already-loaded operator machine, a gate failure is worth one re-ru
 it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is the suspected cause
 (see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
 
-A red ready gate is handed back to the agent for up to three bounded repair iterations. Each repair
-consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair
-attempt stays red, the run settles `failed` with `ready_gate_failed`, `resumable: true`, and terminal
+A red ready gate first runs project autofix once per repair entry (after the repair fence freezes, before any repair agent): configured `fixCommand` or built-in `bun run fix`, fence-validated commit with `Jarvis-Ready-Gate: autofix`, republish, and re-gate — without charging repair iterations or the iteration budget. Autofix failure settles retryable `completion_commit_failed` without agent repair; a still-red gate after successful autofix enters up to three bounded repair iterations. Each repair consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair attempt stays red, the run settles `failed` with `ready_gate_failed`, `resumable: true`, and terminal
 `loop_finished` evidence `readyGateOrigin: repair_budget_exhausted` plus `readyGateRepairCount: 3`.
 That row retains its publication checkpoint (completion attribution and draft-PR evidence) and admits
 `jarvis run resume` on a gate-only finalization tail — no write-agent re-entry and no additional
@@ -1178,14 +1176,6 @@ Operators add bullets here; delete when fixed.
   a fresh implement run. Seed: `v2/spec/seeds/mutation-verification-artifact-reached-the-completion-commit.md`.
   Cleanup: delete this bullet when it ships.
 
-- **Formatter-only red gates exhaust the repair budget (2026-07-30):** two implement attempts on
-  `pipeline-durable-approval-and-reopen-state` settled `ready_gate_failed` on biome formatting
-  diffs; bounded repair never runs `bun run fix`. Recovery both times:
-  `cd <worktree> && bun run fix`, then `jarvis run resume <row-id>` — the resume commits the
-  pending changes under the retained attribution and re-gates. One of those gates also had a real
-  `noExcessiveCognitiveComplexity` error, which is genuine agent work (extract helpers). Seed:
-  `v2/spec/seeds/gate-repair-does-not-run-the-formatter.md`. Cleanup: delete when it ships.
-
 - **`--abandon` refuses over a ready PR and over a dead keyed socket (2026-07-30):** retiring a
   wedged workspace after the executable was rebuilt hits two guards in sequence —
   `Cannot abandon: no daemon is listening` (the digest-keyed socket moved; fix with
@@ -1445,9 +1435,9 @@ Operators add bullets here; delete when fixed.
 - **Every implement run has committed a red gate (2026-07-14):** four for four this session, all
   trivially auto-fixable (import ordering, a formatter violation, one fabricated test assertion).
   The full-tier gate catches them, but a red gate is terminal: the run publishes a draft PR over
-  the broken commit and stops. Until `red-gate-feeds-back-to-the-agent` ships, expect to run
-  `bun run fix` and re-gate by hand on every implement PR before merging. Seed:
-  `red-gate-does-not-feed-back-to-the-agent`. Cleanup: delete when it ships.
+  the broken commit and stops. v2 now runs autofix before bounded repair on red gates; formatter-only
+  failures should clear without agent turns. Genuine non-autofixable failures still enter repair.
+  Seed: `red-gate-does-not-feed-back-to-the-agent`. Cleanup: delete when it ships.
 
 - **A terminal run id does not mean the workflow is done (2026-07-14):** `jarvis run wait <id>`
   returns when *that run* goes terminal, but the workflow continues under a **new run id** (the

@@ -13,6 +13,8 @@ export type CompletionCommitInput = {
   title: string;
   /** Terminal completion: create a new commit even when the index tree matches HEAD. */
   forceDistinctCommit?: boolean;
+  /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
+  readyGateAttribution?: "autofix";
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
@@ -88,7 +90,9 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
           baseHead: head,
           tree,
           branchRef: await runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
-          message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}`,
+          message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}${
+            input.readyGateAttribution === "autofix" ? "\n\nJarvis-Ready-Gate: autofix" : ""
+          }`,
           agent,
           timestamp: new Date().toISOString(),
         };

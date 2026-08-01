@@ -48,25 +48,25 @@ Formatter-only `bun run check` failures exhaust bounded repair iterations becaus
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `ready-gate repair autofix greens a formatter-only red gate without
+- [x] `write-loop.test.ts` test `ready-gate repair autofix greens a formatter-only red gate without
       repair iterations` drives a red gate whose only fix is formatting, asserts autofix runs once,
       the gate re-runs green, publication succeeds (`outcome.kind === "success"`, no
       `ready_gate_failed`), zero `ready_gate_repair` events, zero repair agent invocations, and
       `repairAttempt` / `iterationsConsumed` unchanged by autofix; it fails against the pre-fix code.
-- [ ] `write-loop.test.ts` test `ready-gate repair autofix runs once then preserves full agent repair
+- [x] `write-loop.test.ts` test `ready-gate repair autofix runs once then preserves full agent repair
       budget` drives a red gate with both a formatter diff and a non-autofixable lint error, asserts
       autofix runs exactly once, `repairAttempt` and `iterationsConsumed` are unchanged by autofix,
       then exactly three `ready_gate_repair` events when all agent attempts stay red; it fails
       against the pre-fix code.
-- [ ] `write-loop.test.ts` test `ready-gate repair autofix rejects out-of-scope formatter changes`
+- [x] `write-loop.test.ts` test `ready-gate repair autofix rejects out-of-scope formatter changes`
       freezes the fence, runs autofix that would format a path outside the allowset, returns
       `completion_commit_failed` naming that path before repair republish, and fails against the
       pre-fix code.
-- [ ] `write-loop.test.ts` test `ready-gate repair autofix greens formatter-only red gate on
+- [x] `write-loop.test.ts` test `ready-gate repair autofix greens formatter-only red gate on
       gate-only resume without agent` drives `publishWithReadyRepair` with `maxIterations: 0` and
       formatter-only dirt, asserts autofix runs once, the gate re-gates green, publication succeeds,
       and no repair agent runs; it fails against the pre-fix code.
-- [ ] `write-loop.test.ts` test `ready-gate repair autofix invokes configured fixCommand` asserts
+- [x] `write-loop.test.ts` test `ready-gate repair autofix invokes configured fixCommand` asserts
       a registered-project `fixCommand` runs instead of built-in `bun run fix`; it fails against the
       pre-fix code.
 - [ ] In `write-loop.test.ts`, the documented autofix-once guard mutation on
@@ -75,24 +75,24 @@ Formatter-only `bun run check` failures exhaust bounded repair iterations becaus
 - [ ] In `write-loop.test.ts`, the documented allowset-filter mutation on
       `ready-gate repair autofix rejects out-of-scope formatter changes` turns that test RED.
       (Manual)
-- [ ] `write-loop.test.ts` tests `deadline-killed gate (exit 124) skips repair and emits
+- [x] `write-loop.test.ts` tests `deadline-killed gate (exit 124) skips repair and emits
       ready_gate_timeout` and `deadline-killed gate (marker in output) skips repair and emits
       ready_gate_timeout` stay green.
-- [ ] `write-loop.test.ts` `ready-gate repair fence` describe block stays green.
-- [ ] `v2/docs/write-behavior.md` documents autofix once per `publishWithReadyRepair` repair entry
+- [x] `write-loop.test.ts` `ready-gate repair fence` describe block stays green.
+- [x] `v2/docs/write-behavior.md` documents autofix once per `publishWithReadyRepair` repair entry
       after fence freeze and before the first repair agent, repair-budget exclusion, and
       `Jarvis-Ready-Gate: autofix` commit attribution; updates the canonical ready-gate repair
       fence paragraph and deduplicates the duplicated block (~429–430).
-- [ ] `v2/docs/operator-runbook.md` ready-gate repair prose (~502) documents autofix-first ordering
+- [x] `v2/docs/operator-runbook.md` ready-gate repair prose (~502) documents autofix-first ordering
       and repair-budget exclusion; deletes or updates stale manual-fix guidance at ~1181
       (`Formatter-only red gates exhaust the repair budget`), ~1449 (pre-`red-gate-feeds-back` hand
       `bun run fix`), and any remaining "run `bun run fix` and re-gate by hand" stopgap.
-- [ ] `v2/docs/v1-behaviors.md` records v2 ready-gate-repair autofix (once per repair entry, before
+- [x] `v2/docs/v1-behaviors.md` records v2 ready-gate-repair autofix (once per repair entry, before
       agent repair, fence-validated commit, no repair-budget charge) and its analogy to v1
       completion-gate autofix in `runReadyAndCommit` — not v1 bounded repair.
-- [ ] `v2/docs/workflow-runner.md` ready-gate repair paragraph documents autofix-first ordering or
+- [x] `v2/docs/workflow-runner.md` ready-gate repair paragraph documents autofix-first ordering or
       cross-links `write-behavior.md` for the same contract.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

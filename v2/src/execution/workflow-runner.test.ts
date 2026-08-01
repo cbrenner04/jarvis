@@ -2590,13 +2590,14 @@ describe("executeWorkflow completion publication", () => {
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
         readyFinalizer: async () => {
           gateCalls += 1;
-          if (gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
+          if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "tests failed");
         },
       });
       expect(result.kind).toBe("complete");
-      expect(gateCalls).toBe(2);
+      expect(gateCalls).toBe(3);
       expect(logSink.getEventsForRun(result.runId)).toContainEqual({
         kind: "ready_gate_repair",
         attempt: 1,
@@ -2627,6 +2628,7 @@ describe("executeWorkflow completion publication", () => {
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
         readyFinalizer: async () => {
           gateCalls += 1;
           throw new ReadyGateError("bun run ready", 2, `failure ${gateCalls}`);
@@ -2635,7 +2637,7 @@ describe("executeWorkflow completion publication", () => {
       expect(result.kind).toBe("ready_gate_failed");
       expect(result.resumable).toBe(true);
       expect(invocations).toBe(5);
-      expect(gateCalls).toBe(4);
+      expect(gateCalls).toBe(5);
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
       const run = store.loadRun(result.runId);
@@ -2744,15 +2746,16 @@ describe("executeWorkflow completion publication", () => {
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
         readyFinalizer: async () => {
           inScopeGateCalls += 1;
-          if (inScopeGateCalls === 1) {
+          if (inScopeGateCalls <= 2) {
             throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
           }
         },
       });
       expect(inScope.kind).toBe("complete");
-      expect(inScopeGateCalls).toBe(2);
+      expect(inScopeGateCalls).toBe(3);
       expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
         { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
       ]);
@@ -2875,13 +2878,14 @@ describe("executeWorkflow completion publication", () => {
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
         readyFinalizer: async () => {
           gateCalls += 1;
           if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "red");
         },
       });
       expect(result.kind).toBe("complete");
-      expect(result.iterationsConsumed).toBe(4);
+      expect(result.iterationsConsumed).toBe(3);
     });
   });
 
@@ -7046,9 +7050,10 @@ describe("executeWorkflow review dispatch", () => {
             if (finalizerCalls === 1) {
               throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
             }
-            if (finalizerCalls === 2) throw new ReadyGateError("bun run ready", 1, "still red");
+            if (finalizerCalls <= 3) throw new ReadyGateError("bun run ready", 1, "still red");
             return undefined;
           },
+          runFixCommand: async () => {},
           mutationRepair: {
             bindings: [
               {
@@ -7068,7 +7073,7 @@ describe("executeWorkflow review dispatch", () => {
         });
 
         expect(outcome).toMatchObject({ ok: true });
-        expect(finalizerCalls).toBe(3);
+        expect(finalizerCalls).toBe(4);
         expect(store.loadRun(reviewRunId)?.status).toBe("completed");
         expect(prompts).toHaveLength(2);
         expect(prompts[0]).toContain("Mutation: operator-flip: === → !==");

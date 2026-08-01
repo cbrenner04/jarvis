@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  FixCommandError,
+  parsePackageManagerRunScript,
+  runFixCommandSync,
+} from "../../shared/fix-command.ts";
 import { classifyChangedPaths, type ScopedTests } from "../../scripts/ci-test-scope.ts";
 import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
@@ -120,12 +123,7 @@ export type RunReadyAndCommitOpts = {
   commitPostVerification?: (cwd: string, agentLabel: string) => void;
 };
 
-export class FixCommandError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "FixCommandError";
-  }
-}
+export { FixCommandError, parsePackageManagerRunScript };
 
 export class ReadyCommandError extends Error {
   constructor(message: string) {
@@ -197,51 +195,6 @@ function readPorcelain(cwd: string): string {
   }).trim();
 }
 
-const PACKAGE_MANAGERS = new Set(["bun", "npm", "pnpm", "yarn"]);
-
-/** When tokens match `<pm> run [<flags>…] <script>`, return `<script>`; else `null`. */
-export function parsePackageManagerRunScript(tokens: string[]): string | null {
-  if (tokens.length < 3) {
-    return null;
-  }
-  const [pm, run, ...rest] = tokens;
-  if (pm === undefined || run === undefined || !PACKAGE_MANAGERS.has(pm) || run !== "run") {
-    return null;
-  }
-  for (const token of rest) {
-    if (!token.startsWith("-")) {
-      return token;
-    }
-  }
-  return null;
-}
-
-function packageJsonLacksScript(cwd: string, scriptName: string): boolean {
-  const pkgPath = join(cwd, "package.json");
-  if (!existsSync(pkgPath)) {
-    return true;
-  }
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, unknown> };
-    return typeof pkg.scripts?.[scriptName] !== "string";
-  } catch {
-    return true;
-  }
-}
-
-function resolveAutofixTokens(fixCommand: string | undefined): string[] {
-  return fixCommand !== undefined ? fixCommand.trim().split(/\s+/) : ["bun", "run", "fix"];
-}
-
-function displayAutofixCommand(fixCommand: string | undefined): string {
-  return fixCommand ?? "bun run fix";
-}
-
-function shouldSkipAutofixForAbsentScript(cwd: string, tokens: string[]): boolean {
-  const scriptName = parsePackageManagerRunScript(tokens);
-  return scriptName !== null && packageJsonLacksScript(cwd, scriptName);
-}
-
 /** On `full` tier: run fix → commit-if-dirty → strict ready; on `fast`: verification only. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
@@ -249,33 +202,12 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const testScopeEnv = testScope !== undefined ? (testScope === "full" ? "full" : testScope.join(" ")) : undefined;
 
   const realRunFix = (cwd: string) => {
-    const tokens = resolveAutofixTokens(opts.fixCommand);
-    const displayCmd = displayAutofixCommand(opts.fixCommand);
-    if (shouldSkipAutofixForAbsentScript(cwd, tokens)) {
-      return;
-    }
-    const [head, ...args] = tokens;
-    if (head === undefined) {
-      throw new FixCommandError(`invalid fix command: ${displayCmd}`);
-    }
-    try {
-      execFileSync(head, args, {
-        cwd,
-        env: { ...process.env },
-        stdio: "pipe",
-        timeout: opts.timeoutMs,
-      });
-    } catch (err) {
-      if (isExecTimeout(err)) {
-        throw new FixCommandError(commandTimeoutMessage(displayCmd, opts.timeoutMs, opts.agentLabel));
-      }
-      const out = err as NodeJS.ErrnoException & {
-        stdout?: Buffer;
-        stderr?: Buffer;
-      };
-      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
-    }
+    runFixCommandSync({
+      cwd,
+      ...(opts.fixCommand !== undefined ? { fixCommand: opts.fixCommand } : {}),
+      timeoutMs: opts.timeoutMs,
+      ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+    });
   };
 
   const realCommitPostVerification = (cwd: string, agentLabel: string) => {

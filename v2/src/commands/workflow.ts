@@ -10,6 +10,7 @@ import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, W
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   readConfiguredIdleOutputTimeoutMs,
+  readProjectFixCommand,
   readReviewRoleTimeoutMs,
   resolveWritePathIterationBounds,
 } from "../config/machine-config-loader.ts";
@@ -244,17 +245,23 @@ async function prepareWorkflowSteps(
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return { ok: false };
   }
-  const steps = built.steps.map((step) =>
-    step.behavior === "write"
-      ? { ...step, ...bounds }
-      : step.behavior === "review" || step.behavior === "review-debate"
+  const steps = built.steps.map((step) => {
+    if (step.behavior !== "write") {
+      return step.behavior === "review" || step.behavior === "review-debate"
         ? {
             ...step,
             roleTimeoutMs: reviewRoleTimeoutMs,
             ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }),
           }
-        : step,
-  );
+        : step;
+    }
+    const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath);
+    return {
+      ...step,
+      ...bounds,
+      ...(fixCommand !== undefined ? { fixCommand } : {}),
+    };
+  });
   return { ok: true, steps, built };
 }
 

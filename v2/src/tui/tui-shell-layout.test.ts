@@ -323,10 +323,7 @@ describe("buildMonitorTreeRow", () => {
     );
     expect(columnSlice(child, 90, "indent")).toBe("  ");
     expect(columnSlice(child, 90, "label")).toBe(
-      formatTreeCell("run-implement role:implement", TREE_COLUMN_WIDTHS.label).padEnd(
-        TREE_COLUMN_WIDTHS.label,
-        " ",
-      ),
+      formatTreeCell("run-implement role:implement", TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " "),
     );
     expect(columnSlice(child, 90, "project")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.project));
   });

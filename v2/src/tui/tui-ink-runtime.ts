@@ -45,8 +45,7 @@ export async function loadInkUi(inkRender?: InkRender | InjectedInkUi): Promise<
     const injectedBox: InkUi["Box"] | undefined =
       typeof inkRender === "function"
         ? undefined
-        : (inkRender.Box ??
-            (({ children }) => createElement(Fragment, null, children)) as NonNullable<InkUi["Box"]>);
+        : (inkRender.Box ?? ((({ children }) => createElement(Fragment, null, children)) as NonNullable<InkUi["Box"]>));
     return {
       renderFn: typeof inkRender === "function" ? inkRender : inkRender.renderFn,
       Text:

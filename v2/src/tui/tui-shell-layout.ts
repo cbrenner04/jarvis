@@ -1,8 +1,8 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import {
+  type WorkflowTableRow,
   workflowCollapsedContextSuffix,
   workflowRoleLabel,
-  type WorkflowTableRow,
 } from "./tui-monitor-workflow-collapse.ts";
 
 export const MONITOR_TREE_NOT_LIVE_LABEL = "idle";
@@ -138,11 +138,7 @@ export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
   }
 }
 
-function monitorTreeCellValue(
-  column: TreeColumnId,
-  tableRow: WorkflowTableRow,
-  selectedRunId: string | null,
-): string {
+function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, selectedRunId: string | null): string {
   const run = monitorTreeRun(tableRow);
   switch (column) {
     case "marker":

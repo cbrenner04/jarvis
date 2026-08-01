@@ -11,8 +11,8 @@ import {
   monitorRightPaneSegmentRows,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
-import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
+import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {
   computeShellLayout,
   listMonitorTreeCells,
@@ -50,12 +50,7 @@ function gridCellTone(column: TreeColumnId, tableRow: WorkflowTableRow): Monitor
   return livenessTone(run.isLive);
 }
 
-function renderSegmentRow(
-  line: MonitorLineRow,
-  Text: MonitorText,
-  rowKey: number,
-  RowBox?: MonitorBox,
-): ReactElement {
+function renderSegmentRow(line: MonitorLineRow, Text: MonitorText, rowKey: number, RowBox?: MonitorBox): ReactElement {
   const cells = line.segments.map((segment, index) => {
     const props: { key: number; color?: string } = { key: index };
     if (segment.tone !== undefined) props.color = TONE_COLORS[segment.tone];
@@ -208,7 +203,12 @@ export function createMonitorDisplay(state: TuiMonitorState, Text: MonitorText, 
     return createElement(
       Box,
       { flexDirection: "column" },
-      createElement(Box, { flexDirection: "column", height: layout.paneHeight, overflow: "hidden" }, leftPane, rightPane),
+      createElement(
+        Box,
+        { flexDirection: "column", height: layout.paneHeight, overflow: "hidden" },
+        leftPane,
+        rightPane,
+      ),
       dock,
     );
   }

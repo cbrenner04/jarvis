@@ -10,7 +10,7 @@ import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
-import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorLeftPaneTreeRows, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
@@ -963,7 +963,9 @@ describe("runTuiEntry", () => {
       state: "succeeded" as const,
       createdAt: 1_700_000_000_000 + index,
       finishedAtMs: 1_700_000_100_000 + index,
-      stages: [{ stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` }],
+      stages: [
+        { stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` },
+      ],
     }));
     const runs = pipelines.map((_, index) => ({
       runId: `run-${index}`,
@@ -1010,11 +1012,7 @@ describe("runTuiEntry", () => {
 
     const initialState = view.monitorStates.at(-1)!;
     const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
-    const { treeRows: initialTreeRows } = monitorLeftPaneTreeRows(
-      initialState,
-      initialLayout,
-      WORKFLOW_FILTER_NOW_MS,
-    );
+    const { treeRows: initialTreeRows } = monitorLeftPaneTreeRows(initialState, initialLayout, WORKFLOW_FILTER_NOW_MS);
     expect(pipelineCount).toBeGreaterThan(maxVisibleRows);
     expect(initialTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
     expect(initialTreeRows.filter((row) => row.kind === "pipeline").length).toBeLessThan(pipelineCount);

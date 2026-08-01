@@ -33,11 +33,11 @@ import {
 } from "../persistence/state-store.ts";
 import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
-import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   createLogSinkMutationCheckpointReportSink,
   type MutationCheckpointVerifierSeams,
 } from "./criteria-ticked-mutation-checkpoint-verifier.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";

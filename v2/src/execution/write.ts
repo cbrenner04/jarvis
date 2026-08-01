@@ -22,17 +22,17 @@ import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
 import {
-  type ExternalWorktreeInput,
-  type LockStatus,
-  withExternalWorktree as realWithExternalWorktree,
-} from "./external-worktree.ts";
-import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
-import {
   formatMutationCheckpointFailureReason,
   getTickedMutationCheckpointCriteria,
   type MutationCheckpointVerifierSeams,
   verifyTickedMutationCheckpoints,
 } from "./criteria-ticked-mutation-checkpoint-verifier.ts";
+import {
+  type ExternalWorktreeInput,
+  type LockStatus,
+  withExternalWorktree as realWithExternalWorktree,
+} from "./external-worktree.ts";
+import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";

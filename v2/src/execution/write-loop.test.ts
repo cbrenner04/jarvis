@@ -33,8 +33,8 @@ import {
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
-import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { stageMutationCheckpointFixtures } from "./write.test.ts";
+import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   appendRuntimeSmokeOutcome,
   compareRepoPathsByUtf8Bytes,
@@ -300,9 +300,7 @@ async function runLoop(args: {
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
-    ...(args.mutationCheckpointSeams !== undefined
-      ? { mutationCheckpointSeams: args.mutationCheckpointSeams }
-      : {}),
+    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -612,7 +610,9 @@ describe("write loop", () => {
     });
 
     expect(result.kind).toBe("complete");
-    const events = sink.getEventsForRun(result.runId).filter((event) => event.kind === "mutation_checkpoint_unparseable");
+    const events = sink
+      .getEventsForRun(result.runId)
+      .filter((event) => event.kind === "mutation_checkpoint_unparseable");
     expect(events.length).toBeGreaterThan(0);
     expect(events[0]).toMatchObject({ path: expect.any(String), line: expect.any(Number) });
   });

@@ -1,14 +1,10 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import { truncateLogText } from "../persistence/log-stream.ts";
-import {
-  applyMutation,
-  type Candidate,
-  deriveFromLine,
-} from "./diff-derived-mutation-verifier.ts";
+import { applyMutation, type Candidate, deriveFromLine } from "./diff-derived-mutation-verifier.ts";
 
 /** Scoped-test wall clock for mutation-checkpoint verification; aligned with diff-derived bounds. */
 export const MUTATION_CHECKPOINT_SCOPED_TEST_TIMEOUT_MS = 5 * 60_000;
@@ -28,9 +24,7 @@ export type UnparseableCheckpoint = {
   reason: string;
 };
 
-export type MutationCheckpointVerificationResult =
-  | { ok: true }
-  | { ok: false; hollow: HollowCheckpoint[] };
+export type MutationCheckpointVerificationResult = { ok: true } | { ok: false; hollow: HollowCheckpoint[] };
 
 export type MutationCheckpointReportSink = {
   reportUnparseable: (entry: UnparseableCheckpoint) => void;
@@ -159,7 +153,10 @@ function tokenizeCheckpointComment(comment: string): string[] {
   }
   for (const match of comment.matchAll(/\b[a-zA-Z_][a-zA-Z0-9_]*\b/g)) {
     const value = match[0];
-    if (value.length > 2 && !["must", "turn", "this", "pin", "RED", "the", "and", "for", "when", "with"].includes(value)) {
+    if (
+      value.length > 2 &&
+      !["must", "turn", "this", "pin", "RED", "the", "and", "for", "when", "with"].includes(value)
+    ) {
       tokens.add(value);
     }
   }
@@ -177,10 +174,7 @@ function scoreCheckpointMatch(testComment: string, candidateComment: string): nu
   return score;
 }
 
-function findProductionCheckpoint(
-  worktreeRoot: string,
-  testComment: string,
-): ProductionCheckpoint | undefined {
+function findProductionCheckpoint(worktreeRoot: string, testComment: string): ProductionCheckpoint | undefined {
   const candidates: ProductionCheckpoint[] = [];
   for (const file of walkCodeFiles(worktreeRoot)) {
     if (isTestFile(file)) continue;
@@ -331,12 +325,7 @@ export function createLogSinkMutationCheckpointReportSink(
   };
 }
 
-function dropCallMutation(
-  file: string,
-  lineNum: number,
-  line: string,
-  target: string,
-): Candidate | undefined {
+function dropCallMutation(file: string, lineNum: number, line: string, target: string): Candidate | undefined {
   const callMatch = line.match(new RegExp(`${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\([^)]*\\)`));
   if (!callMatch || callMatch.index === undefined) return undefined;
   const start = callMatch.index;
@@ -395,10 +384,15 @@ function resolveInversion(
   }
 
   const dropMatch = comment.match(/dropping\s+`?([a-zA-Z_][a-zA-Z0-9_.]*)/i);
-  if (dropMatch?.[1] || /withMeasuredTerminal|withLeftPaneTreeScrollFollow|terminalColumns|terminalRows/i.test(comment)) {
+  if (
+    dropMatch?.[1] ||
+    /withMeasuredTerminal|withLeftPaneTreeScrollFollow|terminalColumns|terminalRows/i.test(comment)
+  ) {
     const target =
       dropMatch?.[1] ??
-      (/withMeasuredTerminal|terminalColumns|terminalRows/i.test(comment) ? "withMeasuredTerminal" : "withLeftPaneTreeScrollFollow");
+      (/withMeasuredTerminal|terminalColumns|terminalRows/i.test(comment)
+        ? "withMeasuredTerminal"
+        : "withLeftPaneTreeScrollFollow");
     const dropped = dropCallMutation(production.relPath, guardLine.lineNum, guardLine.content, target);
     if (dropped) return dropped;
   }
@@ -423,7 +417,9 @@ function scopeTestsForChangedPaths(changedPaths: string[]): string[] {
   return scope === "full" ? ["test"] : scope.length === 0 ? ["test"] : scope;
 }
 
-export function formatMutationCheckpointFailureReason(result: MutationCheckpointVerificationResult): string | undefined {
+export function formatMutationCheckpointFailureReason(
+  result: MutationCheckpointVerificationResult,
+): string | undefined {
   if (result.ok) return undefined;
   const lines = result.hollow.map((h) => `${h.path}:${h.line}: ${h.comment}`);
   return `Hollow mutation checkpoint(s):\n${lines.join("\n")}`;
@@ -436,10 +432,7 @@ export function getTickedMutationCheckpointCriteria(subspecContent: string): str
     .map((c) => c.text);
 }
 
-function reportUnparseable(
-  reportSink: MutationCheckpointReportSink | undefined,
-  entry: UnparseableCheckpoint,
-): void {
+function reportUnparseable(reportSink: MutationCheckpointReportSink | undefined, entry: UnparseableCheckpoint): void {
   reportSink?.reportUnparseable(entry);
 }
 

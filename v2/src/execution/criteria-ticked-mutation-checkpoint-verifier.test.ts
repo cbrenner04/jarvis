@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMutation } from "./diff-derived-mutation-verifier.ts";
 import {
   defaultRunScopedTestsForMutationCheckpoints,
   verifyTickedMutationCheckpoints,
 } from "./criteria-ticked-mutation-checkpoint-verifier.ts";
+import { applyMutation } from "./diff-derived-mutation-verifier.ts";
 
 describe("criteria-ticked mutation-checkpoint verifier", () => {
   test("skip-guard inversion applies valid syntax on indented guards", async () => {
@@ -14,7 +14,8 @@ describe("criteria-ticked mutation-checkpoint verifier", () => {
     const relPath = "src/guard.ts";
     const filePath = join(worktree, relPath);
     mkdirSync(join(worktree, "src"), { recursive: true });
-    const original = "export function run(x: number) {\n  // Mutation checkpoint: skipping positive guard must turn pin RED.\n  if (x > 0) return x;\n  return 0;\n}\n";
+    const original =
+      "export function run(x: number) {\n  // Mutation checkpoint: skipping positive guard must turn pin RED.\n  if (x > 0) return x;\n  return 0;\n}\n";
     writeFileSync(filePath, original, "utf8");
 
     const subspec = `## Acceptance criteria
@@ -49,7 +50,7 @@ test("run keeps positive", () => {
       join(worktree, "package.json"),
       JSON.stringify({
         scripts: {
-          "test:slow": "node -e \"setTimeout(() => {}, 30_000)\"",
+          "test:slow": 'node -e "setTimeout(() => {}, 30_000)"',
         },
       }),
       "utf8",
@@ -72,7 +73,7 @@ test("run keeps positive", () => {
     writeFileSync(filePath, original, "utf8");
     writeFileSync(
       join(worktree, "package.json"),
-      JSON.stringify({ scripts: { "test:v2": "node -e \"setTimeout(() => {}, 30_000)\"" } }),
+      JSON.stringify({ scripts: { "test:v2": 'node -e "setTimeout(() => {}, 30_000)"' } }),
       "utf8",
     );
     writeFileSync(

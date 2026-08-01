@@ -42,9 +42,7 @@ function runWrite(args: {
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-    ...(args.mutationCheckpointSeams !== undefined
-      ? { mutationCheckpointSeams: args.mutationCheckpointSeams }
-      : {}),
+    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }

@@ -551,9 +551,11 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
     const displayNodes = flattenJoined(joinTree(snapshots, runs), expanded, null, 5, runs);
 
     expect(displayNodes.length).toBeGreaterThan(5);
-    expect(
-      displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id),
-    ).toEqual(["pipe-active", "pipe-terminal-old", "pipe-terminal-new"]);
+    expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
+      "pipe-active",
+      "pipe-terminal-old",
+      "pipe-terminal-new",
+    ]);
     expect(snapshots).toEqual(snapshotsBefore);
     expect(runs).toEqual(runsBefore);
   });

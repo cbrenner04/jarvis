@@ -1020,9 +1020,9 @@ describe("runTuiEntry", () => {
     const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
     const { treeRows: initialTreeRows } = monitorLeftPaneTreeRows(initialState, initialLayout, WORKFLOW_FILTER_NOW_MS);
     expect(initialTreeRows.length).toBeGreaterThan(maxVisibleRows);
-    expect(
-      initialTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id),
-    ).toEqual(pipelines.map((pipeline) => pipeline.pipelineId));
+    expect(initialTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(
+      pipelines.map((pipeline) => pipeline.pipelineId),
+    );
 
     assertSelectionPainted();
     const visitedForward = new Set<string>();

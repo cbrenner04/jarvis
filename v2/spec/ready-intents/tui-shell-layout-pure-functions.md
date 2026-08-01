@@ -26,11 +26,11 @@ not assert painted ink output — CI cannot observe it (#2417/#2418).
 
 ## Acceptance criteria
 
-- [ ] A pure layout function maps `(columns, rows)` and divider offset to left/right/dock regions; `245×72` yields left `94`, right `151`, pane height `68`, dock `4`.
-- [ ] The same function returns stacked mode below `120` columns with a `4`-line dock.
-- [ ] Divider nudge respects both clamps: `[` cannot take the left pane below `72` cols; `]` cannot take it above `40%` of width.
-- [ ] A pure column-selection function reproduces every row of the brief degradation table (`≥90`, `72–89`, `58–71`, `48–57`, `<48`); `state` and `elapsed` appear in all five.
-- [ ] A pure tree-cell formatter truncates overflow to exactly the column width with `…`.
+- [ ] `tui-shell-layout.test.ts` — reference `245×72` geometry yields left `94`, right `151`, pane height `68`, dock `4`; fails against the pre-fix absent module.
+- [ ] `tui-shell-layout.test.ts` — stacked layout below `120` columns keeps a `4`-line dock; fails against the pre-fix absent module.
+- [ ] `tui-shell-layout.test.ts` — `[` cannot nudge left pane below `72` cols and `]` cannot nudge above `40%` of width; fails against the pre-fix absent module.
+- [ ] `tui-shell-layout.test.ts` — column selection reproduces every brief degradation row (`≥90`, `72–89`, `58–71`, `48–57`, `<48`) with `state` and `elapsed` in all five; fails against the pre-fix absent module.
+- [ ] `tui-shell-layout.test.ts` — tree-cell formatter truncates overflow to exactly the column width with `…`; fails against the pre-fix absent module.
 - [ ] `v2/docs/test-writing.md` records the TUI test-strategy decision and names substitutes for rendered-output assertions.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

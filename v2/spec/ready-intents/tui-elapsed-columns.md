@@ -14,12 +14,12 @@ without `jarvis run list`.
 
 ## Decisions
 
-- Elapsed is wall-clock from a single injected `nowMs`: pipeline from `createdAt` to `finishedAtMs` or now; stage from `startedAt` to `endedAt` or now; run from its start to `finishedAtMs` or now — rules out per-row clock reads and CPU-time or attempt-sum semantics.
+- Elapsed is wall-clock from a single injected `nowMs`: pipeline from `createdAt` to `finishedAtMs` or now; stage from `startedAt` to `endedAt` or now; run from durable `createdAt` to `finishedAtMs` or now — rules out per-row clock reads, attempt `startedAt`, and CPU-time or attempt-sum semantics.
 - A row with no start timestamp renders an empty elapsed cell, not `0s` — rules out a zero that reads as "just started".
 - Formatting is a pure function sized to the 8-column budget: `<60s` as `Ns`, under an hour as `Nm Ss`, under a day as `Nh Nm`, beyond that `Nd Nh` — rules out overflow truncated to `…`.
 - Between refresh ticks elapsed cells advance locally without extra `pipeline_list` or `list` RPC — rules out polling faster to move the clock.
 - Terminal rows freeze at final elapsed and never tick — rules out completed stages whose age keeps climbing.
-- Deferred to first consumer: run elapsed start timestamp on `list` wire (`createdAt` vs active attempt `startedAt`) — pin when run cells render.
+- `list` projects each run's durable `createdAt` as the run elapsed start — rules out rendering run cells before the wire field exists.
 - Tests inject a fixed clock and assert formatted strings; no painted ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Acceptance criteria
@@ -33,16 +33,10 @@ without `jarvis run list`.
 
 ## Documentation updates
 
+- `v2/docs/daemon-host.md` — `list` run rows include `createdAt`.
 - `v2/docs/operator-runbook.md` — `jarvis tui` row: what elapsed measures at each level and when it freezes.
 - `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns.
 
 ## Prerequisites
 
 - `projectPipelineSnapshot` emits each stage's `startedAt` and `endedAt`, `null` when unset, on the `pipeline_list` wire.
-- `TREE_COLUMN_WIDTHS.elapsed` is 8 and the elapsed column is in `visibleColumns` degradation tiers.
-- `formatTreeCell` truncates overflow with `…` at column width.
-- A pure pipeline tree builder maps snapshots and run rows to ordered pipeline, stage, and run display nodes with depth and node ids.
-- The ink monitor renders nested pipeline, stage, and run rows in the left pane; `e` toggles pipeline and stage expansion.
-- The TUI refresh tick injects `nowMs` and polls `pipeline_list` once per tick per connected daemon on the same cadence as `list`.
-- `list` run rows carry `finishedAtMs` for terminal runs.
-- `v2/spec/tui-overhaul-brief.md` § Timing documents wall-clock elapsed at pipeline, stage, and run levels.

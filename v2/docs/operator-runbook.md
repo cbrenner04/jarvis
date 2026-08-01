@@ -661,7 +661,9 @@ It cost one wrong conclusion this session. Print `sorted(d.keys())` on one row b
 field is absent.
 
 `cost_usd` is per-invocation agent cost, so agent-side spend is queryable per run and per spec —
-subscription-billed agents (cursor) record `0.0`, metered ones record real dollars. That is the
+metered agents record billed or list-price dollars; cursor rows from this change forward carry
+list-price `cost_usd` when usage and a priced `priceKey` settle (`cost_source: "computed"`).
+Pre-computed cursor rows lack comparable `cost_usd` (`no-price` or `no-usage`). That is the
 source for the agent-cost column in a session report; the operator's own `/cost` is separate.
 
 ### Workflow reports a stale worktree claim

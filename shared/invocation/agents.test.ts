@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { createResolvedAgentBinding } from "./agents.ts";
+import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
 
 type FakeOutcome =
@@ -93,6 +94,14 @@ const CURSOR_AGENT_USAGE = {
   output_tokens: 50,
   cache_read_input_tokens: 10,
   cache_creation_input_tokens: 0,
+};
+
+/** Token counts from a real cursor terminal frame; declared here, not imported from cost.test.ts. */
+const COMPOSER_25_TERMINAL_USAGE = {
+  inputTokens: 4023,
+  outputTokens: 27,
+  cacheReadTokens: 8851,
+  cacheWriteTokens: 0,
 };
 
 function cursorOkNoUsage(stdout: string, stderr = "") {
@@ -868,6 +877,82 @@ describe("createResolvedAgentBinding", () => {
       cost_usd: null,
       cost_source: "no-price",
     });
+  });
+
+  test("cursor binding with terminal usage and priced priceKey settles computed list-price cost", async () => {
+    const streamJson = JSON.stringify({
+      type: "result",
+      result: "implementation complete\n",
+      usage: COMPOSER_25_TERMINAL_USAGE,
+    });
+    const parsedUsage = parseCursorJsonOutput(streamJson).usage;
+    const pricedBinding = { ...COMPOSER_CURSOR_BINDING, priceKey: "Composer 2.5" };
+    const fake = fakeSpawn([
+      { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
+      { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
+    ]);
+    const binding = createResolvedAgentBinding(pricedBinding, { spawn: fake.spawn });
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      stdout: "implementation complete",
+      stderr: "",
+      usage: parsedUsage,
+      usage_source: "agent",
+      cost_source: "computed",
+    });
+    expect(result.kind === "ok" && result.cost_usd).toBeCloseTo(0.0038492, 10);
+    // Guard inversion: routing the no-usage path through computeCost, or omitting the priceKey thread into finalizeCursorInvocationResult, turns this test RED.
+
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [createResolvedAgentBinding(pricedBinding, { spawn: fake.spawn })],
+      telemetry: telemetryForRows(rows),
+    });
+
+    expect(rows[0]).toMatchObject({
+      usage: parsedUsage,
+      usage_source: "agent",
+      cost_source: "computed",
+    });
+    expect(rows[0]?.cost_usd).toBeCloseTo(0.0038492, 10);
+  });
+
+  test("cursor binding with terminal usage and unknown priceKey keeps no-price", async () => {
+    const streamJson = JSON.stringify({
+      type: "result",
+      result: "done\n",
+      usage: COMPOSER_25_TERMINAL_USAGE,
+    });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: streamJson, stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { ...COMPOSER_CURSOR_BINDING, priceKey: "unknown-price-key" },
+      { spawn: fake.spawn },
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
+  });
+
+  test("cursor binding with no terminal usage and unpriced priceKey keeps no-usage", async () => {
+    const streamJson = JSON.stringify({ type: "result", result: "implementation complete\n" });
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: streamJson, stderr: "" }]);
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual(cursorOkNoUsage("implementation complete"));
+    // Guard inversion: routing the no-usage path through computeCost turns this test RED.
   });
 
   // The idle watchdog itself is agent-agnostic — it arms off generic stdout data — so this

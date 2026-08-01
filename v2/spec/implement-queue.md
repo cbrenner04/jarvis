@@ -9,9 +9,15 @@ The pre-TUI reliability queue is **burned down**. Next: open
 
 ## Start here next
 
-**TUI slice 2** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
-`seeds/tui-pipeline-tree`. Slice 1 shipped 2026-08-01: pure layout (#2453) and the ink shell
-(#2456). Slice 2 onward runs through `jarvis pipeline start jarvis --seed <path>`.
+**TUI slice 3** (elapsed columns) from [tui-overhaul-brief.md](tui-overhaul-brief.md) — not yet
+seeded. Shipped 2026-08-01: slice 1 (#2453 layout, #2456 ink shell) and slice 2 (#2462 poll, #2463
+tree model, #2466 monitor wiring).
+
+Fix `seeds/tui-tree-self-expand-hides-the-e-toggle` first — it is the operator-visible half of
+slice 2 (`e` invisible, `j`/`k` not reversible, selectable-but-unpainted nodes).
+
+`pipeline_list` already carries `createdAt` and stage timestamps as of #2463, so slice 3's wire
+prerequisite is met.
 
 Two smaller items first if you want a warm-up:
 

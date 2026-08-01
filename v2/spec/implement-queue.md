@@ -9,7 +9,8 @@ The pre-TUI reliability queue is **burned down**. Next: open
 
 ## Start here next
 
-**TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md). Prerequisites below.
+**TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
+`seeds/tui-shell-layout` (shell geometry + the TUI test-strategy decision). Prerequisites below.
 
 Two smaller items first if you want a warm-up:
 
@@ -43,9 +44,9 @@ is subscription-billed, so it is not invoiced spend). Rows before it read `unava
 
 ### Fold into TUI (do not queue separately)
 
-- `seeds/tui-tests-bypass-the-render-path` — resolve in TUI slice 1 as a doc decision: no real ink painting on CI (#2417–#2418); assert via injected input hook + production monitor state.
+- `seeds/tui-tests-bypass-the-render-path` — folded into `seeds/tui-shell-layout`: no real ink painting on CI (#2417–#2418); assert via injected input hook + production monitor state.
 - `pipeline_list` timestamps (`createdAt`, stage `startedAt`/`endedAt`) — `branchKey` is already on the wire; add timestamps in TUI slice 3 (elapsed columns), not as a standalone seed.
-- Delete stub `seeds/queue-widget-refactor.md` when opening TUI slice 1 (operator notes only, no acceptance criteria).
+- Delete stub `seeds/queue-widget-refactor.md` (operator notes only, no acceptance criteria) — folded into `seeds/tui-shell-layout`.
 
 ## Rule
 

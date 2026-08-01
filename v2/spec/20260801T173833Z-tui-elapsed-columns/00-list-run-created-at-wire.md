@@ -21,7 +21,9 @@ elapsed in `jarvis tui` cannot start from an honest wire field.
 
 ## Tasks
 
-- Extend `DaemonListRunRow` in `daemon-wire.ts` and `buildRunListRow` in `daemon.ts`.
+- Extend `DaemonListRunRow` in `daemon-wire.ts` and `buildRunListRow` in `daemon.ts`; update
+  `DaemonListRunRow` fixtures repo-wide (typecheck and `test:v2` catch omissions, but expect broad
+  literal churn beyond the new pin test).
 - Add `list projects durable createdAt on every run row` in `daemon-start-list.test.ts` with a
   seeded `created_at` and strict row expectation.
 - Add `Mutation checkpoint:` on that pin for omitting `createdAt` from `buildRunListRow`.

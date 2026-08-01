@@ -22,7 +22,10 @@ stage, or run age inside `jarvis tui` without `jarvis run list`.
 - Pipeline elapsed: `snapshot.createdAt` → `snapshot.finishedAtMs ?? nowMs` — rules out stage-sum or
   run-min semantics.
 - Stage elapsed: durable `startedAt` → `endedAt ?? nowMs` — rules out run-row inference.
-- Run elapsed: `run.createdAt` → `run.finishedAtMs ?? nowMs` — rules out attempt `startedAt`.
+- Run elapsed: `run.createdAt` → `run.finishedAtMs ?? nowMs` — rules out attempt `startedAt`; collapsed
+  workflow rows use the representative run's `createdAt` / `finishedAtMs`.
+- Elapsed freezes only when the recorded end timestamp is present (`finishedAtMs`, `endedAt`), not when
+  status alone is terminal — rules out implying freeze from status without an end time.
 - `formatElapsedWallClock` output is passed through existing `formatTreeCell` width padding for the
   `elapsed` column — rules out a second truncation path.
 - Local display tick rerenders the ink monitor with advancing `nowMs` only; it does not call
@@ -59,11 +62,13 @@ stage, or run age inside `jarvis tui` without `jarvis run list`.
 - [ ] `tui-monitor-pipeline-tree.test.ts` — `stage row elapsed is empty when startedAt is null` fails pre-fix and passes after implementation — rules out `0s` when start is unset.
 - [ ] `tui-entry.test.tsx` — `display tick advances elapsed without additional list or pipeline_list RPC` fails pre-fix and passes after implementation; pin drives display ticks with refresh scheduler idle and asserts RPC counts unchanged while elapsed cell text changes.
 - [ ] `tui-monitor-pipeline-tree.test.ts` and `tui-entry.test.tsx` — `Mutation checkpoint:` comments name guard-inversion mutations for terminal freeze, null/ absent start, and display-tick/no-RPC; inverting each named guard turns the corresponding pin RED.
-- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row documents what elapsed measures at pipeline, stage, and run levels and when values freeze.
-- [ ] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns.
+- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row documents what elapsed measures at pipeline, stage, and run levels; collapsed workflow rows use the representative run's `createdAt` / `finishedAtMs`; elapsed freezes only when the recorded end timestamp is present (`finishedAtMs`, `endedAt`) and keeps advancing on the local tick when status is terminal but the end timestamp is absent.
+- [ ] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns, collapsed-workflow run elapsed from the representative run's timestamps, and the end-timestamp freeze rule (not status alone).
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — `jarvis tui` row: elapsed semantics per tree level and freeze rules.
-- `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns.
+- `v2/docs/operator-runbook.md` — `jarvis tui` row: elapsed semantics per tree level, collapsed-workflow
+  run elapsed, and end-timestamp freeze (not status alone).
+- `v2/docs/v1-behaviors.md` — `jarvis tui` entry records elapsed columns, collapsed-workflow semantics,
+  and end-timestamp freeze.

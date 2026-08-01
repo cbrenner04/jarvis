@@ -37,6 +37,8 @@ But **"fewer manual steps" is not "more commands."** The fix is almost always to
 
 When preflight fails inside a sandbox, the server is usually fine — see [Sandbox blindness](#sandbox-blindness-and-false-negatives) § localhost. Only the operator restarts the log server when it is genuinely down (nothing listening on 4310 outside a sandbox).
 
+The v1 test preload (`test/setup-fake-agents.ts`) intercepts `fetch` to `127.0.0.1:4310` / `localhost:4310` so `bun run test:v1` and `bun run ready` never POST into the operator's live log stream. Command-path tests should still inject a no-op `logClient` where the seam exists; the guard is regression insurance.
+
 ## Operator feedback cadence
 
 The orchestration loop (the operator's own model calls) dominates session cost — far above the jarvis runs. So narrate sparingly:

@@ -13,13 +13,7 @@ export async function defaultGitDiff(cwd: string, baseRef: string): Promise<stri
   }
 }
 
-const NON_PRODUCTION_PATTERNS = [
-  /^test\//,
-  /^v1\/spec\//,
-  /^v2\/spec\//,
-  /^v1\/docs\//,
-  /^v2\/docs\//,
-];
+const NON_PRODUCTION_PATTERNS = [/^test\//, /^v1\/spec\//, /^v2\/spec\//, /^v1\/docs\//, /^v2\/docs\//];
 
 export function isProductionFile(path: string): boolean {
   if (path.split("/").at(-1)?.includes(".test.")) return false;

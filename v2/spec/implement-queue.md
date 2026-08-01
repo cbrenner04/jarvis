@@ -73,9 +73,14 @@ while a sibling was still `running`. Seed:
 pipelines need branch gates approved **one at a time**, and a terminal `failed` must be confirmed
 against `jarvis run list` before you believe it.
 
-## Phase gate — per-project pipelines: **COMPLETE and dogfooded**
+## Phase gate — per-project pipelines: **NOT complete — implement stage has never run**
 
-`jarvis pipeline start | list | wait | approve | reject | resume` works end to end, including intent-split fan-out.
+`jarvis pipeline start | list | wait | approve | reject | resume` work through `plan`. The
+`implement` stage fails at resolution every time: the plan stage records its artifact as the spec
+*directory* and the implement builder requires an `index.md`, so no worktree or run row is ever
+created. Seed: `seeds/plan-to-implement-handoff-passes-the-spec-directory`. Fix that before calling
+the pipeline phase done; until then a pipeline run must be finished with
+`jarvis run workflow implement --base main --spec <dir>/index.md`.
 
 | Work | State |
 | --- | --- |

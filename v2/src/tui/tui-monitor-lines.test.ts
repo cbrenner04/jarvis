@@ -80,13 +80,21 @@ function pipelineSnapshot(
   };
 }
 
-function implementStage(invocationId: string): PipelineSnapshot["stages"][number] {
+function snapshotStage(
+  overrides: Partial<PipelineSnapshot["stages"][number]> & Pick<PipelineSnapshot["stages"][number], "stageId">,
+): PipelineSnapshot["stages"][number] {
   return {
-    stageId: "implement",
     branchKey: "default",
     status: "running",
-    workflowInvocationId: invocationId,
+    workflowInvocationId: null,
+    startedAt: null,
+    endedAt: null,
+    ...overrides,
   };
+}
+
+function implementStage(invocationId: string): PipelineSnapshot["stages"][number] {
+  return snapshotStage({ stageId: "implement", workflowInvocationId: invocationId });
 }
 
 function workflowRun(
@@ -131,14 +139,7 @@ function overflowPaneMonitorFixture(): {
       state: "succeeded",
       createdAt: TREE_NOW_MS + index,
       finishedAtMs: TREE_NOW_MS + 100_000 + index,
-      stages: [
-        {
-          stageId: "plan",
-          branchKey: "default",
-          status: "succeeded",
-          workflowInvocationId: `inv-${index}`,
-        },
-      ],
+      stages: [snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: `inv-${index}` })],
     }),
   );
   const runs = pipelines.map((_, index) => workflowRun(`run-${index}`, "completed", `inv-${index}`, { isLive: false }));

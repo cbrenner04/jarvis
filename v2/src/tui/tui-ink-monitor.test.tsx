@@ -22,6 +22,17 @@ import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } f
 
 const TREE_NOW_MS = 1_700_000_000_000;
 
+function implementStage(invocationId: string): PipelineSnapshot["stages"][number] {
+  return {
+    stageId: "implement",
+    branchKey: "default",
+    status: "running",
+    workflowInvocationId: invocationId,
+    startedAt: null,
+    endedAt: null,
+  };
+}
+
 function pipelineSnapshot(
   overrides: Partial<PipelineSnapshot> & Pick<PipelineSnapshot, "pipelineId">,
 ): PipelineSnapshot {
@@ -366,14 +377,7 @@ describe("createMonitorDisplay", () => {
     const stageId = monitorPipelineStageNodeId(pipelineId, "implement", "default");
     const snapshot = pipelineSnapshot({
       pipelineId,
-      stages: [
-        {
-          stageId: "implement",
-          branchKey: "default",
-          status: "running",
-          workflowInvocationId: invocationId,
-        },
-      ],
+      stages: [implementStage(invocationId)],
     });
     const run: DaemonListRunRow = {
       runId: "run-ink",

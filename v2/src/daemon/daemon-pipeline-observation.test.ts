@@ -24,6 +24,7 @@ import { derivePipelineState, isPipelineTerminal, type PipelineDerivedState } fr
 import {
   derivePipelineBoundary,
   PIPELINE_WAIT_ABORTED,
+  type PipelineSnapshot,
   PipelineWaitObserver,
   projectPipelineSnapshot,
   waitForPipelineBoundary,
@@ -108,6 +109,13 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
   while (!(await predicate()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
+function projectedStage(
+  row: Omit<PipelineSnapshot["stages"][number], "startedAt" | "endedAt"> &
+    Partial<Pick<PipelineSnapshot["stages"][number], "startedAt" | "endedAt">>,
+): PipelineSnapshot["stages"][number] {
+  return { startedAt: null, endedAt: null, ...row };
+}
+
 function pipelineWithStages(
   definition: PipelineDefinition,
   statuses: Record<string, Partial<PipelineStageRecord>>,
@@ -187,9 +195,9 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
     createdAt: loaded.createdAt,
     finishedAtMs: null,
     stages: [
-      { stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" },
-      { stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null },
-      { stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null },
+      projectedStage({ stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" }),
+      projectedStage({ stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null }),
+      projectedStage({ stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null }),
     ],
   });
 });
@@ -705,7 +713,7 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
   );
   const pipelines = (response as { result: { pipelines: Array<Record<string, unknown>> } }).result.pipelines;
   const snapshot = pipelines.find((pipeline) => pipeline.pipelineId === pipelineId) as {
-    stages: Array<{ stageId: string; branchKey: string; status: string; workflowInvocationId: string | null }>;
+    stages: PipelineSnapshot["stages"];
   };
   expect(snapshot).toBeDefined();
   const stages = snapshot.stages;
@@ -713,15 +721,47 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
   expect(stages.every((row) => typeof row.branchKey === "string" && row.branchKey.length > 0)).toBe(true);
   expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
   expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([
-    { stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null },
+    projectedStage({ stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null }),
   ]);
   expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "beta")).toEqual([
-    { stageId: "gate", branchKey: "beta", status: "approved", workflowInvocationId: null },
+    projectedStage({ stageId: "gate", branchKey: "beta", status: "approved", workflowInvocationId: null }),
   ]);
   expect(stages.filter((row) => row.stageId === "plan" && row.branchKey === "beta")).toEqual([
-    { stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: null },
+    projectedStage({ stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: null }),
   ]);
   expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
+});
+
+test("projectPipelineSnapshot includes stage startedAt and endedAt from durable records", () => {
+  const planStarted = 1_700_000_001_000;
+  const planEnded = 1_700_000_002_000;
+  const implementStarted = 1_700_000_003_000;
+  const pipeline = pipelineWithStages(THREE_STAGE_DEFINITION, {
+    plan: { status: "succeeded", startedAt: planStarted, endedAt: planEnded },
+    gate: { status: "awaiting" },
+    implement: { status: "running", startedAt: implementStarted },
+  });
+
+  // Mutation checkpoint: omitting startedAt from stage projection must turn this test RED.
+  // Mutation checkpoint: omitting endedAt from stage projection must turn this test RED.
+  expect(projectPipelineSnapshot(pipeline).stages).toEqual([
+    projectedStage({
+      stageId: "plan",
+      branchKey: "default",
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: planStarted,
+      endedAt: planEnded,
+    }),
+    projectedStage({ stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null }),
+    projectedStage({
+      stageId: "implement",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: null,
+      startedAt: implementStarted,
+    }),
+  ]);
 });
 
 test("projectPipelineSnapshot includes createdAt and null finishedAtMs while derived state is non-terminal", () => {

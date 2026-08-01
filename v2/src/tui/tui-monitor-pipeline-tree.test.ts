@@ -57,17 +57,24 @@ function pipelineSnapshot(
   };
 }
 
+function snapshotStage(
+  overrides: Partial<PipelineSnapshot["stages"][number]> & Pick<PipelineSnapshot["stages"][number], "stageId">,
+): PipelineSnapshot["stages"][number] {
+  return {
+    branchKey: "default",
+    status: "running",
+    workflowInvocationId: null,
+    startedAt: null,
+    endedAt: null,
+    ...overrides,
+  };
+}
+
 function implementStage(
   invocationId: string,
   overrides?: Partial<PipelineSnapshot["stages"][number]>,
 ): PipelineSnapshot["stages"][number] {
-  return {
-    stageId: "implement",
-    branchKey: "default",
-    status: "running",
-    workflowInvocationId: invocationId,
-    ...overrides,
-  };
+  return snapshotStage({ stageId: "implement", workflowInvocationId: invocationId, ...overrides });
 }
 
 function pipelineWithStageAndRun(
@@ -154,18 +161,16 @@ describe("buildMonitorPipelineTreeJoin", () => {
       pipelineSnapshot({
         pipelineId: PIPELINE_ID,
         stages: [
-          {
+          snapshotStage({
             stageId: "plan",
-            branchKey: "default",
             status: "succeeded",
             workflowInvocationId: "inv-plan-default",
-          },
-          {
+          }),
+          snapshotStage({
             stageId: "plan",
             branchKey: "alt",
-            status: "running",
             workflowInvocationId: "inv-plan-alt",
-          },
+          }),
         ],
       }),
     ]);
@@ -197,14 +202,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
         pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] }),
         pipelineSnapshot({
           pipelineId: "pipe-empty",
-          stages: [
-            {
-              stageId: "plan",
-              branchKey: "default",
-              status: "pending",
-              workflowInvocationId: "inv-missing",
-            },
-          ],
+          stages: [snapshotStage({ stageId: "plan", status: "pending", workflowInvocationId: "inv-missing" })],
         }),
       ],
       [workflowRun({ runId: "run-implement", status: "in-progress", project: "jarvis" }, INVOCATION_MATCHED)],
@@ -507,12 +505,8 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
       finishedAtMs: null,
       stages: [implementStage("inv-active")],
     });
-    const terminalStage = (invocationId: string) => ({
-      stageId: "plan",
-      branchKey: "default",
-      status: "succeeded",
-      workflowInvocationId: invocationId,
-    });
+    const terminalStage = (invocationId: string) =>
+      snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: invocationId });
     const terminalOld = pipelineSnapshot({
       pipelineId: "pipe-terminal-old",
       createdAt: 10,
@@ -568,18 +562,8 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
       state: "succeeded",
       finishedAtMs: 100,
       stages: [
-        {
-          stageId: "plan",
-          branchKey: "default",
-          status: "succeeded",
-          workflowInvocationId: "inv-collapsed",
-        },
-        {
-          stageId: "implement",
-          branchKey: "default",
-          status: "succeeded",
-          workflowInvocationId: "inv-collapsed-2",
-        },
+        snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: "inv-collapsed" }),
+        snapshotStage({ stageId: "implement", status: "succeeded", workflowInvocationId: "inv-collapsed-2" }),
       ],
     });
     const expandedTerminal = pipelineSnapshot({
@@ -587,14 +571,7 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
       createdAt: 20,
       state: "succeeded",
       finishedAtMs: 200,
-      stages: [
-        {
-          stageId: "plan",
-          branchKey: "default",
-          status: "succeeded",
-          workflowInvocationId: "inv-expanded",
-        },
-      ],
+      stages: [snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: "inv-expanded" })],
     });
     const runs = [
       workflowRun({ runId: "run-collapsed-plan", status: "completed", isLive: false }, "inv-collapsed"),

@@ -224,7 +224,7 @@ jarvis pipeline list                              # one JSON snapshot; does not 
 jarvis pipeline wait <pipeline-id>                # block until terminal or awaiting-approval
 ```
 
-`jarvis pipeline list` mirrors daemon `pipeline_list` in one stdout line (`pipelineId`, `name`, derived `state`, ordered stages with `stageId`/`branchKey`/`status`/`workflowInvocationId`). The CLI issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
+`jarvis pipeline list` mirrors daemon `pipeline_list` in one stdout line (`pipelineId`, `name`, derived `state`, ordered stages with `stageId`/`branchKey`/`status`/`workflowInvocationId`/`startedAt`/`endedAt`). The CLI issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
 
 `jarvis pipeline wait` prints one boundary JSON line per invocation. Exit **`0`** on `awaiting-approval` or terminal `succeeded`; non-zero on other terminal states. Approval boundaries name `{kind:"awaiting-approval",stageId,branchKey}`. Re-run wait after approving a gate; attached start loops internally instead. Operator abort (SIGINT) during wait follows the same pattern as `jarvis run wait`: stderr connection detail, non-zero exit, no boundary JSON on stdout.
 

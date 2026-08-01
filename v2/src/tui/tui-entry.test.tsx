@@ -72,7 +72,16 @@ const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
   state: "running",
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
-  stages: [{ stageId: "plan", branchKey: "default", status: "running", workflowInvocationId: "inv-1" }],
+  stages: [
+    {
+      stageId: "plan",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: "inv-1",
+      startedAt: null,
+      endedAt: null,
+    },
+  ],
 };
 
 const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
@@ -81,7 +90,16 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
   state: "succeeded",
   createdAt: 1_700_000_001_000,
   finishedAtMs: 1_700_000_002_000,
-  stages: [{ stageId: "s1", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-2" }],
+  stages: [
+    {
+      stageId: "s1",
+      branchKey: "default",
+      status: "succeeded",
+      workflowInvocationId: "inv-2",
+      startedAt: null,
+      endedAt: null,
+    },
+  ],
 };
 
 const PIPELINE_STAGE_ALPHA = monitorPipelineStageNodeId("pipe-alpha", "plan", "default");
@@ -104,6 +122,8 @@ const PIPELINE_SNAPSHOT_MULTI: PipelineSnapshot = {
       branchKey: "default",
       status: "running",
       workflowInvocationId: PIPELINE_MULTI_INVOCATION,
+      startedAt: null,
+      endedAt: null,
     },
   ],
 };
@@ -152,7 +172,14 @@ function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
     createdAt: 1_700_000_000_000 + index,
     finishedAtMs: 1_700_000_100_000 + index,
     stages: [
-      { stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` },
+      {
+        stageId: "plan",
+        branchKey: "default",
+        status: "succeeded" as const,
+        workflowInvocationId: `inv-${index}`,
+        startedAt: null,
+        endedAt: null,
+      },
     ],
   }));
   const runs = pipelines.map((_, index) => ({

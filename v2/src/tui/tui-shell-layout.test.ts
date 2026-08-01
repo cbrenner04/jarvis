@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  computeShellLayout,
-  formatTreeCell,
-  nudgeDividerOffset,
-  visibleColumns,
-} from "./tui-shell-layout.ts";
+import { computeShellLayout, formatTreeCell, nudgeDividerOffset, visibleColumns } from "./tui-shell-layout.ts";
 
 const ALL_COLUMNS = [
   "marker",

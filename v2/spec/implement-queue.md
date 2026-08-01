@@ -9,8 +9,9 @@ The pre-TUI reliability queue is **burned down**. Next: open
 
 ## Start here next
 
-**TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
-`seeds/tui-shell-layout` (shell geometry + the TUI test-strategy decision). Prerequisites below.
+**TUI slice 2** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
+`seeds/tui-pipeline-tree`. Slice 1 shipped 2026-08-01: pure layout (#2453) and the ink shell
+(#2456). Slice 2 onward runs through `jarvis pipeline start jarvis --seed <path>`.
 
 Two smaller items first if you want a warm-up:
 
@@ -87,7 +88,8 @@ Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-w
 | `terminal-window-renders-finishless-rows` | shipped |
 | `pipeline_list` `branchKey` | shipped |
 | `pipeline_list` timestamps for elapsed columns | **not shipped** — slice 3 |
-| TUI test strategy (ink vs monitor state) | **undecided** — slice 1 |
+| Shell layout + ink shell (slice 1) | shipped #2453, #2456 |
+| TUI test strategy (ink vs monitor state) | **decided and shipped** — `v2/docs/test-writing.md` § TUI test strategy |
 
 ## Guard-inversion: **CLOSED**
 

@@ -15,20 +15,22 @@ misaligned checkpoints reach `main` as satisfied claims while scoped tests stay 
 ## Decisions
 
 - Mutation-checkpoint AC satisfaction requires executing the checkpoint-named inversion, not authoring the comment — rules out write-comment-and-tick.
-- `spec.criteria-ticked` applies each linked `Mutation checkpoint:` inversion in the run worktree, runs scoped tests, and refuses the tick when the suite stays green — rules out agent self-police.
-- A surviving inversion reports checkpoint file, line, and comment text — rules out a bare contract miss.
+- Linkage: only **ticked non-human-only** criteria whose text references `Mutation checkpoint:` trigger verification; resolve each `// Mutation checkpoint:` comment from the pinning test file named in that criterion (repo exemplar: `` `tui-entry.test.tsx` — … `Mutation checkpoint:` on that pin … ``); when a criterion names multiple pins, apply every linked checkpoint before accepting the tick — rules out scanning the whole worktree or verifying `(Manual)` rows.
+- `spec.criteria-ticked` applies each linked inversion in the run worktree, runs scoped tests, and refuses the tick when the suite stays green — rules out agent self-police.
+- Surviving inversion on a ticked mutation-checkpoint criterion settles `contract_miss` on `spec.criteria-ticked`, appends a harness `## Blocker` to the active subspec naming each hollow checkpoint (file, line, comment text), and records the same diagnostics on `contract_miss_detail` — rules out a bare contract miss or alternate settlement surface.
 - Surviving inversion is a legitimate outcome (unreachable guard); the fix may delete the guard — rules out forcing a new test for dead code.
 - Unparseable `Mutation checkpoint:` comments are reported and do not fail the run — rules out treating parse misses as contract_miss.
 - Guard-inversion evidence stays source mutation on the real guard plus a pinning-test comment checkpoint; production invert hooks remain forbidden — rules out `setInvert*ForTest` / `invert*ForTest` / `invert*` parameters.
 - General surviving-production-mutation policy stays out of scope — rules out expanding diff-derived post-commit verification in this intent.
 - Deferred to first consumer: mechanical checkpoint parse grammar beyond repo exemplars — pin when the first unparseable-vs-hollow distinction needs a normative rule.
+- Plan draft must name a failing-test file for new-behavior ACs (peer `guard-bare-settimeout`) — rules out prose-only ACs at plan time.
 
 ## Acceptance criteria
 
-- [ ] A ticked mutation-checkpoint criterion cannot complete when applying its checkpoint-named inversion leaves scoped tests green; the run reports checkpoint file, line, and comment text.
+- [ ] A ticked non-human-only mutation-checkpoint criterion cannot complete when applying its linked checkpoint inversion leaves scoped tests green; the run reports checkpoint file, line, and comment text via `contract_miss` / `contract_miss_detail` and a harness `## Blocker` on the active subspec.
 - [ ] The same criterion completes when applying the inversion turns a scoped test red.
 - [ ] A `Mutation checkpoint:` comment the harness cannot mechanically apply is reported unparseable and does not fail the run.
-- [ ] Regression over the three 2026-08-01 evidence spec trees detects each named inversion as surviving against the tree that shipped it.
+- [ ] Regression fixtures replay merge-time worktrees from `20260801T142304Z-tui-entry-tree-viewport-and-navigation` and `20260801T160040Z-tui-entry-reversible-descend-navigation` (three evidence rows across those two trees, with their checkpoint comments) and detect each named inversion as surviving — not assertions against current `main` alone.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

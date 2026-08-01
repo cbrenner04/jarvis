@@ -386,6 +386,18 @@ const ALLOWLIST = new Set([
 
 A static guard (`scripts/guard-test-double-production-calls.ts`) verifies this rule and runs as part of `bun run check`.
 
+## TUI test strategy
+
+The TUI phase cannot assert painted ink output in CI — headless runners do not observe rendered terminal frames ([#2417](https://github.com/cbrenner04/jarvis/issues/2417), [#2418](https://github.com/cbrenner04/jarvis/issues/2418)). Rendered-frame assertions also risk local-green / CI-red asymmetry when ink layout or terminal capabilities differ between environments.
+
+Substitutes for rendered-output assertions:
+
+- **Pure layout functions** — region geometry, column degradation, and tree-cell truncation (`tui-shell-layout.ts`).
+- **Injected input hook** — keybinding and focus behavior without asserting painted frames.
+- **Production monitor state** — poll/dispatch outcomes and selection state the shell wires to ink.
+
+See [operator-runbook.md § Gate trust](operator-runbook.md#gate-trust) for what the v2 gate covers. Full operator-runbook wording updates for TUI ink behavior are owned by the ink-shell sibling slice.
+
 ## Out of scope
 
 - **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

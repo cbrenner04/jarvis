@@ -237,7 +237,7 @@ jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>
 jarvis pipeline reject <pipeline-id> <stage-id> <branch-key>
 ```
 
-Single-default-branch pipelines use `branchKey: "default"`. After an intent split, each branch row carries its own `branchKey` — approve or reject one branch without affecting sibling gates. Exit **`0`** on `kind: "applied"` means the decision was durably admitted, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Refused duplicate or stale decisions (`invalid_decision`, `status_not_awaiting`, `branch_key_required`, etc.) print the daemon `reason` verbatim on stderr and exit non-zero with no success stdout. Re-run `pipeline wait` after a successful approve to observe the next boundary.
+Single-default-branch pipelines use `branchKey: "default"`. After an intent split, each branch row carries its own `branchKey` — approve or reject one branch without affecting sibling gates. Post-approve successor dispatch is scoped to the approved `branchKey` only: sibling gates stay `awaiting` and sibling stages are not dispatched until their own gate is approved. Exit **`0`** on `kind: "applied"` means the decision was durably admitted, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Refused duplicate or stale decisions (`invalid_decision`, `status_not_awaiting`, `branch_key_required`, etc.) print the daemon `reason` verbatim on stderr and exit non-zero with no success stdout. Re-run `pipeline wait` after a successful approve to observe the next boundary.
 
 ### Pipeline resume
 

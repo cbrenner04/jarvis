@@ -141,6 +141,7 @@ export function resumeReopenedPendingContinuation(
 export async function continuePipeline(
   pipelineId: string,
   deps: Omit<PipelineExecutionDeps, "context"> & { context?: PipelineContext },
+  continuationBranchKey?: string,
 ): Promise<ContinuePipelineOutcome> {
   const { store, dispatch, wait } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
@@ -163,16 +164,20 @@ export async function continuePipeline(
     return { kind: "refused", pipelineId, reason: "claim_refused" };
   }
 
-  await runPipeline(pipelineId, {
-    store,
-    dispatch,
-    wait,
-    context,
-    resolveStage,
-    ...(deps.executeTerminalPublication !== undefined
-      ? { executeTerminalPublication: deps.executeTerminalPublication }
-      : {}),
-  });
+  await runPipeline(
+    pipelineId,
+    {
+      store,
+      dispatch,
+      wait,
+      context,
+      resolveStage,
+      ...(deps.executeTerminalPublication !== undefined
+        ? { executeTerminalPublication: deps.executeTerminalPublication }
+        : {}),
+    },
+    continuationBranchKey,
+  );
   return { kind: "continued", pipelineId };
 }
 
@@ -335,7 +340,7 @@ export function applyPipelineApprovalDecision(
     decision,
   });
   if (outcome.kind === "applied" && decision === "approved") {
-    void continuePipeline(pipelineId, deps).catch((err: unknown) => {
+    void continuePipeline(pipelineId, deps, branchKey).catch((err: unknown) => {
       console.error(`Pipeline ${pipelineId} continuation after approval failed:`, err);
     });
   }
@@ -1132,13 +1137,21 @@ async function advanceFanOutStageResolution(
     return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, admission.error);
   }
 
+  const pipeline = store.loadPipeline(pipelineId);
+  const loadedStages = pipeline?.stages ?? [];
   let currentBranchFailed = false;
   for (let branchIndex = 0; branchIndex < admission.branchKeys.length; branchIndex += 1) {
     const targetBranchKey = admission.branchKeys[branchIndex];
     if (targetBranchKey === undefined) continue;
-    const loadedStages = store.loadPipeline(pipelineId)?.stages ?? [];
     const targetRecord = findStageRecord(loadedStages, stage.stageId, targetBranchKey);
     if (targetRecord?.status === "succeeded") continue;
+    if (
+      pipeline !== null &&
+      targetRecord !== undefined &&
+      !branchSuffixPredecessorsSatisfied(pipeline, targetRecord, split)
+    ) {
+      continue;
+    }
     const steps = resolution.results[branchIndex]?.steps;
     if (steps === undefined) continue;
     await dispatchPipelineStage({
@@ -1363,7 +1376,11 @@ async function runAuthoredStages(args: {
  * stage records or honors its durable status (`pending` → `awaiting`, block at `awaiting`,
  * continue past `approved`, stop at `rejected`) with no dispatch to later stages.
  */
-export async function runPipeline(pipelineId: string, deps: PipelineExecutionDeps): Promise<void> {
+export async function runPipeline(
+  pipelineId: string,
+  deps: PipelineExecutionDeps,
+  continuationBranchKey?: string,
+): Promise<void> {
   const { store } = deps;
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
@@ -1385,7 +1402,7 @@ export async function runPipeline(pipelineId: string, deps: PipelineExecutionDep
     const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
-      for (const branchKey of activeSplit.branchKeys) {
+      for (const branchKey of continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys) {
         await runAuthoredStages({
           pipelineId,
           deps,

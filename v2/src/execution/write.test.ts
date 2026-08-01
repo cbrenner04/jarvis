@@ -295,6 +295,7 @@ describe("write behavior", () => {
   });
 
   test("ticked mutation-checkpoint criterion completes when its directive turns the suite red", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "report_.caught.push(directive);" -> "report_.hollow.push({ criterionText, directive, detail: \"forced\" });"
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,

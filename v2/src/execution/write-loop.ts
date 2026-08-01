@@ -320,8 +320,6 @@ export function deriveMarkdownOutputRoots(args: {
   promptId: string | undefined;
   specPath: string;
   expectedArtifactPath: string;
-  /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
-  mutationCheckpointSeams?: WriteExecuteInput["mutationCheckpointSeams"];
   landing?: PublicationLanding;
 }): readonly string[] | undefined {
   const workflowPromptId = resolveMarkdownOnlyWorkflowPromptId(args.promptId, args.landing);

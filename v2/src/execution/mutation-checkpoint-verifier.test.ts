@@ -362,6 +362,28 @@ describe("verifyMutationCheckpoints", () => {
     expect(runner.calls).toEqual([["test:v1", "test:integration:v1"]]);
   });
 
+  test("unparseable directives reach stderr when no sink is injected", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "const report = seams.report ??" -> "const report = seams.report ?? (() => {}) ??"
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");
+    writeAt(root, "v2/src/guard.test.ts", ['test("guard pin", () => {', "  // @mutate nonsense", "});"].join("\n"));
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("guard.test.ts", "guard pin"));
+    const written: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(true).run });
+    } finally {
+      process.stderr.write = original;
+    }
+
+    expect(written.join("")).toContain("malformed");
+  });
+
   test("describeUnparseable names file, line, reason, and directive text", () => {
     expect(
       describeUnparseable({ sourceFile: "/wt/x.test.ts", sourceLine: 7, raw: "// @mutate bad", reason: "malformed" }),

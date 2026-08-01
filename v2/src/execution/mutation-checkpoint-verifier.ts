@@ -241,7 +241,9 @@ export async function verifyMutationCheckpoints(
   const readFile = seams.readFile ?? ((path: string) => readFileSync(path, "utf8"));
   const writeFile = seams.writeFile ?? ((path: string, content: string) => writeFileSync(path, content, "utf8"));
   const runScopedTests = seams.runScopedTests ?? defaultRunScopedTests;
-  const report = seams.report ?? (() => {});
+  // Default to stderr, not a no-op: an unparseable directive means verification
+  // silently did not happen, which is precisely the state that must not be quiet.
+  const report = seams.report ?? ((message: string) => process.stderr.write(`mutation-checkpoint: ${message}\n`));
 
   const empty: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };
   if (!existsSync(subspecPath)) return empty;
@@ -338,7 +340,14 @@ async function applyAndClassify(
     return;
   }
 
-  const mutated = resolved.content.replace(directive.originalText, directive.replacementText);
+  // Splice rather than String.replace: `$&`, `` $` ``, `$'` and `$<n>` in the
+  // replacement would otherwise expand, so the applied edit would not be the
+  // authored one. The occurrence count is already known to be exactly 1.
+  const at = resolved.content.indexOf(directive.originalText);
+  const mutated =
+    resolved.content.slice(0, at) +
+    directive.replacementText +
+    resolved.content.slice(at + directive.originalText.length);
   let survived: boolean;
   try {
     io.writeFile(resolved.absolutePath, mutated);

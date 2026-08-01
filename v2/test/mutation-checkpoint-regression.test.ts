@@ -141,8 +141,14 @@ describe("mutation-checkpoint regression evidence", () => {
       // than the verifier; fail loudly instead of passing vacuously.
       expect(ok).toBe(true);
 
-      // The historical outcome: for the replayed rows the scoped suite stayed green
-      // under the named mutation, which is exactly what made those ticks hollow.
+      // NOTE ON WHAT THIS PROVES. The scoped-suite verdict is injected, not observed:
+      // running the real historical suites would mean materializing two full worktrees
+      // and executing test:v2 twice, which is minutes per row. So these rows pin the
+      // parts that are cheap and were actually wrong in the abandoned attempt —
+      // the directive parses, links to the named pin, and resolves against real
+      // historical source where its target text occurs exactly once — plus the
+      // classification that follows from a given verdict. They do NOT re-observe the
+      // 2026-08-01 survivals.
       const report = await verifyMutationCheckpoints(join(root), join(root, "spec/00.md"), {
         runScopedTests: async () => row.expectHollow,
       });
@@ -167,12 +173,14 @@ describe("mutation-checkpoint regression evidence", () => {
 
     // Domain-blindness: special-casing any evidence row would show up here. The
     // generality row is excluded because its production file IS the verifier.
+    // Paths, pin titles, and the original source text identify a row. The replacement
+    // text is deliberately excluded: `if (false) {` is generic code, and forbidding it
+    // would fail this test for reasons unrelated to domain blindness.
     const forbidden = ROWS.filter((row) => row.sourceRef !== undefined).flatMap((row) => [
       row.productionPath,
       row.testPath,
       row.pinTitle,
       row.originalText,
-      row.replacementText,
     ]);
 
     for (const token of forbidden) {

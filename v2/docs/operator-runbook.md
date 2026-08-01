@@ -551,9 +551,16 @@ directive is refused; so is one whose directive leaves the scoped suite green, w
 directive` coordinates in the blocker. Prose `Mutation checkpoint:` comments still read fine to a
 human but no longer satisfy the contract on their own. An unparseable directive (malformed,
 unresolvable path, target text absent or ambiguous) is reported and skipped rather than treated as
-hollow. Note what this does **not** cover: criteria that make no mutation claim, and mutations the
-directive form cannot express (it is single-line text replacement, so a multi-line edit must be
-reduced to one unique line).
+hollow — reported on stderr, so an unresolvable pin or malformed directive is visible in the daemon
+log rather than silent. Note what this does **not** cover: criteria that make no mutation claim, and
+mutations the directive form cannot express (it is single-line text replacement, so a multi-line
+edit must be reduced to one unique line).
+
+Two operational caveats. Verification runs the scoped suites **once per directive**, serially, with
+a production file mutated — a subspec with several checkpoints multiplies the write step's wall
+clock accordingly. And the scoped run has no timeout and is not wired to the run's abort signal: a
+mutation that induces a hang blocks the step, and `kill` will not interrupt it. If a write step
+stalls with no agent output and a directive is in play, that is the first place to look.
 
 The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and

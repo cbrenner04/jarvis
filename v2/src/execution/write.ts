@@ -26,6 +26,12 @@ import {
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
+import {
+  describeHollow,
+  type HollowCheckpoint,
+  type MutationCheckpointSeams,
+  verifyMutationCheckpoints,
+} from "./mutation-checkpoint-verifier.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
@@ -174,6 +180,8 @@ export type WriteExecuteInput = {
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
+  /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
+  mutationCheckpointSeams?: MutationCheckpointSeams;
 };
 
 type WriteExecuteResult = {
@@ -339,6 +347,11 @@ function buildCriteriaTickedReason(unticked: string[]): string {
   return `Unticked non-human-only acceptance criteria:\n${lines}`;
 }
 
+function buildHollowCheckpointReason(hollow: readonly HollowCheckpoint[]): string {
+  const lines = hollow.map((checkpoint) => `- ${describeHollow(checkpoint)}`).join("\n");
+  return `Hollow mutation checkpoints (the named mutation left the scoped suite green):\n${lines}`;
+}
+
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
   if (!existsSync(artifactPath)) {
     return [];
@@ -397,6 +410,16 @@ async function executeDefaultWrite(
         },
       });
     }
+    // Runs whether or not the unticked gate registered: a subspec whose rows are all
+    // ticked already is exactly where a hollow checkpoint hides.
+    contracts.push({
+      id: "spec.criteria-ticked",
+      check: async ({ cwd }) => {
+        const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, args.mutationCheckpointSeams);
+        if (report.hollow.length === 0) return { ok: true };
+        return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
+      },
+    });
   }
 
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)

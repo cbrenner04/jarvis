@@ -541,7 +541,21 @@ non-human-only acceptance criteria are all ticked at the boundary, (2) a complet
 exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate
 is green, and (5) if the active subspec's acceptance criteria reference `bun run test:integration:v2`,
 that command exits zero. Rows that exhausted the repair budget instead remain `failed` /
-`ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds. The spec.criteria-ticked contract prevents `done` / `no-work` completions when
+`ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds.
+
+A ticked acceptance criterion whose text contains `Mutation checkpoint:` now proves the harness
+**applied** the mutation and watched the scoped suite go red. The machine contract is a directive
+in the pinning test file — `// @mutate <path> "<original>" -> "<replacement>"` — located by exact
+source text that must occur exactly once. A ticked mutation-checkpoint criterion with no linked
+directive is refused; so is one whose directive leaves the scoped suite green, with `path:line:
+directive` coordinates in the blocker. Prose `Mutation checkpoint:` comments still read fine to a
+human but no longer satisfy the contract on their own. An unparseable directive (malformed,
+unresolvable path, target text absent or ambiguous) is reported and skipped rather than treated as
+hollow. Note what this does **not** cover: criteria that make no mutation claim, and mutations the
+directive form cannot express (it is single-line text replacement, so a multi-line edit must be
+reduced to one unique line).
+
+The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
 blocking before any completion commit or PR publication. The completion boundary enforces (2):
 when the committer returns no new commit and the worktree is dirty, the run records

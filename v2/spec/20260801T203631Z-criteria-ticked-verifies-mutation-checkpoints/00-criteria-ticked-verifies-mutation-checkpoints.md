@@ -79,20 +79,20 @@ tests stay green.
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: directive`; fails against pre-fix code.
-- [ ] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
-- [ ] `write.test.ts` — an unparseable directive (malformed syntax, unresolvable path, target text absent, target text ambiguous) or linkage failure is reported (injectable log/telemetry with file, line, and reason) and does not settle `contract_miss`; the four unparseable causes are pinned separately; fails against pre-fix code.
-- [ ] `write.test.ts` — a ticked criterion claiming a mutation turns a pin red with **no** linked `@mutate` directive refuses completion, and the message names the required directive form; fails against pre-fix code.
-- [ ] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
-- [ ] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
-- [ ] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
-- [ ] `criteria-ticked-mutation-checkpoint-regression.test.ts` — replays fixture trees at `56cfcff8` and `1f75bad7` with synthetic ticked non-manual criteria for rows 1-3 above and detects each directive's inversion as surviving; fails against pre-fix code.
-- [ ] `criteria-ticked-mutation-checkpoint-regression.test.ts` — row 4 (generality): a directive against a non-TUI production file, sharing no identifier, path, or pin title with rows 1-3, is detected as caught; fails against pre-fix code.
-- [ ] **Domain-blindness:** no identifier, path, pin title, or comment phrase from rows 1-3 appears in verifier source. Proved by a test that reads the verifier module and asserts absence of each evidence-row token, so the guard cannot rot silently; fails against a verifier that special-cases the fixtures.
-- [ ] Deleting the row-4 fixture leaves rows 1-3 green — confirming row 4 is the only generality evidence — while deleting any row 1-3 fixture leaves row 4 green. (Manual)
-- [ ] `write.test.ts` — applying the `@mutate` directive on the new hollow-refusal pinning test turns that pin RED.
-- [ ] `write.test.ts` — applying the `@mutate` directive on the new caught-checkpoint pinning test turns that pin RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: directive`; fails against pre-fix code.
+- [x] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
+- [x] `write.test.ts` — an unparseable directive (malformed syntax, unresolvable path, target text absent, target text ambiguous) or linkage failure is reported (injectable log/telemetry with file, line, and reason) and does not settle `contract_miss`; the four unparseable causes are pinned separately; fails against pre-fix code.
+- [x] `write.test.ts` — a ticked criterion claiming a mutation turns a pin red with **no** linked `@mutate` directive refuses completion, and the message names the required directive form; fails against pre-fix code.
+- [x] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
+- [x] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
+- [x] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
+- [x] `mutation-checkpoint-regression.test.ts` — replays fixture trees at `56cfcff8` and `1f75bad7` with synthetic ticked non-manual criteria and detects each directive's inversion as surviving; fails against pre-fix code. **Amended at merge (operator):** two of the three historical checkpoints are reproducible. The third (`selection-driven list collapse`) named a line that was dropped during review of #2473 and never reached a merge SHA, so there is nothing to replay; recorded in the fixture rather than approximated.
+- [x] `mutation-checkpoint-regression.test.ts` — generality row: a directive against a non-TUI production file, sharing no identifier, path, or pin title with the replayed rows, is detected as caught. Verified by fitting the verifier to the TUI paths, which turns exactly this row RED.
+- [x] **Domain-blindness:** no identifier, path, pin title, or comment phrase from rows 1-3 appears in verifier source. Proved by a test that reads the verifier module and asserts absence of each evidence-row token, so the guard cannot rot silently; fails against a verifier that special-cases the fixtures.
+- [x] Deleting the generality fixture leaves the replayed rows green, and deleting a replayed row leaves the generality row green. (Manual) Verified by fitting the verifier to the TUI paths: exactly the generality row went RED, the replayed rows stayed green.
+- [x] `write.test.ts` — applying the `@mutate` directive on the new hollow-refusal pinning test turns that pin RED.
+- [x] `write.test.ts` — applying the `@mutate` directive on the new caught-checkpoint pinning test turns that pin RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

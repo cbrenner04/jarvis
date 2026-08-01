@@ -53,17 +53,17 @@ automated — every `parseSpec` consumer inherits the miss.
 
 ## Acceptance criteria
 
-- [ ] `spec-parser.test.ts` — `classifies human-only markers anywhere in the criterion bullet block`
+- [x] `spec-parser.test.ts` — `classifies human-only markers anywhere in the criterion bullet block`
       fails pre-fix and passes after the change: leading and trailing `(Manual)` classify
       `humanOnly: true`; a wrapped bullet with `(Manual)` on a 6-space continuation line
       (newline-joined first line plus continuation) classifies `humanOnly: true`; an unmarked criterion
       stays `humanOnly: false`; `AcceptanceCriterion.text` stays the first checklist line body in all
       cases; `Mutation checkpoint:` comments name reverting contiguous substring match to trailing
       `.endsWith` and reverting block assembly to first-line-only.
-- [ ] `spec-parser.test.ts` — replacement negatives for retired `does not match markers mid-text`
+- [x] `spec-parser.test.ts` — replacement negatives for retired `does not match markers mid-text`
       stay `humanOnly: false` under contiguous substring matching (marker-adjacent prose without an
       exact marker phrase).
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2`
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2`
       pass.
 
 ## Documentation updates

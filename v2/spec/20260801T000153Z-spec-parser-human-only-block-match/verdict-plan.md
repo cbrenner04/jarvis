@@ -1,0 +1,12 @@
+Reviewing the spec-parser implementation and tests to ground the verdict.
+## Verdict: required refinements
+
+1. **Define the position-independent match contract.** The spec commits to “whole-phrase” matching anywhere in the assembled block but does not say what that means once trailing `.endsWith` is removed. Today’s `does not match markers mid-text` negatives exist because trailing anchoring rejected embedded marker vocabulary; naive substring search would flip some of those to `humanOnly: true` while also changing how mid-sentence markers behave. The spec must state the matching rule operationally (e.g., contiguous case-insensitive substring on the trimmed joined block, or an explicit word-boundary rule) and tie replacement negatives to that rule so implementers know which prose mentioning marker vocabulary must stay automated.
+
+2. **Pin block-assembly mechanics in the regression contract.** Tasks say continuation lines are “joined” but not how; repo acceptance criteria use 6-space-indented continuation lines. The pinning regression and its acceptance criterion must require a realistic wrapped bullet: newline-joined first line plus continuation, with `(Manual)` on the continuation line, so continuation-line assembly is tested against real spec shape—not a same-line or ambiguous fixture.
+
+3. **Record serial sibling boundaries.** `v2/docs/v1-behaviors.md` is correctly in scope; human-only prose in `v1/docs/spec-guidance.md`, `DEFAULT_WRITE_STEP_RULES`, and end-to-end `contract_miss` / `already_complete` stranding proof are owned by ready intents that list this parser work as a prerequisite. Add a Prerequisites or Decisions note that those updates and integration proofs are explicitly out of scope here, so implementers do not expand this subspec into duplicate doc or workflow work and reviewers do not treat parser unit coverage as proof that stranding is fixed end-to-end.
+
+**Rationale:** (1) closes the main behavioral ambiguity the intent introduces—without it, replacement of retired mid-text tests is guesswork and guard-inversion evidence may not pin the intended contract. (2) satisfies the failing-test requirement with a fixture that matches the production failure mode (wrapped bullets). (3) aligns with same-seam serial planning in spec guidance and prevents scope creep while sibling intents remain queued.
+
+**Not required:** manual guard-inversion AC; `(Manual)`-only pinning regression; `v1-behaviors.md`-only documentation; fence/sub-list assembly; optional note that non-`humanOnly` classifiers stay first-line-only.

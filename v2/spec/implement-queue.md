@@ -16,9 +16,12 @@ tree model, #2466 monitor wiring).
 `seeds/tui-tree-self-expand-hides-the-e-toggle` shipped (#2471 model, #2473 entry): `e` has a
 visible effect, `j`/`k` round-trips, and selectable ids match painted rows.
 
-Fix `seeds/tui-descend-expansion-evicts-pipelines-permanently` before slice 3 — descending with `j`
-expands as it goes and evicts older pipelines from the FIFO viewport permanently (14 of 30
-unreachable at `100x24`).
+`seeds/tui-descend-expansion-evicts-pipelines-permanently` shipped (#2479 full flatten, #2481
+scroll viewport, #2485 navigation): `k` retraces `j` exactly and nothing becomes unreachable.
+
+Highest-value non-TUI item: `seeds/mutation-checkpoint-criteria-are-ticked-without-running-the-mutation`.
+Three criteria were ticked this session on mutations that turn nothing red; only subagent review
+caught them.
 
 `pipeline_list` already carries `createdAt` and stage timestamps as of #2463, so slice 3's wire
 prerequisite is met.

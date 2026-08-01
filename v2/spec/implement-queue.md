@@ -19,9 +19,13 @@ visible effect, `j`/`k` round-trips, and selectable ids match painted rows.
 `seeds/tui-descend-expansion-evicts-pipelines-permanently` shipped (#2479 full flatten, #2481
 scroll viewport, #2485 navigation): `k` retraces `j` exactly and nothing becomes unreachable.
 
-Highest-value non-TUI item: `seeds/mutation-checkpoint-criteria-are-ticked-without-running-the-mutation`.
-Three criteria were ticked this session on mutations that turn nothing red; only subagent review
-caught them.
+Highest-value non-TUI item: **`20260801T203631Z-criteria-ticked-verifies-mutation-checkpoints`**
+(spec on `main`, unimplemented). One attempt was abandoned 2026-08-01 — the verifier hardcoded
+`withMeasuredTerminal`, `selectPreviousRun`, and `tui-entry.tsx` from this session's evidence rows,
+so it passed the regression fixtures by special-casing them rather than by resolving checkpoints
+generically. **Constraint for the next attempt:** no identifier, filename, or comment phrase from
+the evidence rows may appear in the verifier source; prove generality with a checkpoint the fixtures
+do not contain.
 
 `pipeline_list` carries pipeline `createdAt` and `finishedAtMs` as of #2463; **stage** `startedAt`
 and `endedAt` are durable but still not on the wire, so slice 3 adds them.

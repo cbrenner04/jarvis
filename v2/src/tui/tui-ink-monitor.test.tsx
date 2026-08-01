@@ -307,8 +307,8 @@ describe("createMonitorDisplay", () => {
     // Mutation checkpoint: skip the `layoutMode` branch and always apply split widths in tui-ink-monitor.tsx.
     const state = shellState(
       [
-        { runId: "run-alpha", project: "demo", branch: "alpha", status: "in-progress", isLive: true },
-        { runId: "run-beta", project: "demo", branch: "beta", status: "completed", isLive: false },
+        { runId: "run-alpha", project: "demo", branch: "alpha", createdAt: 0, status: "in-progress", isLive: true },
+        { runId: "run-beta", project: "demo", branch: "beta", createdAt: 0, status: "completed", isLive: false },
       ],
       "run-alpha",
       {
@@ -348,7 +348,7 @@ describe("createMonitorDisplay", () => {
   test("stacked shell vertically stacks left and right panes below 120 columns", () => {
     // Mutation checkpoint: skip the `layoutMode === "stacked"` branch in tui-ink-monitor.tsx.
     const state = shellState(
-      [{ runId: "run-alpha", project: "demo", branch: "alpha", status: "in-progress", isLive: true }],
+      [{ runId: "run-alpha", project: "demo", branch: "alpha", createdAt: 0, status: "in-progress", isLive: true }],
       "run-alpha",
       { terminalColumns: 119 },
     );
@@ -361,7 +361,7 @@ describe("createMonitorDisplay", () => {
     const splitLayout = computeShellLayout(245, 72, 0);
     const splitTree = createMonitorDisplay(
       shellState(
-        [{ runId: "run-alpha", project: "demo", branch: "alpha", status: "in-progress", isLive: true }],
+        [{ runId: "run-alpha", project: "demo", branch: "alpha", createdAt: 0, status: "in-progress", isLive: true }],
         "run-alpha",
       ),
       stubText,
@@ -383,6 +383,7 @@ describe("createMonitorDisplay", () => {
       runId: "run-ink",
       project: "demo",
       branch: "main",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
       workflow: {
@@ -405,12 +406,13 @@ describe("createMonitorDisplay", () => {
     ]);
   });
 
-  test("createMonitorDisplay uses supplied nowMs for tree derivation and right-pane lookup", () => {
+  test("createMonitorDisplay uses terminalWindowNowMs for tree filtering and display nowMs for elapsed", () => {
     const freshFinishedAt = TREE_NOW_MS - 60_000;
     const orphanRun: DaemonListRunRow = {
       runId: "run-fresh-orphan",
       project: "demo",
       branch: "orphan",
+      createdAt: 0,
       status: "completed",
       isLive: false,
       finishedAtMs: freshFinishedAt,
@@ -419,14 +421,21 @@ describe("createMonitorDisplay", () => {
         steps: [{ stepId: "x", role: "implement", status: "completed", attemptCount: 1 }],
       },
     };
-    const state = shellState([orphanRun], "run-fresh-orphan");
+    const state = shellState([orphanRun], "run-fresh-orphan", { terminalWindowNowMs: TREE_NOW_MS });
     const farFutureMs = TREE_NOW_MS + TUI_TERMINAL_WINDOW_MS + 60_000;
 
     const inWindowTree = createMonitorDisplay(state, stubText, undefined, TREE_NOW_MS);
-    const outOfWindowTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
+    const outOfWindowTree = createMonitorDisplay(
+      shellState([orphanRun], "run-fresh-orphan", { terminalWindowNowMs: farFutureMs }),
+      stubText,
+      undefined,
+      farFutureMs,
+    );
+    const displayTickTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
 
     expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
     expect(collectInkText(outOfWindowTree)).not.toContain("run-fresh-orphan");
+    expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
   });
 });
 
@@ -488,7 +497,7 @@ describe("openInkMonitor", () => {
     });
 
     const state = shellState(
-      [{ runId: "run-live", project: "demo", branch: "main", status: "in-progress", isLive: true }],
+      [{ runId: "run-live", project: "demo", branch: "main", createdAt: 0, status: "in-progress", isLive: true }],
       "run-live",
     );
     const input = inputHarness();
@@ -524,9 +533,9 @@ describe("openInkMonitor", () => {
   test("colors status and liveness cells on run-table rows", async () => {
     const state = shellState(
       [
-        { runId: "run-live", project: "demo", branch: "a", status: "in-progress", isLive: true },
-        { runId: "run-done", project: "demo", branch: "b", status: "completed", isLive: false },
-        { runId: "run-fail", project: "demo", branch: "c", status: "failed", isLive: false },
+        { runId: "run-live", project: "demo", branch: "a", createdAt: 0, status: "in-progress", isLive: true },
+        { runId: "run-done", project: "demo", branch: "b", createdAt: 0, status: "completed", isLive: false },
+        { runId: "run-fail", project: "demo", branch: "c", createdAt: 0, status: "failed", isLive: false },
       ],
       "run-live",
     );
@@ -553,8 +562,8 @@ describe("openInkMonitor", () => {
   test("colors queue status and leaves admission descriptor uncolored", async () => {
     const state = shellState(
       [
-        { runId: "run-active", project: "demo", branch: "main", status: "in-progress", isLive: true },
-        { runId: "run-queued", project: "demo", branch: "q", status: "queued", isLive: false },
+        { runId: "run-active", project: "demo", branch: "main", createdAt: 0, status: "in-progress", isLive: true },
+        { runId: "run-queued", project: "demo", branch: "q", createdAt: 0, status: "queued", isLive: false },
       ],
       "run-active",
     );

@@ -91,7 +91,7 @@ function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient 
 }
 
 function runRow(isLive: boolean): DaemonListResult["runs"][number] {
-  return { runId: "run-123", project: "test", branch: "main", status: "completed", isLive };
+  return { runId: "run-123", project: "test", branch: "main", createdAt: 0, status: "completed", isLive };
 }
 
 function createBlockingTail(initial: readonly PersistedRecord[] = []) {

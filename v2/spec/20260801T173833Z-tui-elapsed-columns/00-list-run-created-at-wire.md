@@ -31,11 +31,11 @@ elapsed in `jarvis tui` cannot start from an honest wire field.
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` — `list projects durable createdAt on every run row` fails against the pre-fix projection and passes after implementation; pin asserts the durable `created_at` value on the wire row.
-- [ ] `daemon-start-list.test.ts` — omitting `createdAt` from `buildRunListRow` turns `list projects durable createdAt on every run row` RED; `Mutation checkpoint:` on that pin names `createdAt` omission.
-- [ ] `v2/docs/daemon-host.md` — `list` run rows include `createdAt`.
-- [ ] `v2/docs/v1-behaviors.md` — daemon `list` row shape includes `createdAt`.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-start-list.test.ts` — `list projects durable createdAt on every run row` fails against the pre-fix projection and passes after implementation; pin asserts the durable `created_at` value on the wire row.
+- [x] `daemon-start-list.test.ts` — omitting `createdAt` from `buildRunListRow` turns `list projects durable createdAt on every run row` RED; `Mutation checkpoint:` on that pin names `createdAt` omission.
+- [x] `v2/docs/daemon-host.md` — `list` run rows include `createdAt`.
+- [x] `v2/docs/v1-behaviors.md` — daemon `list` row shape includes `createdAt`.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

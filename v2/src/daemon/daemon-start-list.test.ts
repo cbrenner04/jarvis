@@ -851,6 +851,7 @@ test("pause rejects unknown run ID", async () => {
 
 const RECONCILED_AT = 1_700_000_100_000;
 const STALE_COMPLETED_AT = 1_700_000_000_000;
+const SEEDED_CREATED_AT = 1_700_000_050_000;
 
 function seedTerminalRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return stateStore.createRun({
@@ -880,6 +881,21 @@ function setRunReconciledAt(runId: string, reconciledAt: number): void {
 function setAttemptCompletedAt(attemptId: string, completedAt: number): void {
   patchStore("UPDATE attempts SET completed_at = ? WHERE id = ?", completedAt, attemptId);
 }
+
+function setRunCreatedAt(runId: string, createdAt: number): void {
+  patchStore("UPDATE runs SET created_at = ? WHERE id = ?", createdAt, runId);
+}
+
+test("list projects durable createdAt on every run row", async () => {
+  const runId = seedTerminalRun();
+  setRunCreatedAt(runId, SEEDED_CREATED_AT);
+
+  const runs = await listRunsDirect(handlers);
+  const row = runs?.find((candidate) => candidate.runId === runId);
+  // Mutation checkpoint: omitting createdAt from buildRunListRow must turn this test RED.
+  expect(row?.createdAt).toBe(SEEDED_CREATED_AT);
+  expect(loadRunOrThrow(stateStore, runId).createdAt).toBe(SEEDED_CREATED_AT);
+});
 
 test("list sets finishedAtMs from reconciledAt when terminal row has no attempt completed_at", async () => {
   const runId = seedTerminalRun();

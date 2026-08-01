@@ -66,7 +66,9 @@ test("uses injected connectIpcClient instead of production transport", async () 
           kind: "response",
           id: LIST_REQUEST_ID,
           result: {
-            runs: [{ runId: "run-1", project: "demo", branch: "main", status: "completed", isLive: false }],
+            runs: [
+              { runId: "run-1", project: "demo", branch: "main", createdAt: 0, status: "completed", isLive: false },
+            ],
           },
         },
         { kind: "response", id: WAIT_REQUEST_ID, result: { runStatus: "completed" } },
@@ -88,7 +90,7 @@ test("uses injected connectIpcClient instead of production transport", async () 
       loadedExecutableDigest: TEST_EXECUTABLE_DIGEST,
     });
     await expect(client.list()).resolves.toEqual({
-      runs: [{ runId: "run-1", project: "demo", branch: "main", status: "completed", isLive: false }],
+      runs: [{ runId: "run-1", project: "demo", branch: "main", createdAt: 0, status: "completed", isLive: false }],
     });
     await expect(client.wait("run-1")).resolves.toEqual({ runStatus: "completed" });
     client.close();
@@ -220,12 +222,16 @@ test("list succeeds while wait is unresolved on the same client", async () => {
       kind: "response",
       id: LIST_REQUEST_ID,
       result: {
-        runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "in-progress", isLive: true }],
+        runs: [
+          { runId: "run-123", project: "demo", branch: "feature", createdAt: 0, status: "in-progress", isLive: true },
+        ],
       },
     });
 
     await expect(listPromise).resolves.toEqual({
-      runs: [{ runId: "run-123", project: "demo", branch: "feature", status: "in-progress", isLive: true }],
+      runs: [
+        { runId: "run-123", project: "demo", branch: "feature", createdAt: 0, status: "in-progress", isLive: true },
+      ],
     });
 
     let settled = false;

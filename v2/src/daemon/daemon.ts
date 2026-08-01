@@ -1401,6 +1401,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       runId: run.id,
       project: run.project,
       branch: run.branch,
+      createdAt: run.createdAt,
       status: reportedStatus,
       isLive,
       ...entryOutcomeFields,

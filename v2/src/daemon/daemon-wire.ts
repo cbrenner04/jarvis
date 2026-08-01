@@ -45,6 +45,8 @@ export type DaemonListRunRow = {
   prUrl?: string;
   /** Latest finish timestamp for terminal statuses (max of attempt `completed_at` and `reconciledAt`); drives TUI live terminal window. */
   finishedAtMs?: number;
+  /** Durable run admission timestamp (ms since epoch). */
+  createdAt: number;
 };
 
 /** Successful daemon `list` wire payload. */

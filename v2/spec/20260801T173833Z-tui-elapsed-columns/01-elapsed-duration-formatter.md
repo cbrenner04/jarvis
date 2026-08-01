@@ -38,12 +38,12 @@ overflow, inconsistent ranges, and `0s` for unset starts.
 
 ## Acceptance criteria
 
-- [ ] `tui-elapsed-format.test.ts` — `formatElapsedWallClock covers sub-minute through multi-day ranges within the 8-column budget` fails against the pre-fix absent module and passes after implementation; pin boundary-pins `59s`/`60s`, `3599s`/`3600s`, and `86399s`/`86400s`.
-- [ ] `tui-elapsed-format.test.ts` — `formatElapsedWallClock never exceeds the 8-column budget` fails pre-fix and passes after implementation; pin max-width samples per tier (`59s`, `59m 59s`, `23h 59m`, and a day-tier duration that would naively overflow, e.g. `100d 23h`) and asserts every output length ≤ 8 code units.
-- [ ] `tui-elapsed-format.test.ts` — `formatElapsedWallClock returns empty string when startMs is null` fails pre-fix and passes after implementation.
-- [ ] `tui-elapsed-format.test.ts` — `formatElapsedWallClock freezes terminal elapsed when endMs is set` fails pre-fix and passes after implementation; advancing `nowMs` leaves the formatted string unchanged.
-- [ ] `tui-elapsed-format.test.ts` — `Mutation checkpoint:` comments name guard-inversion mutations for `null` start, terminal freeze, each range boundary, and day-tier width cap; inverting each named guard turns the corresponding pin RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-elapsed-format.test.ts` — `formatElapsedWallClock covers sub-minute through multi-day ranges within the 8-column budget` fails against the pre-fix absent module and passes after implementation; pin boundary-pins `59s`/`60s`, `3599s`/`3600s`, and `86399s`/`86400s`.
+- [x] `tui-elapsed-format.test.ts` — `formatElapsedWallClock never exceeds the 8-column budget` fails pre-fix and passes after implementation; pin max-width samples per tier (`59s`, `59m 59s`, `23h 59m`, and a day-tier duration that would naively overflow, e.g. `100d 23h`) and asserts every output length ≤ 8 code units.
+- [x] `tui-elapsed-format.test.ts` — `formatElapsedWallClock returns empty string when startMs is null` fails pre-fix and passes after implementation.
+- [x] `tui-elapsed-format.test.ts` — `formatElapsedWallClock freezes terminal elapsed when endMs is set` fails pre-fix and passes after implementation; advancing `nowMs` leaves the formatted string unchanged.
+- [x] `tui-elapsed-format.test.ts` — `Mutation checkpoint:` comments name guard-inversion mutations for `null` start, terminal freeze, each range boundary, and day-tier width cap; inverting each named guard turns the corresponding pin RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

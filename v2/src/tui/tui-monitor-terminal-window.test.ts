@@ -19,6 +19,7 @@ function terminalRow(runId: string, finishedAtMs: number): DaemonListRunRow {
     runId,
     project: "demo",
     branch: runId,
+    createdAt: 0,
     status: "completed",
     isLive: false,
     finishedAtMs,
@@ -30,6 +31,7 @@ function finishlessRow(status: "killed" | "interrupted"): DaemonListRunRow {
     runId: "run-finishless",
     project: "demo",
     branch: "finishless",
+    createdAt: 0,
     status,
     isLive: false,
   };
@@ -58,6 +60,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
       runId: "run-active",
       project: "demo",
       branch: "active",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
     };
@@ -83,6 +86,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
       runId: "paused-first",
       project: "demo",
       branch: "first",
+      createdAt: 0,
       status: "paused",
       isLive: false,
     };
@@ -90,6 +94,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
       runId: "run-wf-active",
       project: "demo",
       branch: "wf",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
       stepId: "implement",
@@ -102,6 +107,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
       runId: "paused-second",
       project: "demo",
       branch: "second",
+      createdAt: 0,
       status: "paused",
       isLive: false,
     };
@@ -138,6 +144,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
           runId: `run-${index}-implement`,
           project: "demo",
           branch: `b-${index}`,
+          createdAt: 0,
           status: "completed" as const,
           isLive: false,
           finishedAtMs,
@@ -148,6 +155,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
           runId: `run-${index}-verify`,
           project: "demo",
           branch: `b-${index}-verify`,
+          createdAt: 0,
           status: "completed" as const,
           isLive: false,
           finishedAtMs,
@@ -172,6 +180,7 @@ describe("filterMonitorRunsForLiveWindow", () => {
       runId: "run-active",
       project: "demo",
       branch: "active",
+      createdAt: 0,
       status: "in-progress",
       isLive: true,
     };
@@ -298,6 +307,7 @@ describe("runTuiEntry terminal live window", () => {
       runId: "run-paused-old",
       project: "demo",
       branch: "paused-old",
+      createdAt: 0,
       status: "paused",
       isLive: false,
     };

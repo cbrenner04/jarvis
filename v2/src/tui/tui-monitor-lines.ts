@@ -41,6 +41,11 @@ export function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[
   );
 }
 
+/** Clock for unattributed terminal retention; pinned on refresh, not display tick. */
+export function monitorTerminalFilterNowMs(state: TuiMonitorState, displayNowMs: number): number {
+  return state.terminalWindowNowMs ?? displayNowMs;
+}
+
 /** Initial monitor selection: first selectable tree or unattributed row in pane order. */
 export function firstSelectableNodeId(state: TuiMonitorState, nowMs = Date.now()): string | null {
   return monitorSelectableNodeIds(state, nowMs)[0] ?? null;
@@ -228,13 +233,14 @@ export function monitorLeftPaneTreeRows(
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
   const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
+  const filterNowMs = monitorTerminalFilterNowMs(state, nowMs);
   const { displayNodes, unattributedRows } = buildMonitorPipelineTree(
     snapshots,
     state.runs,
     expandedNodeIds,
     state.selectedNodeId,
     maxVisibleRows,
-    { nowMs },
+    { filterNowMs },
   );
   const scrollOffset = reclampLeftPaneTreeScrollOffset(
     state.leftPaneTreeScrollOffset ?? 0,

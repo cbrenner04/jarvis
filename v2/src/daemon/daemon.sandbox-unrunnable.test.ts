@@ -129,6 +129,7 @@ describe("daemon (real process)", () => {
         runId,
         project: "p",
         branch: "b",
+        createdAt: expect.any(Number),
         status: "killed",
         isLive: false,
         // Reconciliation stamps a finish time on killed rows (see store-timestamps work).

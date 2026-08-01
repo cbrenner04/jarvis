@@ -9,6 +9,7 @@ import {
   firstSelectableNodeId,
   mergePipelineSnapshots,
   monitorSelectableNodeIds,
+  monitorTerminalFilterNowMs,
   withLeftPaneTreeScrollFollow,
 } from "./tui-monitor-lines.ts";
 import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
@@ -49,10 +50,10 @@ async function openMonitor(
   return openInkMonitor(state, controls, deps.inkRender, deps.nowMs);
 }
 
-function createRefreshScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefreshScheduler {
+function createIntervalScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefreshScheduler {
   return {
-    start(onRefresh) {
-      const timer = setInterval(onRefresh, intervalMs);
+    start(onTick) {
+      const timer = setInterval(onTick, intervalMs);
       return {
         close() {
           clearInterval(timer);
@@ -113,9 +114,11 @@ function monitorShellState(
   );
 }
 
-function pipelineNodesForState(state: TuiMonitorState, nowMs: number) {
+function pipelineNodesForState(state: TuiMonitorState, displayNowMs: number) {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
-  return buildMonitorPipelineTreeJoin(snapshots, state.runs, { nowMs }).pipelineNodes;
+  return buildMonitorPipelineTreeJoin(snapshots, state.runs, {
+    filterNowMs: monitorTerminalFilterNowMs(state, displayNowMs),
+  }).pipelineNodes;
 }
 
 function entryErrorFeedback(error: unknown): TuiViewState {
@@ -138,7 +141,8 @@ function steeringFeedbackFromError(error: unknown): string {
 export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const nowMsFn = deps.nowMs ?? (() => Date.now());
   const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
-  const refreshScheduler = deps.refreshScheduler ?? createRefreshScheduler();
+  const refreshScheduler = deps.refreshScheduler ?? createIntervalScheduler();
+  const displayTickScheduler = deps.displayTickScheduler ?? createIntervalScheduler();
   const discoverFn = deps.socketDiscovery ?? discoverLiveDaemonSockets;
   const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
 
@@ -146,6 +150,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let runOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
+  let displayTickHandle: { close(): void } | undefined;
   let currentState: TuiMonitorState = emptyMonitorState();
   let activeWaitToken = 0;
   let refreshInFlight = false;
@@ -389,6 +394,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         runOwners = owners;
 
         if (initial) {
+          const refreshNowMs = nowMsFn();
           const draftState = withMeasuredTerminal(
             {
               runs: mergedRuns,
@@ -397,10 +403,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               steeringFeedback: null,
               expandedPipelineNodeIds: [],
               pipelineSnapshotsBySocketPath,
+              terminalWindowNowMs: refreshNowMs,
             },
             terminalSizeFn,
           );
-          const nodeId = firstSelectableNodeId(draftState, nowMsFn());
+          const nodeId = firstSelectableNodeId(draftState, refreshNowMs);
           const runId = nodeId !== null && mergedRuns.some((run) => run.runId === nodeId) ? nodeId : null;
           currentState = {
             ...draftState,
@@ -411,11 +418,17 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         }
 
         const selectedNodeId = currentState.selectedNodeId;
+        const refreshNowMs = nowMsFn();
         if (
           selectedNodeId !== null &&
           !monitorSelectableNodeIds(
-            { ...currentState, runs: mergedRuns, pipelineSnapshotsBySocketPath },
-            nowMsFn(),
+            {
+              ...currentState,
+              runs: mergedRuns,
+              pipelineSnapshotsBySocketPath,
+              terminalWindowNowMs: refreshNowMs,
+            },
+            refreshNowMs,
           ).includes(selectedNodeId)
         ) {
           setState({
@@ -425,6 +438,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             steeringFeedback: null,
             expandedPipelineNodeIds: currentState.expandedPipelineNodeIds ?? [],
             pipelineSnapshotsBySocketPath,
+            terminalWindowNowMs: refreshNowMs,
           });
           activeWaitToken += 1;
           continue;
@@ -434,6 +448,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           ...currentState,
           runs: mergedRuns,
           pipelineSnapshotsBySocketPath,
+          terminalWindowNowMs: refreshNowMs,
         });
       } while (refreshQueued);
     } finally {
@@ -554,6 +569,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       void refreshRuns(false).catch(() => {});
     });
 
+    // Mutation checkpoint: calling refreshRuns or list/pipeline_list from this display-tick callback must turn display-tick/no-RPC RED.
+    displayTickHandle = displayTickScheduler.start(() => {
+      syncMonitor();
+    });
+
     await Promise.race([quitPromise, session.waitUntilExit()]);
     return 0;
   } catch (error) {
@@ -564,6 +584,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     throw error;
   } finally {
     refreshHandle?.close();
+    displayTickHandle?.close();
     session?.close();
     for (const client of clients.values()) {
       client.close();

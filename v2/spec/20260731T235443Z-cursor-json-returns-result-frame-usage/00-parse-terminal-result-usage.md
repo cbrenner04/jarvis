@@ -24,15 +24,15 @@ frame for `displayText` and drops `usage`. Cursor already emits token counts on 
 
 ## Acceptance criteria
 
-- [ ] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame carrying `usage` (fixture includes at least one `0` count, e.g. `cacheWriteTokens: 0`) returns the four mapped token counts alongside `displayText`; fails against the pre-fix parser (no `usage` on `CursorParseResult`).
-- [ ] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame whose `usage` is absent, `null`, or non-object omits `usage` on the result (`usage` is `undefined`); fails against the pre-fix parser.
-- [ ] `cursor-json.test.ts` — parsing stdout whose terminal `type: "result"` frame carries `usage` but no usable `result` string returns `usage` from that frame while `displayText` comes from text-delta fallback; fails against a parser that gates usage on a usable `result` string.
-- [ ] `cursor-json.test.ts` — parsing stdout with two `type: "result"` frames where the first carries `usage` and the last does not omits `usage` (stale usage must not leak); fails against a parser that reads the first result frame's usage.
-- [ ] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame with `usage: {}` or a partial `usage` object returns a present `usage` with `null` for missing fields; fails against the pre-fix parser.
-- [ ] `cursor-json.test.ts` — re-enabling usage extraction when the terminal frame's `usage` is absent, `null`, or non-object (e.g. always attaching a usage object on the result path) turns the no-`usage` omission test RED; pinning test comment names that source mutation.
-- [ ] `cursor-json.test.ts` — source-mutating the usage field mapping (e.g. mapping `cacheReadTokens` into `input_tokens`) turns the mapped-usage test RED; pinning test comment names that mutation.
-- [ ] `cursor-json.test.ts` stays green (display-text cases unchanged).
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame carrying `usage` (fixture includes at least one `0` count, e.g. `cacheWriteTokens: 0`) returns the four mapped token counts alongside `displayText`; fails against the pre-fix parser (no `usage` on `CursorParseResult`).
+- [x] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame whose `usage` is absent, `null`, or non-object omits `usage` on the result (`usage` is `undefined`); fails against the pre-fix parser.
+- [x] `cursor-json.test.ts` — parsing stdout whose terminal `type: "result"` frame carries `usage` but no usable `result` string returns `usage` from that frame while `displayText` comes from text-delta fallback; fails against a parser that gates usage on a usable `result` string.
+- [x] `cursor-json.test.ts` — parsing stdout with two `type: "result"` frames where the first carries `usage` and the last does not omits `usage` (stale usage must not leak); fails against a parser that reads the first result frame's usage.
+- [x] `cursor-json.test.ts` — parsing a terminal `type: "result"` frame with `usage: {}` or a partial `usage` object returns a present `usage` with `null` for missing fields; fails against the pre-fix parser.
+- [x] `cursor-json.test.ts` — re-enabling usage extraction when the terminal frame's `usage` is absent, `null`, or non-object (e.g. always attaching a usage object on the result path) turns the no-`usage` omission test RED; pinning test comment names that source mutation.
+- [x] `cursor-json.test.ts` — source-mutating the usage field mapping (e.g. mapping `cacheReadTokens` into `input_tokens`) turns the mapped-usage test RED; pinning test comment names that mutation.
+- [x] `cursor-json.test.ts` stays green (display-text cases unchanged).
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

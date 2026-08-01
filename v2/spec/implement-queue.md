@@ -13,8 +13,12 @@ The pre-TUI reliability queue is **burned down**. Next: open
 seeded. Shipped 2026-08-01: slice 1 (#2453 layout, #2456 ink shell) and slice 2 (#2462 poll, #2463
 tree model, #2466 monitor wiring).
 
-Fix `seeds/tui-tree-self-expand-hides-the-e-toggle` first — it is the operator-visible half of
-slice 2 (`e` invisible, `j`/`k` not reversible, selectable-but-unpainted nodes).
+`seeds/tui-tree-self-expand-hides-the-e-toggle` shipped (#2471 model, #2473 entry): `e` has a
+visible effect, `j`/`k` round-trips, and selectable ids match painted rows.
+
+Fix `seeds/tui-descend-expansion-evicts-pipelines-permanently` before slice 3 — descending with `j`
+expands as it goes and evicts older pipelines from the FIFO viewport permanently (14 of 30
+unreachable at `100x24`).
 
 `pipeline_list` already carries `createdAt` and stage timestamps as of #2463, so slice 3's wire
 prerequisite is met.

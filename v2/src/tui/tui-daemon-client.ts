@@ -7,6 +7,7 @@ import {
   parseStatusResult,
   parseWaitCompletion,
 } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
@@ -21,6 +22,8 @@ type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string; loaded
 /** Successful IPC `start` RPC payload with the spawned run id. */
 type TuiDaemonStartResult = { runId: string };
 
+export type PipelineListResult = { pipelines: readonly PipelineSnapshot[] };
+
 /**
  * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
  * wait, and close.
@@ -31,6 +34,7 @@ export type TuiDaemonClient = {
   health(): Promise<TuiDaemonHealthResult>;
   status(): Promise<TuiDaemonStatusResult>;
   list(): Promise<DaemonListResult>;
+  pipelineList(): Promise<PipelineListResult>;
   start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
   /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
@@ -56,6 +60,13 @@ export type ConnectTuiDaemonOptions = {
 function parseOrThrow<T>(parsed: T | undefined, message: string): T {
   if (!parsed) throw new RpcConnectionError(message);
   return parsed;
+}
+
+function parsePipelineList(value: unknown): PipelineListResult | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const pipelines = (value as { pipelines?: unknown }).pipelines;
+  if (!Array.isArray(pipelines)) return undefined;
+  return { pipelines: pipelines as PipelineSnapshot[] };
 }
 
 /**
@@ -99,6 +110,12 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
     },
     async list() {
       return parseListRuns(await transport.request("list")) as DaemonListResult;
+    },
+    async pipelineList() {
+      return parseOrThrow(
+        parsePipelineList(await transport.request("pipeline_list")),
+        "malformed RPC reply: invalid pipeline_list result",
+      );
     },
     async start(input) {
       return parseOrThrow(

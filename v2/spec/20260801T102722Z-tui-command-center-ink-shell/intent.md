@@ -36,8 +36,11 @@ real content on day one, not behind a flag.
 
 - `v2/docs/operator-runbook.md` — gate-trust TUI bullet covers green-while-broken and green-locally/red-on-CI, no longer points at an unresolved seed; `jarvis tui` observation row reflects the new shell.
 - `v2/docs/v1-behaviors.md` — `jarvis tui` entry records split-pane shell, dock, and `[`/`]` divider nudge.
+- `v2/docs/test-writing.md` — § TUI test strategy ink-shell deferral note resolved.
 
 ## Prerequisites
+
+*Landed — confirmed in `tui-shell-layout.ts` / `tui-shell-layout.test.ts` and `v2/docs/test-writing.md`.*
 
 - Pure layout maps `(columns, rows)` and divider offset to left/right/dock regions including `245×72` reference sizes.
 - Stacked layout fallback below `120` columns with a `4`-line dock.

@@ -51,13 +51,13 @@ After slice 00 lands, update prerequisites in `v2/spec/ready-intents/tui-monitor
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `expanded tree exceeding maxVisibleRows retains every pipeline id` (active+terminals fixture) fails pre-fix when FIFO drops terminals during overflow and passes after; every pipeline id present in flatten output.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — mutating `flattenMonitorPipelineTree` to re-enable flatten-time `dropOldestTerminalPipeline` trimming turns the overflow retention pin RED; `Mutation checkpoint:` names that inversion and covers active-pipeline drop.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — reconciled collapsed-subtree pin names and asserts collapse-only row omission (not viewport-FIFO or `maxVisibleRows` budget semantics); not a false-green carryover of FIFO behavior.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — overflow-retention `describe` block renamed from `viewport FIFO`; `flattenMonitorPipelineTree collapse`, `flattenMonitorPipelineTree reveal-on-select`, and `flattenMonitorPipelineTree ordering` pins stay green.
-- [ ] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured terminal size` asserts full flatten exceeds pane budget and no pipelines are dropped from flatten output (post-slice-00 expectations above).
-- [ ] `v2/docs/v1-behaviors.md` — documents interim full-flatten (flatten no longer FIFO-trims until slice 01 viewport paint).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-pipeline-tree.test.ts` — `expanded tree exceeding maxVisibleRows retains every pipeline id` (active+terminals fixture) fails pre-fix when FIFO drops terminals during overflow and passes after; every pipeline id present in flatten output.
+- [x] `tui-monitor-pipeline-tree.test.ts` — mutating `flattenMonitorPipelineTree` to re-enable flatten-time `dropOldestTerminalPipeline` trimming turns the overflow retention pin RED; `Mutation checkpoint:` names that inversion and covers active-pipeline drop.
+- [x] `tui-monitor-pipeline-tree.test.ts` — reconciled collapsed-subtree pin names and asserts collapse-only row omission (not viewport-FIFO or `maxVisibleRows` budget semantics); not a false-green carryover of FIFO behavior.
+- [x] `tui-monitor-pipeline-tree.test.ts` — overflow-retention `describe` block renamed from `viewport FIFO`; `flattenMonitorPipelineTree collapse`, `flattenMonitorPipelineTree reveal-on-select`, and `flattenMonitorPipelineTree ordering` pins stay green.
+- [x] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured terminal size` asserts full flatten exceeds pane budget and no pipelines are dropped from flatten output (post-slice-00 expectations above).
+- [x] `v2/docs/v1-behaviors.md` — documents interim full-flatten (flatten no longer FIFO-trims until slice 01 viewport paint).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

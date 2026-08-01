@@ -44,10 +44,10 @@ import {
   findFirstMarkdownOnlyFenceViolation,
   findFirstRepairFenceViolation,
   persistRetainedFinalizationCheckpoint,
+  publishWithReadyRepair,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
   validateReadyGateRepairCompletion,
-  publishWithReadyRepair,
   type WallSegmentSchedule,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
@@ -1690,10 +1690,7 @@ describe("write loop", () => {
       };
     }
 
-    function proofFormattingReadyFinalizer(
-      onGate: () => void,
-      afterFormatting?: () => void | Promise<void>,
-    ) {
+    function proofFormattingReadyFinalizer(onGate: () => void, afterFormatting?: () => void | Promise<void>) {
       return async ({ worktreePath }: { worktreePath: string }) => {
         onGate();
         if (proofNeedsFormatting(worktreePath)) {
@@ -1745,7 +1742,7 @@ describe("write loop", () => {
       test("ready-gate repair autofix runs once then preserves full agent repair budget", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const logSink = new TestLogSink();
-        let gateCalls = 0;
+        let _gateCalls = 0;
         let fixCalls = 0;
         let invocations = 0;
         const result = await runLoop({
@@ -1769,7 +1766,7 @@ describe("write loop", () => {
           }),
           readyFinalizer: proofFormattingReadyFinalizer(
             () => {
-              gateCalls += 1;
+              _gateCalls += 1;
             },
             () => {
               throw new ReadyGateError("bun run ready", 1, "lint still red");
@@ -1780,9 +1777,9 @@ describe("write loop", () => {
         expect(result.kind).toBe("ready_gate_failed");
         expect(fixCalls).toBe(1);
         expect(invocations).toBe(4);
-        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toHaveLength(
-          3,
-        );
+        expect(
+          logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair"),
+        ).toHaveLength(3);
         expect(result.iterationsConsumed).toBe(4);
       });
 

@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
-import { runFixCommand, type RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,

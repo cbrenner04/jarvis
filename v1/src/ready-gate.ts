@@ -1,10 +1,6 @@
 import { execFileSync } from "node:child_process";
-import {
-  FixCommandError,
-  parsePackageManagerRunScript,
-  runFixCommandSync,
-} from "../../shared/fix-command.ts";
 import { classifyChangedPaths, type ScopedTests } from "../../scripts/ci-test-scope.ts";
+import { FixCommandError, parsePackageManagerRunScript, runFixCommandSync } from "../../shared/fix-command.ts";
 import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";

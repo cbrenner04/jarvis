@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
@@ -13,7 +14,6 @@ import {
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { readProjectFixCommand } from "../config/machine-config-loader.ts";
-import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import type {
   IntentFinalizationEvent,
   LogSink,

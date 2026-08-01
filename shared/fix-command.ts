@@ -1,7 +1,11 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AsyncSubprocessError, realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "./subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+  runSyncWithTimeout,
+} from "./subprocess.ts";
 
 export class FixCommandError extends Error {
   constructor(message: string) {
@@ -62,9 +66,7 @@ export type RunFixCommandOpts = {
   agentLabel?: string;
 };
 
-type PreparedFixCommand =
-  | { kind: "skip" }
-  | { kind: "run"; head: string; args: string[]; displayCmd: string };
+type PreparedFixCommand = { kind: "skip" } | { kind: "run"; head: string; args: string[]; displayCmd: string };
 
 function prepareFixCommand(opts: RunFixCommandOpts): PreparedFixCommand {
   const tokens = resolveAutofixTokens(opts.fixCommand);
@@ -104,11 +106,10 @@ export function runFixCommandSync(opts: RunFixCommandOpts): void {
     return;
   }
   try {
-    execFileSync(prepared.head, prepared.args, {
+    runSyncWithTimeout(prepared.head, prepared.args, {
       cwd: opts.cwd,
       env: { ...process.env },
-      stdio: "pipe",
-      timeout: opts.timeoutMs,
+      timeoutMs: opts.timeoutMs,
     });
   } catch (err) {
     throw toFixCommandError(prepared.displayCmd, opts, err);

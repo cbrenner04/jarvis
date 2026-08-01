@@ -349,16 +349,19 @@ function dualDaemonEntryDeps(
 ): { deps: RunTuiEntryDeps; client1Options: FakeClientOptions; client2Options: FakeClientOptions } {
   const clients = [fakeClient(client1Options), fakeClient(client2Options)];
   let clientIndex = 0;
-  const { deps } = entryDeps({}, {
-    socketPath: DAEMON1_SOCKET,
-    connectTuiDaemon: async () => {
-      const client = clients[clientIndex++];
-      if (!client) throw new Error(`no client at index ${clientIndex - 1}`);
-      return client;
+  const { deps } = entryDeps(
+    {},
+    {
+      socketPath: DAEMON1_SOCKET,
+      connectTuiDaemon: async () => {
+        const client = clients[clientIndex++];
+        if (!client) throw new Error(`no client at index ${clientIndex - 1}`);
+        return client;
+      },
+      socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
+      ...overrides,
     },
-    socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
-    ...overrides,
-  });
+  );
   return { deps, client1Options, client2Options };
 }
 

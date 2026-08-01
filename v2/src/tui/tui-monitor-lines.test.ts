@@ -141,9 +141,7 @@ function overflowPaneMonitorFixture(): {
       ],
     }),
   );
-  const runs = pipelines.map((_, index) =>
-    workflowRun(`run-${index}`, "completed", `inv-${index}`, { isLive: false }),
-  );
+  const runs = pipelines.map((_, index) => workflowRun(`run-${index}`, "completed", `inv-${index}`, { isLive: false }));
   const state = monitorState({
     runs,
     selectedNodeId: "pipe-0",

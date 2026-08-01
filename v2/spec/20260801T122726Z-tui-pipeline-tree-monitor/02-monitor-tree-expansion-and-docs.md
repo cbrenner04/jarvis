@@ -58,14 +58,14 @@ join-time input keyed by `expandedPipelineNodeIds`); monitor wiring alone cannot
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — collapsed stage under an expanded pipeline emits one `workflow-collapsed` run row at depth 2; the same stage with its id in `expandedPipelineNodeIds` emits parent at depth 2 plus `workflow-child` rows at depth 3; fails pre-fix when join always collapses to a single row.
-- [ ] `tui-entry.test.tsx` — `drives pipeline tree expansion through the injected input hook` presses `e` on a selected stage without seeding `expandedPipelineNodeIds`; constituent run rows appear after the first press and disappear after the second; `expandedWorkflowInvocationIds` is absent or remains empty throughout; fails pre-fix when `e` still toggles invocation ids.
-- [ ] `tui-entry.test.tsx` — `e` on a selected pipeline without seeding `expandedPipelineNodeIds` reveals stage and run rows after the first press and hides them after the second; fails pre-fix when pipeline `e` is a no-op.
-- [ ] `tui-entry.test.tsx` — `e` on a selected run leaf leaves `expandedPipelineNodeIds` unchanged; fails pre-fix when run selection still toggles invocation expansion.
-- [ ] `tui-entry.test.tsx` — pinning test includes `Mutation checkpoint:` comments naming guard-inversion mutations for the ink `e` binding and the expansion toggle body; inverting each named guard turns the pin RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — collapse, reveal-on-select, and FIFO viewport tests stay green after the workflow-constituent materialization patch.
-- [ ] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-monitor-pipeline-tree.test.ts` — collapsed stage under an expanded pipeline emits one `workflow-collapsed` run row at depth 2; the same stage with its id in `expandedPipelineNodeIds` emits parent at depth 2 plus `workflow-child` rows at depth 3; fails pre-fix when join always collapses to a single row.
+- [x] `tui-entry.test.tsx` — `drives pipeline tree expansion through the injected input hook` presses `e` on a selected stage without seeding `expandedPipelineNodeIds`; the stage's node id enters and leaves `expandedPipelineNodeIds`, and `expandedWorkflowInvocationIds` is absent or remains empty throughout; fails pre-fix when `e` still toggles invocation ids. **Amended at merge (operator):** the original wording claimed constituent rows appear after the first press and disappear after the second. They do not — reveal-on-select already self-expands the selected node, so the row list is byte-identical before and after `e` on the *selected* stage. The durable state toggle is real and pinned; the visual toggle is not. Follow-up seed: `tui-tree-self-expand-hides-the-e-toggle`.
+- [x] `tui-entry.test.tsx` — `e` on a selected pipeline without seeding `expandedPipelineNodeIds` reveals stage and run rows after the first press and hides them after the second; fails pre-fix when pipeline `e` is a no-op.
+- [x] `tui-entry.test.tsx` — `e` on a selected run leaf leaves `expandedPipelineNodeIds` unchanged; fails pre-fix when run selection still toggles invocation expansion.
+- [x] `tui-entry.test.tsx` — pinning test includes `Mutation checkpoint:` comments naming guard-inversion mutations for the ink `e` binding and the expansion toggle body; inverting each named guard turns the pin RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` — collapse, reveal-on-select, and FIFO viewport tests stay green after the workflow-constituent materialization patch.
+- [x] `tui-ink-monitor.test.tsx` — `drives quit and kill through the injected input hook` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

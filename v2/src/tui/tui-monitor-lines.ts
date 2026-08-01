@@ -1,5 +1,12 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
+import type { PipelineListResult } from "./tui-daemon-client.ts";
+import {
+  buildMonitorPipelineTree,
+  type MonitorPipelineTreeDisplayNode,
+  stageBranchCellValue,
+} from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
   buildWorkflowTableRows,
@@ -8,6 +15,8 @@ import {
   workflowCollapsedContextSuffix,
   workflowRoleLabel,
 } from "./tui-monitor-workflow-collapse.ts";
+import type { ShellLayout } from "./tui-shell-layout.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -24,16 +33,27 @@ export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonLi
   return [...active, ...terminal];
 }
 
-function expandedInvocationIdSet(state: TuiMonitorState): ReadonlySet<string> {
-  return new Set(state.expandedWorkflowInvocationIds);
-}
-
 /** Selectable runs in monitor display order (collapsed workflows count as one row). */
 export function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[] {
   const selectable = orderSelectableRuns(state.runs);
-  return buildWorkflowTableRows(selectable, state.runs, expandedInvocationIdSet(state)).map((row) =>
+  return buildWorkflowTableRows(selectable, state.runs, new Set()).map((row) =>
     row.kind === "workflow-collapsed" ? row.representative : row.run,
   );
+}
+
+/** Initial monitor selection: first selectable tree or unattributed row in pane order. */
+export function firstSelectableNodeId(state: TuiMonitorState, nowMs = Date.now()): string | null {
+  return monitorSelectableNodeIds(state, nowMs)[0] ?? null;
+}
+
+/** Selectable node ids in left-pane order: visible tree rows, then unattributed runs. */
+export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.now()): string[] {
+  const columns = state.terminalColumns ?? 245;
+  const rows = state.terminalRows ?? 72;
+  const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  // Mutation checkpoint: omitting unattributed rows from monitorSelectableNodeIds must turn tree+unattributed navigation pin RED.
+  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }
 
 /** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
@@ -86,8 +106,8 @@ export function joinMonitorRow(line: MonitorLineRow): string {
   return line.segments.map((segment) => segment.text).join("");
 }
 
-function runTableRow(run: DaemonListRunRow, selectedRunId: string | null, suffix = ""): MonitorLineRow {
-  const marker = run.runId === selectedRunId ? ">" : " ";
+function runTableRow(run: DaemonListRunRow, selectedNodeId: string | null, suffix = ""): MonitorLineRow {
+  const marker = run.runId === selectedNodeId ? ">" : " ";
   const livenessText = run.isLive ? "live" : "not-live";
   const liveTone = livenessTone(run.isLive);
   return row(
@@ -106,14 +126,14 @@ function runTableRow(run: DaemonListRunRow, selectedRunId: string | null, suffix
   );
 }
 
-function renderWorkflowTableRow(tableRow: WorkflowTableRow, selectedRunId: string | null): MonitorLineRow {
+function renderWorkflowTableRow(tableRow: WorkflowTableRow, selectedNodeId: string | null): MonitorLineRow {
   switch (tableRow.kind) {
     case "standalone":
-      return runTableRow(tableRow.run, selectedRunId);
+      return runTableRow(tableRow.run, selectedNodeId);
     case "workflow-collapsed":
-      return runTableRow(tableRow.representative, selectedRunId, workflowCollapsedContextSuffix(tableRow.members));
+      return runTableRow(tableRow.representative, selectedNodeId, workflowCollapsedContextSuffix(tableRow.members));
     case "workflow-child":
-      return runTableRow(tableRow.run, selectedRunId, workflowRoleLabel(tableRow.run));
+      return runTableRow(tableRow.run, selectedNodeId, workflowRoleLabel(tableRow.run));
   }
 }
 
@@ -140,7 +160,45 @@ export function countActiveLiveRuns(state: TuiMonitorState): number {
 /** Workflow table rows for the left-pane grid (empty when no selectable runs). */
 export function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableRow[] {
   const selectableRuns = orderSelectableRuns(state.runs);
-  return buildWorkflowTableRows(selectableRuns, state.runs, expandedInvocationIdSet(state));
+  return buildWorkflowTableRows(selectableRuns, state.runs, new Set());
+}
+
+export function mergePipelineSnapshots(
+  pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
+): PipelineSnapshot[] {
+  if (pipelineSnapshotsBySocketPath === undefined) return [];
+  const merged: PipelineSnapshot[] = [];
+  for (const socketPath of Object.keys(pipelineSnapshotsBySocketPath).sort()) {
+    merged.push(...(pipelineSnapshotsBySocketPath[socketPath]?.pipelines ?? []));
+  }
+  return merged;
+}
+
+function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
+  return state.runs.some((run) => run.status === "queued") ? 1 : 0;
+}
+
+/** Pipeline tree and unattributed rows for the ink monitor left pane. */
+export function monitorLeftPaneTreeRows(
+  state: TuiMonitorState,
+  layout: ShellLayout,
+  nowMs: number,
+): {
+  treeRows: readonly MonitorPipelineTreeDisplayNode[];
+  unattributedRows: readonly WorkflowTableRow[];
+} {
+  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+  const maxVisibleRows = layout.paneHeight - leftPaneQueueHeadingRowCount(state);
+  const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
+  const { displayNodes, unattributedRows } = buildMonitorPipelineTree(
+    snapshots,
+    state.runs,
+    expandedNodeIds,
+    state.selectedNodeId,
+    maxVisibleRows,
+    { nowMs },
+  );
+  return { treeRows: displayNodes, unattributedRows };
 }
 
 /** Queue block for the left pane (heading + rows). */
@@ -151,10 +209,47 @@ export function monitorLeftPaneQueueRows(state: TuiMonitorState): MonitorLineRow
 }
 
 /** Workflow, outcome, and steering detail for the right pane. */
-export function monitorRightPaneSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
-  const selected = state.selectedRunId;
+export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
+  const selected = state.selectedNodeId;
+  if (selected === null) {
+    return [row(untoned("No run selected."))];
+  }
+
+  const columns = state.terminalColumns ?? 245;
+  const terminalRows = state.terminalRows ?? 72;
+  const layout = computeShellLayout(columns, terminalRows, state.dividerOffset ?? 0);
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const treeRow = treeRows.find((entry) => entry.id === selected);
+
+  // Mutation checkpoint: treating pipeline selection as run detail in monitorRightPaneSegmentRows must turn pipeline/stage right-pane pin RED.
+  if (treeRow?.kind === "pipeline") {
+    return [
+      row(untoned(`pipelineId: ${treeRow.snapshot.pipelineId}`)),
+      row(untoned(`name: ${treeRow.snapshot.name}`)),
+      row(untoned(`project: ${treeRow.project}`)),
+      row(untoned(`state: ${treeRow.snapshot.state}`)),
+    ];
+  }
+  if (treeRow?.kind === "stage") {
+    return [
+      row(untoned(`stageId: ${treeRow.stageId}`)),
+      row(untoned(`branch: ${stageBranchCellValue(treeRow.branchKey)}`)),
+      row(untoned(`status: ${treeRow.status}`)),
+    ];
+  }
+
+  const selectedRunId =
+    treeRow?.kind === "run"
+      ? treeRow.id
+      : unattributedRows.some((tableRow) => monitorTreeRun(tableRow).runId === selected)
+        ? selected
+        : null;
+  if (selectedRunId === null) {
+    return [row(untoned("No run selected."))];
+  }
+
   const lines: MonitorLineRow[] = [];
-  const selectedRun = selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
+  const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
   if (selectedRun?.workflow !== undefined) {
     lines.push(row(untoned("Workflow")));
     for (const step of selectedRun.workflow.steps) {
@@ -167,17 +262,15 @@ export function monitorRightPaneSegmentRows(state: TuiMonitorState): MonitorLine
       );
     }
   }
-  lines.push(row(untoned("Outcome")), ...outcomeLines(state));
+  lines.push(row(untoned("Outcome")), ...outcomeLines(state, selectedRunId));
   if (state.steeringFeedback !== null) {
     lines.push(row(untoned(state.steeringFeedback)));
   }
   return lines;
 }
 
-function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
-  const selected = state.selectedRunId;
+function outcomeLines(state: TuiMonitorState, _selectedRunId: string): MonitorLineRow[] {
   const waitState = state.waitState;
-  if (selected === null) return [row(untoned("No run selected."))];
   if (waitState.kind === "pending") return [row(untoned(`Waiting for ${waitState.runId}...`))];
   if (waitState.kind === "ready") {
     return [
@@ -196,8 +289,8 @@ function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
 }
 
 /** Segment rows for the ink run monitor from one snapshot. */
-export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
-  const selected = state.selectedRunId;
+export function monitorSegmentRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
+  const selected = state.selectedNodeId;
   const lines: MonitorLineRow[] = [];
   const tableRows = monitorLeftPaneTableRows(state);
   if (tableRows.length === 0) {
@@ -208,8 +301,8 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
       lines.push(renderWorkflowTableRow(tableRow, selected));
     }
   }
-  lines.push(...monitorLeftPaneQueueRows(state), ...monitorRightPaneSegmentRows(state));
-  lines.push(row(untoned("Press up/down or j to select; e expands workflow; q or Ctrl-C to quit.")));
+  lines.push(...monitorLeftPaneQueueRows(state), ...monitorRightPaneSegmentRows(state, nowMs));
+  lines.push(row(untoned("Press up/down or j to select; e expands pipeline/stage; q or Ctrl-C to quit.")));
   return lines;
 }
 

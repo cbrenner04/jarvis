@@ -308,8 +308,11 @@ describe("buildMonitorTreeRow", () => {
       "run-review",
       90,
     );
+    const collapsedMember = COLLAPSED_WORKFLOW_MEMBERS[0];
+    expect(collapsedMember).toBeDefined();
+    if (!collapsedMember) throw new Error("expected collapsed workflow member");
     const implementChild: DaemonListRunRow = {
-      ...COLLAPSED_WORKFLOW_MEMBERS[0]!,
+      ...collapsedMember,
       runId: "run-implement",
       stepId: "implement",
     };

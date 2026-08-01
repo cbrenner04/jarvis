@@ -590,9 +590,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   terminal rows need `finishedAtMs` within the last hour (list rows take the max
   of attempt `completed_at` and store `reconciledAt`), or stay in-window when
   `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like other
-  terminal statuses; sort newest-first, and cap at twenty **collapsed workflow
-  rows** (constituent step runs share one top-level row until expanded with
-  `e`); unlike default `jarvis run list`, which keeps the daemon fifty-newest
+  terminal statuses; sort newest-first. The one-hour / twenty-row live window applies
+  only to **unattributed** runs below the pipeline tree (pipeline-attributed runs
+  join under their stage without that cap). Press **`e`** on a selected pipeline or
+  stage to expand workflow constituent runs; flat unattributed rows no longer expand
+  with **`e`**. Unlike default `jarvis run list`, which keeps the daemon fifty-newest
   terminal retention.
   Steering RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
   are discovered, the monitor connects only to the invoking digest's socket
@@ -602,4 +604,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   default fifty-terminal-run retention window (relative duration or absolute
   timestamp); returned run IDs work with `run log` and `tui log` across live
   keyed daemons (each resolves the owner). Sources:
-  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-log-follow-entry
+  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-log-follow-entry.tsx`,
+  `v2/src/tui/tui-monitor-pipeline-tree.ts`
+- [v2 additive] TUI pipeline tree: the left pane merges daemon `pipeline_list`
+  snapshots with run rows by `workflowInvocationId`, nests pipeline → stage → run,
+  and keeps unattributed runs in a flat segment below. Selection is three-deep
+  (pipeline, stage, or run); the right pane shows pipeline/stage metadata or run
+  workflow/outcome/steering by selection kind. Sources:
+  `v2/src/tui/tui-monitor-pipeline-tree.ts`, `v2/src/tui/tui-monitor-lines.ts`

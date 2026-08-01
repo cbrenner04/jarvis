@@ -328,7 +328,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 
 | Command | Use |
 | --- | --- |
-| `jarvis tui` | Split-pane run monitor (stacked below 120 cols): left tree/queue, right workflow/outcome/steering, 4-line dock (`[`/`]` nudge divider); kill (`k`) on live runs |
+| `jarvis tui` | Split-pane run monitor (stacked below 120 cols): left pipeline tree (pipeline → stage → run) plus unattributed runs and queue, right pane by selection kind (pipeline/stage metadata or run workflow/outcome/steering), 4-line dock (`[`/`]` nudge divider); **`e`** expands/collapses selected pipeline or stage; kill (`k`) on live runs |
 | `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
 | `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
 | `jarvis run list --project <name>` | Exact durable `project` match (case-sensitive); bypasses the fifty-terminal-run retention window |
@@ -352,7 +352,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 
 The invoking-socket client (the socket TUI connects to by default via `deps.socketPath`) is no longer exempt from eviction. When that connection's `list()` RPC fails, the stale client is closed and removed, allowing a fresh connection on the next refresh tick. This ensures that if the invoking daemon dies and a new daemon binds the same socket path, the TUI automatically reconnects to the new daemon's runs.
 
-Use `jarvis tui` for the live window. The monitor keeps non-terminal runs regardless of age and shows terminal runs finished within the last hour (`finishedAtMs` from the latest attempt `completed_at` and store `reconciledAt` when present), newest first, capped at **twenty** collapsed workflow rows (one row per workflow invocation by default; press **`e`** on a selected workflow row to expand constituent runs with role labels). Terminal rows lacking any finish timestamp stay in the live window. `blocked` rows older than one hour drop from the TUI — recover with `jarvis run list --status blocked --since …` (or other list filters). Older terminal runs still appear in daemon `list` payloads and in `jarvis run list`; query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.) or narrow by durable dimensions, for example `jarvis run list --project my-repo --status completed` or `jarvis run list --branch feature/foo --spec v2/spec/index.md`; returned run IDs work with `run log` and `tui log` across live keyed daemons (each resolves the owner). Large filtered queries default to the **200** newest matches per keyed daemon `list` response before `jarvis run list` merges sockets; merged CLI output can exceed **200** when multiple live daemons each return matches. Pass `--limit 50` (for example) when you need fewer rows per daemon.
+Use `jarvis tui` for the live window. The left pane nests daemon `pipeline_list` snapshots into a three-deep tree (pipeline → stage → workflow run); up/down or `j` walks pipeline, stage, run, then unattributed rows in pane order. **`e`** toggles expansion for the selected pipeline or stage; **`e`** on a run leaf or unattributed row is a no-op. Because the selected node is always self-expanded (reveal-on-select), pressing `e` on the *selected* stage has no visible effect — its constituent runs are already shown; the toggle is observable once selection moves elsewhere. Seed: `tui-tree-self-expand-hides-the-e-toggle`. Selecting a descendant reveals ancestor rows without persisting expansion. Pipeline-attributed runs join under their stage with no one-hour / twenty-row cap; the live window and twenty-row cap apply only to the **unattributed** segment below the tree (terminal runs finished within the last hour, `finishedAtMs` from attempt `completed_at` and store `reconciledAt` when present, newest first). Terminal rows lacking any finish timestamp stay in the live window. `blocked` rows older than one hour drop from the TUI — recover with `jarvis run list --status blocked --since …` (or other list filters). Older terminal runs still appear in daemon `list` payloads and in `jarvis run list`; query history with `jarvis run list --since 2d` (or `90m`, `2026-07-01T00:00:00Z`, etc.) or narrow by durable dimensions, for example `jarvis run list --project my-repo --status completed` or `jarvis run list --branch feature/foo --spec v2/spec/index.md`; returned run IDs work with `run log` and `tui log` across live keyed daemons (each resolves the owner). Large filtered queries default to the **200** newest matches per keyed daemon `list` response before `jarvis run list` merges sockets; merged CLI output can exceed **200** when multiple live daemons each return matches. Pass `--limit 50` (for example) when you need fewer rows per daemon.
 
 Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)).
 
@@ -1247,9 +1247,11 @@ Operators add bullets here; delete when fixed.
   jarvis run list --branch <spec-dir-basename>
   ```
 
-  In `jarvis tui` the workflow is **one collapsed row per invocation**, labelled by spec name; press
-  **`e`** to expand constituent runs. A terminal constituent id you are hunting for is hidden inside
-  that row until you do.
+  In `jarvis tui` the left pane nests pipelines into stages and workflow runs; press
+  **`e`** on a selected pipeline or stage to expand constituent runs. Unattributed
+  workflows stay one collapsed row per invocation with no flat-row **`e`** expansion.
+  A terminal constituent id you are hunting for inside a collapsed stage row requires
+  expanding that stage first.
 
 - **Never `git checkout -- <file>` to undo a mutation test (2026-07-26):** it reverts *all*
   uncommitted work in that file, not just the mutation. Done twice in one session, silently

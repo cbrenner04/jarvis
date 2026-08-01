@@ -10,7 +10,8 @@ import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
-import { monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorLeftPaneTreeRows, monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -19,6 +20,7 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
 
@@ -82,6 +84,132 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
   stages: [{ stageId: "s1", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-2" }],
 };
 
+const PIPELINE_STAGE_ALPHA = monitorPipelineStageNodeId("pipe-alpha", "plan", "default");
+
+const PIPELINE_MULTI_INVOCATION = "inv-multi";
+const PIPELINE_MULTI_STEPS = [
+  { stepId: "implement", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+  { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
+] as const;
+
+const PIPELINE_SNAPSHOT_MULTI: PipelineSnapshot = {
+  pipelineId: "pipe-multi",
+  name: "multi-pipeline",
+  state: "running",
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  stages: [
+    {
+      stageId: "implement",
+      branchKey: "default",
+      status: "running",
+      workflowInvocationId: PIPELINE_MULTI_INVOCATION,
+    },
+  ],
+};
+
+const PIPELINE_STAGE_MULTI = monitorPipelineStageNodeId("pipe-multi", "implement", "default");
+
+function pipelineMultiRun(
+  overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "status">,
+): DaemonListRunRow {
+  return {
+    project: "demo",
+    branch: "main",
+    isLive: overrides.status === "in-progress",
+    workflow: {
+      invocationId: PIPELINE_MULTI_INVOCATION,
+      steps: [...PIPELINE_MULTI_STEPS],
+    },
+    ...overrides,
+  };
+}
+
+function pipelineMultiListFixture(): DaemonListRunRow[] {
+  return [
+    pipelineMultiRun({ runId: "run-implement", stepId: "implement", status: "completed", isLive: false }),
+    pipelineMultiRun({ runId: "run-review", stepId: "implement-review", status: "in-progress" }),
+    PIPELINE_RUN_ORPHAN,
+  ];
+}
+
+function leftPaneTreeRowIds(state: TuiMonitorState | undefined): string[] {
+  if (state === undefined) return [];
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
+}
+
+function pipelineMultiEntryDeps(view: ReturnType<typeof createViewHost>, overrides: Partial<RunTuiEntryDeps> = {}) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: pipelineMultiListFixture() }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_MULTI] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    },
+    {
+      viewHost: view.host,
+      nowMs: () => WORKFLOW_FILTER_NOW_MS,
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+      ...overrides,
+    },
+  );
+}
+
+const PIPELINE_RUN_MATCHED: DaemonListRunRow = {
+  runId: "run-matched",
+  project: "demo",
+  branch: "main",
+  status: "in-progress",
+  isLive: true,
+  workflow: {
+    invocationId: "inv-1",
+    steps: [{ stepId: "plan", role: "plan", status: "in_progress", attemptCount: 1 }],
+  },
+};
+
+const PIPELINE_RUN_ORPHAN: DaemonListRunRow = {
+  runId: "run-orphan",
+  project: "demo",
+  branch: "orphan",
+  status: "completed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  workflow: {
+    invocationId: "inv-orphan",
+    steps: [{ stepId: "x", role: "implement", status: "completed", attemptCount: 1 }],
+  },
+};
+
+function pipelineTreeListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN];
+}
+
+function pipelineTreeWithOutsideRunFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN, RUN_ALPHA];
+}
+
+function pipelineTreeEntryDeps(
+  view: ReturnType<typeof createViewHost>,
+  overrides: Partial<RunTuiEntryDeps> = {},
+  runs: DaemonListRunRow[] = pipelineTreeListFixture(),
+) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      waitImpl: async () => ({ runStatus: "completed" }),
+    },
+    {
+      viewHost: view.host,
+      nowMs: () => WORKFLOW_FILTER_NOW_MS,
+      ...overrides,
+    },
+  );
+}
+
 const DAEMON1_SOCKET = "/tmp/daemon1.sock";
 const DAEMON2_SOCKET = "/tmp/daemon2.sock";
 
@@ -108,7 +236,7 @@ function workflowRun(
   };
 }
 
-function workflowListFixture(): DaemonListRunRow[] {
+function _workflowListFixture(): DaemonListRunRow[] {
   return [
     workflowRun({
       runId: "run-implement",
@@ -299,8 +427,8 @@ function createViewHost() {
     async waitUntilOpen() {
       await opened.promise;
     },
-    selectRun(runId: string) {
-      controls?.selectRun(runId);
+    selectNode(nodeId: string) {
+      controls?.selectNode(nodeId);
     },
     selectNextRun() {
       controls?.selectNextRun();
@@ -531,46 +659,116 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("toggles workflow expansion through the monitor control", async () => {
-    // Mutation checkpoint: short-circuit `toggleSelectedWorkflowExpansion` in tui-entry.tsx before
-    // it mutates `expandedWorkflowInvocationIds` — the constituent rows never appear.
-    // The `e` keybinding that reaches this control is pinned by tui-ink-monitor.test.tsx
-    // ("drives workflow expansion through the injected input hook"); asserting painted ink output
-    // here is not viable, since ink does not paint to the fake stdout under CI.
+  test("drives pipeline tree expansion through the injected input hook", async () => {
+    // Mutation checkpoint: short-circuiting `toggleSelectedWorkflowExpansion` in tui-entry.tsx before
+    // it mutates `expandedPipelineNodeIds` must turn stage constituent rows RED.
+    // Mutation checkpoint: skipping the `e` binding in tui-ink-monitor.tsx must turn pipeline/stage expansion RED.
     const view = createViewHost();
-    const refresh = createRefreshScheduler();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: workflowListFixture() }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      {
-        viewHost: view.host,
-        refreshScheduler: refresh.scheduler,
-        nowMs: () => WORKFLOW_FILTER_NOW_MS,
-      },
-    );
+    const { deps } = pipelineMultiEntryDeps(view);
 
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
-
     await flush();
-    const collapsed = view.monitorStates.at(-1);
-    expect(collapsed?.expandedWorkflowInvocationIds).toEqual([]);
 
-    view.toggleSelectedWorkflowExpansion();
+    view.selectNode(PIPELINE_STAGE_MULTI);
     await flush();
-    const expanded = view.monitorStates.at(-1);
-    expect(expanded?.expandedWorkflowInvocationIds.length).toBe(1);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
 
     view.toggleSelectedWorkflowExpansion();
     await flush();
-    const recollapsed = view.monitorStates.at(-1);
-    expect(recollapsed?.expandedWorkflowInvocationIds).toEqual([]);
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_MULTI);
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+
+    view.selectPreviousRun();
+    await flush();
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_MULTI);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-implement");
+
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain(PIPELINE_STAGE_MULTI);
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("run-implement");
+    expect("expandedWorkflowInvocationIds" in (view.monitorStates.at(-1) ?? {})).toBe(false);
 
     view.quit();
     expect(await pending).toBe(0);
-    expect(refresh.isClosed()).toBe(true);
+  });
+
+  test("e on a selected pipeline without seeding expandedPipelineNodeIds reveals stage and run rows after the first press and hides them after the second", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-multi");
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual([
+      "pipe-multi",
+      PIPELINE_STAGE_MULTI,
+      "run-review",
+      "run-orphan",
+    ]);
+
+    view.selectNode("pipe-multi");
+    await flush();
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds).toContain("pipe-multi");
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual([
+      "pipe-multi",
+      PIPELINE_STAGE_MULTI,
+      "run-review",
+      "run-orphan",
+    ]);
+
+    view.selectNode("pipe-multi");
+    await flush();
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    view.selectNode("run-orphan");
+    await flush();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(["pipe-multi", "run-orphan"]);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e on a selected run leaf leaves expandedPipelineNodeIds unchanged", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("run-review");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-review");
+    const before = [...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort();
+
+    view.toggleSelectedWorkflowExpansion();
+    await flush();
+    expect([...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort()).toEqual(before);
+
+    view.quit();
+    expect(await pending).toBe(0);
   });
 
   test("reachable daemon proves health and status, enters the monitor on one open client, and exits 0 on quit", async () => {
@@ -595,7 +793,7 @@ describe("runTuiEntry", () => {
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
-      selectedRunId: "run-alpha",
+      selectedNodeId: "run-alpha",
       waitState: { kind: "pending", runId: "run-alpha" },
     });
     expect(view.isClosed()).toBe(true);
@@ -619,7 +817,7 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
-    expect(view.monitorStates[0]?.selectedRunId).toBe("run-alpha");
+    expect(view.monitorStates[0]?.selectedNodeId).toBe("run-alpha");
   });
 
   test("empty launch list shows an explicit empty state, does not select a run, and does not wait", async () => {
@@ -640,16 +838,16 @@ describe("runTuiEntry", () => {
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
     expect(view.monitorStates[0]).toEqual({
       runs: [],
-      selectedRunId: null,
+      selectedNodeId: null,
       waitState: { kind: "none" },
       steeringFeedback: null,
-      expandedWorkflowInvocationIds: [],
+      expandedPipelineNodeIds: [],
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
     });
   });
 
-  test("selectRun is a no-op for a queued run's id", async () => {
+  test("selectNode is a no-op for a queued run's id", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
       {
@@ -662,12 +860,12 @@ describe("runTuiEntry", () => {
 
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
-    view.selectRun("run-queued");
+    view.selectNode("run-queued");
     await flush();
     view.quit();
     await pending;
 
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
   });
 
@@ -696,7 +894,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-beta");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
     expect(clientOptions.methods).toEqual([
       "health",
       "status",
@@ -708,6 +906,141 @@ describe("runTuiEntry", () => {
       "wait:run-beta",
       "close",
     ]);
+  });
+
+  test("drives row navigation through the injected input hook", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-matched");
+
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+
+    view.selectPreviousRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("after refresh, selectedNodeId is the first selectable tree or unattributed row in pane order", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(
+      view,
+      { terminalSize: () => ({ columns: 245, rows: 72 }) },
+      pipelineTreeWithOutsideRunFixture(),
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe("run-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("when a refresh drops the selected id from the selectable list, selectedNodeId clears and wait-state resets", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: pipelineTreeListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: 245, rows: 72 }),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    refresh.tick();
+    await flush();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("kill and pause controls no-op when a pipeline or stage row is selected", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("pipe-alpha");
+    await flush();
+    view.pauseSelected();
+    await flush();
+    view.killSelected();
+    await flush();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    view.pauseSelected();
+    await flush();
+    view.killSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods?.some((method) => method.startsWith("pause:"))).toBe(false);
+    expect(clientOptions.methods?.some((method) => method.startsWith("kill:"))).toBe(false);
+  });
+
+  test("programmatic selectNode with a pipeline or stage id updates selectedNodeId", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 245, rows: 72 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode(PIPELINE_STAGE_ALPHA);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    view.selectNode("pipe-alpha");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
   });
 
   test("navigates from no selection and uses the selected run's refreshed display position", async () => {
@@ -749,7 +1082,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-beta");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
   });
 
   test("refresh clears selection when the selected run transitions to queued", async () => {
@@ -772,7 +1105,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBeNull();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
   });
 
@@ -801,7 +1134,7 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.runs).toEqual([
       { ...RUN_ALPHA, status: "completed", isLive: false, finishedAtMs: TERMINAL_LIST_FINISH_MS },
     ]);
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
   });
 
   test("refresh clears selection and abandons a pending wait when the selected run disappears", async () => {
@@ -839,10 +1172,10 @@ describe("runTuiEntry", () => {
     ]);
     expect(view.monitorStates.at(-1)).toEqual({
       runs: [RUN_BETA],
-      selectedRunId: null,
+      selectedNodeId: null,
       waitState: { kind: "none" },
       steeringFeedback: null,
-      expandedWorkflowInvocationIds: [],
+      expandedPipelineNodeIds: [],
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
     });
@@ -863,7 +1196,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
     view.quit();
     await pending;
@@ -879,7 +1212,7 @@ describe("runTuiEntry", () => {
       "close",
     ]);
     expect(view.monitorStates.at(-1)).toMatchObject({
-      selectedRunId: "run-beta",
+      selectedNodeId: "run-beta",
       waitState: {
         kind: "ready",
         runId: "run-beta",
@@ -909,7 +1242,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
     betaWait.resolve({ runStatus: "completed" });
     await flush();
@@ -948,7 +1281,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
     betaWait.resolve({ runStatus: "blocked", loopOutcomeKind: "blocked" });
     await flush();
@@ -1069,7 +1402,7 @@ describe("runTuiEntry", () => {
 
     refresh.tick();
     await flush();
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
     await flush();
     refreshList.resolve({ runs: [RUN_BETA] });
@@ -1079,7 +1412,7 @@ describe("runTuiEntry", () => {
 
     expect(view.monitorStates.at(-1)).toMatchObject({
       runs: [RUN_BETA],
-      selectedRunId: "run-beta",
+      selectedNodeId: "run-beta",
     });
 
     view.quit();
@@ -1125,7 +1458,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.selectRun("run-gamma");
+    view.selectNode("run-gamma");
     await flush();
     view.pauseSelected();
     await flush();
@@ -1307,7 +1640,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    view.selectRun("run-alpha");
+    view.selectNode("run-alpha");
     await flush();
     view.pauseSelected();
     await flush();
@@ -1441,7 +1774,7 @@ describe("runTuiEntry", () => {
     expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
-      selectedRunId: "run-alpha",
+      selectedNodeId: "run-alpha",
     });
   });
 
@@ -1592,7 +1925,7 @@ describe("runTuiEntry", () => {
     await flush();
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("unknown_run: missing");
 
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBeNull();
   });
@@ -1678,7 +2011,7 @@ describe("runTuiEntry", () => {
       const pending = runTuiEntry(deps);
       await view.waitUntilOpen();
       await flush();
-      view.selectRun(row.runId);
+      view.selectNode(row.runId);
       await flush();
       view[action]();
       await flush();
@@ -1939,15 +2272,73 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
     await flush();
-    view.selectRun("run-beta");
+    view.selectNode("run-beta");
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-beta");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
 
     refresh.tick();
     await flush();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBeNull();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
+
+    view.quit();
+    await pending;
+  });
+
+  test("rediscovery: selection clears when the owning daemon drops a selected pipeline", async () => {
+    const view = createViewHost();
+    const refresh = createRefreshScheduler();
+    let discoveryPhase = 0;
+
+    const daemon1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+    };
+    const daemon2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [RUN_BETA] }, { runs: [RUN_BETA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+
+    const clients = [fakeClient(daemon1Options), fakeClient(daemon2Options)];
+    let clientIndex = 0;
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => {
+          const c = clients[clientIndex++];
+          if (!c) throw new Error(`no client at index ${clientIndex - 1}`);
+          return c;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          if (discoveryPhase === 1) {
+            return ["/tmp/daemon1.sock", "/tmp/daemon2.sock"];
+          }
+          return ["/tmp/daemon1.sock"];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flush();
+    view.selectNode("pipe-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-beta");
+
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
 
     view.quit();
@@ -1996,7 +2387,7 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedRunId).toBe("run-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
 
     refresh.tick();
     await flush();

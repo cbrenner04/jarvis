@@ -94,8 +94,9 @@ function flattenJoined(
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
   maxVisibleRows: number,
+  builderRuns: readonly DaemonListRunRow[] = [],
 ) {
-  return flattenMonitorPipelineTree(pipelineNodes, expandedNodeIds, selectedNodeId, maxVisibleRows);
+  return flattenMonitorPipelineTree(pipelineNodes, expandedNodeIds, selectedNodeId, maxVisibleRows, builderRuns);
 }
 
 function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
@@ -177,8 +178,13 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(stageBranchCellValue("default")).toBe("");
     expect(stageBranchCellValue("alt")).toBe("alt");
 
-    const defaultRow = buildStageMonitorTreeRow(stages[0]!, null, 90);
-    const altRow = buildStageMonitorTreeRow(stages[1]!, null, 90);
+    const defaultStage = stages[0];
+    const altStage = stages[1];
+    expect(defaultStage).toBeDefined();
+    expect(altStage).toBeDefined();
+    if (!defaultStage || !altStage) throw new Error("expected branch stages");
+    const defaultRow = buildStageMonitorTreeRow(defaultStage, null, 90);
+    const altRow = buildStageMonitorTreeRow(altStage, null, 90);
     expect(columnSlice(defaultRow, 90, "branch").trimEnd()).toBe("");
     expect(columnSlice(altRow, 90, "branch").trimEnd()).toBe("alt");
   });
@@ -306,6 +312,56 @@ describe("buildMonitorPipelineTree", () => {
   });
 });
 
+describe("flattenMonitorPipelineTree workflow constituent rows", () => {
+  const MULTI_INVOCATION = "inv-multi";
+  const MULTI_WORKFLOW_STEPS = [
+    { stepId: "implement", role: "implement", status: "completed", attemptCount: 1, terminalOutcome: "complete" },
+    { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
+  ] as const;
+
+  function multiMemberRuns(): DaemonListRunRow[] {
+    const workflow = { invocationId: MULTI_INVOCATION, steps: [...MULTI_WORKFLOW_STEPS] };
+    return [
+      workflowRun({ runId: "run-implement", status: "completed", isLive: false }, MULTI_INVOCATION),
+      {
+        ...workflowRun({ runId: "run-review", status: "in-progress" }, MULTI_INVOCATION),
+        stepId: "implement-review",
+        workflow,
+      },
+    ];
+  }
+
+  test("collapsed stage under an expanded pipeline emits one workflow-collapsed run row at depth 2", () => {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [implementStage(MULTI_INVOCATION)],
+    });
+    const runs = multiMemberRuns();
+    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set([PIPELINE_ID]), null, 10, runs);
+    const runNodes = displayNodes.filter((node) => node.kind === "run");
+
+    expect(runNodes).toHaveLength(1);
+    expect(runNodes[0]).toMatchObject({ kind: "run", depth: 2 });
+    expect(runNodes[0]?.kind === "run" ? runNodes[0].tableRow.kind : "").toBe("workflow-collapsed");
+  });
+
+  test("expanded stage emits workflow-collapsed parent at depth 2 plus workflow-child rows at depth 3", () => {
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [implementStage(MULTI_INVOCATION)],
+    });
+    const runs = multiMemberRuns();
+    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set([PIPELINE_ID, stageId]), null, 10, runs);
+    const runNodes = displayNodes.filter((node) => node.kind === "run");
+
+    expect(runNodes.map((node) => ({ id: node.id, depth: node.depth, kind: node.tableRow.kind }))).toEqual([
+      { id: "run-review", depth: 2, kind: "workflow-collapsed" },
+      { id: "run-implement", depth: 3, kind: "workflow-child" },
+    ]);
+  });
+});
+
 describe("flattenMonitorPipelineTree collapse", () => {
   test("a collapsed pipeline omits its stage and run descendants", () => {
     // Mutation checkpoint: showing stage descendants when the pipeline id is absent from effective expansion must turn pipeline collapse RED.
@@ -321,7 +377,7 @@ describe("flattenMonitorPipelineTree collapse", () => {
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const displayNodes = flattenJoined(joinTree([snapshot], [run]), new Set([PIPELINE_ID]), null, 10);
 
-    expect(displayNodes.map((node) => node.kind)).toEqual(["pipeline", "stage"]);
+    expect(displayNodes.map((node) => node.kind)).toEqual(["pipeline", "stage", "run"]);
     expect(displayNodes[1]).toMatchObject({ kind: "stage", id: stageId, depth: 1 });
   });
 });
@@ -331,11 +387,13 @@ describe("flattenMonitorPipelineTree reveal-on-select", () => {
     // Mutation checkpoint: omitting selected-node ancestors from effective expansion must turn reveal-on-select RED.
     const first = pipelineWithStageAndRun("pipe-one", "inv-one", "run-one");
     const second = pipelineWithStageAndRun("pipe-two", "inv-two", "run-two");
+    const runs = [first.run, second.run];
     const displayNodes = flattenJoined(
-      joinTree([first.snapshot, second.snapshot], [first.run, second.run]),
+      joinTree([first.snapshot, second.snapshot], runs),
       new Set(),
       "run-two",
       20,
+      runs,
     );
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
@@ -364,13 +422,14 @@ describe("flattenMonitorPipelineTree reveal-on-select", () => {
     ];
     const planStageId = monitorPipelineStageNodeId(PIPELINE_ID, "plan", "default");
     const implementStageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
-    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set(), "run-plan", 20);
+    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set(), "run-plan", 20, runs);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
       { kind: "pipeline", id: PIPELINE_ID },
       { kind: "stage", id: planStageId },
       { kind: "run", id: "run-plan" },
       { kind: "stage", id: implementStageId },
+      { kind: "run", id: "run-implement" },
     ]);
   });
 });
@@ -450,7 +509,7 @@ describe("flattenMonitorPipelineTree viewport FIFO", () => {
       monitorPipelineStageNodeId("pipe-terminal-new", "implement", "default"),
     ]);
 
-    const displayNodes = flattenJoined(joinTree(snapshots, runs), expanded, null, 5);
+    const displayNodes = flattenJoined(joinTree(snapshots, runs), expanded, null, 5, runs);
 
     expect(displayNodes.map((node) => node.id)).toEqual([
       "pipe-active",
@@ -506,7 +565,7 @@ describe("flattenMonitorPipelineTree viewport FIFO", () => {
       "pipe-expanded-terminal",
       monitorPipelineStageNodeId("pipe-expanded-terminal", "plan", "default"),
     ]);
-    const displayNodes = flattenJoined(joinTree([collapsedTerminal, expandedTerminal], runs), expanded, null, 4);
+    const displayNodes = flattenJoined(joinTree([collapsedTerminal, expandedTerminal], runs), expanded, null, 4, runs);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
       { kind: "pipeline", id: "pipe-collapsed-terminal" },

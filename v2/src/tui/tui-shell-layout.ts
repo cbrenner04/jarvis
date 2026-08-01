@@ -138,11 +138,11 @@ export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
   }
 }
 
-function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, selectedRunId: string | null): string {
+function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, selectedNodeId: string | null): string {
   const run = monitorTreeRun(tableRow);
   switch (column) {
     case "marker":
-      return run.runId === selectedRunId ? ">" : " ";
+      return run.runId === selectedNodeId ? ">" : " ";
     case "indent":
       return tableRow.kind === "workflow-child" ? "  " : "";
     case "label": {
@@ -172,24 +172,53 @@ function monitorTreeCellValue(column: TreeColumnId, tableRow: WorkflowTableRow, 
 
 export function buildMonitorTreeRow(
   tableRow: WorkflowTableRow,
-  selectedRunId: string | null,
+  selectedNodeId: string | null,
   leftPaneWidth: number,
 ): string {
-  return listMonitorTreeCells(tableRow, selectedRunId, leftPaneWidth)
+  return listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth)
     .map((cell) => cell.text)
     .join("");
 }
 
 export function listMonitorTreeCells(
   tableRow: WorkflowTableRow,
-  selectedRunId: string | null,
+  selectedNodeId: string | null,
   leftPaneWidth: number,
 ): { column: TreeColumnId; text: string }[] {
   return visibleColumns(leftPaneWidth).map((column) => {
     const width = TREE_COLUMN_WIDTHS[column];
     return {
       column,
-      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedRunId), width),
+      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId), width),
     };
+  });
+}
+
+/** Depth-aware indent: each depth level consumes one two-space indent column slot before label. */
+export function listMonitorTreeCellsAtDepth(
+  tableRow: WorkflowTableRow,
+  selectedNodeId: string | null,
+  leftPaneWidth: number,
+  depth: number,
+): { column: TreeColumnId; text: string }[] {
+  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth);
+  let remainingIndent = "  ".repeat(depth);
+  return cells.map((cell) => {
+    if (cell.column === "indent" && remainingIndent.length > 0) {
+      const width = TREE_COLUMN_WIDTHS.indent;
+      const chunk = remainingIndent.slice(0, width).padEnd(width, " ");
+      remainingIndent = remainingIndent.slice(width);
+      return { ...cell, text: chunk };
+    }
+    if (cell.column === "label" && remainingIndent.length > 0) {
+      const width = TREE_COLUMN_WIDTHS.label;
+      const combined = (remainingIndent + cell.text.trimStart()).slice(0, width).padEnd(width, " ");
+      remainingIndent = "";
+      return { ...cell, text: combined };
+    }
+    if (cell.column === "indent") {
+      return { ...cell, text: " ".repeat(TREE_COLUMN_WIDTHS.indent) };
+    }
+    return cell;
   });
 }

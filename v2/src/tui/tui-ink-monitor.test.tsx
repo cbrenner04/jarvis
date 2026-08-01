@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { tuiRefreshIntervalLabel } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import * as inkMonitor from "./tui-ink-monitor.tsx";
@@ -9,12 +10,30 @@ import {
   MonitorDock,
   MonitorLeftPane,
   MonitorRightPane,
+  monitorLeftPaneContentRows,
   openInkMonitor,
 } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
+import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
 import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
+
+const TREE_NOW_MS = 1_700_000_000_000;
+
+function pipelineSnapshot(
+  overrides: Partial<PipelineSnapshot> & Pick<PipelineSnapshot, "pipelineId">,
+): PipelineSnapshot {
+  return {
+    name: "feature-pipeline",
+    state: "running",
+    createdAt: TREE_NOW_MS,
+    finishedAtMs: null,
+    stages: [],
+    ...overrides,
+  };
+}
 
 type TextCapture = { text: string; color?: string };
 
@@ -143,15 +162,15 @@ function stubText(props: { children?: string; color?: string }): ReactElement {
 
 function shellState(
   runs: readonly DaemonListRunRow[],
-  selectedRunId: string | null,
+  selectedNodeId: string | null,
   overrides: Partial<TuiMonitorState> = {},
 ): TuiMonitorState {
   return {
     runs,
-    selectedRunId,
+    selectedNodeId,
     waitState: { kind: "none" },
     steeringFeedback: null,
-    expandedWorkflowInvocationIds: [],
+    expandedPipelineNodeIds: [],
     terminalColumns: 245,
     terminalRows: 72,
     refreshIntervalLabel: tuiRefreshIntervalLabel(),
@@ -202,7 +221,7 @@ function createInkCapture(state: TuiMonitorState) {
 
 function noopControls(): TuiMonitorControls {
   return {
-    selectRun() {},
+    selectNode() {},
     selectNextRun() {},
     selectPreviousRun() {},
     toggleSelectedWorkflowExpansion() {},
@@ -339,6 +358,72 @@ describe("createMonitorDisplay", () => {
     );
     expect(paneContainerFlexDirection(splitTree, splitLayout.paneHeight)).toBe("row");
   });
+
+  test("left-pane row source reads from tree derivation with pipeline, stage, and run ids", () => {
+    // Mutation checkpoint: using monitorLeftPaneTableRows for the tree segment in tui-ink-monitor.tsx must turn left-pane tree derivation RED.
+    const pipelineId = "pipe-ink";
+    const invocationId = "inv-ink";
+    const stageId = monitorPipelineStageNodeId(pipelineId, "implement", "default");
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      stages: [
+        {
+          stageId: "implement",
+          branchKey: "default",
+          status: "running",
+          workflowInvocationId: invocationId,
+        },
+      ],
+    });
+    const run: DaemonListRunRow = {
+      runId: "run-ink",
+      project: "demo",
+      branch: "main",
+      status: "in-progress",
+      isLive: true,
+      workflow: {
+        invocationId,
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    };
+    const state = shellState([run], "run-ink", {
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [pipelineId, stageId],
+    });
+
+    const { treeRows } = monitorLeftPaneContentRows(state, TREE_NOW_MS);
+
+    expect(treeRows.map((row) => ({ kind: row.kind, id: row.id }))).toEqual([
+      { kind: "pipeline", id: pipelineId },
+      { kind: "stage", id: stageId },
+      { kind: "run", id: "run-ink" },
+    ]);
+  });
+
+  test("createMonitorDisplay uses supplied nowMs for tree derivation and right-pane lookup", () => {
+    const freshFinishedAt = TREE_NOW_MS - 60_000;
+    const orphanRun: DaemonListRunRow = {
+      runId: "run-fresh-orphan",
+      project: "demo",
+      branch: "orphan",
+      status: "completed",
+      isLive: false,
+      finishedAtMs: freshFinishedAt,
+      workflow: {
+        invocationId: "inv-orphan",
+        steps: [{ stepId: "x", role: "implement", status: "completed", attemptCount: 1 }],
+      },
+    };
+    const state = shellState([orphanRun], "run-fresh-orphan");
+    const farFutureMs = TREE_NOW_MS + TUI_TERMINAL_WINDOW_MS + 60_000;
+
+    const inWindowTree = createMonitorDisplay(state, stubText, undefined, TREE_NOW_MS);
+    const outOfWindowTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
+
+    expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
+    expect(collectInkText(outOfWindowTree)).not.toContain("run-fresh-orphan");
+  });
 });
 
 describe("openInkMonitor", () => {
@@ -409,8 +494,11 @@ describe("openInkMonitor", () => {
     expect(displayStates.at(-1)?.dividerOffset ?? 0).toBe(0);
 
     await input.press("]");
-    expect(displayStates.at(-1)?.dividerOffset).toBe(2);
-    const widerTree = realCreateMonitorDisplay(displayStates.at(-1)!, stubText, stubBox);
+    const widerDisplayState = displayStates.at(-1);
+    expect(widerDisplayState?.dividerOffset).toBe(2);
+    expect(widerDisplayState).toBeDefined();
+    if (!widerDisplayState) throw new Error("expected wider display state");
+    const widerTree = realCreateMonitorDisplay(widerDisplayState, stubText, stubBox);
     expect(regionBoxWidth(findRegion(widerTree, MonitorLeftPane))).toBe(baseWidth + 2);
 
     for (let step = 0; step < 20; step += 1) {

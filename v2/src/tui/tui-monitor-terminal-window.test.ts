@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
-import { monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorLeftPaneTreeRows } from "./tui-monitor-lines.ts";
 import {
   filterMonitorRunsForLiveWindow,
   TUI_TERMINAL_ROW_CAP,
@@ -10,6 +10,7 @@ import {
   terminalRunInLiveWindow,
 } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const FIXED_NOW = 1_700_000_000_000;
 
@@ -265,13 +266,11 @@ async function flush(): Promise<void> {
 }
 
 function tableRunIds(state: TuiMonitorState): string[] {
-  return monitorTextLines(state)
-    .filter((line) => line.includes(" demo ") && !line.startsWith("runId "))
-    .map((line) => {
-      const match = line.match(/(?:^>|\s)(\S+)\s+demo\s/);
-      return match?.[1] ?? "";
-    })
-    .filter((runId) => runId.length > 0);
+  const layout = computeShellLayout(245, 72, 0);
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, FIXED_NOW);
+  const treeRunIds = treeRows.filter((row) => row.kind === "run").map((row) => row.id);
+  const unattributedIds = unattributedRows.map((row) => monitorTreeRun(row).runId);
+  return [...treeRunIds, ...unattributedIds];
 }
 
 async function renderedTableRunIds(runs: DaemonListRunRow[]): Promise<string[]> {

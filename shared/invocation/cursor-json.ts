@@ -24,11 +24,43 @@ function extractUsage(frame: Record<string, unknown>): CursorParseResult["usage"
   return {
     input_tokens: typeof usageObj.inputTokens === "number" ? usageObj.inputTokens : null,
     output_tokens: typeof usageObj.outputTokens === "number" ? usageObj.outputTokens : null,
-    cache_read_input_tokens:
-      typeof usageObj.cacheReadTokens === "number" ? usageObj.cacheReadTokens : null,
-    cache_creation_input_tokens:
-      typeof usageObj.cacheWriteTokens === "number" ? usageObj.cacheWriteTokens : null,
+    cache_read_input_tokens: typeof usageObj.cacheReadTokens === "number" ? usageObj.cacheReadTokens : null,
+    cache_creation_input_tokens: typeof usageObj.cacheWriteTokens === "number" ? usageObj.cacheWriteTokens : null,
   };
+}
+
+function parseFrameLine(line: string): Record<string, unknown> | null {
+  const trimmed = line.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  try {
+    return asFrame(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
+function appendTextFrame(frame: Record<string, unknown>, textFrames: string[]): void {
+  if (typeof frame.text === "string") {
+    textFrames.push(frame.text);
+  } else if (typeof frame.delta === "string") {
+    textFrames.push(frame.delta);
+  }
+}
+
+function isTextFrameType(type: unknown): boolean {
+  return type === "text_delta" || type === "assistant" || type === "text-delta";
+}
+
+function resolveDisplayText(lastResultText: string | null, textFrames: string[], stdout: string): string {
+  if (lastResultText !== null) {
+    return lastResultText.trimEnd();
+  }
+  if (textFrames.length > 0) {
+    return textFrames.join("").trimEnd();
+  }
+  return stdout;
 }
 
 export function parseCursorJsonOutput(stdout: string): CursorParseResult {
@@ -37,17 +69,7 @@ export function parseCursorJsonOutput(stdout: string): CursorParseResult {
   const textFrames: string[] = [];
 
   for (const line of stdout.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "") {
-      continue;
-    }
-
-    let frame: Record<string, unknown> | null;
-    try {
-      frame = asFrame(JSON.parse(trimmed));
-    } catch {
-      continue;
-    }
+    const frame = parseFrameLine(line);
     if (frame === null) {
       continue;
     }
@@ -55,24 +77,15 @@ export function parseCursorJsonOutput(stdout: string): CursorParseResult {
     if (frame.type === "result") {
       lastResultText = typeof frame.result === "string" ? frame.result : null;
       lastResultUsage = extractUsage(frame);
-    } else if (frame.type === "text_delta" || frame.type === "assistant" || frame.type === "text-delta") {
-      if (typeof frame.text === "string") {
-        textFrames.push(frame.text);
-      } else if (typeof frame.delta === "string") {
-        textFrames.push(frame.delta);
-      }
+    } else if (isTextFrameType(frame.type)) {
+      appendTextFrame(frame, textFrames);
     }
   }
 
   // Fallback is keyed on what was *found*, not on whether the rendered text is
   // non-empty: a run whose terminal result legitimately says nothing must surface
   // as empty, never as the raw NDJSON transcript.
-  const displayText =
-    lastResultText !== null
-      ? lastResultText.trimEnd()
-      : textFrames.length > 0
-        ? textFrames.join("").trimEnd()
-        : stdout;
+  const displayText = resolveDisplayText(lastResultText, textFrames, stdout);
 
   return lastResultUsage === undefined ? { displayText } : { displayText, usage: lastResultUsage };
 }

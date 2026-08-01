@@ -4,6 +4,8 @@ name: tui-entry-reversible-descend-navigation
 
 # Entry descend navigation scrolls viewport without losing selection
 
+**Serial order:** runs after `tui-pipeline-tree-retain-full-flatten` (00) and `tui-monitor-scroll-viewport-selectables` (01).
+
 `selectNextRun` persists expansion on descend, growing `expandedPipelineNodeIds` while FIFO trimming
 (or misaligned selectables) can evict the selected pipeline. `indexOf` returns `-1` and selection
 falls through to `ids[0]`; forward `j` walks are not reversible with `k`.
@@ -25,6 +27,7 @@ the oldest visible pipeline expands it and can evict that same pipeline from the
 - [ ] `tui-entry.test.tsx` — with more pipelines than fit the pane, walking `j` from the first selectable node to the last and `k` back visits the same node set in reverse; no pipeline present at the start is absent at the end; fails pre-fix.
 - [ ] `tui-entry.test.tsx` — selecting the oldest visible pipeline and pressing `j` keeps that pipeline in `monitorSelectableNodeIds` and moves selection to its first child; fails pre-fix.
 - [ ] `tui-entry.test.tsx` — a selected node id is never absent from `monitorSelectableNodeIds` after `selectNextRun` or `selectPreviousRun`; fails pre-fix.
+- [ ] `tui-entry.test.tsx` — after `j`/`k` moves selection beyond the painted viewport, the selected row appears in the painted left-pane tree slice; fails pre-fix.
 - [ ] `tui-entry.test.tsx` — reintroducing selection fallthrough to `ids[0]` when the selected id leaves the list turns the descend-navigation pins RED; `Mutation checkpoint:` names that fallthrough.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
@@ -35,7 +38,8 @@ the oldest visible pipeline expands it and can evict that same pipeline from the
 
 ## Prerequisites
 
-- `flattenMonitorPipelineTree` returns every flattened display node for the current expansion and selection inputs regardless of `maxVisibleRows` overflow.
-- `monitorSelectableNodeIds` derives from the full flattened tree; painted left-pane tree rows are a viewport window over that list.
-- `selectNextRun` persists descend expansion into `expandedPipelineNodeIds`; `selectPreviousRun` walks the same selectable order in reverse.
+- Today: `flattenMonitorPipelineTree` FIFO-drops terminal pipelines when expanded rows exceed `maxVisibleRows`.
+- Today: `monitorSelectableNodeIds` and painted left-pane tree rows both derive from the same FIFO-trimmed `buildMonitorPipelineTree` output.
+- Today: `selectNextRun` persists descend expansion into `expandedPipelineNodeIds`; `selectPreviousRun` walks the same selectable order in reverse.
+- Today: selection can fall through to `ids[0]` when the selected id is absent from `monitorSelectableNodeIds`.
 - `currentState` carries measured `terminalColumns` and `terminalRows` for `monitorSelectableNodeIds`.

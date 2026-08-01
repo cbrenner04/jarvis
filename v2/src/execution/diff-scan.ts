@@ -14,8 +14,6 @@ export async function defaultGitDiff(cwd: string, baseRef: string): Promise<stri
 }
 
 const NON_PRODUCTION_PATTERNS = [
-  /\.test\.ts$/,
-  /\.test\.js$/,
   /^test\//,
   /^v1\/spec\//,
   /^v2\/spec\//,
@@ -24,6 +22,7 @@ const NON_PRODUCTION_PATTERNS = [
 ];
 
 export function isProductionFile(path: string): boolean {
+  if (path.split("/").at(-1)?.includes(".test.")) return false;
   return !NON_PRODUCTION_PATTERNS.some((pattern) => pattern.test(path));
 }
 

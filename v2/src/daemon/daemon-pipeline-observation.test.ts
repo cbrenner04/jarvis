@@ -178,10 +178,14 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
   expect(response.kind).toBe("response");
   const pipelines = (response as { result: { pipelines: Array<Record<string, unknown>> } }).result.pipelines;
   expect(pipelines).toHaveLength(1);
+  const loaded = stateStore.loadPipeline(pipelineId);
+  if (!loaded) throw new Error("expected pipeline");
   expect(pipelines[0]).toEqual({
     pipelineId,
     name: "sample-pipeline",
     state: "awaiting-approval",
+    createdAt: loaded.createdAt,
+    finishedAtMs: null,
     stages: [
       { stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" },
       { stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null },
@@ -718,6 +722,60 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
     { stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: null },
   ]);
   expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
+});
+
+test("projectPipelineSnapshot includes createdAt and null finishedAtMs while derived state is non-terminal", () => {
+  const createdAt = 1_700_000_000_000;
+  const pipeline = pipelineWithStages(
+    WORKFLOW_ONLY,
+    { s1: { status: "succeeded" }, s2: { status: "running" } },
+    { createdAt },
+  );
+
+  // Mutation checkpoint: omitting createdAt from projectPipelineSnapshot must turn this test RED.
+  expect(projectPipelineSnapshot(pipeline)).toMatchObject({
+    createdAt,
+    finishedAtMs: null,
+    state: "running",
+  });
+});
+
+test("projectPipelineSnapshot uses terminalPublicationSucceededAt as finishedAtMs when set", () => {
+  const publicationAt = 1_700_000_010_000;
+  const pipeline = pipelineWithStages(
+    WORKFLOW_ONLY,
+    { s1: { status: "succeeded" }, s2: { status: "succeeded", endedAt: 1_700_000_005_000 } },
+    { terminalPublicationSucceededAt: publicationAt },
+  );
+
+  expect(projectPipelineSnapshot(pipeline).finishedAtMs).toBe(publicationAt);
+});
+
+test("projectPipelineSnapshot derives finishedAtMs from max stage endedAt without publication success", () => {
+  const createdAt = 1_700_000_000_000;
+  const pipeline = pipelineWithStages(
+    WORKFLOW_ONLY,
+    {
+      s1: { status: "succeeded", endedAt: 1_700_000_003_000 },
+      s2: { status: "failed", endedAt: 1_700_000_007_000 },
+    },
+    { createdAt },
+  );
+
+  // Mutation checkpoint: returning pipeline.createdAt instead of max stage endedAt must turn this test RED.
+  expect(projectPipelineSnapshot(pipeline).finishedAtMs).toBe(1_700_000_007_000);
+});
+
+test("projectPipelineSnapshot falls back to pipeline createdAt for terminal finish when publication and stage endedAt are absent", () => {
+  const createdAt = 1_700_000_000_000;
+  const pipeline = pipelineWithStages(
+    WITH_APPROVAL,
+    { s1: { status: "succeeded" }, gate: { status: "rejected" } },
+    { createdAt },
+  );
+
+  // Mutation checkpoint: projecting null finishedAtMs on terminal pipelines must turn this test RED.
+  expect(projectPipelineSnapshot(pipeline).finishedAtMs).toBe(createdAt);
 });
 
 test("two-branch derivePipelineBoundary names awaiting branchKey while sibling branch runs", () => {

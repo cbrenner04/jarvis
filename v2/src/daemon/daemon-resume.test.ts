@@ -2180,7 +2180,7 @@ test("repeated exhausted-red gate-only resume stays failed/resumable without age
       expect(response.kind).toBe("error");
       expect(fakeExecutor.pendingCount()).toBe(0);
       expect(starts).toHaveLength(0);
-      expect(flipCalls).toBe(attempt);
+      expect(flipCalls).toBe(attempt * 2);
       expect(store.loadRun(runId)?.status).toBe("failed");
       expect(await listResumable(localHandlers, runId)).toBe(true);
       const events = openLogReader(logsPath)

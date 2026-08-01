@@ -41,6 +41,24 @@ export const realSubprocessRunner: SubprocessRunner = {
   },
 };
 
+/**
+ * Synchronous run with a timeout and explicit env, for v1 CLI callers that need more than the
+ * `SubprocessRunner` seam offers. Lives here because this file is the allowlisted sync seam;
+ * daemon-reachable code must use `realAsyncSubprocessRunner` instead.
+ */
+export function runSyncWithTimeout(
+  cmd: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
+): void {
+  execFileSync(cmd, args, {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: "pipe",
+    timeout: options.timeoutMs,
+  });
+}
+
 export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
   async runAsync(cmd, args, cwd, options) {
     const stdio = options?.stdio ?? "pipe";

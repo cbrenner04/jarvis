@@ -44,6 +44,7 @@ import {
   findFirstMarkdownOnlyFenceViolation,
   findFirstRepairFenceViolation,
   persistRetainedFinalizationCheckpoint,
+  publishWithReadyRepair,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
   validateReadyGateRepairCompletion,
@@ -254,6 +255,9 @@ async function runLoop(args: {
   promptPlaceholders?: WriteLoopInput["promptPlaceholders"];
   publishCompletion?: boolean;
   freshDispatch?: boolean;
+  fixCommand?: WriteLoopInput["fixCommand"];
+  runFixCommand?: WriteLoopInput["runFixCommand"];
+  iterationTimeoutMs?: number;
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -291,6 +295,9 @@ async function runLoop(args: {
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.publishCompletion !== undefined ? { publishCompletion: args.publishCompletion } : {}),
     ...(args.freshDispatch === true ? { freshDispatch: true } : {}),
+    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+    ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
+    ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -1237,6 +1244,7 @@ describe("write loop", () => {
     const completionHooks = {
       completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
       completionPublisher: async () => ({}),
+      runFixCommand: async () => {},
     };
 
     test.each([
@@ -1296,9 +1304,10 @@ describe("write loop", () => {
           quiescenceTimeoutMs: 1,
           completionCommitter: completionHooks.completionCommitter,
           completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
           readyFinalizer: async () => {
             gateCalls += 1;
-            if (terminal !== "completed" || gateCalls === 1) {
+            if (terminal !== "completed" || gateCalls <= 2) {
               throw new ReadyGateError("bun run ready", 1, "red");
             }
           },
@@ -1519,6 +1528,7 @@ describe("write loop", () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
       let gateCalls = 0;
+      let invocations = 0;
       const prompts: string[] = [];
       const forceDistinctFlags: boolean[] = [];
       const result = await runLoop({
@@ -1529,6 +1539,7 @@ describe("write loop", () => {
             id: "sim.1",
             metadata: { agent: "sim-agent-1", model: "sim-model-1" },
             invoke: async ({ prompt, cwd }) => {
+              invocations += 1;
               prompts.push(prompt);
               writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
               return { kind: "ok", stdout: "done", stderr: "" } as const;
@@ -1541,14 +1552,15 @@ describe("write loop", () => {
           return completionHooks.completionCommitter();
         },
         completionPublisher: completionHooks.completionPublisher,
+        runFixCommand: completionHooks.runFixCommand,
         readyFinalizer: async () => {
           gateCalls += 1;
-          if (gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
+          if (invocations === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
         },
       });
 
       expect(result.kind).toBe("complete");
-      expect(gateCalls).toBe(2);
+      expect(gateCalls).toBe(3);
       expect(forceDistinctFlags.filter(Boolean).length).toBeGreaterThanOrEqual(2);
       expect(prompts).toHaveLength(2);
       expect(prompts[1]).toContain("Command: bun run ready");
@@ -1591,7 +1603,7 @@ describe("write loop", () => {
       expect(result.kind).toBe("ready_gate_failed");
       expect(result.resumable).toBe(true);
       expect(invocations).toBe(4);
-      expect(gateCalls).toBe(4);
+      expect(gateCalls).toBe(5);
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "iteration_started")).toHaveLength(4);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
@@ -1657,8 +1669,289 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("ready_gate_failed");
       expect(result.iterationsConsumed).toBe(2);
-      expect(gateCalls).toBe(1);
+      expect(gateCalls).toBe(2);
       expect(invocations).toBe(2);
+    });
+
+    function fixProofFormatting(cwd: string): void {
+      const proofPath = join(cwd, "proof.txt");
+      writeFileSync(proofPath, `${readFileSync(proofPath, "utf8").trimEnd()}\n`, "utf8");
+    }
+
+    function proofNeedsFormatting(cwd: string): boolean {
+      const proofPath = join(cwd, "proof.txt");
+      return !existsSync(proofPath) || !readFileSync(proofPath, "utf8").endsWith("\n");
+    }
+
+    function proofFormattingFixCommand(onCall?: () => void) {
+      return async ({ cwd }: { cwd: string }) => {
+        onCall?.();
+        fixProofFormatting(cwd);
+      };
+    }
+
+    function proofFormattingReadyFinalizer(onGate: () => void, afterFormatting?: () => void | Promise<void>) {
+      return async ({ worktreePath }: { worktreePath: string }) => {
+        onGate();
+        if (proofNeedsFormatting(worktreePath)) {
+          throw new ReadyGateError("bun run ready", 1, "formatting required");
+        }
+        await afterFormatting?.();
+      };
+    }
+
+    describe("ready-gate repair autofix", () => {
+      test("ready-gate repair autofix greens a formatter-only red gate without repair iterations", async () => {
+        // Mutation checkpoint: remove the ready-gate repair autofix block in `publishWithReadyRepair`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
+        let gateCalls = 0;
+        let fixCalls = 0;
+        let invocations = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          runFixCommand: proofFormattingFixCommand(() => {
+            fixCalls += 1;
+          }),
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
+            gateCalls += 1;
+          }),
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(fixCalls).toBe(1);
+        expect(gateCalls).toBe(2);
+        expect(invocations).toBe(1);
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([]);
+      });
+
+      test("ready-gate repair autofix runs once then preserves full agent repair budget", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
+        let _gateCalls = 0;
+        let fixCalls = 0;
+        let invocations = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          runFixCommand: proofFormattingFixCommand(() => {
+            fixCalls += 1;
+          }),
+          readyFinalizer: proofFormattingReadyFinalizer(
+            () => {
+              _gateCalls += 1;
+            },
+            () => {
+              throw new ReadyGateError("bun run ready", 1, "lint still red");
+            },
+          ),
+        });
+
+        expect(result.kind).toBe("ready_gate_failed");
+        expect(fixCalls).toBe(1);
+        expect(invocations).toBe(4);
+        expect(
+          logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair"),
+        ).toHaveLength(3);
+        expect(result.iterationsConsumed).toBe(4);
+      });
+
+      test("ready-gate repair autofix rejects out-of-scope formatter changes", async () => {
+        // Mutation checkpoint: remove the `enforceRepairIterationFence` call in the ready-gate repair autofix block of `publishWithReadyRepair`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-autofix-out-of-scope";
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+        mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
+        writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+        writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
+        writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          runFixCommand: async ({ cwd }) => {
+            writeFileSync(join(cwd, "v2/src/untouched.test.ts"), "changed\n", "utf8");
+          },
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, "red");
+          },
+        });
+
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(result.iterationsConsumed).toBe(1);
+      });
+
+      test("ready-gate repair autofix greens formatter-only red gate on gate-only resume without agent", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        roots.push(join(jarvisRoot, ".."));
+        const store = openStateStore(stateDbPath);
+        const branchName = "repair-autofix-gate-only-resume";
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        mkdirSync(worktreePath, { recursive: true });
+        writeFileSync(join(worktreePath, "proof.txt"), "ok", "utf8");
+        writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "HEAD",
+          worktreePath,
+          branch: branchName,
+          specPath: "spec.md",
+        });
+        const attemptId = store.recordAttemptStart(runId);
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        let gateCalls = 0;
+        let fixCalls = 0;
+        let agentInvocations = 0;
+
+        try {
+          const publication = await publishWithReadyRepair(
+            {
+              worktree: {
+                projectRoot: "/fake",
+                projectName: "demo",
+                branchName,
+                baseRef: "HEAD",
+                jarvisRoot,
+              },
+              specPath: "spec.md",
+              stepRules: "repair",
+              expectedArtifactPath: "proof.txt",
+              bindings: [
+                {
+                  id: "repair-agent",
+                  metadata: { agent: "codex", model: "test" },
+                  invoke: async () => {
+                    agentInvocations += 1;
+                    return { kind: "ok", stdout: "done", stderr: "" } as const;
+                  },
+                },
+              ],
+              stateStore: store,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              maxIterations: 0,
+              completionCommitter: completionHooks.completionCommitter,
+              completionPublisher: completionHooks.completionPublisher,
+              runFixCommand: proofFormattingFixCommand(() => {
+                fixCalls += 1;
+              }),
+              readyFinalizer: proofFormattingReadyFinalizer(() => {
+                gateCalls += 1;
+              }),
+            },
+            store,
+            { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+            0,
+            {
+              worktreePath,
+              baseRef: "HEAD",
+              specPath: "spec.md",
+              branch: branchName,
+            },
+          );
+
+          expect(publication.failure).toBeUndefined();
+          expect(publication.success).toBeDefined();
+          expect(fixCalls).toBe(1);
+          expect(gateCalls).toBe(2);
+          expect(agentInvocations).toBe(0);
+          expect(publication.iterationsConsumed).toBe(0);
+        } finally {
+          store.close();
+        }
+      });
+
+      test("ready-gate repair autofix invokes configured fixCommand", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        let observedFixCommand: string | undefined;
+        let gateCalls = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          fixCommand: "npm run lint-fix",
+          ...completionHooks,
+          runFixCommand: async (opts) => {
+            observedFixCommand = opts.fixCommand;
+            fixProofFormatting(opts.cwd);
+          },
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
+            gateCalls += 1;
+          }),
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(observedFixCommand).toBe("npm run lint-fix");
+        expect(gateCalls).toBe(2);
+      });
     });
 
     describe("untouched-path gate settlement", () => {
@@ -1669,6 +1962,7 @@ describe("write loop", () => {
         const { baseRef: outOfScopeBaseRef } = initGateScopeWorktree(jarvisRoot, outOfScopeBranch);
         const logSink = new TestLogSink();
         let inScopeGateCalls = 0;
+        let inScopeInvocations = 0;
 
         const outOfScope = await runLoop({
           jarvisRoot,
@@ -1708,6 +2002,7 @@ describe("write loop", () => {
               id: "sim.1",
               metadata: { agent: "sim-agent-1", model: "sim-model-1" },
               invoke: async ({ cwd }) => {
+                inScopeInvocations += 1;
                 writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
                 return { kind: "ok", stdout: "done", stderr: "" } as const;
               },
@@ -1716,16 +2011,17 @@ describe("write loop", () => {
           logSink,
           completionCommitter: completionHooks.completionCommitter,
           completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
           readyFinalizer: async () => {
             inScopeGateCalls += 1;
-            if (inScopeGateCalls === 1) {
+            if (inScopeInvocations === 1) {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
             }
           },
         });
 
         expect(inScope.kind).toBe("complete");
-        expect(inScopeGateCalls).toBe(2);
+        expect(inScopeGateCalls).toBe(3);
         expect(logSink.getEventsForRun(inScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
           { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
         ]);
@@ -1758,9 +2054,10 @@ describe("write loop", () => {
           logSink,
           completionCommitter: completionHooks.completionCommitter,
           completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
           readyFinalizer: async () => {
             gateCalls += 1;
-            if (gateCalls === 1) {
+            if (invocations === 1) {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput("proof.txt"));
             }
             throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
@@ -1769,7 +2066,7 @@ describe("write loop", () => {
 
         expect(result.kind).toBe("ready_gate_out_of_scope");
         expect(result.resumable).toBe(true);
-        expect(gateCalls).toBe(2);
+        expect(gateCalls).toBe(3);
         expect(invocations).toBe(2);
         expect(result.iterationsConsumed).toBe(2);
         const events = logSink.getEventsForRun(result.runId);
@@ -1945,9 +2242,10 @@ export function isLoadSensitive(file: string): boolean {
             publishCalls += 1;
             return {};
           },
+          runFixCommand: async () => {},
           readyFinalizer: async () => {
             gateCalls += 1;
-            if (gateCalls === 1) {
+            if (invocations === 1) {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput(gateFailurePath));
             }
           },
@@ -2090,8 +2388,8 @@ export function isLoadSensitive(file: string): boolean {
 
         expect(fenced.result.kind).toBe("completion_commit_failed");
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
-        expect(fenced.publishCalls).toBe(1);
-        expect(fenced.gateCalls).toBe(1);
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {
@@ -2126,8 +2424,8 @@ export function isLoadSensitive(file: string): boolean {
         expect(fenced.result.kind).toBe("completion_commit_failed");
         expect(fenced.result.completionCommitError).toContain("Ready-gate repair stages harness sidecar:");
         expect(fenced.result.completionCommitError).toContain(".jarvis-intent-review-verdict.md");
-        expect(fenced.publishCalls).toBe(1);
-        expect(fenced.gateCalls).toBe(1);
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
 
         const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
           encoding: "utf8",
@@ -2171,8 +2469,8 @@ export function isLoadSensitive(file: string): boolean {
         expect(fenced.result.kind).toBe("completion_commit_failed");
         expect(fenced.result.completionCommitError).toContain("Ready-gate repair extends LOAD_SENSITIVE_FILES:");
         expect(fenced.result.completionCommitError).toContain("v2/src/new-load-sensitive.test.ts");
-        expect(fenced.publishCalls).toBe(1);
-        expect(fenced.gateCalls).toBe(1);
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
       });
 
       test("membership guard rejects LOAD_SENSITIVE_FILES extension when path fence allows the path", async () => {
@@ -2244,7 +2542,7 @@ export function isLoadSensitive(file: string): boolean {
         });
 
         expect(result.kind).toBe("complete");
-        expect(gateCalls).toBe(2);
+        expect(gateCalls).toBe(3);
       });
 
       test("repair candidate contract covers staged change kinds and excludes unstaged metadata", async () => {
@@ -2336,7 +2634,7 @@ export function isLoadSensitive(file: string): boolean {
         });
 
         expect(result.kind).toBe("complete");
-        expect(gateCalls).toBe(2);
+        expect(gateCalls).toBe(3);
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(result.runId);
@@ -2406,16 +2704,17 @@ export function isLoadSensitive(file: string): boolean {
           ],
           completionCommitter: createCompletionCommitter(),
           completionPublisher: async () => ({}),
+          runFixCommand: async () => {},
           readyFinalizer: async () => {
             gateCalls += 1;
-            if (gateCalls === 1) {
+            if (invocations === 1) {
               throw new ReadyGateError("bun run ready", 1, gateFailureOutput("spec/01-task.md"));
             }
           },
         });
 
         expect(result.kind).toBe("complete");
-        expect(gateCalls).toBe(2);
+        expect(gateCalls).toBe(3);
       });
 
       const RESUME_WORKFLOW_SNAPSHOT: WriteLoopInput["workflowSnapshot"] = {
@@ -2476,7 +2775,7 @@ export function isLoadSensitive(file: string): boolean {
           branchName,
           intentShaped: true,
         });
-        expect(first.publishCalls).toBe(1);
+        expect(first.publishCalls).toBe(2);
 
         const reopened = openStateStore(stateDbPath);
         const persisted = reopened.loadRun(first.result.runId);
@@ -2805,8 +3104,8 @@ export function isLoadSensitive(file: string): boolean {
           "Ready-gate repair stages path outside markdown workflow output roots:",
         );
         expect(fenced.result.completionCommitError).toContain(offendingPath);
-        expect(fenced.publishCalls).toBe(1);
-        expect(fenced.gateCalls).toBe(1);
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
       });
 
       test("rejects ready-gate repair staging a source-path edit on plan workflow", async () => {
@@ -2830,8 +3129,8 @@ export function isLoadSensitive(file: string): boolean {
           "Ready-gate repair stages path outside markdown workflow output roots:",
         );
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
-        expect(fenced.publishCalls).toBe(1);
-        expect(fenced.gateCalls).toBe(1);
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
       });
 
       test("completes ready-gate repair limited to markdown under intent output roots", async () => {
@@ -2851,7 +3150,7 @@ export function isLoadSensitive(file: string): boolean {
         });
 
         expect(result.kind).toBe("complete");
-        expect(gateCalls).toBe(2);
+        expect(gateCalls).toBe(3);
 
         const withoutMarkdownFence = findFirstMarkdownOnlyFenceViolation(
           ["v2/src/untouched.test.ts"],

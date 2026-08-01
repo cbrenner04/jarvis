@@ -13,6 +13,8 @@ export type CompletionCommitInput = {
   title: string;
   /** Terminal completion: create a new commit even when the index tree matches HEAD. */
   forceDistinctCommit?: boolean;
+  /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
+  readyGateAttribution?: "autofix";
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
@@ -51,6 +53,49 @@ async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, com
   return output.split("\n").filter((line) => line.length > 0).length;
 }
 
+/**
+ * Snapshots the worktree into a fresh pending commit, or settles early when HEAD is already the
+ * completion commit. `settled` short-circuits the caller with its result.
+ */
+async function preparePendingCommit(
+  runGit: Git,
+  input: CompletionCommitInput,
+  ctx: { agent: string; subject: string; index: string; pendingPath: string },
+): Promise<{ kind: "pending"; pending: PendingCommit } | { kind: "settled"; result: CompletionCommitResult }> {
+  const { agent, subject, index, pendingPath } = ctx;
+  const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
+  await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
+  await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
+  const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
+  const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
+  if (shouldReuseHeadWithoutNewCommit(tree, baseTree, input.forceDistinctCommit === true)) {
+    // HEAD may already be a completion commit whose publish previously failed;
+    // report its sha so the caller retries publication instead of no-op'ing.
+    const headMessage = await runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);
+    return {
+      kind: "settled",
+      result: headMessage.includes("Jarvis-Agent:")
+        ? {
+            commitSha: head,
+            filesChanged: await countFilesChanged(runGit, input.worktreePath, `${head}^^{tree}`, `${head}^{tree}`),
+          }
+        : {},
+    };
+  }
+  const pending: PendingCommit = {
+    baseHead: head,
+    tree,
+    branchRef: await runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
+    message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}${
+      input.readyGateAttribution === "autofix" ? "\n\nJarvis-Ready-Gate: autofix" : ""
+    }`,
+    agent,
+    timestamp: new Date().toISOString(),
+  };
+  writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");
+  return { kind: "pending", pending };
+}
+
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
 export function createCompletionCommitter(runGit: Git = git): CompletionCommitter {
   return async (input) => {
@@ -64,35 +109,13 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
     const gitDir = isAbsolute(gitDirValue) ? gitDirValue : resolve(input.worktreePath, gitDirValue);
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
     try {
-      let pending: PendingCommit | undefined;
+      let pending: PendingCommit;
       if (existsSync(pendingPath)) {
         pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;
       } else {
-        const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
-        await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
-        await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
-        const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
-        const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
-        if (shouldReuseHeadWithoutNewCommit(tree, baseTree, input.forceDistinctCommit === true)) {
-          // HEAD may already be a completion commit whose publish previously failed;
-          // report its sha so the caller retries publication instead of no-op'ing.
-          const headMessage = await runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);
-          return headMessage.includes("Jarvis-Agent:")
-            ? {
-                commitSha: head,
-                filesChanged: await countFilesChanged(runGit, input.worktreePath, `${head}^^{tree}`, `${head}^{tree}`),
-              }
-            : {};
-        }
-        pending = {
-          baseHead: head,
-          tree,
-          branchRef: await runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
-          message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}`,
-          agent,
-          timestamp: new Date().toISOString(),
-        };
-        writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");
+        const prepared = await preparePendingCommit(runGit, input, { agent, subject, index, pendingPath });
+        if (prepared.kind === "settled") return prepared.result;
+        pending = prepared.pending;
       }
 
       const currentHead = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);

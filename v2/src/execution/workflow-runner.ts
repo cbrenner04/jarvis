@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
@@ -12,6 +13,7 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
+import { readProjectFixCommand } from "../config/machine-config-loader.ts";
 import type {
   IntentFinalizationEvent,
   LogSink,
@@ -287,6 +289,8 @@ export type WorkflowRunnerInput = {
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
+  /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
+  runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
   /** When set, suppresses reuse of completed runs from prior invocations, forcing new run rows. */
   freshDispatch?: boolean;
 };
@@ -1407,6 +1411,7 @@ function buildCompletionStepWriteLoopInput(
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
+    ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
     ...(telemetryContext !== undefined
       ? {
@@ -2461,6 +2466,7 @@ export type IntentFinalizationResumeDeps = {
   completionCommitter?: CompletionCommitter;
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
+  runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
 };
 
 /** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */
@@ -2497,6 +2503,7 @@ function inertResumeWriteLoopInput(
   specPath: string,
   deps: IntentFinalizationResumeDeps,
 ): WriteLoopInput {
+  const fixCommand = readProjectFixCommand(context.project);
   return {
     worktree: {
       projectRoot: context.worktreePath,
@@ -2509,9 +2516,11 @@ function inertResumeWriteLoopInput(
     expectedArtifactPath: "",
     bindings: [],
     maxIterations: 0,
+    ...(fixCommand !== undefined ? { fixCommand } : {}),
     ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
     ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
+    ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
   };
 }
@@ -3013,6 +3022,7 @@ function mutationRepairLoopInput(
     ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
     ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
+    ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
   };
 }

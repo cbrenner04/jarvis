@@ -2016,9 +2016,10 @@ describe("implement preflight stale workspace reset", () => {
     firstStep.publishCompletion = true;
     firstStep.completionCommitter = async () => ({ commitSha: "commit-1", filesChanged: 1 });
     firstStep.completionPublisher = async () => ({});
+    firstStep.runFixCommand = async () => {};
     firstStep.readyFinalizer = async () => {
       gateCalls += 1;
-      if (terminal === "failed" || gateCalls === 1) throw new ReadyGateError("bun run ready", 1, "red");
+      if (terminal === "failed" || gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "red");
     };
     firstStep.createBinding = ({ agentId, adapterModel }) => ({
       id: `${agentId}/${adapterModel}`,

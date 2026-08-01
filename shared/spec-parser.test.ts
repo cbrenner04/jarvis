@@ -664,8 +664,7 @@ describe("human-only criterion detection", () => {
   });
 
   test("classifies human-only markers anywhere in the criterion bullet block", () => {
-    const ac = (lines: string) =>
-      parseSpec(`# Title\n\n## Acceptance criteria\n\n${lines}`).acceptanceCriteria[0];
+    const ac = (lines: string) => parseSpec(`# Title\n\n## Acceptance criteria\n\n${lines}`).acceptanceCriteria[0];
 
     expect(ac("- [ ] (Manual) Verify in simulator.\n")).toEqual({
       checked: false,

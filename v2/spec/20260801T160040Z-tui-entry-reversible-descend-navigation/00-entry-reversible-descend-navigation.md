@@ -70,16 +70,16 @@ scroll-follow on the full-flatten baseline.)
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` — overflow fixture: forward `j` walk from first selectable through list boundary until `selectedNodeId` unchanged (step cap), then `k` back — backward visit order is the exact reverse of forward; fails pre-fix against slice 01 merged.
-- [ ] `tui-entry.test.tsx` — first pipeline row in the initial painted tree slice: `j` selects its first child, not `ids[0]` via fallthrough; fails pre-fix against slice 01 merged.
-- [ ] `tui-entry.test.tsx` — after each `selectNextRun` or `selectPreviousRun`, `selectedNodeId` is in `monitorSelectableNodeIds`; fails pre-fix against slice 01 merged; membership invert covered by fallthrough mutation checkpoints.
-- [ ] `tui-entry.test.tsx` — after `j`/`k` or off-pane `selectNode` moves selection beyond the initial painted viewport, `leftPaneTreeRowIds` contains the selected id (tree rows, full-flatten index space); fails pre-fix against slice 01 merged.
-- [ ] `tui-monitor-lines.test.ts` — `leftPaneTreeScrollOffset` shifts painted tree rows without trimming `monitorSelectableNodeIds`; fails pre-fix against slice 01 merged.
-- [ ] `tui-entry.test.tsx` — reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in `selectNextRun`/`selectPreviousRun` turns the reversible-walk pin RED; `Mutation checkpoint:` names that fallthrough.
-- [ ] `tui-entry.test.tsx` — reintroducing `ids[0]` (and backward fallthrough) in `selectNextRun`/`selectPreviousRun` turns the first-painted-pipeline descend pin RED; `Mutation checkpoint:` names that fallthrough.
-- [ ] `v2/docs/v1-behaviors.md` — descend-eviction / viewport deferral replaced with scroll-follow contract (`j`/`k` walk full selectables; viewport scrolls to selected tree row).
-- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row documents full walk order and viewport scroll-follow when the tree exceeds the pane (no FIFO-trimming wording).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-entry.test.tsx` — overflow fixture: forward `j` walk from first selectable through list boundary until `selectedNodeId` unchanged (step cap), then `k` back — backward visit order is the exact reverse of forward; fails pre-fix against slice 01 merged.
+- [x] `tui-entry.test.tsx` — first pipeline row in the initial painted tree slice: `j` selects its first child, not `ids[0]` via fallthrough; fails pre-fix against slice 01 merged.
+- [x] `tui-entry.test.tsx` — after each `selectNextRun` or `selectPreviousRun`, `selectedNodeId` is in `monitorSelectableNodeIds`; fails pre-fix against slice 01 merged; membership invert covered by fallthrough mutation checkpoints.
+- [x] `tui-entry.test.tsx` — after `j`/`k` or off-pane `selectNode` moves selection beyond the initial painted viewport, `leftPaneTreeRowIds` contains the selected id (tree rows, full-flatten index space); fails pre-fix against slice 01 merged.
+- [x] `tui-monitor-lines.test.ts` — `leftPaneTreeScrollOffset` shifts painted tree rows without trimming `monitorSelectableNodeIds`; fails pre-fix against slice 01 merged.
+- [x] `tui-entry.test.tsx` — reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in `selectNextRun`/`selectPreviousRun` turns the reversible-walk pin RED; `Mutation checkpoint:` names that fallthrough.
+- [x] `tui-entry.test.tsx` — reintroducing `ids[0]` (and backward fallthrough) in `selectNextRun`/`selectPreviousRun` turns the first-painted-pipeline descend pin RED; `Mutation checkpoint:` names that fallthrough.
+- [x] `v2/docs/v1-behaviors.md` — descend-eviction / viewport deferral replaced with scroll-follow contract (`j`/`k` walk full selectables; viewport scrolls to selected tree row).
+- [x] `v2/docs/operator-runbook.md` — `jarvis tui` row documents full walk order and viewport scroll-follow when the tree exceeds the pane (no FIFO-trimming wording).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

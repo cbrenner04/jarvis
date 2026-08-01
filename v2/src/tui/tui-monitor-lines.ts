@@ -178,6 +178,37 @@ function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
   return state.runs.some((run) => run.status === "queued") ? 1 : 0;
 }
 
+function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout): number {
+  return layout.paneHeight - leftPaneQueueHeadingRowCount(state);
+}
+
+function reclampLeftPaneTreeScrollOffset(offset: number, maxVisibleRows: number, totalTreeRows: number): number {
+  const maxOffset = Math.max(0, totalTreeRows - maxVisibleRows);
+  return Math.min(Math.max(0, offset), maxOffset);
+}
+
+/** Recompute {@link TuiMonitorState.leftPaneTreeScrollOffset} for the current selection. */
+export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Date.now()): TuiMonitorState {
+  const columns = state.terminalColumns ?? 245;
+  const rows = state.terminalRows ?? 72;
+  const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
+  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const currentOffset = state.leftPaneTreeScrollOffset ?? 0;
+  const selectedId = state.selectedNodeId;
+  const selectedIndex = selectedId === null ? -1 : fullTreeRows.findIndex((row) => row.id === selectedId);
+  if (selectedIndex < 0) {
+    return { ...state, leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(currentOffset, maxVisibleRows, fullTreeRows.length) };
+  }
+  let offset = currentOffset;
+  if (selectedIndex < offset) {
+    offset = selectedIndex;
+  } else if (selectedIndex >= offset + maxVisibleRows) {
+    offset = selectedIndex - maxVisibleRows + 1;
+  }
+  return { ...state, leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(offset, maxVisibleRows, fullTreeRows.length) };
+}
+
 /** Pipeline tree and unattributed rows for the ink monitor left pane. */
 export function monitorLeftPaneTreeRows(
   state: TuiMonitorState,
@@ -189,7 +220,7 @@ export function monitorLeftPaneTreeRows(
   unattributedRows: readonly WorkflowTableRow[];
 } {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
-  const maxVisibleRows = layout.paneHeight - leftPaneQueueHeadingRowCount(state);
+  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
   const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
   const { displayNodes, unattributedRows } = buildMonitorPipelineTree(
     snapshots,
@@ -199,8 +230,13 @@ export function monitorLeftPaneTreeRows(
     maxVisibleRows,
     { nowMs },
   );
+  const scrollOffset = reclampLeftPaneTreeScrollOffset(
+    state.leftPaneTreeScrollOffset ?? 0,
+    maxVisibleRows,
+    displayNodes.length,
+  );
   return {
-    treeRows: displayNodes.slice(0, maxVisibleRows),
+    treeRows: displayNodes.slice(scrollOffset, scrollOffset + maxVisibleRows),
     fullTreeRows: displayNodes,
     unattributedRows,
   };

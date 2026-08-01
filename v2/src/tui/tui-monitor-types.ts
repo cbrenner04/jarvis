@@ -23,6 +23,8 @@ export type TuiMonitorState = {
   steeringFeedback: string | null;
   /** Pipeline tree nodes expanded in the left-pane tree. */
   expandedPipelineNodeIds?: readonly string[];
+  /** Full-flatten index of the first painted left-pane tree row; default `0`. */
+  leftPaneTreeScrollOffset?: number;
   /** Session-local left/right divider nudge; not persisted. */
   dividerOffset?: number;
   /** Terminal width for shell layout; defaults when omitted. */

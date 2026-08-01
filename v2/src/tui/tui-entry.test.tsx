@@ -140,6 +140,55 @@ function leftPaneTreeRowIds(state: TuiMonitorState | undefined): string[] {
   return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }
 
+function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
+  const pipelineCount = maxVisibleRows + 10;
+  const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
+    pipelineId: `pipe-${index}`,
+    name: `pipeline-${index}`,
+    state: "succeeded" as const,
+    createdAt: 1_700_000_000_000 + index,
+    finishedAtMs: 1_700_000_100_000 + index,
+    stages: [
+      { stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` },
+    ],
+  }));
+  const runs = pipelines.map((_, index) => ({
+    runId: `run-${index}`,
+    project: "demo",
+    branch: `branch-${index}`,
+    status: "completed" as const,
+    isLive: false,
+    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    workflow: {
+      invocationId: `inv-${index}`,
+      steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
+    },
+  }));
+  return {
+    deps: entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs }],
+        pipelineListResponses: [{ pipelines }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
+    ).deps,
+    terminalColumns,
+    terminalRows,
+    maxVisibleRows,
+    pipelineCount,
+    pipelines,
+  };
+}
+
 function pipelineMultiEntryDeps(view: ReturnType<typeof createViewHost>, overrides: Partial<RunTuiEntryDeps> = {}) {
   return entryDeps(
     {
@@ -953,46 +1002,8 @@ describe("runTuiEntry", () => {
 
   test("aligns selectable node ids with left-pane tree rows for the measured terminal size", async () => {
     // Mutation checkpoint: currentState lacking measured terminalColumns/terminalRows when selectNextRun/selectPreviousRun call monitorSelectableNodeIds must turn this pin RED.
-    const terminalColumns = 80;
-    const terminalRows = 24;
-    const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
-    const pipelineCount = maxVisibleRows + 10;
-    const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
-      pipelineId: `pipe-${index}`,
-      name: `pipeline-${index}`,
-      state: "succeeded" as const,
-      createdAt: 1_700_000_000_000 + index,
-      finishedAtMs: 1_700_000_100_000 + index,
-      stages: [
-        { stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` },
-      ],
-    }));
-    const runs = pipelines.map((_, index) => ({
-      runId: `run-${index}`,
-      project: "demo",
-      branch: `branch-${index}`,
-      status: "completed" as const,
-      isLive: false,
-      finishedAtMs: TERMINAL_LIST_FINISH_MS,
-      workflow: {
-        invocationId: `inv-${index}`,
-        steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
-      },
-    }));
     const view = createViewHost();
-    const { deps } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs }],
-        pipelineListResponses: [{ pipelines }],
-        waitImpl: async () => ({ runStatus: "completed" }),
-      },
-      {
-        viewHost: view.host,
-        nowMs: () => WORKFLOW_FILTER_NOW_MS,
-        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
-      },
-    );
+    const { deps, terminalColumns, terminalRows, maxVisibleRows, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
 
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
@@ -1051,6 +1062,137 @@ describe("runTuiEntry", () => {
       if (after === before) break;
     }
     expect(visitedBackward.size).toBeGreaterThan(1);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("overflow fixture forward j then k retraces the exact reverse visit order", async () => {
+    // Mutation checkpoint: reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in selectNextRun/selectPreviousRun turns this pin RED.
+    const view = createViewHost();
+    const { deps, pipelineCount } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const forwardOrder: string[] = [];
+    const startId = view.monitorStates.at(-1)?.selectedNodeId;
+    if (startId !== null && startId !== undefined) forwardOrder.push(startId);
+
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectNextRun();
+      await flush();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before || after === null) break;
+      forwardOrder.push(after);
+    }
+    expect(forwardOrder.length).toBeGreaterThan(1);
+
+    const backwardOrder: string[] = [];
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectPreviousRun();
+      await flush();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before || after === null) break;
+      backwardOrder.push(after);
+    }
+    expect(backwardOrder).toEqual([...forwardOrder].slice(0, -1).toReversed());
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j on the first painted pipeline row selects its first child, not ids[0] via fallthrough", async () => {
+    // Mutation checkpoint: reintroducing `ids[0]` (and backward fallthrough) in selectNextRun/selectPreviousRun turns this pin RED.
+    const view = createViewHost();
+    const { deps } = pipelineTreeEntryDeps(view, {
+      terminalSize: () => ({ columns: 80, rows: 24 }),
+    });
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+    view.selectNextRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("after each selectNextRun or selectPreviousRun, selectedNodeId stays in monitorSelectableNodeIds", async () => {
+    const view = createViewHost();
+    const { deps, pipelineCount } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertMembership = (): void => {
+      const state = view.monitorStates.at(-1);
+      if (state === undefined) return;
+      const selected = state.selectedNodeId;
+      if (selected === null) return;
+      expect(monitorSelectableNodeIds(state, WORKFLOW_FILTER_NOW_MS)).toContain(selected);
+    };
+
+    assertMembership();
+    for (let step = 0; step < pipelineCount * 2; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectNextRun();
+      await flush();
+      assertMembership();
+      if ((view.monitorStates.at(-1)?.selectedNodeId ?? null) === before) break;
+    }
+    for (let step = 0; step < pipelineCount * 2; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      view.selectPreviousRun();
+      await flush();
+      assertMembership();
+      if ((view.monitorStates.at(-1)?.selectedNodeId ?? null) === before) break;
+    }
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("j, k, and off-pane selectNode keep the selected tree row in the painted viewport", async () => {
+    const view = createViewHost();
+    const { deps, maxVisibleRows, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertPaintedTreeSelection = (): void => {
+      const state = view.monitorStates.at(-1);
+      const selected = state?.selectedNodeId;
+      if (selected === null || selected === undefined) return;
+      if (!selected.startsWith("pipe-")) return;
+      expect(leftPaneTreeRowIds(state)).toContain(selected);
+    };
+
+    for (let step = 0; step < pipelineCount; step += 1) {
+      view.selectNextRun();
+      await flush();
+      assertPaintedTreeSelection();
+    }
+    for (let step = 0; step < pipelineCount; step += 1) {
+      view.selectPreviousRun();
+      await flush();
+      assertPaintedTreeSelection();
+    }
+
+    const offPaneId = pipelines[maxVisibleRows]!.pipelineId;
+    view.selectNode(offPaneId);
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain(offPaneId);
 
     view.quit();
     expect(await pending).toBe(0);
@@ -1321,6 +1463,7 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedPipelineNodeIds: [],
+      leftPaneTreeScrollOffset: 0,
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
     });

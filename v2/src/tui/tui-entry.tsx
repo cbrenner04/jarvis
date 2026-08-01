@@ -5,7 +5,7 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
-import { firstSelectableNodeId, mergePipelineSnapshots, monitorSelectableNodeIds } from "./tui-monitor-lines.ts";
+import { firstSelectableNodeId, mergePipelineSnapshots, monitorSelectableNodeIds, withLeftPaneTreeScrollFollow } from "./tui-monitor-lines.ts";
 import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
@@ -158,7 +158,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
 
   const setState = (state: TuiMonitorState): void => {
-    currentState = withMeasuredTerminal(state, terminalSizeFn);
+    currentState = withMeasuredTerminal(withLeftPaneTreeScrollFollow(state, nowMsFn()), terminalSizeFn);
     syncMonitor();
   };
 
@@ -478,16 +478,38 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             ids = monitorSelectableNodeIds(state, nowMs);
             setState({ ...state, steeringFeedback: null });
           }
-          const selectedIndex = selectedNodeId === null ? -1 : ids.indexOf(selectedNodeId);
-          const next = ids[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, ids.length - 1)];
-          if (next !== undefined && next !== currentState.selectedNodeId) setSelection(next);
+          const activeId = state.selectedNodeId;
+          const selectedIndex = activeId === null ? -1 : ids.indexOf(activeId);
+          if (selectedIndex < 0) {
+            // Mutation checkpoint: reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in selectNextRun/selectPreviousRun turns reversible-walk pin RED.
+            if (activeId !== null) {
+              setState(state);
+              return;
+            }
+            const next = ids[0];
+            if (next !== undefined) setSelection(next);
+            return;
+          }
+          // Mutation checkpoint: reintroducing `ids[0]` (and backward fallthrough) in selectNextRun/selectPreviousRun turns first-painted-pipeline descend pin RED.
+          const next = ids[Math.min(selectedIndex + 1, ids.length - 1)];
+          if (next !== undefined && next !== activeId) setSelection(next);
         },
         selectPreviousRun() {
           const ids = monitorSelectableNodeIds(currentState, nowMsFn());
           if (ids.length === 0) return;
-          const selectedIndex = currentState.selectedNodeId === null ? -1 : ids.indexOf(currentState.selectedNodeId);
-          const previous = ids[selectedIndex < 0 ? ids.length - 1 : Math.max(selectedIndex - 1, 0)];
-          if (previous !== undefined && previous !== currentState.selectedNodeId) setSelection(previous);
+          const selectedNodeId = currentState.selectedNodeId;
+          const selectedIndex = selectedNodeId === null ? -1 : ids.indexOf(selectedNodeId);
+          if (selectedIndex < 0) {
+            if (selectedNodeId !== null) {
+              setState(currentState);
+              return;
+            }
+            const previous = ids[ids.length - 1];
+            if (previous !== undefined) setSelection(previous);
+            return;
+          }
+          const previous = ids[Math.max(selectedIndex - 1, 0)];
+          if (previous !== undefined && previous !== selectedNodeId) setSelection(previous);
         },
         toggleSelectedWorkflowExpansion() {
           const selectedNodeId = currentState.selectedNodeId;

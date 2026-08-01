@@ -791,10 +791,7 @@ describe("createResolvedAgentBinding", () => {
   test("cursor binding unwraps stream-json result event text as stdout", async () => {
     const streamJson = JSON.stringify({ type: "result", result: "implementation complete\n" });
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: streamJson, stderr: "" }]);
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
@@ -807,10 +804,7 @@ describe("createResolvedAgentBinding", () => {
       JSON.stringify({ type: "text_delta", text: "one\n" }),
     ].join("\n");
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frames, stderr: "" }]);
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
@@ -822,10 +816,7 @@ describe("createResolvedAgentBinding", () => {
   test("cursor binding falls back to verbatim stdout when unparseable", async () => {
     const unparseable = "not json at all\nand more text\n";
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: unparseable, stderr: "" }]);
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
@@ -847,10 +838,7 @@ describe("createResolvedAgentBinding", () => {
       { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
       { kind: "settle", code: 0, stdout: streamJson, stderr: "" },
     ]);
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn });
 
     const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
 
@@ -870,12 +858,7 @@ describe("createResolvedAgentBinding", () => {
     await executeWithQuotaFallback({
       prompt: "p",
       cwd: "/repo",
-      bindings: [
-        createResolvedAgentBinding(
-          COMPOSER_CURSOR_BINDING,
-          { spawn: fake.spawn },
-        ),
-      ],
+      bindings: [createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn })],
       telemetry: telemetryForRows(rows),
     });
 
@@ -896,25 +879,22 @@ describe("createResolvedAgentBinding", () => {
     const armedDelays: (number | undefined)[] = [];
     const expiries: (() => void)[] = [];
     const cleared = new Set<() => void>();
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      {
-        spawn: fake.spawn,
-        setTimeout: ((callback: () => void, delayMs?: number) => {
-          armedDelays.push(delayMs);
-          // Honour cancellation the way a real timer does, so firing a superseded
-          // expiry only does something if production code failed to clear it.
-          const wrapped = () => {
-            if (!cleared.has(wrapped)) callback();
-          };
-          expiries.push(wrapped);
-          return wrapped as unknown as ReturnType<typeof setTimeout>;
-        }) as unknown as typeof setTimeout,
-        clearTimeout: ((timer) => {
-          cleared.add(timer as unknown as () => void);
-        }) as typeof clearTimeout,
-      },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: fake.spawn,
+      setTimeout: ((callback: () => void, delayMs?: number) => {
+        armedDelays.push(delayMs);
+        // Honour cancellation the way a real timer does, so firing a superseded
+        // expiry only does something if production code failed to clear it.
+        const wrapped = () => {
+          if (!cleared.has(wrapped)) callback();
+        };
+        expiries.push(wrapped);
+        return wrapped as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+      clearTimeout: ((timer) => {
+        cleared.add(timer as unknown as () => void);
+      }) as typeof clearTimeout,
+    });
 
     const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
 
@@ -943,10 +923,10 @@ describe("createResolvedAgentBinding", () => {
     const frameWithQuota = JSON.stringify({ type: "text_delta", text: "you've hit your usage limit" });
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: frameWithQuota, stderr: "" }]);
 
-    const result = await createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    ).invoke({ prompt: "p", cwd: "/repo" });
+    const result = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
 
     expect(result.kind).toBe("quota");
   });
@@ -954,10 +934,10 @@ describe("createResolvedAgentBinding", () => {
   test("cursor binding passes non-ok results through unnormalized", async () => {
     const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: "boom" }]);
 
-    const result = await createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      { spawn: fake.spawn },
-    ).invoke({ prompt: "p", cwd: "/repo" });
+    const result = await createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, { spawn: fake.spawn }).invoke({
+      prompt: "p",
+      cwd: "/repo",
+    });
 
     expect(result).toEqual({ kind: "error", exitCode: 1, stderr: "boom" });
   });
@@ -965,17 +945,14 @@ describe("createResolvedAgentBinding", () => {
   test("cursor binding still stalls on output-silent invocation past idleOutputMs", async () => {
     const fake = fakeSpawn([{ kind: "hang" }]);
     let expiry: (() => void) | undefined;
-    const binding = createResolvedAgentBinding(
-      COMPOSER_CURSOR_BINDING,
-      {
-        spawn: fake.spawn,
-        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
-          expiry = callback;
-          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-        }) as typeof setTimeout,
-        clearTimeout: (() => {}) as typeof clearTimeout,
-      },
-    );
+    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
+      spawn: fake.spawn,
+      setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+        expiry = callback;
+        return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout,
+      clearTimeout: (() => {}) as typeof clearTimeout,
+    });
 
     const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
     expiry?.();

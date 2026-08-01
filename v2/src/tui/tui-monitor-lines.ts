@@ -51,7 +51,12 @@ export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.no
   const columns = state.terminalColumns ?? 245;
   const rows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  // Navigation ids follow durable expansion only; selection-driven reveal is for paint, not list collapse.
+  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(
+    { ...state, selectedNodeId: null },
+    layout,
+    nowMs,
+  );
   // Mutation checkpoint: omitting unattributed rows from monitorSelectableNodeIds must turn tree+unattributed navigation pin RED.
   return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }

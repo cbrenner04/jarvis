@@ -81,35 +81,35 @@ list and skips stage and pipeline.
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` — `e on a selected stage returns left-pane tree row ids to their starting
+- [x] `tui-entry.test.tsx` — `e on a selected stage returns left-pane tree row ids to their starting
       value after two presses` fails against pre-fix entry (missing stage `e` row-id round-trip at
       entry layer or dimension mismatch on `currentState` during the round-trip) and passes after;
       two presses return the starting left-pane tree row id list with a distinct intermediate list.
-- [ ] `tui-entry.test.tsx` — short-circuiting stage `e` toggle or reintroducing selected-node
+- [x] `tui-entry.test.tsx` — short-circuiting stage `e` toggle or reintroducing selected-node
       self-expand in effective expansion turns `e on a selected stage returns left-pane tree row ids
       to their starting value after two presses` RED; `Mutation checkpoint:` on that pin names the
       inversion.
-- [ ] `tui-entry.test.tsx` — extended `drives row navigation through the injected input hook` fails
+- [x] `tui-entry.test.tsx` — extended `drives row navigation through the injected input hook` fails
       against pre-fix (reveal-only fixture, no pre-walk `toggleExpansion`; ends on `run-matched`; two
       ↑ to stage then pipeline) and passes after.
-- [ ] `tui-entry.test.tsx` — selection-driven list collapse during the ↑ walk turns `drives row
+- [x] `tui-entry.test.tsx` — selection-driven list collapse during the ↑ walk turns `drives row
       navigation through the injected input hook` RED; `Mutation checkpoint:` on that pin names that
       collapse.
-- [ ] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured
+- [x] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured
       terminal size` fails against pre-fix dimension fallback and passes after; every
       `monitorSelectableNodeIds(currentState)` id appears in left-pane tree row ids for the same
       terminal size.
-- [ ] `tui-entry.test.tsx` — omitting measured terminal dimensions from `currentState` before
+- [x] `tui-entry.test.tsx` — omitting measured terminal dimensions from `currentState` before
       `monitorSelectableNodeIds` turns `aligns selectable node ids with left-pane tree rows for the
       measured terminal size` RED; `Mutation checkpoint:` on that pin names that omission.
-- [ ] `tui-entry.test.tsx` — `monitor state carries the injected terminal size` and `monitor state
+- [x] `tui-entry.test.tsx` — `monitor state carries the injected terminal size` and `monitor state
       omits terminal size when the terminal reports none` stay green.
-- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row and live-window paragraph document `e` toggle
+- [x] `v2/docs/operator-runbook.md` — `jarvis tui` row and live-window paragraph document `e` toggle
       and `j`/↓/↑ pane-order navigation (tree + unattributed rows only; queue rows not walk targets);
       no ready-intent deferral, selected-node self-expand caveat, or “just to its own selection”
       sentence.
-- [ ] `v2/docs/v1-behaviors.md` — TUI pipeline-tree `e` and row-navigation parity entry added.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/v1-behaviors.md` — TUI pipeline-tree `e` and row-navigation parity entry added.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

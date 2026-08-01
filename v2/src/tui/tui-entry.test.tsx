@@ -10,7 +10,7 @@ import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
-import { monitorLeftPaneTreeRows, monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
@@ -911,6 +911,7 @@ describe("runTuiEntry", () => {
   });
 
   test("drives row navigation through the injected input hook", async () => {
+    // Mutation checkpoint: selection-driven list collapse during the ↑ walk must turn this pin RED.
     const view = createViewHost();
     const { deps } = pipelineTreeEntryDeps(view, {
       terminalSize: () => ({ columns: 245, rows: 72 }),
@@ -922,7 +923,6 @@ describe("runTuiEntry", () => {
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
 
-    await view.toggleExpansion();
     view.selectNextRun();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
@@ -938,6 +938,136 @@ describe("runTuiEntry", () => {
     view.selectPreviousRun();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-matched");
+
+    view.selectPreviousRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+
+    view.selectPreviousRun();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("aligns selectable node ids with left-pane tree rows for the measured terminal size", async () => {
+    // Mutation checkpoint: currentState lacking measured terminalColumns/terminalRows when selectNextRun/selectPreviousRun call monitorSelectableNodeIds must turn this pin RED.
+    const terminalColumns = 80;
+    const terminalRows = 24;
+    const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
+    const pipelineCount = maxVisibleRows + 10;
+    const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
+      pipelineId: `pipe-${index}`,
+      name: `pipeline-${index}`,
+      state: "succeeded" as const,
+      createdAt: 1_700_000_000_000 + index,
+      finishedAtMs: 1_700_000_100_000 + index,
+      stages: [{ stageId: "plan", branchKey: "default", status: "succeeded" as const, workflowInvocationId: `inv-${index}` }],
+    }));
+    const runs = pipelines.map((_, index) => ({
+      runId: `run-${index}`,
+      project: "demo",
+      branch: `branch-${index}`,
+      status: "completed" as const,
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+      workflow: {
+        invocationId: `inv-${index}`,
+        steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
+      },
+    }));
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs }],
+        pipelineListResponses: [{ pipelines }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const assertSelectionPainted = (): void => {
+      const state = view.monitorStates.at(-1);
+      expect(state?.terminalColumns).toBe(terminalColumns);
+      expect(state?.terminalRows).toBe(terminalRows);
+      const selected = state?.selectedNodeId;
+      expect(selected).not.toBeNull();
+      if (selected === null || selected === undefined || state === undefined) {
+        throw new Error("expected selected node");
+      }
+      expect(leftPaneTreeRowIds(state)).toContain(selected);
+    };
+
+    const initialState = view.monitorStates.at(-1)!;
+    const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
+    const { treeRows: initialTreeRows } = monitorLeftPaneTreeRows(
+      initialState,
+      initialLayout,
+      WORKFLOW_FILTER_NOW_MS,
+    );
+    expect(pipelineCount).toBeGreaterThan(maxVisibleRows);
+    expect(initialTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
+    expect(initialTreeRows.filter((row) => row.kind === "pipeline").length).toBeLessThan(pipelineCount);
+
+    assertSelectionPainted();
+    const visitedForward = new Set<string>();
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (before !== null) visitedForward.add(before);
+      view.selectNextRun();
+      await flush();
+      assertSelectionPainted();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before) break;
+    }
+    expect(visitedForward.size).toBeGreaterThan(1);
+
+    const visitedBackward = new Set<string>();
+    for (let step = 0; step < pipelineCount * 4; step += 1) {
+      const before = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (before !== null) visitedBackward.add(before);
+      view.selectPreviousRun();
+      await flush();
+      assertSelectionPainted();
+      const after = view.monitorStates.at(-1)?.selectedNodeId ?? null;
+      if (after === before) break;
+    }
+    expect(visitedBackward.size).toBeGreaterThan(1);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("e on a selected stage returns left-pane tree row ids to their starting value after two presses", async () => {
+    // Mutation checkpoint: short-circuiting stage e toggle or reintroducing selected-node self-expand in effective expansion must turn this pin RED.
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    await view.toggleExpansion();
+    view.selectNode(PIPELINE_STAGE_MULTI);
+    await flush();
+    const startingRowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+
+    await view.toggleExpansion();
+    const intermediateRowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+    expect(intermediateRowIds).not.toEqual(startingRowIds);
+
+    await view.toggleExpansion();
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(startingRowIds);
 
     view.quit();
     expect(await pending).toBe(0);

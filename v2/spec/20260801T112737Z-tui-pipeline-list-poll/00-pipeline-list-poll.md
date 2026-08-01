@@ -34,20 +34,20 @@ pipeline-tree work needs per-daemon observation on that cadence without a second
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` — `refreshRuns(true)` against two connected daemons records exactly one `pipeline_list` per socket path in the `refreshRuns` client loop alongside `list`, and the `TuiMonitorState` passed to `openMonitor` carries per-socket `{ pipelines }` for each daemon; fails pre-fix when entry never calls `pipeline_list` or defers polling to the scheduler tick.
-- [ ] `tui-entry.test.tsx` — a periodic refresh tick against two connected daemons records exactly one `pipeline_list` per socket path alongside `list` (per-fake-client call counts keyed by socket path); fails pre-fix when entry never calls `pipeline_list`.
-- [ ] `tui-entry.test.tsx` — when `list` returns unchanged runs but `pipeline_list` returns new per-socket snapshots, monitor state updates with the new `pipelineSnapshotsBySocketPath` entries; fails when snapshots live off-state while run rows are stable.
-- [ ] `tui-entry.test.tsx` — when `pipeline_list` throws for one daemon while `list` succeeds, the monitor stays open with that daemon's runs still rendered from the successful `list` merge; fails when failure clears run rows or closes the monitor.
-- [ ] `tui-entry.test.tsx` — after a successful `pipeline_list` tick, a subsequent failing tick leaves `TuiMonitorState.pipelineSnapshotsBySocketPath[socketPath]` carrying the prior `{ pipelines }`; fails when failure clears the stored snapshot.
-- [ ] `tui-entry.test.tsx` — invoking-socket `list` failure evicts the client and removes that socket's `pipelineSnapshotsBySocketPath` entry; a non-evicting `list` or `pipeline_list` failure on another tick retains other sockets' entries; fails when eviction leaves a stale snapshot or non-evicting failure drops retained snapshots.
-- [ ] `tui-entry.test.tsx` — non-invoking-socket `list` failure on one daemon still issues `pipeline_list` for that daemon on the same tick; fails when `list` failure skips `pipeline_list`.
-- [ ] `tui-entry.test.tsx` — successful `{ pipelines: [] }` overwrites a prior non-empty snapshot for that socket; fails when empty success is treated as “never polled” and retains stale pipelines.
-- [ ] `tui-daemon-client.test.ts` — `connectTuiDaemon` `pipelineList` parses ordered `PipelineSnapshot` rows (`pipelineId`, `name`, `state`, stages with `stageId`, `branchKey`, `status`, `workflowInvocationId`); fails pre-fix without `pipelineList`.
-- [ ] `tui-entry.test.tsx` — `Mutation checkpoint:` on the cadence pinning test names skipping `pipeline_list` on refresh; mutating that guard turns the cadence test RED.
-- [ ] `tui-entry.test.tsx` — `Mutation checkpoint:` on the run-preservation test names evicting the client or closing the monitor on `pipeline_list` failure; mutating that guard turns the preservation test RED.
-- [ ] `tui-entry.test.tsx` — `Mutation checkpoint:` on the run-preservation test names clearing merged run rows when `pipeline_list` fails while `list` succeeds; mutating that guard turns the preservation test RED.
-- [ ] `tui-entry.test.tsx` — `Mutation checkpoint:` on the retention test names clearing per-daemon snapshots on `pipeline_list` failure; mutating that guard turns the retention test RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `tui-entry.test.tsx` — `refreshRuns(true)` against two connected daemons records exactly one `pipeline_list` per socket path in the `refreshRuns` client loop alongside `list`, and the `TuiMonitorState` passed to `openMonitor` carries per-socket `{ pipelines }` for each daemon; fails pre-fix when entry never calls `pipeline_list` or defers polling to the scheduler tick.
+- [x] `tui-entry.test.tsx` — a periodic refresh tick against two connected daemons records exactly one `pipeline_list` per socket path alongside `list` (per-fake-client call counts keyed by socket path); fails pre-fix when entry never calls `pipeline_list`.
+- [x] `tui-entry.test.tsx` — when `list` returns unchanged runs but `pipeline_list` returns new per-socket snapshots, monitor state updates with the new `pipelineSnapshotsBySocketPath` entries; fails when snapshots live off-state while run rows are stable.
+- [x] `tui-entry.test.tsx` — when `pipeline_list` throws for one daemon while `list` succeeds, the monitor stays open with that daemon's runs still rendered from the successful `list` merge; fails when failure clears run rows or closes the monitor.
+- [x] `tui-entry.test.tsx` — after a successful `pipeline_list` tick, a subsequent failing tick leaves `TuiMonitorState.pipelineSnapshotsBySocketPath[socketPath]` carrying the prior `{ pipelines }`; fails when failure clears the stored snapshot.
+- [x] `tui-entry.test.tsx` — invoking-socket `list` failure evicts the client and removes that socket's `pipelineSnapshotsBySocketPath` entry; a non-evicting `list` or `pipeline_list` failure on another tick retains other sockets' entries; fails when eviction leaves a stale snapshot or non-evicting failure drops retained snapshots.
+- [x] `tui-entry.test.tsx` — non-invoking-socket `list` failure on one daemon still issues `pipeline_list` for that daemon on the same tick; fails when `list` failure skips `pipeline_list`.
+- [x] `tui-entry.test.tsx` — successful `{ pipelines: [] }` overwrites a prior non-empty snapshot for that socket; fails when empty success is treated as “never polled” and retains stale pipelines.
+- [x] `tui-daemon-client.test.ts` — `connectTuiDaemon` `pipelineList` parses ordered `PipelineSnapshot` rows (`pipelineId`, `name`, `state`, stages with `stageId`, `branchKey`, `status`, `workflowInvocationId`); fails pre-fix without `pipelineList`.
+- [x] `tui-entry.test.tsx` — `Mutation checkpoint:` on the cadence pinning test names skipping `pipeline_list` on refresh; mutating that guard turns the cadence test RED.
+- [x] `tui-entry.test.tsx` — `Mutation checkpoint:` on the run-preservation test names evicting the client or closing the monitor on `pipeline_list` failure; mutating that guard turns the preservation test RED.
+- [x] `tui-entry.test.tsx` — `Mutation checkpoint:` on the run-preservation test names clearing merged run rows when `pipeline_list` fails while `list` succeeds; mutating that guard turns the preservation test RED.
+- [x] `tui-entry.test.tsx` — `Mutation checkpoint:` on the retention test names clearing per-daemon snapshots on `pipeline_list` failure; mutating that guard turns the retention test RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

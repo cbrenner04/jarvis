@@ -1,6 +1,6 @@
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import type { ConnectTuiDaemonOptions, TuiDaemonClient } from "./tui-daemon-client.ts";
+import type { ConnectTuiDaemonOptions, PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi } from "./tui-ink-runtime.ts";
 
@@ -31,6 +31,8 @@ export type TuiMonitorState = {
   terminalRows?: number;
   /** Dock refresh label (e.g. `1s`); defaults when omitted. */
   refreshIntervalLabel?: string;
+  /** Last-good per-daemon `pipeline_list` snapshots keyed by socket path. */
+  pipelineSnapshotsBySocketPath?: Readonly<Record<string, PipelineListResult>>;
 };
 
 /**

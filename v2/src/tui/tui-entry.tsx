@@ -2,7 +2,7 @@ import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
-import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
+import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import { firstSelectableRunId, monitorSelectableRuns } from "./tui-monitor-lines.ts";
@@ -69,6 +69,7 @@ function emptyMonitorState(): TuiMonitorState {
     steeringFeedback: null,
     expandedWorkflowInvocationIds: [],
     refreshIntervalLabel: tuiRefreshIntervalLabel(),
+    pipelineSnapshotsBySocketPath: {},
   };
 }
 
@@ -290,23 +291,38 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           }
         }
 
+        let pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {
+          ...(currentState.pipelineSnapshotsBySocketPath ?? {}),
+        };
+
         const listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]> = [];
         let allClientsFailed = true;
         let firstError: unknown;
-        for (const [socketPath, client] of clients.entries()) {
+        for (const [socketPath, client] of [...clients.entries()]) {
           try {
             listResults.push([client, await client.list()]);
             allClientsFailed = false;
           } catch (error) {
-            // Evict invoking-socket client on list failure; skip others for this tick
             if (socketPath === deps.socketPath) {
               client.close();
               clients.delete(socketPath);
+              listResults.push([client, undefined]);
+              if (!firstError) firstError = error;
+              continue;
             }
             listResults.push([client, undefined]);
             if (!firstError) firstError = error;
           }
+
+          try {
+            pipelineSnapshotsBySocketPath[socketPath] = await client.pipelineList();
+          } catch {
+            // Retain last-good per-daemon snapshot on observation failure.
+          }
         }
+        pipelineSnapshotsBySocketPath = Object.fromEntries(
+          Object.entries(pipelineSnapshotsBySocketPath).filter(([path]) => clients.has(path)),
+        );
 
         if (initial && allClientsFailed) throw firstError;
 
@@ -321,6 +337,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             waitState: { kind: "none" },
             steeringFeedback: null,
             expandedWorkflowInvocationIds: [],
+            pipelineSnapshotsBySocketPath,
           };
           const runId = firstSelectableRunId(draftState);
           currentState = {
@@ -342,6 +359,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             waitState: { kind: "none" },
             steeringFeedback: null,
             expandedWorkflowInvocationIds: currentState.expandedWorkflowInvocationIds,
+            pipelineSnapshotsBySocketPath,
           });
           activeWaitToken += 1;
           continue;
@@ -350,6 +368,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         setState({
           ...currentState,
           runs,
+          pipelineSnapshotsBySocketPath,
         });
       } while (refreshQueued);
     } finally {

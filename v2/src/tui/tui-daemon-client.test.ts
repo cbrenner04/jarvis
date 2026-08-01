@@ -36,6 +36,7 @@ const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
 const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
+const PIPELINE_LIST_REQUEST_ID = "00000000-0000-4000-8000-00000000000b";
 const CURRENT_REVISION = "abc123";
 
 function statusFrame(
@@ -419,6 +420,34 @@ test("malformed success payloads reject as RpcConnectionError", async () => {
     });
 
     await expect(client.pause("run-1")).rejects.toBeInstanceOf(RpcConnectionError);
+    client.close();
+  });
+});
+
+test("pipelineList sends one correlated IPC request and parses ordered PipelineSnapshot rows", async () => {
+  const sent: unknown[] = [];
+  const pipelineSnapshot = {
+    pipelineId: "pipe-1",
+    name: "sample-pipeline",
+    state: "running" as const,
+    stages: [
+      { stageId: "plan", branchKey: "default", status: "running", workflowInvocationId: "inv-plan" },
+      { stageId: "gate", branchKey: "default", status: "pending", workflowInvocationId: null },
+    ],
+  };
+
+  await withFixedUuid([PIPELINE_LIST_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
+      connectIpcClient: async () =>
+        makeGatedIpcClient(
+          [{ kind: "response", id: PIPELINE_LIST_REQUEST_ID, result: { pipelines: [pipelineSnapshot] } }],
+          { sent },
+        ),
+    });
+
+    await expect(client.pipelineList()).resolves.toEqual({ pipelines: [pipelineSnapshot] });
+    expect(sent).toEqual([{ kind: "request", id: PIPELINE_LIST_REQUEST_ID, method: "pipeline_list" }]);
     client.close();
   });
 });

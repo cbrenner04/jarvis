@@ -111,6 +111,6 @@ Watch for disguises a static guard cannot catch: production exports that exist o
 - **Plans block on dependency chains, and that is correct.** Fan plans only across intents with no shared prerequisite; otherwise ship the root first and re-run.
 - **Do not pass `--reset-despite-dirty` on an incomplete spec you care about.** It retires the branch including the remote. Recover with `git fsck --lost-found`.
 - **Do not admin-merge over a red check.** It reddened `main` once (#2417).
-- **ink does not paint to a fake stdout on CI.** See seed `tui-tests-bypass-the-render-path`.
+- **ink does not paint to a fake stdout on CI.** See [test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy).
 - `bun test` **does not typecheck.** Hand-finishing: `bun run check` and `bun run typecheck`.
 - **One worktree may still survive `cleanup`:** `20260727T203911Z-intent-split-prompt-by-surface` (predates 2026-07-30, holds modified files). `20260731T040405Z-shared-drop-production-invert-hooks` is archived (#2423); its work shipped as #2395.

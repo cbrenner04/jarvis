@@ -418,6 +418,48 @@ describe("runTuiEntry", () => {
     expect(TUI_DAEMON_SOCKET_DISPLAY).toBe("~/.jarvis/daemon.sock");
   });
 
+  test("monitor state carries the injected terminal size", async () => {
+    // Mutation checkpoint: flipping `stdout.columns !== undefined` to `===` in tui-entry.tsx
+    // (same for rows) leaves terminalColumns/terminalRows unset — this pin turns RED.
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }], waitImpl: async () => ({ runStatus: "completed" }) },
+      { viewHost: view.host, terminalSize: () => ({ columns: 245, rows: 72 }) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const opened = view.monitorStates.at(-1);
+    expect(opened?.terminalColumns).toBe(245);
+    expect(opened?.terminalRows).toBe(72);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("monitor state omits terminal size when the terminal reports none", async () => {
+    // Mutation checkpoint: dropping the `!== undefined` guards entirely would write `undefined`
+    // keys onto the state; this pin asserts the fields stay absent.
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }], waitImpl: async () => ({ runStatus: "completed" }) },
+      { viewHost: view.host, terminalSize: () => ({}) },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const opened = view.monitorStates.at(-1);
+    expect(opened === undefined ? true : "terminalColumns" in opened).toBe(false);
+    expect(opened === undefined ? true : "terminalRows" in opened).toBe(false);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
   test("toggles workflow expansion through the monitor control", async () => {
     // Mutation checkpoint: short-circuit `toggleSelectedWorkflowExpansion` in tui-entry.tsx before
     // it mutates `expandedWorkflowInvocationIds` — the constituent rows never appear.
@@ -531,6 +573,7 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
+      refreshIntervalLabel: "1s",
     });
   });
 
@@ -712,6 +755,7 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
+      refreshIntervalLabel: "1s",
     });
   });
 

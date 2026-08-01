@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
@@ -24,10 +24,12 @@ import {
 } from "./pipeline-stage-resolve.ts";
 
 const QUEUE_WIDGET_SEED_REL = "v2/spec/seeds/queue-widget-refactor.md";
-const QUEUE_WIDGET_SEED_CONTENT = readFileSync(
-  join(import.meta.dir, "..", "..", "spec", "seeds", "queue-widget-refactor.md"),
-  "utf8",
-);
+const QUEUE_WIDGET_SEED_CONTENT = `---
+name: queue-widget-refactor
+---
+
+# Operator notes only
+`;
 
 type IntentWriteStep = Extract<AnyWorkflowStep, { behavior: "write" }>;
 

@@ -575,8 +575,12 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] `jarvis tui` is an interactive read-only run monitor over daemon
   IPC: prove `health` + `status`, poll `list` for run rows/liveness, drive the
   outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
-  and quit with `q` or Ctrl-C. Sources: `v2/src/tui/tui-entry.tsx`,
-  `v2/docs/write-behavior.md`
+  and quit with `q` or Ctrl-C. The ink shell is a split-pane layout (stacked below
+  120 terminal columns): left tree/queue, right workflow/outcome/steering, and a
+  fixed 4-line dock; `[` / `]` nudge the left/right divider. The left-pane grid
+  `live` column shows `idle` for non-live runs (five-character width); `jarvis run
+  list` and segment-style monitor lines still use `not-live`. Sources:
+  `v2/src/tui/tui-entry.tsx`, `v2/docs/write-behavior.md`
 - [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
   daemon sockets, connects to each, and aggregates their `list` results into one
   monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);

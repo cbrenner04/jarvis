@@ -18,9 +18,7 @@ export type Prices = {
   models: Record<string, PriceRow>;
 };
 
-export function loadPrices(path?: string): Prices {
-  const resolvedPath = path ?? join(import.meta.dir, "..", "..", "data", "prices.json");
-
+function readCatalog(resolvedPath: string): Record<string, unknown> {
   let content: string;
   try {
     content = readFileSync(resolvedPath, "utf8");
@@ -39,7 +37,49 @@ export function loadPrices(path?: string): Prices {
     throw new Error(`Prices file at ${resolvedPath} must be a JSON object, got ${typeof parsed}`);
   }
 
-  const obj = parsed as Record<string, unknown>;
+  return parsed as Record<string, unknown>;
+}
+
+// `optional` distinguishes the required rate columns (which must be present as
+// number|null) from the cache columns, which may be absent entirely.
+function assertRate(value: unknown, field: string, modelId: string, optional: boolean): void {
+  if (optional && value === undefined) {
+    return;
+  }
+  if (value !== null && typeof value !== "number") {
+    throw new Error(`${field} for model ${JSON.stringify(modelId)} must be a number or null, got ${typeof value}`);
+  }
+  if (typeof value === "number" && value < 0) {
+    throw new Error(`${field} for model ${JSON.stringify(modelId)} must be non-negative, got ${value}`);
+  }
+}
+
+function assertString(value: unknown, field: string, modelId: string): void {
+  if (typeof value !== "string") {
+    throw new Error(`${field} for model ${JSON.stringify(modelId)} must be a string, got ${typeof value}`);
+  }
+}
+
+function validateRow(rowRaw: unknown, modelId: string): PriceRow {
+  if (rowRaw === null || typeof rowRaw !== "object" || Array.isArray(rowRaw)) {
+    throw new Error(`Price row for model ${JSON.stringify(modelId)} must be an object`);
+  }
+
+  const row = rowRaw as Record<string, unknown>;
+
+  assertRate(row.input_per_mtok, "input_per_mtok", modelId, false);
+  assertRate(row.output_per_mtok, "output_per_mtok", modelId, false);
+  assertRate(row.cache_read_per_mtok, "cache_read_per_mtok", modelId, true);
+  assertRate(row.cache_write_per_mtok, "cache_write_per_mtok", modelId, true);
+  assertString(row.source_url, "source_url", modelId);
+  assertString(row.as_of, "as_of", modelId);
+
+  return row as PriceRow;
+}
+
+export function loadPrices(path?: string): Prices {
+  const resolvedPath = path ?? join(import.meta.dir, "..", "..", "data", "prices.json");
+  const obj = readCatalog(resolvedPath);
 
   if (obj.version !== 1) {
     throw new Error(`Prices file at ${resolvedPath} has unknown version ${JSON.stringify(obj.version)} (expected 1)`);
@@ -52,67 +92,7 @@ export function loadPrices(path?: string): Prices {
 
   const models: Record<string, PriceRow> = {};
   for (const [modelId, rowRaw] of Object.entries(modelsRaw as Record<string, unknown>)) {
-    if (rowRaw === null || typeof rowRaw !== "object" || Array.isArray(rowRaw)) {
-      throw new Error(`Price row for model ${JSON.stringify(modelId)} must be an object`);
-    }
-
-    const row = rowRaw as Record<string, unknown>;
-
-    const inputRate = row.input_per_mtok;
-    if (inputRate !== null && typeof inputRate !== "number") {
-      throw new Error(
-        `input_per_mtok for model ${JSON.stringify(modelId)} must be a number or null, got ${typeof inputRate}`,
-      );
-    }
-    if (typeof inputRate === "number" && inputRate < 0) {
-      throw new Error(`input_per_mtok for model ${JSON.stringify(modelId)} must be non-negative, got ${inputRate}`);
-    }
-
-    const outputRate = row.output_per_mtok;
-    if (outputRate !== null && typeof outputRate !== "number") {
-      throw new Error(
-        `output_per_mtok for model ${JSON.stringify(modelId)} must be a number or null, got ${typeof outputRate}`,
-      );
-    }
-    if (typeof outputRate === "number" && outputRate < 0) {
-      throw new Error(`output_per_mtok for model ${JSON.stringify(modelId)} must be non-negative, got ${outputRate}`);
-    }
-
-    const cacheReadRate = row.cache_read_per_mtok;
-    if (cacheReadRate !== undefined && cacheReadRate !== null && typeof cacheReadRate !== "number") {
-      throw new Error(
-        `cache_read_per_mtok for model ${JSON.stringify(modelId)} must be a number or null, got ${typeof cacheReadRate}`,
-      );
-    }
-    if (typeof cacheReadRate === "number" && cacheReadRate < 0) {
-      throw new Error(
-        `cache_read_per_mtok for model ${JSON.stringify(modelId)} must be non-negative, got ${cacheReadRate}`,
-      );
-    }
-
-    const cacheWriteRate = row.cache_write_per_mtok;
-    if (cacheWriteRate !== undefined && cacheWriteRate !== null && typeof cacheWriteRate !== "number") {
-      throw new Error(
-        `cache_write_per_mtok for model ${JSON.stringify(modelId)} must be a number or null, got ${typeof cacheWriteRate}`,
-      );
-    }
-    if (typeof cacheWriteRate === "number" && cacheWriteRate < 0) {
-      throw new Error(
-        `cache_write_per_mtok for model ${JSON.stringify(modelId)} must be non-negative, got ${cacheWriteRate}`,
-      );
-    }
-
-    const sourceUrl = row.source_url;
-    if (typeof sourceUrl !== "string") {
-      throw new Error(`source_url for model ${JSON.stringify(modelId)} must be a string, got ${typeof sourceUrl}`);
-    }
-
-    const asOf = row.as_of;
-    if (typeof asOf !== "string") {
-      throw new Error(`as_of for model ${JSON.stringify(modelId)} must be a string, got ${typeof asOf}`);
-    }
-
-    models[modelId] = row as PriceRow;
+    models[modelId] = validateRow(rowRaw, modelId);
   }
 
   return {

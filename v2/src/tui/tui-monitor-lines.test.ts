@@ -689,6 +689,19 @@ describe("monitorSelectableNodeIds", () => {
       expect(paintedIds).not.toContain(id);
     }
   });
+
+  test("leftPaneTreeScrollOffset shifts painted tree rows without trimming monitorSelectableNodeIds", () => {
+    const { state, layout, maxVisibleRows, pipelines } = overflowPaneMonitorFixture();
+    const baseSelectable = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const scrollOffset = 5;
+    const scrolled = { ...state, leftPaneTreeScrollOffset: scrollOffset };
+    const { treeRows } = monitorLeftPaneTreeRows(scrolled, layout, TREE_NOW_MS);
+
+    expect(monitorSelectableNodeIds(scrolled, TREE_NOW_MS)).toEqual(baseSelectable);
+    expect(treeRows.map((row) => row.id)).toEqual(
+      pipelines.slice(scrollOffset, scrollOffset + maxVisibleRows).map((pipeline) => pipeline.pipelineId),
+    );
+  });
 });
 
 describe("monitorRightPaneSegmentRows", () => {

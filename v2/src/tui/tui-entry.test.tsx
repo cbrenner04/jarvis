@@ -10,7 +10,7 @@ import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
-import { monitorLeftPaneTreeRows, monitorTextLines } from "./tui-monitor-lines.ts";
+import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
@@ -1007,7 +1007,13 @@ describe("runTuiEntry", () => {
       if (selected === null || selected === undefined || state === undefined) {
         throw new Error("expected selected node");
       }
-      expect(leftPaneTreeRowIds(state)).toContain(selected);
+      const painted = leftPaneTreeRowIds(state);
+      expect(painted).toContain(selected);
+      // Mutation checkpoint: dropping withMeasuredTerminal from setState in tui-entry.tsx leaves
+      // currentState on the 245x72 fallback, so ids are derived for a pane the shell never paints.
+      for (const id of monitorSelectableNodeIds(state, WORKFLOW_FILTER_NOW_MS)) {
+        expect(painted).toContain(id);
+      }
     };
 
     const initialState = view.monitorStates.at(-1)!;

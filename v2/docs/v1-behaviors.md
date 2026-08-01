@@ -617,6 +617,8 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   rows); stage **`e`** toggles between representative and constituent run rows.
   **`j`** or ↓/↑ walk tree plus unattributed rows in pane order (queue rows are
   display-only). ↓ into a collapsed pipeline or stage expands it for the session;
-  ↑/↓ reverse the same order without rows dropping out when selection moves.
+  ↑ retraces the nodes ↓ visited. Because ↓ into a collapsed node persists that expansion, a large
+  tree on a short terminal can push older pipelines past the FIFO budget, and those do not come
+  back on the way up. Seed: `tui-descend-expansion-evicts-pipelines-permanently`.
   Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`,
   `v2/src/tui/tui-monitor-pipeline-tree.ts`

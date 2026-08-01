@@ -92,16 +92,24 @@ list and skips stage and pipeline.
 - [x] `tui-entry.test.tsx` — extended `drives row navigation through the injected input hook` fails
       against pre-fix (reveal-only fixture, no pre-walk `toggleExpansion`; ends on `run-matched`; two
       ↑ to stage then pipeline) and passes after.
-- [x] `tui-entry.test.tsx` — selection-driven list collapse during the ↑ walk turns `drives row
+- [ ] `tui-entry.test.tsx` — selection-driven list collapse during the ↑ walk turns `drives row
       navigation through the injected input hook` RED; `Mutation checkpoint:` on that pin names that
-      collapse.
+      collapse. (Manual) **Un-ticked at merge (operator):** reverting the collapse left all 216 tui tests
+      green. With reveal now ancestors-only and `selectNextRun` persisting ancestors, the guard is
+      unreachable in any state navigation can produce, so it was inert rather than pinned; the line
+      was dropped from `monitorSelectableNodeIds`.
 - [x] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured
       terminal size` fails against pre-fix dimension fallback and passes after; every
       `monitorSelectableNodeIds(currentState)` id appears in left-pane tree row ids for the same
       terminal size.
-- [x] `tui-entry.test.tsx` — omitting measured terminal dimensions from `currentState` before
+- [ ] `tui-entry.test.tsx` — omitting measured terminal dimensions from `currentState` before
       `monitorSelectableNodeIds` turns `aligns selectable node ids with left-pane tree rows for the
-      measured terminal size` RED; `Mutation checkpoint:` on that pin names that omission.
+      measured terminal size` RED; `Mutation checkpoint:` on that pin names that omission. (Manual)
+      **Un-ticked at merge (operator):** reverting `setState`'s `withMeasuredTerminal` wrapper keeps
+      all 216 tui tests green. Only the *initial draft* wiring is pinned. Entry's `currentState` is
+      not observable through the view host — the shell re-measures via `monitorShellState` — so this
+      mutation cannot be caught without a new seam. The wrapper is still required: the two
+      clear-selection paths build fresh state objects and would otherwise drop the dimensions.
 - [x] `tui-entry.test.tsx` — `monitor state carries the injected terminal size` and `monitor state
       omits terminal size when the terminal reports none` stay green.
 - [x] `v2/docs/operator-runbook.md` — `jarvis tui` row and live-window paragraph document `e` toggle

@@ -23,17 +23,20 @@ fixed-width column grid with truncation and empty-slot reservation; ink wiring i
 - Add reference column-width map and a pure row builder that, given a workflow table row snapshot,
   selected-run id, and left-pane width, returns one fixed-width line string using `visibleColumns` and
   `formatTreeCell`.
-- Extend `tui-shell-layout.test.ts` with overflow truncation, empty-slot width, and degradation-tier
-  cases (at minimum: full width drops nothing; a `72–89` width drops `agent`/`id` while `state` and
-  `elapsed` remain).
+- Extend `tui-shell-layout.test.ts` with overflow truncation, empty-slot width, reference column-width
+  sum, degradation-tier, and row-shape (workflow-child vs standalone/collapsed) cases (at minimum:
+  full width drops nothing; `72–89` drops `agent`/`id` while `state` and `elapsed` remain).
 - Add guard-inversion comment checkpoints on the overflow and empty-slot pins naming the mutations
   below.
 - Run `bun run typecheck` and `bun run test:v2`.
 
 ## Acceptance criteria
 
+- [ ] `tui-shell-layout.test.ts` — reference column widths from the brief table (`marker` 1, `indent` 2, `label` 22, `project` 10, `branch` 14, `state` 12, `elapsed` 8, `live` 5, `agent` 10, `id` 8) pin a full-width row length equal to the sum of visible column widths; fails against the pre-fix absent builder.
 - [ ] `tui-shell-layout.test.ts` — tree row builder applies `formatTreeCell` so overflow truncates with `…` at column width; fails against the pre-fix absent builder.
 - [ ] `tui-shell-layout.test.ts` — unpopulated column slots consume their defined widths (empty project cell on a child row still advances the grid); fails against the pre-fix absent builder.
+- [ ] `tui-shell-layout.test.ts` — at left-pane width `72–89`, `buildMonitorTreeRow` omits `agent` and `id` while `state` and `elapsed` slots remain; fails against the pre-fix absent builder.
+- [ ] `tui-shell-layout.test.ts` — workflow-child row uses two-space `indent` and role suffix in `label`; standalone/collapsed row has empty `indent` and no role suffix in `label`; fails against the pre-fix absent builder.
 - [ ] `tui-shell-layout.test.ts` — the overflow pin test includes a comment checkpoint naming the required guard-inversion mutation (skip or bypass `formatTreeCell` on overflow).
 - [ ] `tui-shell-layout.test.ts` — the empty-slot pin test includes a comment checkpoint naming the required guard-inversion mutation (omit width padding for absent cell values).
 - [ ] Source-mutating each checkpointed guard above turns the matching pin RED. Do **not** add a production test flag. (Manual)

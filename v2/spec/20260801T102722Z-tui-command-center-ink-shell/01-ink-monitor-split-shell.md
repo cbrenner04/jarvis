@@ -16,9 +16,20 @@ right, and a fixed bottom dock — with real run rows and selected-run detail on
 
 ## Decisions
 
-- Left pane lists existing run/queue rows via the subspec-00 grid builder; right pane carries the
-  selected-run workflow, outcome, and steering feedback lines unchanged from today's detail segments —
-  rules out a flag-gated empty shell or re-truncating ids/paths/errors (slice 4).
+- **Left pane:** selectable workflow-table run rows via the subspec-00 grid builder; when queued runs
+  exist, a plain `Queue` heading row then queue rows in today's `queueRow` segment layout (status toned,
+  admission descriptor uncolored—not grid columns) — rules out folding queue into run rows or dropping
+  the section.
+- **Right pane:** selected-run workflow steps, `Outcome` block, and steering feedback only—the tail of
+  today's `monitorSegmentRows` after the run/queue block — rules out run rows, queue block, or dock
+  content in the detail pane.
+- **Dropped from flat scroll:** legacy header row (`runId project branch status liveness`) and the
+  help/keybinding line (`Press up/down or j to select…`) — rules out relocating keybinding hints to the
+  dock (slice 5).
+- Grid run rows preserve today's `MonitorSegmentTone` coloring on `state` and `live` cells in ink —
+  rules out untoned grid rows without a `v1-behaviors.md` behavior change.
+- Pane overflow **clips** at region bounds; tree scroll and scroll-into-view are out of scope — rules
+  out selection-follow scrolling in slice 1.
 - `computeShellLayout(columns, rows, dividerOffset)` drives region sizes; ink branches on
   `layoutMode` before reading `leftWidth`/`rightWidth` — rules out applying split widths in stacked
   mode (stacked may use full width and can yield negative pane heights when `rows` is small).
@@ -27,8 +38,10 @@ right, and a fixed bottom dock — with real run rows and selected-run detail on
 - Dock is exactly four lines: line 1 `{activeCount} active · refresh {interval}`; line 2 inert `>`
   prompt; lines 3–4 blank — rules out command parsing (slice 5) and hint/keybinding rows in the dock
   for now.
-- Active count = non-queued runs with `isLive: true`; refresh interval reads the production default
-  (`1s` from `createRefreshScheduler`) — rules out hard-coding a different cadence in the dock.
+- Active count = non-queued runs with `isLive: true`; dock line 1 refresh label is derived from the
+  same exported default interval as `createRefreshScheduler` in `tui-entry.tsx` (e.g.
+  `TUI_REFRESH_INTERVAL_MS` → `1s`), threaded into monitor display via deps or session snapshot —
+  rules out a dock-local literal or a value unrelated to the scheduler default.
 - Existing keybindings preserved: `j`/down → next, up → previous, `e` expand, `k` kill, `q`/Ctrl-C
   quit; `[`/`]` added — rules out rebinding or dropping current monitor controls.
 - Shell structure tests walk the ink element tree via the existing injected render seam (same class
@@ -42,14 +55,20 @@ right, and a fixed bottom dock — with real run rows and selected-run detail on
 ## Tasks
 
 - Extend monitor session state with `dividerOffset` (default `0`) and thread terminal
-  `columns`/`rows` into `createMonitorDisplay`.
-- Restructure `createMonitorDisplay` / `openInkMonitor` into left tree, right detail, and dock
-  regions per `computeShellLayout`; wire subspec-00 tree lines on the left and existing detail
-  segments on the right.
+  `columns`/`rows` into `createMonitorDisplay` (production from stdout; tests via explicit deps or
+  state fields—divider-nudge pins use `245×72` reference geometry).
+- Export or reuse the refresh-interval default from `tui-entry.tsx` and pass its display label into
+  the dock renderer.
+- Restructure `createMonitorDisplay` / `openInkMonitor` into identifiable left, right, and dock
+  region subtrees per `computeShellLayout`; wire subspec-00 grid lines and queue section on the left
+  and workflow/outcome/steering detail segments on the right.
 - Handle `[`/`]` in the input hook via `nudgeDividerOffset` and session state update.
-- Add `tui-ink-monitor.test.tsx` coverage for split shell region content, divider nudge clamps, and
-  guard-inversion checkpoints on the `layoutMode` branch and on the session `dividerOffset` update
-  path for `[`/`]`.
+- Add `tui-ink-monitor.test.tsx` coverage for region-local split-shell separation (detail absent from
+  left subtree, dock line 1 absent from left/right subtrees, run rows absent from right subtree),
+  divider nudge clamps at `245×72`, and guard-inversion checkpoints on the `layoutMode` branch and
+  on the session `dividerOffset` update path for `[`/`]`.
+- Retire `concatenated rendered row cells match monitorTextLines entries`—replace with the
+  region-local split-shell assertions above (flat concatenation is not the shell contract).
 - Delete the two resolved seed files.
 - Update `v2/docs/operator-runbook.md` § Gate trust (both TUI failure modes, no seed pointer) and
   the `jarvis tui` observation row; update `v2/docs/v1-behaviors.md` `jarvis tui` entry; trim the
@@ -59,15 +78,17 @@ right, and a fixed bottom dock — with real run rows and selected-run detail on
 
 ## Acceptance criteria
 
-- [ ] `tui-ink-monitor.test.tsx` — split shell renders run rows left, selected-run detail right, and a 4-line dock whose line 1 shows active-run count and refresh interval; fails against the pre-fix flat scroll.
+- [ ] `tui-ink-monitor.test.tsx` — split shell renders run rows in the left subtree, selected-run workflow/outcome/steering detail in the right subtree, and a 4-line dock whose line 1 shows active-run count and refresh interval; region-local assertions prove detail text is absent from the left subtree, dock line 1 is absent from left/right subtrees, and run-row text is absent from the right subtree; fails against the pre-fix flat scroll.
 - [ ] `tui-ink-monitor.test.tsx` — `drives row navigation through the injected input hook`, `drives quit and kill through the injected input hook`, and `drives workflow expansion through the injected input hook` stay green.
-- [ ] `tui-ink-monitor.test.tsx` — `[`/`]` nudge divider offset through session state respecting pure-function clamps; fails against the pre-fix code.
+- [ ] `tui-ink-monitor.test.tsx` — `colors status and liveness cells on run-table rows` and `colors queue status and leaves admission descriptor uncolored` stay green (grid `state`/`live` tones preserved).
+- [ ] `tui-ink-monitor.test.tsx` — `concatenated rendered row cells match monitorTextLines entries` is removed or replaced by the region-local split-shell pin above.
+- [ ] `tui-ink-monitor.test.tsx` — `[`/`]` nudge divider offset through session state respecting pure-function clamps at `245×72` terminal geometry supplied via the test deps/state seam; fails against the pre-fix code.
 - [ ] `tui-ink-monitor.test.tsx` — the `[`/`]` nudge pin test includes a comment checkpoint naming the required guard-inversion mutation (skip updating session `dividerOffset` on `[`/`]`).
 - [ ] Source-mutating the checkpointed divider-session guard turns the `[`/`]` nudge pin RED. Do **not** add a production test flag. (Manual)
 - [ ] `tui-ink-monitor.test.tsx` — the split-shell pin test includes a comment checkpoint naming the required guard-inversion mutation (skip the `layoutMode` branch and always apply split widths).
 - [ ] Source-mutating the checkpointed `layoutMode` guard turns the split-shell pin RED. Do **not** add a production test flag. (Manual)
 - [ ] `v2/spec/seeds/tui-tests-bypass-the-render-path.md` and `v2/spec/seeds/queue-widget-refactor.md` are deleted.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents green-while-broken and green-locally/red-on-CI TUI failure modes without pointing at an unresolved seed; the `jarvis tui` observation row describes the split-pane shell and dock.
+- [ ] `v2/docs/operator-runbook.md` § Gate trust documents green-while-broken and green-locally/red-on-CI TUI failure modes without pointing at an unresolved seed; the `jarvis tui` observation row (or adjacent prose) names split-pane layout, 4-line dock, `[`/`]` divider nudge, and stacked fallback below `120` columns.
 - [ ] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records split-pane shell, 4-line dock, and `[`/`]` divider nudge.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

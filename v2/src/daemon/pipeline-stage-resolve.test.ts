@@ -24,10 +24,12 @@ import {
 } from "./pipeline-stage-resolve.ts";
 
 const QUEUE_WIDGET_SEED_REL = "v2/spec/seeds/queue-widget-refactor.md";
-const QUEUE_WIDGET_SEED_CONTENT = readFileSync(
-  join(import.meta.dir, "..", "..", "spec", "seeds", "queue-widget-refactor.md"),
-  "utf8",
-);
+const QUEUE_WIDGET_SEED_CONTENT = `---
+name: queue-widget-refactor
+---
+
+# Operator notes only
+`;
 
 type IntentWriteStep = Extract<AnyWorkflowStep, { behavior: "write" }>;
 

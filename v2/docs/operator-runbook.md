@@ -328,7 +328,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 
 | Command | Use |
 | --- | --- |
-| `jarvis tui` | Run table, queue, outcome, kill (`k`) on live runs |
+| `jarvis tui` | Split-pane run monitor (stacked below 120 cols): left tree/queue, right workflow/outcome/steering, 4-line dock (`[`/`]` nudge divider); kill (`k`) on live runs |
 | `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
 | `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
 | `jarvis run list --project <name>` | Exact durable `project` match (case-sensitive); bypasses the fifty-terminal-run retention window |
@@ -556,8 +556,12 @@ Implement PR bodies now carry an agent-authored review-altitude narrative in the
 authors this narrative after implementation; on re-publication, human edits inside the marker block
 are preserved and clobber-protected by precedence rules.
 
-v2 TUI tests can pass while ink rendering is broken — see seed
-`tui-tests-bypass-the-render-path` and [`test-writing.md`](./test-writing.md).
+v2 TUI tests can pass while ink rendering is broken when assertions only walk production
+monitor state or the injected input hook without inspecting the ink element tree — see
+[`test-writing.md` § TUI test strategy](./test-writing.md#tui-test-strategy). A test that drives
+real ink painting into a fake stdout is green locally and red on CI ([#2417](https://github.com/cbrenner04/jarvis/issues/2417),
+[#2418](https://github.com/cbrenner04/jarvis/issues/2418)); prefer region-local ink tree walks via
+`createMonitorDisplay` and the injected input hook instead.
 
 ## Recovery
 

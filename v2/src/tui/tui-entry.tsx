@@ -19,6 +19,13 @@ import type {
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
 
+export { TUI_REFRESH_INTERVAL_MS };
+
+export function tuiRefreshIntervalLabel(intervalMs = TUI_REFRESH_INTERVAL_MS): string {
+  if (intervalMs % 1_000 === 0) return `${intervalMs / 1_000}s`;
+  return `${intervalMs}ms`;
+}
+
 function presentFeedback(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void> {
   if (deps.viewHost !== undefined) {
     return Promise.resolve(deps.viewHost.show(state));
@@ -61,7 +68,19 @@ function emptyMonitorState(): TuiMonitorState {
     waitState: { kind: "none" },
     steeringFeedback: null,
     expandedWorkflowInvocationIds: [],
+    refreshIntervalLabel: tuiRefreshIntervalLabel(),
   };
+}
+
+function monitorShellState(state: TuiMonitorState): TuiMonitorState {
+  const stdout = process.stdout;
+  const next: TuiMonitorState = {
+    ...state,
+    refreshIntervalLabel: state.refreshIntervalLabel ?? tuiRefreshIntervalLabel(),
+  };
+  if (stdout.columns !== undefined) next.terminalColumns = stdout.columns;
+  if (stdout.rows !== undefined) next.terminalRows = stdout.rows;
+  return next;
 }
 
 function entryErrorFeedback(error: unknown): TuiViewState {
@@ -101,7 +120,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   });
 
   const syncMonitor = (): void => {
-    void Promise.resolve(session?.update(currentState));
+    void Promise.resolve(session?.update(monitorShellState(currentState)));
   };
 
   const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
@@ -349,7 +368,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     }
 
     session = await openMonitor(
-      currentState,
+      monitorShellState(currentState),
       {
         selectRun(runId) {
           if (!monitorSelectableRuns(currentState).some((run) => run.runId === runId)) return;

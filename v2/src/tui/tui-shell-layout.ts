@@ -1,3 +1,12 @@
+import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import {
+  workflowCollapsedContextSuffix,
+  workflowRoleLabel,
+  type WorkflowTableRow,
+} from "./tui-monitor-workflow-collapse.ts";
+
+export const MONITOR_TREE_NOT_LIVE_LABEL = "idle";
+
 export type LayoutMode = "stacked" | "split";
 
 export type TreeColumnId =
@@ -18,6 +27,19 @@ export type ShellLayout = {
   rightWidth: number;
   paneHeight: number;
   dockHeight: number;
+};
+
+export const TREE_COLUMN_WIDTHS: Record<TreeColumnId, number> = {
+  marker: 1,
+  indent: 2,
+  label: 22,
+  project: 10,
+  branch: 14,
+  state: 12,
+  elapsed: 8,
+  live: 5,
+  agent: 10,
+  id: 8,
 };
 
 const STACKED_THRESHOLD = 120;
@@ -100,4 +122,78 @@ export function visibleColumns(leftPaneWidth: number): readonly TreeColumnId[] {
 
 export function formatTreeCell(text: string, width: number): string {
   return text.length <= width ? text : width <= 0 ? "" : `${text.slice(0, width - 1)}…`;
+}
+
+function formatMonitorTreeCell(text: string, width: number): string {
+  return formatTreeCell(text, width).padEnd(width, " ");
+}
+
+export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
+  switch (tableRow.kind) {
+    case "standalone":
+    case "workflow-child":
+      return tableRow.run;
+    case "workflow-collapsed":
+      return tableRow.representative;
+  }
+}
+
+function monitorTreeCellValue(
+  column: TreeColumnId,
+  tableRow: WorkflowTableRow,
+  selectedRunId: string | null,
+): string {
+  const run = monitorTreeRun(tableRow);
+  switch (column) {
+    case "marker":
+      return run.runId === selectedRunId ? ">" : " ";
+    case "indent":
+      return tableRow.kind === "workflow-child" ? "  " : "";
+    case "label": {
+      const label = run.runId;
+      if (tableRow.kind === "workflow-child") return `${label} ${workflowRoleLabel(run)}`;
+      if (tableRow.kind === "workflow-collapsed") {
+        return `${label}${workflowCollapsedContextSuffix(tableRow.members)}`;
+      }
+      return label;
+    }
+    case "project":
+      return tableRow.kind === "workflow-child" ? "" : run.project;
+    case "branch":
+      return run.branch;
+    case "state":
+      return run.status;
+    case "elapsed":
+      return "";
+    case "live":
+      return run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL;
+    case "agent":
+      return "";
+    case "id":
+      return "";
+  }
+}
+
+export function buildMonitorTreeRow(
+  tableRow: WorkflowTableRow,
+  selectedRunId: string | null,
+  leftPaneWidth: number,
+): string {
+  return listMonitorTreeCells(tableRow, selectedRunId, leftPaneWidth)
+    .map((cell) => cell.text)
+    .join("");
+}
+
+export function listMonitorTreeCells(
+  tableRow: WorkflowTableRow,
+  selectedRunId: string | null,
+  leftPaneWidth: number,
+): { column: TreeColumnId; text: string }[] {
+  return visibleColumns(leftPaneWidth).map((column) => {
+    const width = TREE_COLUMN_WIDTHS[column];
+    return {
+      column,
+      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedRunId), width),
+    };
+  });
 }

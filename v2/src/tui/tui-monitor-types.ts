@@ -23,6 +23,14 @@ export type TuiMonitorState = {
   steeringFeedback: string | null;
   /** Workflow invocations whose constituent runs are expanded in the run table. */
   expandedWorkflowInvocationIds: readonly string[];
+  /** Session-local left/right divider nudge; not persisted. */
+  dividerOffset?: number;
+  /** Terminal width for shell layout; defaults when omitted. */
+  terminalColumns?: number;
+  /** Terminal height for shell layout; defaults when omitted. */
+  terminalRows?: number;
+  /** Dock refresh label (e.g. `1s`); defaults when omitted. */
+  refreshIntervalLabel?: string;
 };
 
 /**

@@ -132,6 +132,48 @@ function queueRow(run: DaemonListRunRow): MonitorLineRow {
   );
 }
 
+/** Non-queued runs with `isLive: true` for the dock active count. */
+export function countActiveLiveRuns(state: TuiMonitorState): number {
+  return state.runs.filter((run) => run.status !== "queued" && run.isLive).length;
+}
+
+/** Workflow table rows for the left-pane grid (empty when no selectable runs). */
+export function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableRow[] {
+  const selectableRuns = orderSelectableRuns(state.runs);
+  return buildWorkflowTableRows(selectableRuns, state.runs, expandedInvocationIdSet(state));
+}
+
+/** Queue block for the left pane (heading + rows). */
+export function monitorLeftPaneQueueRows(state: TuiMonitorState): MonitorLineRow[] {
+  const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
+  if (queuedRuns.length === 0) return [];
+  return [row(untoned("Queue")), ...queuedRuns.map((run) => queueRow(run))];
+}
+
+/** Workflow, outcome, and steering detail for the right pane. */
+export function monitorRightPaneSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
+  const selected = state.selectedRunId;
+  const lines: MonitorLineRow[] = [];
+  const selectedRun = selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
+  if (selectedRun?.workflow !== undefined) {
+    lines.push(row(untoned("Workflow")));
+    for (const step of selectedRun.workflow.steps) {
+      const marker = step.status === "in_progress" ? ">" : " ";
+      const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
+      lines.push(
+        row(
+          untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
+        ),
+      );
+    }
+  }
+  lines.push(row(untoned("Outcome")), ...outcomeLines(state));
+  if (state.steeringFeedback !== null) {
+    lines.push(row(untoned(state.steeringFeedback)));
+  }
+  return lines;
+}
+
 function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
   const selected = state.selectedRunId;
   const waitState = state.waitState;
@@ -157,9 +199,7 @@ function outcomeLines(state: TuiMonitorState): MonitorLineRow[] {
 export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
   const selected = state.selectedRunId;
   const lines: MonitorLineRow[] = [];
-  const selectableRuns = orderSelectableRuns(state.runs);
-  const tableRows = buildWorkflowTableRows(selectableRuns, state.runs, expandedInvocationIdSet(state));
-  const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
+  const tableRows = monitorLeftPaneTableRows(state);
   if (tableRows.length === 0) {
     lines.push(row(untoned("No runs.")));
   } else {
@@ -168,29 +208,7 @@ export function monitorSegmentRows(state: TuiMonitorState): MonitorLineRow[] {
       lines.push(renderWorkflowTableRow(tableRow, selected));
     }
   }
-  if (queuedRuns.length > 0) {
-    lines.push(row(untoned("Queue")));
-    for (const run of queuedRuns) {
-      lines.push(queueRow(run));
-    }
-  }
-  const selectedRun = selected !== null ? state.runs.find((run) => run.runId === selected) : undefined;
-  if (selectedRun?.workflow !== undefined) {
-    lines.push(row(untoned("Workflow")));
-    for (const step of selectedRun.workflow.steps) {
-      const marker = step.status === "in_progress" ? ">" : " ";
-      const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
-      lines.push(
-        row(
-          untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
-        ),
-      );
-    }
-  }
-  lines.push(row(untoned("Outcome")), ...outcomeLines(state));
-  if (state.steeringFeedback !== null) {
-    lines.push(row(untoned(state.steeringFeedback)));
-  }
+  lines.push(...monitorLeftPaneQueueRows(state), ...monitorRightPaneSegmentRows(state));
   lines.push(row(untoned("Press up/down or j to select; e expands workflow; q or Ctrl-C to quit.")));
   return lines;
 }

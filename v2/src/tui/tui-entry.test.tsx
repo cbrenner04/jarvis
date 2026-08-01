@@ -531,6 +531,7 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
+      refreshIntervalLabel: "1s",
     });
   });
 
@@ -712,6 +713,7 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedWorkflowInvocationIds: [],
+      refreshIntervalLabel: "1s",
     });
   });
 

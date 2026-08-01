@@ -396,7 +396,7 @@ Substitutes for rendered-output assertions:
 - **Injected input hook** — keybinding and focus behavior without asserting painted frames.
 - **Production monitor state** — poll/dispatch outcomes and selection state the shell wires to ink.
 
-See [operator-runbook.md § Gate trust](operator-runbook.md#gate-trust) for what the v2 gate covers. Full operator-runbook wording updates for TUI ink behavior are owned by the ink-shell sibling slice.
+See [operator-runbook.md § Gate trust](operator-runbook.md#gate-trust) for what the v2 gate covers.
 
 ## Out of scope
 

@@ -78,19 +78,19 @@ right, and a fixed bottom dock — with real run rows and selected-run detail on
 
 ## Acceptance criteria
 
-- [ ] `tui-ink-monitor.test.tsx` — split shell renders run rows in the left subtree, selected-run workflow/outcome/steering detail in the right subtree, and a 4-line dock whose line 1 shows active-run count and refresh interval; region-local assertions prove detail text is absent from the left subtree, dock line 1 is absent from left/right subtrees, and run-row text is absent from the right subtree; fails against the pre-fix flat scroll.
-- [ ] `tui-ink-monitor.test.tsx` — `drives row navigation through the injected input hook`, `drives quit and kill through the injected input hook`, and `drives workflow expansion through the injected input hook` stay green.
-- [ ] `tui-ink-monitor.test.tsx` — `colors status and liveness cells on run-table rows` and `colors queue status and leaves admission descriptor uncolored` stay green (grid `state`/`live` tones preserved).
-- [ ] `tui-ink-monitor.test.tsx` — `concatenated rendered row cells match monitorTextLines entries` is removed or replaced by the region-local split-shell pin above.
-- [ ] `tui-ink-monitor.test.tsx` — `[`/`]` nudge divider offset through session state respecting pure-function clamps at `245×72` terminal geometry supplied via the test deps/state seam; fails against the pre-fix code.
-- [ ] `tui-ink-monitor.test.tsx` — the `[`/`]` nudge pin test includes a comment checkpoint naming the required guard-inversion mutation (skip updating session `dividerOffset` on `[`/`]`).
+- [x] `tui-ink-monitor.test.tsx` — split shell renders run rows in the left subtree, selected-run workflow/outcome/steering detail in the right subtree, and a 4-line dock whose line 1 shows active-run count and refresh interval; region-local assertions prove detail text is absent from the left subtree, dock line 1 is absent from left/right subtrees, and run-row text is absent from the right subtree; fails against the pre-fix flat scroll.
+- [x] `tui-ink-monitor.test.tsx` — `drives row navigation through the injected input hook`, `drives quit and kill through the injected input hook`, and `drives workflow expansion through the injected input hook` stay green.
+- [x] `tui-ink-monitor.test.tsx` — `colors status and liveness cells on run-table rows` and `colors queue status and leaves admission descriptor uncolored` stay green (grid `state`/`live` tones preserved).
+- [x] `tui-ink-monitor.test.tsx` — `concatenated rendered row cells match monitorTextLines entries` is removed or replaced by the region-local split-shell pin above.
+- [x] `tui-ink-monitor.test.tsx` — `[`/`]` nudge divider offset through session state respecting pure-function clamps at `245×72` terminal geometry supplied via the test deps/state seam; fails against the pre-fix code.
+- [x] `tui-ink-monitor.test.tsx` — the `[`/`]` nudge pin test includes a comment checkpoint naming the required guard-inversion mutation (skip updating session `dividerOffset` on `[`/`]`).
 - [ ] Source-mutating the checkpointed divider-session guard turns the `[`/`]` nudge pin RED. Do **not** add a production test flag. (Manual)
-- [ ] `tui-ink-monitor.test.tsx` — the split-shell pin test includes a comment checkpoint naming the required guard-inversion mutation (skip the `layoutMode` branch and always apply split widths).
+- [x] `tui-ink-monitor.test.tsx` — the split-shell pin test includes a comment checkpoint naming the required guard-inversion mutation (skip the `layoutMode` branch and always apply split widths).
 - [ ] Source-mutating the checkpointed `layoutMode` guard turns the split-shell pin RED. Do **not** add a production test flag. (Manual)
-- [ ] `v2/spec/seeds/tui-tests-bypass-the-render-path.md` and `v2/spec/seeds/queue-widget-refactor.md` are deleted.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents green-while-broken and green-locally/red-on-CI TUI failure modes without pointing at an unresolved seed; the `jarvis tui` observation row (or adjacent prose) names split-pane layout, 4-line dock, `[`/`]` divider nudge, and stacked fallback below `120` columns.
-- [ ] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records split-pane shell, 4-line dock, and `[`/`]` divider nudge.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/spec/seeds/tui-tests-bypass-the-render-path.md` and `v2/spec/seeds/queue-widget-refactor.md` are deleted.
+- [x] `v2/docs/operator-runbook.md` § Gate trust documents green-while-broken and green-locally/red-on-CI TUI failure modes without pointing at an unresolved seed; the `jarvis tui` observation row (or adjacent prose) names split-pane layout, 4-line dock, `[`/`]` divider nudge, and stacked fallback below `120` columns.
+- [x] `v2/docs/v1-behaviors.md` — `jarvis tui` entry records split-pane shell, 4-line dock, and `[`/`]` divider nudge.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

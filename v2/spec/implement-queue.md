@@ -1,21 +1,34 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-07-31 evening.
+Authority: operator priorities. Updated 2026-08-01.
 
 ## Goal
 
-Burn a short pre-TUI reliability queue, then open [tui-overhaul-brief.md](tui-overhaul-brief.md) (six intent slices, not one `plan`).
+The pre-TUI reliability queue is **burned down**. Next: open
+[tui-overhaul-brief.md](tui-overhaul-brief.md) (six intent slices, not one `plan`).
 
 ## Start here next
 
-Pre-TUI — convert seeds to intents in this order; skip a row only when the session is blocked on something else.
+**TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md). Prerequisites below.
 
-| # | Seed / intent | Status on `main` | Why now |
-| --- | --- | --- | --- |
-| 1 | `seeds/cursor-usage-is-parsed-then-discarded` | **Seed only** (#2422). `parseCursorJsonOutput` still returns `{ displayText }`; usage is dropped. | Cheap fix; until it ships, agent cost in telemetry and reports is unmeasured for cursor (~99% of invocations). |
-| 2 | `seeds/human-only-marker-read-from-first-line-only` | **Open.** `isHumanOnlyCriterion` still `endsWith` on the first line only (`shared/spec-parser.ts`). | Plan agents write `(Manual)` leading; five runs stranded at `contract_miss` this session. |
-| 3 | `seeds/gate-repair-does-not-run-the-formatter` | **Open.** No formatter autofix before agent repair. | Formatter-only red gates exhaust repair budget; standing stopgap is hand `bun run fix` + resume. |
-| 4 | `seeds/human-only-marker…` done → **TUI slice 1** from [tui-overhaul-brief.md](tui-overhaul-brief.md) | Brief written; prerequisites below. | Primary operator surface after the three seeds above. |
+Two smaller items first if you want a warm-up:
+
+| Seed / intent | Status on `main` | Why now |
+| --- | --- | --- |
+| `seeds/intent-landing-contract-rejects-wrapped-bullets` | **Seed only.** The contract still reads `## Prerequisites` line-by-line. | Blocked two intent runs on 2026-08-01; each needed a hand-unwrap plus `run resume`. Same class as the shipped human-only fix. |
+| `ready-intents/execution-loop-human-only-contracts`, `ready-intents/write-step-rules-human-only-markers` | **Ready.** Siblings of the shipped `spec-parser-human-only-block-match` split. | The parser fix (#2434) closed the operator-visible failure; these extend the same matching to the execution loop and write-step rules. |
+
+### Pre-TUI queue — complete 2026-08-01
+
+| # | Work | Shipped |
+| --- | --- | --- |
+| 1 | cursor usage parsed then discarded | #2431 (parser), #2433 (telemetry usage), #2440 (shared prices), #2446 (computed list-price cost) |
+| 2 | human-only marker read from first line only | #2434 |
+| 3 | gate repair does not run the formatter | #2444 |
+
+Cursor agent cost is measurable from #2446 forward (`cost_source: "computed"`, list price — cursor
+is subscription-billed, so it is not invoiced spend). Rows before it read `unavailable` or
+`no-price` and cannot be compared.
 
 ### Defer unless you hit them in session
 
@@ -36,7 +49,19 @@ Pre-TUI — convert seeds to intents in this order; skip a row only when the ses
 
 ## Rule
 
-No reliability phase is open beyond the table above. Pipelines are done; TUI is the next phase brief.
+No reliability phase is open beyond the tables above. Pipelines are done; TUI is the next phase brief.
+
+## Configured pipeline: dogfooded once, one defect found and fixed
+
+`jarvis pipeline start jarvis --seed <path>` was exercised on 2026-08-01. The intent stage
+fan-out worked; the approval gate did not. Approving one branch dispatched *every* branch's next
+stage, including siblings still `awaiting`, and the resulting sibling failure made the pipeline
+refuse `pipeline resume` with `multiple_failed_stages` — unrecoverable, so the work finished
+through `jarvis run workflow`. Fixed in #2447 (continuation is now scoped to the approved
+`branchKey`, with a predecessor guard).
+
+**Not yet re-verified end to end after the fix.** The next pipeline run is still a dogfooding
+exercise, not a trusted path.
 
 ## Phase gate — per-project pipelines: **COMPLETE and dogfooded**
 

@@ -498,9 +498,9 @@ describe("flattenMonitorPipelineTree ordering", () => {
   });
 });
 
-describe("flattenMonitorPipelineTree viewport FIFO", () => {
-  test("iteratively drops oldest terminal pipelines until within maxVisibleRows while retaining actives", () => {
-    // Mutation checkpoint: dropping a non-terminal pipeline during FIFO trimming must turn active retention RED.
+describe("flattenMonitorPipelineTree overflow retention", () => {
+  test("expanded tree exceeding maxVisibleRows retains every pipeline id", () => {
+    // Mutation checkpoint: re-enabling flatten-time dropOldestTerminalPipeline trimming in flattenMonitorPipelineTree must turn this pin RED; covers active-pipeline drop.
     const active = pipelineSnapshot({
       pipelineId: "pipe-active",
       createdAt: 100,
@@ -550,17 +550,18 @@ describe("flattenMonitorPipelineTree viewport FIFO", () => {
 
     const displayNodes = flattenJoined(joinTree(snapshots, runs), expanded, null, 5, runs);
 
-    expect(displayNodes.map((node) => node.id)).toEqual([
+    expect(displayNodes.length).toBeGreaterThan(5);
+    expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
       "pipe-active",
-      monitorPipelineStageNodeId("pipe-active", "implement", "default"),
-      "run-active",
+      "pipe-terminal-old",
+      "pipe-terminal-new",
     ]);
     expect(snapshots).toEqual(snapshotsBefore);
     expect(runs).toEqual(runsBefore);
   });
 
-  test("excludes collapsed pipeline subtrees from maxVisibleRows counting under terminal pressure", () => {
-    // Mutation checkpoint: counting collapsed pipeline descendants toward maxVisibleRows must turn collapse+overflow RED.
+  test("omits collapsed pipeline descendant rows from flatten output", () => {
+    // Mutation checkpoint: including collapsed pipeline descendant rows in flatten output must turn collapse-only pin RED.
     const collapsedTerminal = pipelineSnapshot({
       pipelineId: "pipe-collapsed-terminal",
       createdAt: 10,

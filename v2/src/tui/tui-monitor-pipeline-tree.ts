@@ -284,20 +284,6 @@ function flattenPipelineNode(
   return nodes;
 }
 
-function dropOldestTerminalPipeline(
-  orderedPipelines: MonitorPipelineTreePipelineNode[],
-): MonitorPipelineTreePipelineNode[] | null {
-  const terminalIndex = orderedPipelines.findIndex(isTerminalPipelineNode);
-  if (terminalIndex === -1) return null;
-
-  const dropped = orderedPipelines[terminalIndex];
-  if (dropped === undefined) return null;
-  // Mutation checkpoint: dropping a non-terminal pipeline during FIFO trimming must turn active retention RED.
-  if (!isTerminalPipelineNode(dropped)) return null;
-
-  return [...orderedPipelines.slice(0, terminalIndex), ...orderedPipelines.slice(terminalIndex + 1)];
-}
-
 function resolveEffectiveExpansion(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
   expandedNodeIds: ReadonlySet<string>,
@@ -323,27 +309,13 @@ export function flattenMonitorPipelineTree(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
-  maxVisibleRows: number,
+  _maxVisibleRows: number,
   builderRuns: readonly DaemonListRunRow[] = [],
 ): MonitorPipelineTreeDisplayNode[] {
   const effectiveExpansion = resolveEffectiveExpansion(pipelineNodes, expandedNodeIds, selectedNodeId);
-  let orderedPipelines = orderPipelineNodes(pipelineNodes);
-
-  while (true) {
-    const displayNodes = orderedPipelines.flatMap((pipeline) =>
-      flattenPipelineNode(pipeline, effectiveExpansion, builderRuns),
-    );
-    if (displayNodes.length <= maxVisibleRows) {
-      return displayNodes;
-    }
-
-    const trimmed = dropOldestTerminalPipeline(orderedPipelines);
-    if (trimmed === null) {
-      return displayNodes;
-    }
-
-    orderedPipelines = trimmed;
-  }
+  return orderPipelineNodes(pipelineNodes).flatMap((pipeline) =>
+    flattenPipelineNode(pipeline, effectiveExpansion, builderRuns),
+  );
 }
 
 export function buildMonitorPipelineTree(

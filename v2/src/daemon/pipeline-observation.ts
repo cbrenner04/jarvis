@@ -140,6 +140,8 @@ export type PipelineSnapshot = {
     branchKey: string;
     status: string;
     workflowInvocationId: string | null;
+    startedAt: number | null;
+    endedAt: number | null;
   }>;
 };
 
@@ -172,6 +174,8 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
       branchKey: stage.branchKey,
       status: stage.status,
       workflowInvocationId: stage.workflowInvocationId,
+      startedAt: stage.startedAt,
+      endedAt: stage.endedAt,
     })),
   };
 }

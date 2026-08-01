@@ -25,7 +25,9 @@ Splitting does not apply: one pipeline handoff behavior at stage resolution (`da
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — pipeline section: what the plan stage hands to implement, and what a resolution failure before any run row looks like.
+- `v2/docs/operator-runbook.md` — pipeline section: plan hands implement a bare spec directory; chained resolution normalizes to `<dir>/index.md`; resolution failure before any run row (stage `failure_detail`, no workflow run).
+- `v2/docs/v1-behaviors.md` — pipeline inter-stage handoff entry (~line 223): replace pass-through `specPath` with plan directory artifact → implement `<dir>/index.md`; record resolution-time failure shape (resolved path, index expected).
+- `v2/docs/daemon-host.md` — Seed/artifact hand-off: implement chained resolution normalizes directory `specPath` to `<dir>/index.md` at stage resolution (not pass-through); cross-link operator-runbook for pre-run failure symptoms.
 
 ## Prerequisites
 

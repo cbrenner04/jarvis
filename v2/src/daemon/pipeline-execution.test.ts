@@ -2580,13 +2580,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "gate", "beta")?.status).toBe("awaiting");
     expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
 
-    const approveBeta = applyPipelineApprovalDecision(
-      PIPELINE_ID,
-      "gate",
-      "approved",
-      deps,
-      "beta",
-    );
+    const approveBeta = applyPipelineApprovalDecision(PIPELINE_ID, "gate", "approved", deps, "beta");
     expect(approveBeta.kind).toBe("applied");
     await flushBackgroundRuns();
 
@@ -2612,13 +2606,7 @@ describe("pipeline branch fan-out execution", () => {
 
     await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
 
-    const approveBeta = applyPipelineApprovalDecision(
-      PIPELINE_ID,
-      "gate",
-      "approved",
-      deps,
-      "beta",
-    );
+    const approveBeta = applyPipelineApprovalDecision(PIPELINE_ID, "gate", "approved", deps, "beta");
     expect(approveBeta.kind).toBe("applied");
     await flushBackgroundRuns();
 
@@ -2626,17 +2614,13 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
 
-    const approveAlpha = applyPipelineApprovalDecision(
-      PIPELINE_ID,
-      "gate",
-      "approved",
-      deps,
-      "alpha",
-    );
+    const approveAlpha = applyPipelineApprovalDecision(PIPELINE_ID, "gate", "approved", deps, "alpha");
     expect(approveAlpha.kind).toBe("applied");
     await flushBackgroundRuns();
 
-    expect(dispatchLog.filter((entry) => entry.stageId === "plan").sort((a, b) => a.branchKey.localeCompare(b.branchKey))).toEqual([
+    expect(
+      dispatchLog.filter((entry) => entry.stageId === "plan").sort((a, b) => a.branchKey.localeCompare(b.branchKey)),
+    ).toEqual([
       { stageId: "plan", branchKey: "alpha" },
       { stageId: "plan", branchKey: "beta" },
     ]);

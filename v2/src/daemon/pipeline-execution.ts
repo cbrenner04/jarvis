@@ -1402,9 +1402,7 @@ export async function runPipeline(
     const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
-      for (const branchKey of continuationBranchKey !== undefined
-        ? [continuationBranchKey]
-        : activeSplit.branchKeys) {
+      for (const branchKey of continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys) {
         await runAuthoredStages({
           pipelineId,
           deps,

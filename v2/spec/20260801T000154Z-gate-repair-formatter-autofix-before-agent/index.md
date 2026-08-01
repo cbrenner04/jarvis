@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Ready-gate repair autofix before agent](./00-ready-gate-repair-autofix-before-agent.md)
+- [x] [00 - Ready-gate repair autofix before agent](./00-ready-gate-repair-autofix-before-agent.md)

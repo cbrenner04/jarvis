@@ -29,15 +29,15 @@ and call shared `computeCost` so measured usage yields list-price `cost_usd` and
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts` — cursor binding with terminal `usage`, `priceKey: "Composer 2.5"`, and a locally declared terminal `result` frame (`inputTokens: 4023`, `outputTokens: 27`, `cacheReadTokens: 8851`, `cacheWriteTokens: 0`; declared in `agents.test.ts`, not imported from `cost.test.ts`) settles `ok` with `usage_source: "agent"`, `cost_source: "computed"`, and `cost_usd` matching `data/prices.json` to full precision (`0.0038492`); `invocation_completed` telemetry preserves those fields; fails against the pre-fix `no-price` / `0.0` / `unavailable` path.
-- [ ] `agents.test.ts` — cursor binding with terminal usage and `priceKey: "unknown-price-key"` keeps `cost_usd: null` and `cost_source: "no-price"`; fails if finalize computes cost without a catalog row.
-- [ ] `agents.test.ts` — cursor binding with no terminal `usage` and unpriced `priceKey: "composer"` (`COMPOSER_CURSOR_BINDING`) keeps `cost_usd: null` and `cost_source: "no-usage"`; fails against a finalize path that routes the no-usage branch through `computeCost` or emits `no-price`.
-- [ ] `agents.test.ts` — source-mutating a finalize-branch guard (e.g. routing the no-usage path through `computeCost`, or omitting the `priceKey` thread into `finalizeCursorInvocationResult`) turns the computed-cost pinning test RED; the test carries a comment checkpoint naming the mutation. Do **not** add a production test flag.
-- [ ] `agents.test.ts` — `cursor binding classifies quota (ASCII and U+2019), model config, and generic errors` stays green.
-- [ ] `agents.test.ts` — `cursor binding invokes the CLI shape with mapped model, cwd, ignored stdin, and abort signal` stays green.
-- [ ] `agents.test.ts` — `cursor binding threads idleOutputMs through and re-arms the idle timer on stdout` stays green.
-- [ ] `agents.test.ts` — `cursor binding passes non-ok results through unnormalized` stays green.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `agents.test.ts` — cursor binding with terminal `usage`, `priceKey: "Composer 2.5"`, and a locally declared terminal `result` frame (`inputTokens: 4023`, `outputTokens: 27`, `cacheReadTokens: 8851`, `cacheWriteTokens: 0`; declared in `agents.test.ts`, not imported from `cost.test.ts`) settles `ok` with `usage_source: "agent"`, `cost_source: "computed"`, and `cost_usd` matching `data/prices.json` to full precision (`0.0038492`); `invocation_completed` telemetry preserves those fields; fails against the pre-fix `no-price` / `0.0` / `unavailable` path.
+- [x] `agents.test.ts` — cursor binding with terminal usage and `priceKey: "unknown-price-key"` keeps `cost_usd: null` and `cost_source: "no-price"`; fails if finalize computes cost without a catalog row.
+- [x] `agents.test.ts` — cursor binding with no terminal `usage` and unpriced `priceKey: "composer"` (`COMPOSER_CURSOR_BINDING`) keeps `cost_usd: null` and `cost_source: "no-usage"`; fails against a finalize path that routes the no-usage branch through `computeCost` or emits `no-price`.
+- [x] `agents.test.ts` — source-mutating a finalize-branch guard (e.g. routing the no-usage path through `computeCost`, or omitting the `priceKey` thread into `finalizeCursorInvocationResult`) turns the computed-cost pinning test RED; the test carries a comment checkpoint naming the mutation. Do **not** add a production test flag.
+- [x] `agents.test.ts` — `cursor binding classifies quota (ASCII and U+2019), model config, and generic errors` stays green.
+- [x] `agents.test.ts` — `cursor binding invokes the CLI shape with mapped model, cwd, ignored stdin, and abort signal` stays green.
+- [x] `agents.test.ts` — `cursor binding threads idleOutputMs through and re-arms the idle timer on stdout` stays green.
+- [x] `agents.test.ts` — `cursor binding passes non-ok results through unnormalized` stays green.
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

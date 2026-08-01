@@ -62,9 +62,14 @@ Bindings:
   field (or concatenated `text_delta` frames, or raw stdout when unparseable),
   with token fields mapped from the terminal result's `usage` object when present.
   A stream whose terminal result carries `usage` settles `ok` with
-  `usage_source: "agent"` and `cost_source: "no-price"`; otherwise
-  `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`,
-  no warning. It settles into `ok | quota |
+  `usage_source: "agent"`; when the binding's `priceKey` is priced (has at least
+  one catalog rate), `cost_source: "computed"` and `cost_usd` is list-price from
+  `computeCost` (published rates, not subscription billed spend); when the key is
+  unpriced or `loadPrices()` fails, `cost_source: "no-price"` and `cost_usd: null`.
+  When `usage` is present but all token fields are null, finalize keeps
+  `usage_source: "agent"` and settles `cost_source: "no-usage"` (not `no-price`).
+  When usage is absent, `usage_source: "unavailable"`, `cost_usd: null`,
+  `cost_source: "no-usage"`, no warning. It settles into `ok | quota |
   model_config | error` before fallback continues. Resolved `opencode` bindings spawn `opencode run
   --dir <cwd> --model <adapterModel> --format json <prompt>` (prompt last),
   ignore stdin, classify quota/model-config/transient with their own opencode

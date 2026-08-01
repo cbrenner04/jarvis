@@ -8,6 +8,8 @@ import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-j
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import type { InvocationBinding, InvocationOk, InvocationResult } from "./execute.ts";
 import { parseOpencodeJsonOutput } from "./opencode-json.ts";
+import { computeCost } from "../prices/cost.ts";
+import { loadPrices } from "../prices/load.ts";
 
 export type ResolvedAgentBinding = {
   agentId: string;
@@ -87,19 +89,22 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
-        runCursorBinding({
-          prompt,
-          cwd,
-          adapterModel,
-          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
-          ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
-          ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
-          ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
-          ...(signal !== undefined ? { signal } : {}),
-        }),
+      invoke: async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
+        finalizeCursorInvocationResult(
+          await runCursorBinding({
+            prompt,
+            cwd,
+            adapterModel,
+            ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
+            ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+            ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+            ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
+            ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
+            ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+            ...(signal !== undefined ? { signal } : {}),
+          }),
+          priceKey,
+        ),
     };
   }
 
@@ -501,7 +506,10 @@ function finalizeClaudeInvocationResult(result: InvocationResult): InvocationRes
   return output;
 }
 
-function finalizeCursorInvocationResult(result: InvocationResult): InvocationResult {
+function finalizeCursorInvocationResult(
+  result: InvocationResult,
+  priceKey: string,
+): InvocationResult {
   if (result.kind !== "ok") {
     return result;
   }
@@ -516,7 +524,13 @@ function finalizeCursorInvocationResult(result: InvocationResult): InvocationRes
   if (parsed.usage !== undefined) {
     output.usage = parsed.usage;
     output.usage_source = "agent";
-    output.cost_source = "no-price";
+    try {
+      const cost = computeCost(parsed.usage, priceKey, loadPrices());
+      output.cost_usd = cost.cost_usd;
+      output.cost_source = cost.cost_source;
+    } catch {
+      output.cost_source = "no-price";
+    }
   } else {
     output.usage_source = "unavailable";
     output.cost_source = "no-usage";
@@ -703,7 +717,7 @@ async function runCursorBinding(args: {
     args.prompt,
     pickAgentRunOptions(args),
   );
-  return finalizeCursorInvocationResult(result);
+  return result;
 }
 
 async function runOpencodeBinding(args: {

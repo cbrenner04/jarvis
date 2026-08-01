@@ -83,7 +83,12 @@ omit keys):
 - `cost_source`: `"agent" | "computed" | "estimated" | "no-price" | "no-usage" | "unavailable" | null`
 - `exit_kind`, `exit_reason`
 
-Cursor `invocation_completed` provenance follows [`shared-invocation.md`](shared-invocation.md) finalize branches (`agent`+`no-price` or `unavailable`+`no-usage`).
+`cost_source: "computed"` — harness list-price math via `computeCost` (published
+rates, not billed spend) when the binding's `priceKey` is priced (has at least
+one catalog rate). Cursor `invocation_completed` branches match
+[`shared-invocation.md`](shared-invocation.md). When cursor terminal `usage` is
+present but all token fields are null, `usage_source` stays `"agent"` and
+`cost_source` is `"no-usage"` (not `"no-price"`).
 
 Append failure rule: if the JSONL sink append fails after a subprocess settles,
 the write step keeps the underlying invocation result and fallback behavior,

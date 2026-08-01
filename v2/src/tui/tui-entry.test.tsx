@@ -1003,7 +1003,8 @@ describe("runTuiEntry", () => {
   test("aligns selectable node ids with left-pane tree rows for the measured terminal size", async () => {
     // Mutation checkpoint: currentState lacking measured terminalColumns/terminalRows when selectNextRun/selectPreviousRun call monitorSelectableNodeIds must turn this pin RED.
     const view = createViewHost();
-    const { deps, terminalColumns, terminalRows, maxVisibleRows, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
+    const { deps, terminalColumns, terminalRows, maxVisibleRows, pipelineCount, pipelines } =
+      overflowPipelineEntryDeps(view);
 
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();

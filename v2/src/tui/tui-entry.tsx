@@ -5,7 +5,12 @@ import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
-import { firstSelectableNodeId, mergePipelineSnapshots, monitorSelectableNodeIds, withLeftPaneTreeScrollFollow } from "./tui-monitor-lines.ts";
+import {
+  firstSelectableNodeId,
+  mergePipelineSnapshots,
+  monitorSelectableNodeIds,
+  withLeftPaneTreeScrollFollow,
+} from "./tui-monitor-lines.ts";
 import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,

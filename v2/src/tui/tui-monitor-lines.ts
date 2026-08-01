@@ -198,7 +198,10 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
   const selectedId = state.selectedNodeId;
   const selectedIndex = selectedId === null ? -1 : fullTreeRows.findIndex((row) => row.id === selectedId);
   if (selectedIndex < 0) {
-    return { ...state, leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(currentOffset, maxVisibleRows, fullTreeRows.length) };
+    return {
+      ...state,
+      leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(currentOffset, maxVisibleRows, fullTreeRows.length),
+    };
   }
   let offset = currentOffset;
   if (selectedIndex < offset) {
@@ -206,7 +209,10 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
   } else if (selectedIndex >= offset + maxVisibleRows) {
     offset = selectedIndex - maxVisibleRows + 1;
   }
-  return { ...state, leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(offset, maxVisibleRows, fullTreeRows.length) };
+  return {
+    ...state,
+    leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(offset, maxVisibleRows, fullTreeRows.length),
+  };
 }
 
 /** Pipeline tree and unattributed rows for the ink monitor left pane. */

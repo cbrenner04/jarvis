@@ -20,6 +20,7 @@ function runWrite(args: {
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
   idleOutputMs?: number;
+  mutationCheckpointSeams?: Parameters<typeof executeWrite>[0]["mutationCheckpointSeams"];
 }) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -40,6 +41,7 @@ function runWrite(args: {
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }
@@ -184,6 +186,138 @@ describe("write behavior", () => {
       expect(result.result.failedContractId).toBe("spec.criteria-ticked");
       expect(result.result.failureReason).toContain("the harness records a commit");
     }
+  });
+
+  test("ticked mutation-checkpoint criterion with no linked directive is a contract miss", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (linked.length === 0) {" -> "if (false) {"
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    // Prose only: the shape that satisfied the contract before directives existed.
+    writeFileSync(
+      join(worktree, "guard.test.ts"),
+      'test("guard pin", () => {\n  // Mutation checkpoint: flipping `a > 0` turns this RED.\n});\n',
+      "utf8",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("@mutate");
+    }
+  });
+
+  test("ticked mutation-checkpoint criterion whose directive leaves the suite green is a contract miss", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (survived) {" -> "if (false) {"
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "guard.test.ts"),
+      'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("scoped suite stayed green");
+      expect(result.result.failureReason).toContain("guard.test.ts:2");
+    }
+  });
+
+  test("one hollow directive among several refuses completion", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: two guards named on that pin.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    writeFileSync(
+      join(worktree, "guard.ts"),
+      "export const ok = (a: number) => a > 0;\nexport const two = 2;\n",
+      "utf8",
+    );
+    writeFileSync(
+      join(worktree, "guard.test.ts"),
+      [
+        'test("guard pin", () => {',
+        '  // @mutate guard.ts "a > 0" -> "a >= 0"',
+        '  // @mutate guard.ts "two = 2" -> "two = 3"',
+        "});",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    let call = 0;
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: {
+        runScopedTests: async () => {
+          call += 1;
+          return call === 2; // the second directive survives
+        },
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failureReason).toContain("two = 2");
+    }
+  });
+
+  test("ticked mutation-checkpoint criterion completes when its directive turns the suite red", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "report_.caught.push(directive);" -> "report_.hollow.push({ criterionText, directive, detail: \"forced\" });"
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "guard.test.ts"),
+      'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+    });
+
+    expect(result.result.kind).toBe("complete");
   });
 
   test("done token completes once every non-human-only criterion is ticked", async () => {

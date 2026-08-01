@@ -225,6 +225,35 @@ Keep subspecs atomic. If one unchecked item requires unrelated code paths,
 multiple product decisions, or verification that cannot run independently, split
 it into separate numbered subspec files and link each one from `index.md`.
 
+### Mutation-checkpoint criteria
+
+A criterion asserting that inverting a guard turns a pinning test red is only
+satisfied when the harness **applies** that mutation and watches the suite go red.
+Write the checkpoint as a directive in the pinning test file, not as prose:
+
+```ts
+test("selection stays inside the painted viewport", () => {
+  // @mutate v2/src/tui/tui-entry.tsx "withMeasuredTerminal(state, fn)" -> "state"
+  ...
+});
+```
+
+Rules the harness enforces:
+
+- The criterion names the pinning test file in backticks; the basename must resolve
+  to exactly one file in the worktree.
+- The directive's target text must occur **exactly once** in the named path. Zero or
+  several occurrences is unparseable — reported, and the criterion cannot rely on it.
+- Directives are single-line text replacement. A multi-line mutation must be reduced
+  to one unique line (neutering the enclosing condition usually does it).
+- A ticked criterion claiming a mutation with **no** linked directive is refused.
+- A directive that leaves the scoped suite green is refused, with `path:line: directive`
+  in the blocker. That outcome is often correct information: the guard may be dead code,
+  in which case deleting it beats inventing a test for it.
+
+Prose `Mutation checkpoint:` comments remain useful context for a human reader; they
+are not the machine contract.
+
 ### Behavioral acceptance criteria
 
 Acceptance criteria describe **observable operator or runtime behavior** — what

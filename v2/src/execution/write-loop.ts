@@ -1706,6 +1706,7 @@ function buildWriteExecuteInput(
     expectedArtifactPath: args.expectedArtifactPath,
     bindings: args.bindings,
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),
     ...(fullTelemetry !== undefined

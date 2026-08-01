@@ -258,6 +258,7 @@ async function runLoop(args: {
   fixCommand?: WriteLoopInput["fixCommand"];
   runFixCommand?: WriteLoopInput["runFixCommand"];
   iterationTimeoutMs?: number;
+  mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -290,6 +291,7 @@ async function runLoop(args: {
     ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
     ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
+    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     ...(args.landing !== undefined ? { landing: args.landing } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
@@ -543,6 +545,41 @@ describe("write loop", () => {
     const spec = readFileSync(join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md"), "utf8");
     expect(spec).toContain("## Blocker");
     expect(spec).toContain("artifact.exists");
+  });
+
+  test("hollow mutation checkpoint blocks on the active subspec and logs the detail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(
+      join(worktree, "00-subspec.md"),
+      "## Acceptance criteria\n\n- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: named on that pin.\n",
+      "utf8",
+    );
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "guard.test.ts"),
+      'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+    const sink = new TestLogSink();
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      promptId: "patch.prompt.body",
+      artifactPath: "00-subspec.md",
+      bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.kind).toBe("contract_miss");
+    const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+    expect(subspec).toContain("## Blocker");
+    expect(subspec).toContain("scoped suite stayed green");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toBeDefined();
   });
 
   test("contract_miss appends contract_miss_detail to the observability log", async () => {

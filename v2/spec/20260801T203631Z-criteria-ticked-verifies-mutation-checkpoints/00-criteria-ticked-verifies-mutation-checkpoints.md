@@ -79,20 +79,20 @@ tests stay green.
 
 ## Acceptance criteria
 
-- [ ] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: directive`; fails against pre-fix code.
-- [ ] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
-- [ ] `write.test.ts` — an unparseable directive (malformed syntax, unresolvable path, target text absent, target text ambiguous) or linkage failure is reported (injectable log/telemetry with file, line, and reason) and does not settle `contract_miss`; the four unparseable causes are pinned separately; fails against pre-fix code.
-- [ ] `write.test.ts` — a ticked criterion claiming a mutation turns a pin red with **no** linked `@mutate` directive refuses completion, and the message names the required directive form; fails against pre-fix code.
-- [ ] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
-- [ ] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
-- [ ] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
-- [ ] `criteria-ticked-mutation-checkpoint-regression.test.ts` — replays fixture trees at `56cfcff8` and `1f75bad7` with synthetic ticked non-manual criteria for rows 1-3 above and detects each directive's inversion as surviving; fails against pre-fix code.
-- [ ] `criteria-ticked-mutation-checkpoint-regression.test.ts` — row 4 (generality): a directive against a non-TUI production file, sharing no identifier, path, or pin title with rows 1-3, is detected as caught; fails against pre-fix code.
-- [ ] **Domain-blindness:** no identifier, path, pin title, or comment phrase from rows 1-3 appears in verifier source. Proved by a test that reads the verifier module and asserts absence of each evidence-row token, so the guard cannot rot silently; fails against a verifier that special-cases the fixtures.
-- [ ] Deleting the row-4 fixture leaves rows 1-3 green — confirming row 4 is the only generality evidence — while deleting any row 1-3 fixture leaves row 4 green. (Manual)
-- [ ] `write.test.ts` — applying the `@mutate` directive on the new hollow-refusal pinning test turns that pin RED.
-- [ ] `write.test.ts` — applying the `@mutate` directive on the new caught-checkpoint pinning test turns that pin RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `write.test.ts` — a ticked mutation-checkpoint criterion linked to a hollow checkpoint refuses `done` with `spec.criteria-ticked` `contract_miss` and `failureReason` listing each hollow checkpoint as `path:line: directive`; fails against pre-fix code.
+- [x] `write.test.ts` — the same path allows completion when applying the linked inversion turns a scoped pinning test red; fails against pre-fix code.
+- [x] `mutation-checkpoint-verifier.test.ts` — an unparseable directive (malformed syntax, unresolvable path, target text absent, target text ambiguous) or linkage failure is reported with file, line, and reason and does not settle `contract_miss`; the four causes are pinned separately, and an injected-sink-free run reaches stderr. **Corrected at merge (operator):** the criterion named `write.test.ts`; the coverage lives at the verifier seam, and the wiring-level half is not separately pinned.
+- [x] `write.test.ts` — a ticked criterion claiming a mutation turns a pin red with **no** linked `@mutate` directive refuses completion, and the message names the required directive form; fails against pre-fix code.
+- [x] `write.test.ts` — one ticked criterion with two linked checkpoints where one is hollow and one is caught refuses completion until all are valid; fails against pre-fix code.
+- [x] `write.test.ts` — when every non-human-only criterion is already ticked including a hollow mutation-checkpoint row, completion is still refused; fails against pre-fix code.
+- [x] `write-loop.test.ts` — `spec.criteria-ticked` mutation-checkpoint `contract_miss` appends harness `## Blocker` on the active subspec naming each hollow checkpoint and logs matching `contract_miss_detail`; fails against pre-fix code.
+- [x] `mutation-checkpoint-regression.test.ts` — for each replayed row at `56cfcff8` and `1f75bad7`, the directive parses, links to the named pin, and resolves against **real historical source** where its target text occurs exactly once; the reported classification follows the scoped-suite verdict. **Corrected at merge (operator):** the criterion previously claimed the rows "detect each directive's inversion as surviving". They do not — the suite verdict is injected by the test seam, not observed, because running the real historical suites means materializing two worktrees and executing `test:v2` twice per row. Review caught this claim; the rows now state what they pin. Two of the three historical checkpoints are reproducible at a merge SHA; the third (`selection-driven list collapse`) named a line dropped during review of #2473 that never reached one, recorded in the fixture rather than approximated.
+- [x] `mutation-checkpoint-regression.test.ts` — generality row: a directive against a non-TUI production file, sharing no identifier, path, or pin title with the replayed rows, parses, links, and resolves. Verified by fitting the verifier to the TUI paths, which turns this row RED while the replayed rows stay green. Same caveat as above: the caught classification follows an injected verdict.
+- [x] **Domain-blindness:** no identifier, path, pin title, or comment phrase from rows 1-3 appears in verifier source. Proved by a test that reads the verifier module and asserts absence of each evidence-row token, so the guard cannot rot silently; fails against a verifier that special-cases the fixtures.
+- [x] Deleting the generality fixture leaves the replayed rows green, and deleting a replayed row leaves the generality row green. (Manual) Verified by fitting the verifier to the TUI paths: within the regression file the generality row went RED and the replayed rows stayed green (the same fit also reddens tests elsewhere, so it is not a sole-guard claim).
+- [x] `write.test.ts` — applying the `@mutate` directive on the new hollow-refusal pinning test turns that pin RED.
+- [x] `write.test.ts` — applying the `@mutate` directive on the new caught-checkpoint pinning test turns that pin RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

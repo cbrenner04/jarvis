@@ -123,8 +123,11 @@ Standalone `jarvis run workflow plan --ready-intent <path>` reads the ready-inte
 from operator invocation `cwd`. Pipeline plan and implement stage resolution
 loads chained inputs from the prior stage entry run's worktree via
 `store.loadRun(artifact.entryRunId)`; artifact `specPath` stays worktree-relative
-and becomes preset `readyIntent` or `specPath` with `cwd` set to the prior
-entry run's `worktreePath`.
+with `cwd` set to the prior entry run's `worktreePath`. Plan completion records a
+bare spec directory on the artifact; chained implement resolution normalizes
+directory `specPath` to `<dir>/index.md` in `resolveImplementStage` before preset
+build (already-`index.md` paths pass through unchanged — see
+[operator-runbook § Pipeline start](./operator-runbook.md#pipeline-start)).
 
 Landing failures return `kind: "pre-publication"`, persist the completed step's
 run as `failed`, retain staging, and include rerun guidance. Resume retries this

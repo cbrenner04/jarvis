@@ -234,6 +234,24 @@ function isChainedPlanReadyIntentPath(specPath: string): boolean {
   return specPath.endsWith(".md");
 }
 
+function resolveChainedImplementSpecPath(
+  worktreePath: string,
+  specPath: string,
+): { ok: true; specPath: string } | { ok: false; error: string } {
+  // Plan completion records specPath as the spec directory; normalize to index.md for implement.
+  if (isChainedPlanReadyIntentPath(specPath)) {
+    return { ok: true, specPath };
+  }
+  const indexPath = join(specPath, "index.md");
+  if (!existsSync(join(worktreePath, indexPath))) {
+    return {
+      ok: false,
+      error: `pipeline-stage-resolve: expected index at ${indexPath} in prior worktree`,
+    };
+  }
+  return { ok: true, specPath: indexPath };
+}
+
 type ChainedReadyIntentPaths =
   | { ok: true; kind: "single"; path: string }
   | { ok: true; kind: "fan-out"; paths: readonly string[] }
@@ -334,12 +352,16 @@ async function resolveImplementStage(
   context: PipelineContext,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
 ): Promise<PipelineStageResolutionResult> {
+  const specPathResult = resolveChainedImplementSpecPath(prior.worktreePath, prior.specPath);
+  if (!specPathResult.ok) return specPathResult;
+  const specPath = specPathResult.specPath;
+
   const customBuilder = builders.implement;
   if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
     const input: BuildImplementWorkflowStepsInput = {
       cwd: prior.cwd,
       baseRef: prior.branch,
-      specPath: prior.specPath,
+      specPath,
       reviewPasses: FIXED_REVIEW_PASSES,
       reviewBehavior: stage.review as ImplementReviewBehavior,
     };
@@ -356,7 +378,7 @@ async function resolveImplementStage(
   const input: BuildImplementWorkflowStepsInput = {
     cwd: prior.cwd,
     baseRef: prior.branch,
-    specPath: prior.specPath,
+    specPath,
     reviewPasses: FIXED_REVIEW_PASSES,
     reviewBehavior: stage.review as ImplementReviewBehavior,
     projectRoot: projectMatch.root,

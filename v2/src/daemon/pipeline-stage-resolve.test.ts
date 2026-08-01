@@ -111,6 +111,25 @@ function chainedDeps(
   return { loadRun: loadRunAt(worktreePath, branch), ...overrides };
 }
 
+const planImplementBranch = "plan/feature";
+const planSpecDir = "spec/feature";
+const planIndexRel = `${planSpecDir}/index.md`;
+
+const planImplementDefinition: PipelineDefinition = {
+  name: "p",
+  stages: [
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
+
+function planFeatureWorktree(prefix: string, withIndex = false): string {
+  const worktree = mkdtempSync(join(tmpdir(), prefix));
+  mkdirSync(join(worktree, "spec", "feature"), { recursive: true });
+  if (withIndex) writeFileSync(join(worktree, planIndexRel), "# Feature\n", "utf8");
+  return worktree;
+}
+
 function createChainedHandoffRepo(): {
   repoRoot: string;
   configPath: string;
@@ -662,12 +681,8 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("implement stage resolves chained specPath from the plan entry-run worktree with prior branch as baseRef", async () => {
     const operatorCwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-operator-"));
-    const planBranch = "plan/feature";
-    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-wt-"));
-    const planSpecRel = "spec/feature/index.md";
-    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
-    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n", "utf8");
-    expect(existsSync(join(operatorCwd, planSpecRel))).toBe(false);
+    const planWorktree = planFeatureWorktree("pipeline-resolve-plan-wt-", true);
+    expect(existsSync(join(operatorCwd, planIndexRel))).toBe(false);
 
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
     const builders = fakeBuilders({
@@ -676,18 +691,11 @@ describe("resolveStageWorkflowSteps", () => {
         return { ok: true, steps: [okStep] };
       },
     });
-    const definition: PipelineDefinition = {
-      name: "p",
-      stages: [
-        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
-        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
-      ],
-    };
-    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel)]]);
-    const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planIndexRel)]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planImplementBranch) };
 
     const result = await resolveStageWorkflowSteps(
-      definition,
+      planImplementDefinition,
       1,
       { cwd: operatorCwd, seed: "seed" },
       stageArtifacts,
@@ -696,8 +704,8 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(seenInput?.cwd).toBe(planWorktree);
-    expect(seenInput?.specPath).toBe(planSpecRel);
-    expect(seenInput?.baseRef).toBe(planBranch);
+    expect(seenInput?.specPath).toBe(planIndexRel);
+    expect(seenInput?.baseRef).toBe(planImplementBranch);
   });
 
   test("missing prior artifact, entryRunId, entry run, or worktreePath returns resolution failure without falling back to context.cwd", async () => {
@@ -803,6 +811,33 @@ describe("resolveStageWorkflowSteps", () => {
     expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
   });
 
+  test("implement stage normalizes the recorded plan directory artifact through real preset builders", async () => {
+    // The production shape: publication records the spec DIRECTORY, and the real preset builder --
+    // not fakeBuilders -- is what rejects a non-index specPath. Mutation checkpoint: reverting
+    // `specPath` to `prior.specPath` at the real-builder call site in `resolveImplementStage`
+    // turns this test RED with "Non-index spec requires --artifact".
+    const { repoRoot, configPath, planBranch, planWorktree } = createChainedHandoffRepo();
+    const recordedPlanDirectory = "spec/feature";
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", recordedPlanDirectory)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+    expect(writeStep).toBeDefined();
+    expect((writeStep as { specPath?: string }).specPath).toBe("spec/feature/index.md");
+  });
+
   test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
     const readyA = "spec/ready-intents/alpha.md";
@@ -866,14 +901,10 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("per-branch plan artifact resolving implement returns one resolution without re-fan-out", async () => {
-    const planBranch = "plan/feature";
-    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-plan-branch-"));
-    const planSpecRel = "spec/feature/index.md";
+    const planWorktree = planFeatureWorktree("pipeline-resolve-plan-branch-", true);
     const ignoredA = "spec/ready-intents/ignored-a.md";
     const ignoredB = "spec/ready-intents/ignored-b.md";
-    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
     mkdirSync(join(planWorktree, "spec", "ready-intents"), { recursive: true });
-    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n", "utf8");
     writeFileSync(join(planWorktree, ignoredA), "---\nname: ignored-a\n---\n", "utf8");
     writeFileSync(join(planWorktree, ignoredB), "---\nname: ignored-b\n---\n", "utf8");
 
@@ -884,20 +915,13 @@ describe("resolveStageWorkflowSteps", () => {
         return { ok: true, steps: [okStep] };
       },
     });
-    const definition: PipelineDefinition = {
-      name: "p",
-      stages: [
-        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
-        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
-      ],
-    };
-    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecRel, [ignoredA, ignoredB])]]);
-    const deps = { builders, ...chainedDeps(planWorktree, planBranch) };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planIndexRel, [ignoredA, ignoredB])]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planImplementBranch) };
 
-    const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, deps);
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
-    expect(seenInput?.specPath).toBe(planSpecRel);
+    expect(seenInput?.specPath).toBe(planIndexRel);
   });
 
   test("downstreamInputs length 1 resolves one binding to that path", async () => {
@@ -955,5 +979,67 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain("not found");
+  });
+
+  test("implement stage normalizes prior plan directory specPath to index.md", async () => {
+    const planWorktree = planFeatureWorktree("pipeline-resolve-plan-dir-", true);
+
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecDir)]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planImplementBranch) };
+
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Mutation checkpoint: in `resolveChainedImplementSpecPath`, skipping directory normalization (`return { ok: true, specPath }` for non-.md paths) turns this test RED.
+    expect(seenInput?.cwd).toBe(planWorktree);
+    expect(seenInput?.specPath).toBe(planIndexRel);
+    expect(seenInput?.artifactPath).toBeUndefined();
+    expect(seenInput?.baseRef).toBe(planImplementBranch);
+  });
+
+  test("implement stage passes through prior artifact that already names index.md", async () => {
+    const planWorktree = planFeatureWorktree("pipeline-resolve-plan-index-", true);
+
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planIndexRel)]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planImplementBranch) };
+
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Mutation checkpoint: in `resolveChainedImplementSpecPath`, re-joining `.md` paths to `index.md` turns this test RED.
+    expect(seenInput?.specPath).toBe(planIndexRel);
+  });
+
+  test("implement stage fails when prior directory artifact has no index.md on the worktree", async () => {
+    const planWorktree = planFeatureWorktree("pipeline-resolve-plan-no-index-");
+
+    const builders = fakeBuilders({
+      implement: async () => ({ ok: true, steps: [okStep] }),
+    });
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", planSpecDir)]]);
+    const deps = { builders, ...chainedDeps(planWorktree, planImplementBranch) };
+
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, deps);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Mutation checkpoint: in `resolveChainedImplementSpecPath`, skipping directory normalization turns this test RED.
+    expect(result.error).toMatch(/^pipeline-stage-resolve:/);
+    expect(result.error).toContain(`${planSpecDir}/index.md`);
+    expect(result.error).toMatch(/index/i);
+    expect(result.error).not.toContain("Non-index spec requires --artifact");
   });
 });

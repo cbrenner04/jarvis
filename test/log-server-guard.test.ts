@@ -18,8 +18,6 @@ describe("live log-server test guard", () => {
   test("createLogClient against the default URL succeeds without the operator server", async () => {
     const client = createLogClient("http://127.0.0.1:4310/logs");
     await expect(client.assertReachable()).resolves.toBeUndefined();
-    await expect(
-      client.send({ namespace: "jarvis", text: "probe", tag: "harness" }),
-    ).resolves.toBeUndefined();
+    await expect(client.send({ namespace: "jarvis", text: "probe", tag: "harness" })).resolves.toBeUndefined();
   });
 });

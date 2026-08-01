@@ -8,8 +8,6 @@ import {
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
-import type { ShellLayout } from "./tui-shell-layout.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 import {
   buildWorkflowTableRows,
   isActiveRunStatus,
@@ -17,6 +15,8 @@ import {
   workflowCollapsedContextSuffix,
   workflowRoleLabel,
 } from "./tui-monitor-workflow-collapse.ts";
+import type { ShellLayout } from "./tui-shell-layout.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -53,10 +53,7 @@ export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.no
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
   const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   // Mutation checkpoint: omitting unattributed rows from monitorSelectableNodeIds must turn tree+unattributed navigation pin RED.
-  return [
-    ...treeRows.map((row) => row.id),
-    ...unattributedRows.map((row) => monitorTreeRun(row).runId),
-  ];
+  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }
 
 /** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
@@ -272,7 +269,7 @@ export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date
   return lines;
 }
 
-function outcomeLines(state: TuiMonitorState, selectedRunId: string): MonitorLineRow[] {
+function outcomeLines(state: TuiMonitorState, _selectedRunId: string): MonitorLineRow[] {
   const waitState = state.waitState;
   if (waitState.kind === "pending") return [row(untoned(`Waiting for ${waitState.runId}...`))];
   if (waitState.kind === "ready") {

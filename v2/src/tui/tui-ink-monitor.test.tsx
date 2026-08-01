@@ -1,23 +1,23 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { tuiRefreshIntervalLabel } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import * as inkMonitor from "./tui-ink-monitor.tsx";
 import {
   createMonitorDisplay,
-  monitorLeftPaneContentRows,
   MonitorDock,
   MonitorLeftPane,
   MonitorRightPane,
+  monitorLeftPaneContentRows,
   openInkMonitor,
 } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
-import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
-import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
+import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
 import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
 const TREE_NOW_MS = 1_700_000_000_000;

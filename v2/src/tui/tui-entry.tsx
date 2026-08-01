@@ -6,7 +6,7 @@ import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from 
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import { firstSelectableNodeId, mergePipelineSnapshots, monitorSelectableNodeIds } from "./tui-monitor-lines.ts";
-import { isExpandablePipelineNodeId, buildMonitorPipelineTreeJoin } from "./tui-monitor-pipeline-tree.ts";
+import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -289,9 +289,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         selectedNodeId: null,
         waitState: { kind: "none" },
         steeringFeedback: null,
-        ...(snapshotsChanged && nextSnapshots !== undefined
-          ? { pipelineSnapshotsBySocketPath: nextSnapshots }
-          : {}),
+        ...(snapshotsChanged && nextSnapshots !== undefined ? { pipelineSnapshotsBySocketPath: nextSnapshots } : {}),
       });
     } else if (snapshotsChanged && nextSnapshots !== undefined) {
       setState({ ...currentState, pipelineSnapshotsBySocketPath: nextSnapshots });
@@ -447,14 +445,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         selectNextRun() {
           const ids = monitorSelectableNodeIds(currentState, nowMsFn());
           if (ids.length === 0) return;
-          const selectedIndex = ids.findIndex((id) => id === currentState.selectedNodeId);
+          const selectedIndex = ids.indexOf(currentState.selectedNodeId);
           const next = ids[selectedIndex < 0 ? 0 : Math.min(selectedIndex + 1, ids.length - 1)];
           if (next !== undefined && next !== currentState.selectedNodeId) setSelection(next);
         },
         selectPreviousRun() {
           const ids = monitorSelectableNodeIds(currentState, nowMsFn());
           if (ids.length === 0) return;
-          const selectedIndex = ids.findIndex((id) => id === currentState.selectedNodeId);
+          const selectedIndex = ids.indexOf(currentState.selectedNodeId);
           const previous = ids[selectedIndex < 0 ? ids.length - 1 : Math.max(selectedIndex - 1, 0)];
           if (previous !== undefined && previous !== currentState.selectedNodeId) setSelection(previous);
         },

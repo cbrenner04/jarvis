@@ -12,7 +12,6 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorLeftPaneTreeRows, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -21,6 +20,7 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
 
@@ -137,10 +137,7 @@ function leftPaneTreeRowIds(state: TuiMonitorState | undefined): string[] {
   if (state === undefined) return [];
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
   const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
-  return [
-    ...treeRows.map((row) => row.id),
-    ...unattributedRows.map((row) => monitorTreeRun(row).runId),
-  ];
+  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
 }
 
 function pipelineMultiEntryDeps(view: ReturnType<typeof createViewHost>, overrides: Partial<RunTuiEntryDeps> = {}) {
@@ -239,7 +236,7 @@ function workflowRun(
   };
 }
 
-function workflowListFixture(): DaemonListRunRow[] {
+function _workflowListFixture(): DaemonListRunRow[] {
   return [
     workflowRun({
       runId: "run-implement",

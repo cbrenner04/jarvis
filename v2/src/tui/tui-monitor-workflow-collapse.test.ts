@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { monitorTextLines } from "./tui-monitor-lines.ts";
 import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
+import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
   buildWorkflowTableRows,
   workflowCollapsedContextSuffix,
   workflowRoleLabel,
 } from "./tui-monitor-workflow-collapse.ts";
-import type { TuiMonitorState } from "./tui-monitor-types.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 

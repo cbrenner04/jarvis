@@ -2,11 +2,6 @@ import { createElement, Fragment, type ReactElement, type ReactNode } from "reac
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
-  buildPipelineMonitorTreeRow,
-  buildStageMonitorTreeRow,
-  type MonitorPipelineTreeDisplayNode,
-} from "./tui-monitor-pipeline-tree.ts";
-import {
   countActiveLiveRuns,
   livenessTone,
   type MonitorLineRow,
@@ -16,6 +11,11 @@ import {
   monitorRightPaneSegmentRows,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
+import {
+  buildPipelineMonitorTreeRow,
+  buildStageMonitorTreeRow,
+  type MonitorPipelineTreeDisplayNode,
+} from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {

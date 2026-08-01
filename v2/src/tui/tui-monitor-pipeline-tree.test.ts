@@ -96,13 +96,7 @@ function flattenJoined(
   maxVisibleRows: number,
   builderRuns: readonly DaemonListRunRow[] = [],
 ) {
-  return flattenMonitorPipelineTree(
-    pipelineNodes,
-    expandedNodeIds,
-    selectedNodeId,
-    maxVisibleRows,
-    builderRuns,
-  );
+  return flattenMonitorPipelineTree(pipelineNodes, expandedNodeIds, selectedNodeId, maxVisibleRows, builderRuns);
 }
 
 function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
@@ -353,13 +347,7 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
       stages: [implementStage(MULTI_INVOCATION)],
     });
     const runs = multiMemberRuns();
-    const displayNodes = flattenJoined(
-      joinTree([snapshot], runs),
-      new Set([PIPELINE_ID, stageId]),
-      null,
-      10,
-      runs,
-    );
+    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set([PIPELINE_ID, stageId]), null, 10, runs);
     const runNodes = displayNodes.filter((node) => node.kind === "run");
 
     expect(runNodes.map((node) => ({ id: node.id, depth: node.depth, kind: node.tableRow.kind }))).toEqual([
@@ -395,7 +383,13 @@ describe("flattenMonitorPipelineTree reveal-on-select", () => {
     const first = pipelineWithStageAndRun("pipe-one", "inv-one", "run-one");
     const second = pipelineWithStageAndRun("pipe-two", "inv-two", "run-two");
     const runs = [first.run, second.run];
-    const displayNodes = flattenJoined(joinTree([first.snapshot, second.snapshot], runs), new Set(), "run-two", 20, runs);
+    const displayNodes = flattenJoined(
+      joinTree([first.snapshot, second.snapshot], runs),
+      new Set(),
+      "run-two",
+      20,
+      runs,
+    );
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
       { kind: "pipeline", id: "pipe-one" },

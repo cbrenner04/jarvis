@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import {
   firstSelectableRunId,
@@ -7,14 +8,13 @@ import {
   livenessTone,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
-  monitorSelectableNodeIds,
   monitorSegmentRows,
+  monitorSelectableNodeIds,
   monitorTextLines,
   orderSelectableRuns,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
-import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import { computeShellLayout, listMonitorTreeCellsAtDepth, TREE_COLUMN_WIDTHS } from "./tui-shell-layout.ts";
@@ -119,7 +119,9 @@ function indentColumnText(
   depth: number,
   selectedNodeId: string | null = null,
 ): string {
-  const cell = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, 90, depth).find((entry) => entry.column === "indent");
+  const cell = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, 90, depth).find(
+    (entry) => entry.column === "indent",
+  );
   return cell?.text ?? "";
 }
 
@@ -360,9 +362,7 @@ describe("monitorTextLines", () => {
       );
       const rollupStatus = status === "completed" ? "completed" : status;
       expect(lines).toEqual(
-        expect.arrayContaining([
-          `  run-plan-draft demo plan completed not-live workflow-status:${rollupStatus}`,
-        ]),
+        expect.arrayContaining([`  run-plan-draft demo plan completed not-live workflow-status:${rollupStatus}`]),
       );
       expect(lines.some((line) => line.includes(`run-authored-review-${status}`))).toBe(false);
       expect(lines.some((line) => line.includes(`workflow-status:${rollupStatus}`))).toBe(true);
@@ -484,9 +484,9 @@ describe("monitorLeftPaneTreeRows", () => {
       { kind: "stage", id: stageId, depth: 1 },
       { kind: "run", id: "run-implement", depth: 2 },
     ]);
-    expect(unattributedRows.map((row) => row.kind === "workflow-collapsed" ? row.representative.runId : row.run.runId)).toEqual([
-      "run-orphan",
-    ]);
+    expect(
+      unattributedRows.map((row) => (row.kind === "workflow-collapsed" ? row.representative.runId : row.run.runId)),
+    ).toEqual(["run-orphan"]);
   });
 
   test("maps node.depth to indent column slots for pipeline, stage, and run leaves", () => {
@@ -529,7 +529,7 @@ describe("monitorLeftPaneTreeRows", () => {
       { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
     ] as const;
     const multiMemberRuns = (): DaemonListRunRow[] => {
-      const workflow = { invocationId: MULTI_INVOCATION, steps: [...MULTI_WORKFLOW_STEPS] };
+      const _workflow = { invocationId: MULTI_INVOCATION, steps: [...MULTI_WORKFLOW_STEPS] };
       return [
         workflowRun("run-implement", "completed", MULTI_INVOCATION, { isLive: false }),
         {
@@ -623,12 +623,7 @@ describe("monitorSelectableNodeIds", () => {
       terminalRows: 72,
     });
 
-    expect(monitorSelectableNodeIds(state, TREE_NOW_MS)).toEqual([
-      PIPELINE_ID,
-      stageId,
-      "run-implement",
-      "run-orphan",
-    ]);
+    expect(monitorSelectableNodeIds(state, TREE_NOW_MS)).toEqual([PIPELINE_ID, stageId, "run-implement", "run-orphan"]);
   });
 });
 
@@ -648,12 +643,7 @@ describe("monitorRightPaneSegmentRows", () => {
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
 
-    expect(lines).toEqual([
-      `pipelineId: ${PIPELINE_ID}`,
-      "name: feature-pipeline",
-      "project: demo",
-      "state: running",
-    ]);
+    expect(lines).toEqual([`pipelineId: ${PIPELINE_ID}`, "name: feature-pipeline", "project: demo", "state: running"]);
   });
 
   test("selecting a stage node yields stage fields with empty branch for default", () => {
@@ -709,11 +699,12 @@ describe("monitorRightPaneSegmentRows", () => {
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 
-    const pipelineLines = monitorRightPaneSegmentRows(
-      { ...base, selectedNodeId: PIPELINE_ID },
-      TREE_NOW_MS,
-    ).map(joinMonitorRow);
-    const stageLines = monitorRightPaneSegmentRows({ ...base, selectedNodeId: stageId }, TREE_NOW_MS).map(joinMonitorRow);
+    const pipelineLines = monitorRightPaneSegmentRows({ ...base, selectedNodeId: PIPELINE_ID }, TREE_NOW_MS).map(
+      joinMonitorRow,
+    );
+    const stageLines = monitorRightPaneSegmentRows({ ...base, selectedNodeId: stageId }, TREE_NOW_MS).map(
+      joinMonitorRow,
+    );
 
     expect(pipelineLines.some((line) => line === "Outcome")).toBe(false);
     expect(pipelineLines.some((line) => line.startsWith("runStatus:"))).toBe(false);

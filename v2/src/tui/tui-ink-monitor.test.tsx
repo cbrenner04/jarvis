@@ -14,7 +14,7 @@ import {
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
-import { computeShellLayout, nudgeDividerOffset } from "./tui-shell-layout.ts";
+import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
 type TextCapture = { text: string; color?: string };
 
@@ -449,7 +449,9 @@ describe("openInkMonitor", () => {
     expect(textNode(nodes, "in-progress").color).toBe("cyan");
     expect(textNode(nodes, "live").color).toBe("cyan");
     expect(textNode(nodes, "completed").color).toBe("green");
-    expect(nodes.filter((node) => node.text.startsWith("not-")).every((node) => node.color === undefined)).toBe(true);
+    const idleNodes = nodes.filter((node) => node.text.trimEnd() === MONITOR_TREE_NOT_LIVE_LABEL);
+    expect(idleNodes.length).toBeGreaterThan(0);
+    expect(idleNodes.every((node) => node.color === undefined)).toBe(true);
     expect(textNode(nodes, "failed").color).toBe("red");
     expect(textNode(nodes, "run-live").color).toBeUndefined();
 

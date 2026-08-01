@@ -83,8 +83,9 @@ function renderSegmentRows(
   lines: readonly MonitorLineRow[],
   Text: MonitorText,
   RowBox: MonitorBox | undefined,
+  keyOffset = 0,
 ): ReactElement[] {
-  return lines.map((line, index) => renderSegmentRow(line, Text, index, RowBox));
+  return lines.map((line, index) => renderSegmentRow(line, Text, keyOffset + index, RowBox));
 }
 
 function shellTerminalSize(state: TuiMonitorState): { columns: number; rows: number } {
@@ -126,7 +127,7 @@ function renderLeftPaneContent(
     }
   }
   const queueRows = monitorLeftPaneQueueRows(state);
-  rows.push(...renderSegmentRows(queueRows, Text, RowBox));
+  rows.push(...renderSegmentRows(queueRows, Text, RowBox, rows.length));
   return rows;
 }
 

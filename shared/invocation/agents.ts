@@ -507,11 +507,21 @@ function finalizeCursorInvocationResult(result: InvocationResult): InvocationRes
   }
 
   const parsed = parseCursorJsonOutput(result.stdout);
-  return {
+  const output: InvocationOk = {
     kind: "ok",
     stdout: parsed.displayText,
     stderr: result.stderr,
+    cost_usd: null,
   };
+  if (parsed.usage !== undefined) {
+    output.usage = parsed.usage;
+    output.usage_source = "agent";
+    output.cost_source = "no-price";
+  } else {
+    output.usage_source = "unavailable";
+    output.cost_source = "no-usage";
+  }
+  return output;
 }
 
 function finalizeOpencodeInvocationResult(result: InvocationResult): InvocationResult {

@@ -26,13 +26,13 @@ parsed terminal-frame token counts.
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts` — a cursor binding whose stdout carries a terminal `type: "result"` frame with populated `usage` settles `ok` with `usage_source: "agent"`, non-null mapped token fields (happy-path fixture), `cost_usd: null`, and `cost_source: "no-price"`; `invocation_completed` telemetry mapping preserves those provenance fields; fails against the pre-fix finalize that drops usage.
-- [ ] `agents.test.ts` — a cursor binding with no terminal `usage` settles `ok` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and no warnings; fails against the pre-fix finalize path.
-- [ ] `agents.test.ts` — restoring the pre-fix stdout-only finalize rebuild (dropping parsed usage onto `InvocationOk`) turns the with-usage test RED; pinning test comment names that source mutation.
-- [ ] `agents.test.ts` — omitting `cost_source: "no-usage"` on the no-usage finalize path turns the no-usage test RED; pinning test comment names that source mutation.
-- [ ] `agents.test.ts` — omitting `cost_source: "no-price"` on the with-usage finalize path turns the with-usage test RED; pinning test comment names that source mutation.
-- [ ] `agents.test.ts` — cursor quota classification, spawn argv, idle-timer threading, and non-`ok` passthrough tests stay green.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `agents.test.ts` — a cursor binding whose stdout carries a terminal `type: "result"` frame with populated `usage` settles `ok` with `usage_source: "agent"`, non-null mapped token fields (happy-path fixture), `cost_usd: null`, and `cost_source: "no-price"`; `invocation_completed` telemetry mapping preserves those provenance fields; fails against the pre-fix finalize that drops usage.
+- [x] `agents.test.ts` — a cursor binding with no terminal `usage` settles `ok` with `usage_source: "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, and no warnings; fails against the pre-fix finalize path.
+- [x] `agents.test.ts` — restoring the pre-fix stdout-only finalize rebuild (dropping parsed usage onto `InvocationOk`) turns the with-usage test RED; pinning test comment names that source mutation.
+- [x] `agents.test.ts` — omitting `cost_source: "no-usage"` on the no-usage finalize path turns the no-usage test RED; pinning test comment names that source mutation.
+- [x] `agents.test.ts` — omitting `cost_source: "no-price"` on the with-usage finalize path turns the with-usage test RED; pinning test comment names that source mutation.
+- [x] `agents.test.ts` — cursor quota classification, spawn argv, idle-timer threading, and non-`ok` passthrough tests stay green.
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

@@ -811,6 +811,33 @@ describe("resolveStageWorkflowSteps", () => {
     expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
   });
 
+  test("implement stage normalizes the recorded plan directory artifact through real preset builders", async () => {
+    // The production shape: publication records the spec DIRECTORY, and the real preset builder --
+    // not fakeBuilders -- is what rejects a non-index specPath. Mutation checkpoint: reverting
+    // `specPath` to `prior.specPath` at the real-builder call site in `resolveImplementStage`
+    // turns this test RED with "Non-index spec requires --artifact".
+    const { repoRoot, configPath, planBranch, planWorktree } = createChainedHandoffRepo();
+    const recordedPlanDirectory = "spec/feature";
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([["plan", stageArtifact("run-plan", recordedPlanDirectory)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+    expect(writeStep).toBeDefined();
+    expect((writeStep as { specPath?: string }).specPath).toBe("spec/feature/index.md");
+  });
+
   test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
     const readyA = "spec/ready-intents/alpha.md";

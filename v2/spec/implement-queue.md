@@ -62,8 +62,16 @@ refuse `pipeline resume` with `multiple_failed_stages` — unrecoverable, so the
 through `jarvis run workflow`. Fixed in #2447 (continuation is now scoped to the approved
 `branchKey`, with a predecessor guard).
 
-**Not yet re-verified end to end after the fix.** The next pipeline run is still a dogfooding
-exercise, not a trusted path.
+**Re-verified 2026-08-01** on pipeline `6155fe8b` (TUI slice 2 seed): approving two of three
+fan-out branches left the third `awaiting` and dispatched only the approved branches — #2447 holds.
+
+That same run exposed a new defect: concurrently dispatched sibling `plan` stages contend on the
+prior intent worktree's claim. One stage recorded `failed` (`worktree_claimed: intent: …`) while its
+own invocation ran to completion and opened a PR, and the pipeline then derived terminal `failed`
+while a sibling was still `running`. Seed:
+`seeds/pipeline-fanout-stage-dispatch-contends-on-the-prior-worktree`. Until it ships, fan-out
+pipelines need branch gates approved **one at a time**, and a terminal `failed` must be confirmed
+against `jarvis run list` before you believe it.
 
 ## Phase gate — per-project pipelines: **COMPLETE and dogfooded**
 

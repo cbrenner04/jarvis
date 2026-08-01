@@ -24,14 +24,14 @@
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` — a changed line in a `*.test.ts` file whose content would otherwise yield a guard or comparison mutation produces `pass` with `candidateCount: 0` (regression alongside existing `filters out non-production files from diff`; no pre-fix RED claim — baseline already excludes `*.test.ts`).
-- [ ] `diff-derived-mutation-verifier.test.ts` — a diff whose only changed code paths are test files (fixture includes at least one `*.test.tsx` and one `*.sandbox-unrunnable.test.ts` path) completes verification with `pass` and `candidateCount: 0`, not `surviving-mutation`; fails against pre-fix code when those non-`*.test.ts` test paths produce candidates.
-- [ ] `diff-derived-mutation-verifier.test.ts` — a mixed diff with both a changed test file and a changed production file still derives candidates from the production line and reports `surviving-mutation` when scoped tests stay green (passes pre- and post-fix).
-- [ ] `diff-derived-mutation-verifier.test.ts` — inverting the `.test.` basename exclusion on `isProductionFile` in `v2/src/execution/diff-scan.ts` (per the pinning-test `Mutation checkpoint:` comment naming that mutation) makes the test-file exclusion subcase RED.
-- [ ] Existing `diff-derived-mutation-verifier.test.ts` cases outside the new test-path subcases stay green.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents that mutation verification inspects production diff paths only, that test-file changes (basename contains `.test.`, covering `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, etc.) are not mutation candidates, and that they will not surface `surviving_mutation_failed`.
-- [ ] `v2/docs/v1-behaviors.md` — diff-derived mutation verification bullet documents production-only candidate selection and the basename `.test.` exclusion rule (including `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, etc.).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `diff-derived-mutation-verifier.test.ts` — a changed line in a `*.test.ts` file whose content would otherwise yield a guard or comparison mutation produces `pass` with `candidateCount: 0` (regression alongside existing `filters out non-production files from diff`; no pre-fix RED claim — baseline already excludes `*.test.ts`).
+- [x] `diff-derived-mutation-verifier.test.ts` — a diff whose only changed code paths are test files (fixture includes at least one `*.test.tsx` and one `*.sandbox-unrunnable.test.ts` path) completes verification with `pass` and `candidateCount: 0`, not `surviving-mutation`; fails against pre-fix code when those non-`*.test.ts` test paths produce candidates.
+- [x] `diff-derived-mutation-verifier.test.ts` — a mixed diff with both a changed test file and a changed production file still derives candidates from the production line and reports `surviving-mutation` when scoped tests stay green (passes pre- and post-fix).
+- [x] `diff-derived-mutation-verifier.test.ts` — inverting the `.test.` basename exclusion on `isProductionFile` in `v2/src/execution/diff-scan.ts` (per the pinning-test `Mutation checkpoint:` comment naming that mutation) makes the test-file exclusion subcase RED.
+- [x] Existing `diff-derived-mutation-verifier.test.ts` cases outside the new test-path subcases stay green.
+- [x] `v2/docs/operator-runbook.md` § Gate trust documents that mutation verification inspects production diff paths only, that test-file changes (basename contains `.test.`, covering `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, etc.) are not mutation candidates, and that they will not surface `surviving_mutation_failed`.
+- [x] `v2/docs/v1-behaviors.md` — diff-derived mutation verification bullet documents production-only candidate selection and the basename `.test.` exclusion rule (including `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, etc.).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

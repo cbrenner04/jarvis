@@ -524,6 +524,8 @@ bounded repair. `list` / `wait` name `error.reason: ready_gate_out_of_scope`, pr
 `jarvis run resume` — not source-file repair. Review every repair commit's file list before merging;
 bounded repair can still touch in-scope paths when a mixed or in-scope gate failure triggered it.
 
+Mutation verification inspects production diff paths only; test-file changes (basename contains `.test.`, e.g. `*.test.tsx`, `*.sandbox-unrunnable.test.ts`) are not mutation candidates and will not surface `surviving_mutation_failed`.
+
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.
 
 A `surviving_mutation_failed` outcome whose site is a timer callback in a determinism-guarded root (v2/src/daemon or v2/src/execution .test.ts) names both constraints: the natural kill test (which is forbidden by the determinism guard's real-timer prohibition) and the fix (extract the guard into a pure exported predicate and test both truth directions directly without a real-timer wait, then resume). Codify the extracted predicate directly in the guarded suite's test file and verify its coverage independently.

@@ -257,6 +257,75 @@ index 1234567..abcdefg 100644
     }
   });
 
+  const guardFlipHunk = `-  if (!x) return null;
++  if (!x) return "safe";`;
+
+  function guardFlipFileDiff(file: string, fnDecl: string): string {
+    return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+@@ -1,3 +1,3 @@
+ export function ${fnDecl} {
+${guardFlipHunk}
+   return x;
+`;
+  }
+
+  async function expectNoMutationCandidates(diff: string) {
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        runScopedTests: async () => true,
+      },
+    );
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.candidateCount).toBe(0);
+      expect(result.inspectedPaths).toHaveLength(0);
+    }
+  }
+
+  it("excludes *.test.tsx and *.sandbox-unrunnable.test.ts paths from candidates", async () => {
+    await expectNoMutationCandidates(
+      guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()") +
+        guardFlipFileDiff("v2/src/daemon/daemon.sandbox-unrunnable.test.ts", "testBar()"),
+    );
+  });
+
+  it("still derives production candidates when a mixed diff includes test files", async () => {
+    const diff =
+      guardFlipFileDiff("src/safe.ts", "safe(x: any)") + guardFlipFileDiff("src/helper.test.tsx", "helper()");
+    const originalContent = `export function safe(x: any) {
+  if (!x) return "safe";
+  return x;
+}`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.sourceSite.file).toBe("src/safe.ts");
+    }
+  });
+
+  it("inverting the .test. basename exclusion fails: test paths would produce candidates", async () => {
+    // Mutation checkpoint: inverting the `.test.` basename exclusion on `isProductionFile` in
+    // v2/src/execution/diff-scan.ts must turn this subcase RED.
+    await expectNoMutationCandidates(guardFlipFileDiff("v2/src/tui/tui-entry.test.tsx", "testFoo()"));
+  });
+
   it("filters out spec and docs files from diff", async () => {
     const diffWithSpec = `diff --git a/v2/spec/test.md b/v2/spec/test.md
 index 1234567..abcdefg 100644

@@ -71,24 +71,24 @@ selected" for valid off-pane tree selections.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` — with more terminal pipelines than fit the pane,
+- [x] `tui-monitor-lines.test.ts` — with more terminal pipelines than fit the pane,
       `monitorSelectableNodeIds` includes every tree row id from the full flatten while painted tree
       rows stay within the pane budget; fails pre-fix.
-- [ ] `tui-monitor-lines.test.ts` — tree row ids beyond the pane budget remain in
+- [x] `tui-monitor-lines.test.ts` — tree row ids beyond the pane budget remain in
       `monitorSelectableNodeIds` and are absent from the painted slice only; fails pre-fix.
-- [ ] `tui-monitor-lines.test.ts` — deriving `monitorSelectableNodeIds` from FIFO-trimmed or
+- [x] `tui-monitor-lines.test.ts` — deriving `monitorSelectableNodeIds` from FIFO-trimmed or
       viewport-sliced `displayNodes` turns the overflow retention pin RED; `Mutation checkpoint:` on
       that pin names that derivation.
-- [ ] `tui-monitor-lines.test.ts` — omitting unattributed rows from `monitorSelectableNodeIds`
+- [x] `tui-monitor-lines.test.ts` — omitting unattributed rows from `monitorSelectableNodeIds`
       turns `lists visible tree rows then unattributed runs in pane order` RED; existing
       `Mutation checkpoint:` preserved.
-- [ ] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured
+- [x] `tui-entry.test.tsx` — `aligns selectable node ids with left-pane tree rows for the measured
       terminal size` fails pre-fix (every selectable id required in painted rows) and passes after
       the pin update (selected id in painted rows; off-pane selectables may be absent from paint).
-- [ ] `tui-entry.test.tsx` — requiring every `monitorSelectableNodeIds` entry in painted rows turns
+- [x] `tui-entry.test.tsx` — requiring every `monitorSelectableNodeIds` entry in painted rows turns
       `aligns selectable node ids with left-pane tree rows for the measured terminal size` RED;
       `Mutation checkpoint:` on that pin names that requirement.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

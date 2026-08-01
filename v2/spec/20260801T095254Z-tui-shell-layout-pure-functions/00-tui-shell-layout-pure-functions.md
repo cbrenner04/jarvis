@@ -50,16 +50,16 @@ not assert painted ink output — CI cannot observe it (#2417/#2418).
 
 ## Acceptance criteria
 
-- [ ] `tui-shell-layout.test.ts` — reference `245×72` geometry at `dividerOffset: 0` yields left `94`, right `151`, pane height `68`, dock `4`; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — non-reference geometry (e.g. `200×50` at `dividerOffset: 0`) yields left `76`, right `124`, pane height `46`, dock `4` per `ceil(columns × 0.38)`; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — width `119` → `layoutMode: "stacked"` with dock height `4`; width `120` → `layoutMode: "split"`; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — `[` cannot nudge left pane below `72` cols and `]` cannot nudge above `40%` of width; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — `visibleColumns` at width `≥90` returns `marker`, `indent`, `label`, `project`, `branch`, `state`, `elapsed`, `live`, `agent`, `id` in order; at `72–89` drops `agent` and `id`; at `58–71` drops `branch`; at `48–57` drops `project`; at `<48` returns `marker`, `label`, `state`, `elapsed` only; boundary pins at `90`/`89`, `72`/`71`, `58`/`57`, and `48`/`47` fail on off-by-one tier bugs; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — tree-cell formatter truncates overflow to exactly the column width with `…` and leaves exact-fit text unchanged (no ellipsis); width measured in code units; fails against the pre-fix absent module.
-- [ ] `tui-shell-layout.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for the stacked threshold, left floor, left ceiling, and tier-boundary guards.
+- [x] `tui-shell-layout.test.ts` — reference `245×72` geometry at `dividerOffset: 0` yields left `94`, right `151`, pane height `68`, dock `4`; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — non-reference geometry (e.g. `200×50` at `dividerOffset: 0`) yields left `76`, right `124`, pane height `46`, dock `4` per `ceil(columns × 0.38)`; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — width `119` → `layoutMode: "stacked"` with dock height `4`; width `120` → `layoutMode: "split"`; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — `[` cannot nudge left pane below `72` cols and `]` cannot nudge above `40%` of width; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — `visibleColumns` at width `≥90` returns `marker`, `indent`, `label`, `project`, `branch`, `state`, `elapsed`, `live`, `agent`, `id` in order; at `72–89` drops `agent` and `id`; at `58–71` drops `branch`; at `48–57` drops `project`; at `<48` returns `marker`, `label`, `state`, `elapsed` only; boundary pins at `90`/`89`, `72`/`71`, `58`/`57`, and `48`/`47` fail on off-by-one tier bugs; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — tree-cell formatter truncates overflow to exactly the column width with `…` and leaves exact-fit text unchanged (no ellipsis); width measured in code units; fails against the pre-fix absent module.
+- [x] `tui-shell-layout.test.ts` — pinning tests include comment checkpoints naming guard-inversion mutations for the stacked threshold, left floor, left ceiling, and tier-boundary guards.
 - [ ] Source-mutating each guard above (stacked threshold, left floor `72`, left ceiling `40%`, tier boundary) turns the corresponding pinning test RED. Do **not** add a production test flag. (Manual)
-- [ ] `v2/docs/test-writing.md` records that CI cannot observe painted ink (#2417/#2418) and rendered-frame assertions risk local-green/CI-red asymmetry; names substitutes for rendered-output assertions; cross-links [operator-runbook.md § Gate trust](../operator-runbook.md#gate-trust); notes ink-shell sibling owns full runbook wording updates.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/docs/test-writing.md` records that CI cannot observe painted ink (#2417/#2418) and rendered-frame assertions risk local-green/CI-red asymmetry; names substitutes for rendered-output assertions; cross-links [operator-runbook.md § Gate trust](../operator-runbook.md#gate-trust); notes ink-shell sibling owns full runbook wording updates.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

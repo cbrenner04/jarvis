@@ -17,6 +17,7 @@ real content on day one, not behind a flag.
 
 - Slice 1 uses existing run rows as the left pane and the selected run's existing detail as the right pane unchanged — rules out a flag-gated empty shell; brief detail-pane truncation contract (no id/path/error truncation) is slice 4, not re-mounted here.
 - Tree rows use the fixed-width column grid from pure layout helpers; values truncate, never wrap.
+- The shell branches on `layoutMode` before reading `leftWidth`/`rightWidth`: `computeShellLayout` applies the `72`-col left floor unconditionally, so stacked-mode widths and small-`rows` pane heights can be negative — rules out feeding split-mode geometry into the stacked render path.
 - Dock line 1 shows active-run count and refresh interval; line 2 is an inert `>` prompt — rules out command parsing (slice 5).
 - Session-scoped divider offset lives in monitor session state; `[`/`]` call layout nudge on the pure function — rules out persisting divider position.
 - Existing keybindings preserved: `j`/down → next, up → previous, `e` expand, `k` kill, `q`/Ctrl-C quit; `[`/`]` added — rules out rebinding or dropping current monitor controls.

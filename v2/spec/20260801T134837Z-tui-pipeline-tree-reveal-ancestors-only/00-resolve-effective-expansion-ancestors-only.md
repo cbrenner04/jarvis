@@ -53,25 +53,25 @@ walked through.
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `selected stage expansion toggles flatten output` fails
+- [x] `tui-monitor-pipeline-tree.test.ts` — `selected stage expansion toggles flatten output` fails
       against pre-fix self-expand and passes after; multi-member stage fixture, stage selected,
       `expandedNodeIds: []` omits expanded constituent run rows (collapsed representatives remain)
       while `expandedNodeIds: [stageId]` includes them.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `toggling expandedNodeIds on a selected stage round-trips
+- [x] `tui-monitor-pipeline-tree.test.ts` — `toggling expandedNodeIds on a selected stage round-trips
       flatten output` fails against pre-fix self-expand and passes after; multi-member stage fixture,
       `[]` → `[stageId]` → `[]` returns the starting list with a distinct intermediate list.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — mutating `resolveEffectiveExpansion` to re-add selected
+- [x] `tui-monitor-pipeline-tree.test.ts` — mutating `resolveEffectiveExpansion` to re-add selected
       pipeline/stage ids turns both new regressions RED; `Mutation checkpoint:` on each names that
       mutation.
-- [ ] `tui-monitor-pipeline-tree.test.ts` — `selecting a descendant expands ancestors only and leaves
+- [x] `tui-monitor-pipeline-tree.test.ts` — `selecting a descendant expands ancestors only and leaves
       sibling pipelines collapsed` and `selecting a run reveals ancestor stages only and leaves sibling
       stage runs collapsed` stay green or are updated with `Mutation checkpoint:` comments naming
       `resolveSelectedAncestors` omission or sibling stage-run expansion without `stage.id` membership.
-- [ ] `tui-entry.test.tsx` — `drives pipeline tree expansion through the injected input hook` visibility
+- [x] `tui-entry.test.tsx` — `drives pipeline tree expansion through the injected input hook` visibility
       assertions match post-fix flatten output; `expandedPipelineNodeIds` membership pins unchanged.
-- [ ] `v2/docs/operator-runbook.md` — `jarvis tui` row no longer states selected-node self-expand or
+- [x] `v2/docs/operator-runbook.md` — `jarvis tui` row no longer states selected-node self-expand or
       that `e` on the selected stage has no visible effect.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

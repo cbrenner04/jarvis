@@ -1,0 +1,14 @@
+Verifying key codebase claims before issuing the verdict.
+## Verdict: required refinements
+
+1. **Correct the failing-test claims.** Baseline already excludes `*.test.ts` (`filters out non-production files from diff` passes today). Any AC that says a `*.test.ts` change “fails against pre-fix code” is inaccurate and violates the failing-test requirement for runtime behavior. Reframe `*.test.ts` coverage as regression (no pre-fix RED claim), and require at least one AC whose named subcase is RED on baseline — e.g. `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, or an all-test diff that currently yields candidates / `surviving-mutation`.
+
+2. **Sharpen the mixed-diff AC.** “Fails against pre-fix code for the test-only half of the contract” does not name which assertion must RED or which half is pre-fix green. Split or rewrite so one AC covers all-test pass-through (`pass`, `candidateCount: 0`, fails pre-fix when non-`*.test.ts` test paths produce candidates) and a separate AC covers mixed diff: production line still yields candidates and `surviving-mutation` when scoped tests stay green (behavior that should pass pre- and post-fix).
+
+3. **Add graded documentation ACs.** `Documentation updates` names `operator-runbook.md` and `v1-behaviors.md`, but nothing under `## Acceptance criteria` verifies them. Add worktree-verifiable ACs that those files document production-only mutation candidate selection and the basename `.test.` rule (including `*.test.tsx`, `*.sandbox-unrunnable.test.ts`, etc.), consistent with sibling specs in this repo.
+
+4. **Rewrite the preservation AC per refactor guidance.** AC5 paraphrases behaviors (“candidate derivation, scoped-test execution, …”) instead of citing the pinning test. Replace with an outcome like: existing `diff-derived-mutation-verifier.test.ts` cases outside the new test-path subcases stay green.
+
+5. **Record intentional classification boundaries in decisions.** Because the fix aligns with `isTestFile` (basename contains `.test.`), the spec should state explicitly that (a) inherited false positives (e.g. paths whose basename contains `.test.` but are not tests) are accepted, and (b) `.spec.*` paths remain mutation candidates — so reviewers do not treat either as an oversight.
+
+**Rationale:** Items 1–4 address spec-guidance compliance (accurate failing-test ACs, refactor preservation citations, graded doc work). Item 5 closes a documentation gap the alignment decision creates. Cross-verifier smoke pins, `write-behavior.md` / `workflow-runner.md` alignment, `test:integration:v2`, and finer runbook anchors are optional improvements, not blockers — the shared `isProductionFile` change is adequately pinned through mutation-verifier tests and the inversion AC as written.

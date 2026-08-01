@@ -1,5 +1,5 @@
 {
-  "idleOutputTimeoutMs": 240000,
+  "idleOutputTimeoutMs": 420000,
   "models": {
     "claude": {
       "plan": {

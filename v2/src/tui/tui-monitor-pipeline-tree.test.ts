@@ -322,13 +322,7 @@ describe("monitor pipeline tree elapsed cells", () => {
     );
     const pipelineNodes = joinTree([snapshot], [run]);
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
-    const displayNodes = flattenJoined(
-      pipelineNodes,
-      new Set([PIPELINE_ID, stageId]),
-      null,
-      10,
-      [run],
-    );
+    const displayNodes = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, stageId]), null, 10, [run]);
     const pipelineNode = displayNodes.find((node) => node.kind === "pipeline");
     const stageNode = displayNodes.find((node) => node.kind === "stage");
     const runNode = displayNodes.find((node) => node.kind === "run");
@@ -338,11 +332,7 @@ describe("monitor pipeline tree elapsed cells", () => {
     return {
       pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
       stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
-      runElapsed: columnSlice(
-        buildMonitorTreeRow(runNode.tableRow, null, 90, nowMs),
-        90,
-        "elapsed",
-      ).trimEnd(),
+      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, nowMs), 90, "elapsed").trimEnd(),
     };
   }
 
@@ -394,12 +384,20 @@ describe("monitor pipeline tree elapsed cells", () => {
 
     const frozenNowMs = ACTIVE_NOW_MS + 3_600_000;
     const atEnd = {
-      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, PIPELINE_END_MS), 90, "elapsed").trimEnd(),
+      pipelineElapsed: columnSlice(
+        buildPipelineMonitorTreeRow(pipelineNode, null, 90, PIPELINE_END_MS),
+        90,
+        "elapsed",
+      ).trimEnd(),
       stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, STAGE_END_MS), 90, "elapsed").trimEnd(),
       runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, RUN_END_MS), 90, "elapsed").trimEnd(),
     };
     const later = {
-      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
+      pipelineElapsed: columnSlice(
+        buildPipelineMonitorTreeRow(pipelineNode, null, 90, frozenNowMs),
+        90,
+        "elapsed",
+      ).trimEnd(),
       stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
       runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
     };

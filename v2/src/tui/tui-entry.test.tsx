@@ -7,12 +7,12 @@ import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type { PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -21,7 +21,13 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
-import { buildMonitorTreeRow, computeShellLayout, monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
+import {
+  buildMonitorTreeRow,
+  computeShellLayout,
+  monitorTreeRun,
+  TREE_COLUMN_WIDTHS,
+  visibleColumns,
+} from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
 

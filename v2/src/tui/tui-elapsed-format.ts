@@ -4,11 +4,7 @@ const HOUR_S = 3_600;
 const DAY_S = 86_400;
 const ELAPSED_COLUMN_WIDTH = 8;
 
-export function formatElapsedWallClock(
-  startMs: number | null,
-  endMs: number | null,
-  nowMs: number,
-): string {
+export function formatElapsedWallClock(startMs: number | null, endMs: number | null, nowMs: number): string {
   if (startMs === null) {
     return "";
   }

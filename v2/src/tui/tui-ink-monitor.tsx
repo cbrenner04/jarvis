@@ -138,7 +138,16 @@ function renderTreeRow(
         RowBox,
       );
     case "run":
-      return renderRunGridRow(treeRow.tableRow, selectedNodeId, leftPaneWidth, treeRow.depth, nowMs, Text, rowKey, RowBox);
+      return renderRunGridRow(
+        treeRow.tableRow,
+        selectedNodeId,
+        leftPaneWidth,
+        treeRow.depth,
+        nowMs,
+        Text,
+        rowKey,
+        RowBox,
+      );
   }
 }
 
@@ -198,7 +207,16 @@ function renderLeftPaneContent(
     }
     for (const [index, tableRow] of unattributedRows.entries()) {
       rendered.push(
-        renderRunGridRow(tableRow, state.selectedNodeId, leftPaneWidth, 0, nowMs, Text, treeRows.length + index, RowBox),
+        renderRunGridRow(
+          tableRow,
+          state.selectedNodeId,
+          leftPaneWidth,
+          0,
+          nowMs,
+          Text,
+          treeRows.length + index,
+          RowBox,
+        ),
       );
     }
   }

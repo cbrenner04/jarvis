@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { workflowCollapsedContextSuffix } from "./tui-monitor-workflow-collapse.ts";
 import {
   buildMonitorTreeRow,
@@ -11,7 +12,6 @@ import {
   TREE_COLUMN_WIDTHS,
   visibleColumns,
 } from "./tui-shell-layout.ts";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 
 const ALL_COLUMNS = [
   "marker",

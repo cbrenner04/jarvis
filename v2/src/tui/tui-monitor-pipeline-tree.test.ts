@@ -202,9 +202,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
         pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] }),
         pipelineSnapshot({
           pipelineId: "pipe-empty",
-          stages: [
-            snapshotStage({ stageId: "plan", status: "pending", workflowInvocationId: "inv-missing" }),
-          ],
+          stages: [snapshotStage({ stageId: "plan", status: "pending", workflowInvocationId: "inv-missing" })],
         }),
       ],
       [workflowRun({ runId: "run-implement", status: "in-progress", project: "jarvis" }, INVOCATION_MATCHED)],

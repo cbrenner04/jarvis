@@ -24,9 +24,9 @@ import { derivePipelineState, isPipelineTerminal, type PipelineDerivedState } fr
 import {
   derivePipelineBoundary,
   PIPELINE_WAIT_ABORTED,
+  type PipelineSnapshot,
   PipelineWaitObserver,
   projectPipelineSnapshot,
-  type PipelineSnapshot,
   waitForPipelineBoundary,
 } from "./pipeline-observation.ts";
 
@@ -736,14 +736,11 @@ test("projectPipelineSnapshot includes stage startedAt and endedAt from durable 
   const planStarted = 1_700_000_001_000;
   const planEnded = 1_700_000_002_000;
   const implementStarted = 1_700_000_003_000;
-  const pipeline = pipelineWithStages(
-    THREE_STAGE_DEFINITION,
-    {
-      plan: { status: "succeeded", startedAt: planStarted, endedAt: planEnded },
-      gate: { status: "awaiting" },
-      implement: { status: "running", startedAt: implementStarted },
-    },
-  );
+  const pipeline = pipelineWithStages(THREE_STAGE_DEFINITION, {
+    plan: { status: "succeeded", startedAt: planStarted, endedAt: planEnded },
+    gate: { status: "awaiting" },
+    implement: { status: "running", startedAt: implementStarted },
+  });
 
   // Mutation checkpoint: omitting startedAt from stage projection must turn this test RED.
   // Mutation checkpoint: omitting endedAt from stage projection must turn this test RED.

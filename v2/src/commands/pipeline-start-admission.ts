@@ -124,46 +124,58 @@ function closeConnection(connection: PipelineStartAdmissionConnection): void {
   }
 }
 
-export async function admitPipelineStart(
+/** Exactly one of `seedPath` or `seedText`, each a string when present. */
+function readExclusiveSeed(
   input: PipelineStartAdmissionInput,
-  deps: PipelineStartAdmissionDeps,
-): Promise<PipelineStartAdmissionResult> {
+): { seedPath: string | undefined; seedText: string | undefined } | PipelineStartAdmissionResult {
   const uncheckedInput = input as unknown;
-  if (typeof uncheckedInput !== "object" || uncheckedInput === null) {
-    return preAdmissionFailure("invalid-seed-input", "pipeline: exactly one of seedPath or seedText is required\n");
-  }
-  const seedInput = uncheckedInput as { projectKey?: unknown; seedPath?: unknown; seedText?: unknown };
+  const invalid = preAdmissionFailure(
+    "invalid-seed-input",
+    "pipeline: exactly one of seedPath or seedText is required\n",
+  );
+  if (typeof uncheckedInput !== "object" || uncheckedInput === null) return invalid;
+
+  const seedInput = uncheckedInput as { seedPath?: unknown; seedText?: unknown };
   const hasSeedPath = "seedPath" in seedInput;
   const hasSeedText = "seedText" in seedInput;
-  const hasExclusiveValidSeed =
-    hasSeedPath !== hasSeedText &&
-    (hasSeedPath ? typeof seedInput.seedPath === "string" : typeof seedInput.seedText === "string");
-  if (!hasExclusiveValidSeed) {
-    return preAdmissionFailure("invalid-seed-input", "pipeline: exactly one of seedPath or seedText is required\n");
+  if (hasSeedPath === hasSeedText) return invalid;
+  if (hasSeedPath) {
+    return typeof seedInput.seedPath === "string" ? { seedPath: seedInput.seedPath, seedText: undefined } : invalid;
   }
+  return typeof seedInput.seedText === "string" ? { seedPath: undefined, seedText: seedInput.seedText } : invalid;
+}
 
+type AdmissionConfig = {
+  registry: Record<string, { root: string; origin?: string }>;
+  projectEntry: { root: string; origin?: string };
+  pipeline: unknown;
+  agentModelConfig: AgentModelConfig;
+};
+
+/** Registry, project pipeline record, and agent/model config, or the first refusal. */
+function resolveAdmissionConfig(
+  projectKey: string,
+  deps: PipelineStartAdmissionDeps,
+): AdmissionConfig | PipelineStartAdmissionResult {
   let registry: Record<string, { root: string; origin?: string }>;
-  try {
-    registry = deps.readProjectRegistry();
-  } catch (error) {
-    return preAdmissionFailure("configuration-read-exception", formatLifecycleError(error));
-  }
-
-  const projectKey = input.projectKey;
-  const projectEntry = registry[projectKey];
-  if (projectEntry === undefined) {
-    return preAdmissionFailure("unregistered-project", `unregistered project: ${projectKey}\n`);
-  }
-
   let projectRecord: Record<string, unknown> | undefined;
   let agents: readonly string[] | undefined;
   try {
+    registry = deps.readProjectRegistry();
+    const entry = registry[projectKey];
+    if (entry === undefined) {
+      return preAdmissionFailure("unregistered-project", `unregistered project: ${projectKey}\n`);
+    }
     projectRecord = deps.readProjectConfigRecord(projectKey, deps.configPath);
     agents = deps.loadMachineConfig(deps.configPath);
   } catch (error) {
     return preAdmissionFailure("configuration-read-exception", formatLifecycleError(error));
   }
 
+  const projectEntry = registry[projectKey];
+  if (projectEntry === undefined) {
+    return preAdmissionFailure("unregistered-project", `unregistered project: ${projectKey}\n`);
+  }
   if (projectRecord === undefined || !("pipeline" in projectRecord)) {
     return preAdmissionFailure("missing-pipeline", `projects.${projectKey}.pipeline is required\n`);
   }
@@ -184,7 +196,26 @@ export async function admitPipelineStart(
     return preAdmissionFailure("invalid-machine-model-configuration", `${agentModelConfig.errors.join("; ")}\n`);
   }
 
-  const seedPath = hasSeedPath ? (seedInput.seedPath as string) : undefined;
+  return { registry, projectEntry, pipeline: projectRecord.pipeline, agentModelConfig };
+}
+
+function isAdmissionResult(value: object): value is PipelineStartAdmissionResult {
+  return "kind" in value;
+}
+
+export async function admitPipelineStart(
+  input: PipelineStartAdmissionInput,
+  deps: PipelineStartAdmissionDeps,
+): Promise<PipelineStartAdmissionResult> {
+  const seed = readExclusiveSeed(input);
+  if (isAdmissionResult(seed)) return seed;
+
+  const projectKey = input.projectKey;
+  const config = resolveAdmissionConfig(projectKey, deps);
+  if (isAdmissionResult(config)) return config;
+  const { registry, projectEntry, agentModelConfig } = config;
+
+  const { seedPath } = seed;
   if (seedPath !== undefined) {
     const seedResolution = resolvePipelineSeed(deps.cwd, seedPath, projectEntry.root);
     if (!seedResolution.ok) {
@@ -193,7 +224,7 @@ export async function admitPipelineStart(
   }
 
   const pipelineResolution = deps.resolveProjectPipeline(
-    { projectKey, pipeline: projectRecord.pipeline },
+    { projectKey, pipeline: config.pipeline },
     deps.getPipelineDefinition,
     agentModelConfig,
   );
@@ -203,7 +234,7 @@ export async function admitPipelineStart(
 
   const context: PipelineContext = {
     cwd: deps.cwd,
-    ...(seedPath === undefined ? { seed: seedInput.seedText as string } : { seedPath }),
+    ...(seedPath === undefined ? { seed: seed.seedText as string } : { seedPath }),
     configPath: deps.configPath,
     projectRegistry: registry,
   };

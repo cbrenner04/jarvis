@@ -22,7 +22,8 @@ Expose the durable pipeline and stage diagnostics required by observation client
 - [ ] `pipeline_list` returns pipeline terminal action, admission seed path, and terminal publication success or failure from a stored pipeline record.
 - [ ] `pipeline_list` returns each stored stage record's id, position, artifact, and failure detail without changing stage order.
 - [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` pins the new fields with regression expectations that fail against the baseline projection.
-- [ ] Each mutation-checkpoint criterion names a pinning test carrying a matching `// @mutate <path> "<old>" -> "<new>"` directive.
+- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "terminalAction: pipeline.definition.terminalAction," -> "terminalAction: undefined,"`; its terminal/admission projection pin fails under that mutation.
+- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "artifact: stage.artifact," -> "artifact: null,"`; its stage diagnostic projection pin fails under that mutation.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

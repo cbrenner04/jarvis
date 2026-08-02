@@ -4,31 +4,34 @@ Authority: operator priorities. Updated 2026-08-01.
 
 ## Goal
 
-The pre-TUI reliability queue is **burned down**. Next: open
-[tui-overhaul-brief.md](tui-overhaul-brief.md) (six intent slices, not one `plan`).
+The pre-TUI reliability queue is **burned down**, and TUI slices 1-3 are shipped. Next: slices 4-6
+of [tui-overhaul-brief.md](tui-overhaul-brief.md) (one intent per slice, not one `plan`).
 
 ## Start here next
 
-**TUI slice 3** (elapsed columns) from [tui-overhaul-brief.md](tui-overhaul-brief.md) — seeded as
-`seeds/tui-elapsed-columns`. Shipped 2026-08-01: slice 1 (#2453 layout, #2456 ink shell) and slice 2 (#2462 poll, #2463
-tree model, #2466 monitor wiring).
+**TUI slice 4 — detail pane** from [tui-overhaul-brief.md](tui-overhaul-brief.md). Not yet seeded.
+Slices 5 (command dock) and 6 (steering + log) follow.
 
-`seeds/tui-tree-self-expand-hides-the-e-toggle` shipped (#2471 model, #2473 entry): `e` has a
-visible effect, `j`/`k` round-trips, and selectable ids match painted rows.
+Slices 1-3 shipped 2026-08-01 and `jarvis tui` is a working command center: split panes with a
+4-line dock, a live `pipeline → stage[branch] → run` tree with reversible navigation, and
+wall-clock elapsed at every level.
 
-`seeds/tui-descend-expansion-evicts-pipelines-permanently` shipped (#2479 full flatten, #2481
-scroll viewport, #2485 navigation): `k` retraces `j` exactly and nothing becomes unreachable.
+| Slice | Shipped |
+| --- | --- |
+| 1 — shell layout | #2453 (pure geometry), #2456 (ink shell) |
+| 2 — pipeline tree | #2462 (poll), #2463 (model), #2466 (wiring) |
+| 2 — corrections from review | #2471, #2473 (`e` observable, `j`/`k` reversible, ids match painted rows) |
+| 2 — viewport | #2479, #2481, #2485 (full flatten for navigation, bounded paint, scroll-follow) |
+| 3 — elapsed columns | #2490 (stage timestamps on the wire), #2492 (elapsed + local tick) |
 
-Highest-value non-TUI item: **`20260801T203631Z-criteria-ticked-verifies-mutation-checkpoints`**
-(spec on `main`, unimplemented). One attempt was abandoned 2026-08-01 — the verifier hardcoded
-`withMeasuredTerminal`, `selectPreviousRun`, and `tui-entry.tsx` from this session's evidence rows,
-so it passed the regression fixtures by special-casing them rather than by resolving checkpoints
-generically. **Constraint for the next attempt:** no identifier, filename, or comment phrase from
-the evidence rows may appear in the verifier source; prove generality with a checkpoint the fixtures
-do not contain.
+Harness work that landed alongside, both from defects this session hit repeatedly:
 
-`pipeline_list` carries pipeline `createdAt` and `finishedAtMs` as of #2463; **stage** `startedAt`
-and `endedAt` are durable but still not on the wire, so slice 3 adds them.
+- **#2484** — mutation verification no longer mutates test files. It had stranded three otherwise-finished runs.
+- **#2502** — `spec.criteria-ticked` now **verifies** mutation checkpoints: a ticked criterion claiming a mutation turns a pin red must carry a `// @mutate <path> "<old>" -> "<new>"` directive, which the harness applies before accepting the tick. Spec amended first (#2501) to replace prose resolution, which is what the abandoned first attempt (#2498) faked its way through. Authoring rules: [`spec-guidance.md` § Mutation-checkpoint criteria](../../v1/docs/spec-guidance.md#mutation-checkpoint-criteria).
+
+Known gaps in #2502, deliberately left and named in the runbook: the scoped verification run has no
+timeout and is not wired to the abort signal, and a `SIGKILL` mid-verification leaves the mutated
+file on disk where `git add -A` would commit it.
 
 Two smaller items first if you want a warm-up:
 
@@ -63,7 +66,7 @@ is subscription-billed, so it is not invoiced spend). Rows before it read `unava
 ### Fold into TUI (do not queue separately)
 
 - `seeds/tui-tests-bypass-the-render-path` — folded into `seeds/tui-shell-layout`: no real ink painting on CI (#2417–#2418); assert via injected input hook + production monitor state.
-- `pipeline_list` timestamps (`createdAt`, stage `startedAt`/`endedAt`) — `branchKey` is already on the wire; add timestamps in TUI slice 3 (elapsed columns), not as a standalone seed.
+- `pipeline_list` timestamps — shipped: pipeline `createdAt`/`finishedAtMs` in #2463, stage `startedAt`/`endedAt` in #2490.
 - Delete stub `seeds/queue-widget-refactor.md` (operator notes only, no acceptance criteria) — folded into `seeds/tui-shell-layout`.
 
 ## Rule
@@ -117,8 +120,10 @@ Operator walkthrough: [`first-workflow-walkthrough.md`](../docs/first-workflow-w
 | `terminal-window-renders-finishless-rows` | shipped |
 | `pipeline_list` `branchKey` | shipped |
 | `pipeline_list` pipeline timestamps | shipped #2463 |
-| `pipeline_list` stage timestamps | **not shipped** — slice 3 |
+| `pipeline_list` stage timestamps | shipped #2490 |
 | Shell layout + ink shell (slice 1) | shipped #2453, #2456 |
+| Pipeline tree (slice 2) | shipped #2462, #2463, #2466, #2471, #2473, #2479, #2481, #2485 |
+| Elapsed columns (slice 3) | shipped #2492 |
 | TUI test strategy (ink vs monitor state) | **decided and shipped** — `v2/docs/test-writing.md` § TUI test strategy |
 
 ## Guard-inversion: **CLOSED**
@@ -138,7 +143,9 @@ Watch for disguises a static guard cannot catch: production exports that exist o
 
 ## Carried operator notes
 
-- **Review every implement diff with a subagent before merging.** Review caught real issues in 8 of 11 implement PRs this session that a green ready gate did not flag.
+- **Review every implement diff with a subagent before merging.** Across two sessions review caught real defects the green ready gate did not: 8 of 11 implement PRs on 2026-07-31, 6 of 11 on 2026-08-01 — including duplicate React keys that printed into the operator's own TUI on every paint.
+- **A ticked mutation-checkpoint criterion was the most common lie.** Five across three specs on 2026-08-01 claimed a mutation turns a pin red; applying it left the suite green every time. #2502 now enforces this at the write boundary, but it only covers criteria carrying a `@mutate` directive — a criterion that makes a mutation claim in prose alone is refused, not silently passed.
+- **`jarvis cleanup -y` applies non-interactively.** Piped `y` still cancels (`stdin is not interactive; assuming "no"`); the flag is not `--abandon`-only. Two prior sessions handed cleanup to the operator's shell unnecessarily.
 - **A rising test count can hide a coverage loss.** When a change converts a fixture rather than adding one, run the relevant mutation and compare kill counts against `main`.
 - **Plans block on dependency chains, and that is correct.** Fan plans only across intents with no shared prerequisite; otherwise ship the root first and re-run.
 - **Do not pass `--reset-despite-dirty` on an incomplete spec you care about.** It retires the branch including the remote. Recover with `git fsck --lost-found`.

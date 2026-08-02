@@ -449,7 +449,7 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
     return pipelineContextRows(treeRow, state.runs, nowMs);
   }
 
-  const selectedTreeIndex = fullTreeRows.indexOf(treeRow);
+  const selectedTreeIndex = treeRow === undefined ? -1 : fullTreeRows.indexOf(treeRow);
   const pipeline = fullTreeRows
     .slice(0, Math.max(0, selectedTreeIndex))
     .findLast((entry): entry is MonitorPipelineTreePipelineNode => entry.kind === "pipeline");

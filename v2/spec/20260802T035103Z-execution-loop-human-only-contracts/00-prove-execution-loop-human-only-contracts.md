@@ -4,8 +4,9 @@
 
 - `implement.already_complete` and `spec.criteria-ticked` consume `parseSpec(...).humanOnly`, but
   their regressions do not exercise a marker on a wrapped continuation line.
-- Parser-only coverage does not prove implement launch and terminal-write contracts avoid
-  `already_complete` and `contract_miss` stranding.
+- Pre-fix misclassification treats that unchecked human-only criterion as runnable work: implement
+  admits a no-op run instead of returning `implement.already_complete`, and terminal write returns
+  `contract_miss`. Parser-only coverage does not prove the corrected contracts.
 
 ## Decisions
 
@@ -17,8 +18,11 @@
   treating unchecked human verification as runnable automated work.
 - Add no production guard; pin each unchanged consumer filter with a source-mutation directive in
   its regression — rules out production invert hooks and untested filter polarity.
-- Document marker placement in `workflow-runner.md` and delete the obsolete runbook workaround —
-  rules out contradictory operator guidance.
+- The parser prerequisite recognizes each exact marker string as a case-insensitive contiguous
+  substring anywhere in an assembled criterion block; marker-boundary variants remain parser-owned.
+- Update the v2 workflow and operator docs only. Injected write-step guidance and
+  `v1/docs/run-loop.md` retain trailing-marker semantics; their parser-classification sibling owns
+  reconciliation and must land first, so this execution-loop spec remains serially sequenced after it.
 
 ## Tasks
 
@@ -40,13 +44,23 @@
 - [ ] `write.test.ts` — `done completes when only a wrapped human-only criterion is unchecked` uses
       the same wrapped shape and returns `complete`, not `contract_miss`; it fails with the pre-fix
       parser and passes with block-aware classification.
-- [ ] `implement-workflow-steps.test.ts` and `write.test.ts` — Mutation checkpoint: each regression
-      carries an `@mutate` directive that inverts its corresponding production `humanOnly` filter
-      and turns the named test red; production guards and production test hooks remain unchanged.
+- [ ] `implement-workflow-steps.test.ts` — Mutation checkpoint: its regression carries an `@mutate`
+      directive that inverts the `implement.already_complete` production `humanOnly` filter and turns
+      the named test red; production guards and production test hooks remain unchanged.
+- [ ] `write.test.ts` — Mutation checkpoint: its regression carries an `@mutate` directive that
+      inverts the `spec.criteria-ticked` production `humanOnly` filter and turns the named test red;
+      production guards and production test hooks remain unchanged.
+- [ ] `v2/docs/workflow-runner.md` documents that each exact human-only marker is a
+      case-insensitive contiguous substring matched anywhere in an assembled criterion bullet block.
+- [ ] `v2/docs/operator-runbook.md` removes the obsolete wrapped-`(Manual)` known issue and
+      workaround.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/workflow-runner.md` — human-only markers match at any position on any line of the full
-  criterion bullet block, not only the first line or text tail.
+  criterion bullet block as case-insensitive contiguous exact-marker substrings, not only the first
+  line or text tail.
 - `v2/docs/operator-runbook.md` — remove the obsolete wrapped-`(Manual)` known issue and workaround.
+- Deferred to the parser-classification prerequisite sibling after it lands: reconcile injected
+  write-step guidance and `v1/docs/run-loop.md`, which retain trailing-marker semantics.

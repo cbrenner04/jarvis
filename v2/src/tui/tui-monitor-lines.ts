@@ -322,13 +322,12 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
     let width = atom.text === "\t" ? tabWidth(current) : atom.width;
     if (current.used + width > current.capacity) current = second;
     width = atom.text === "\t" ? tabWidth(current) : atom.width;
-    const fits = current.used + width <= current.capacity;
-    const text =
-      atom.text === "\t" && !fits ? DOCK_CONTROL_REPLACEMENT : atom.text === "\t" ? " ".repeat(width) : atom.text;
-    const paintedWidth = atom.text === "\t" && !fits ? 1 : width;
-    if (current.used + paintedWidth > current.capacity) break;
+    // A tab is re-measured against the row it lands on, so it always stops within
+    // that row's capacity; an atom that still does not fit ends the row.
+    const text = atom.text === "\t" ? " ".repeat(width) : atom.text;
+    if (current.used + width > current.capacity) break;
     current.content += text;
-    current.used += paintedWidth;
+    current.used += width;
   }
   if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {
     return [`${prompt}${DOCK_CURSOR}`, ""];

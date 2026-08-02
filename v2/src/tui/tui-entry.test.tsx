@@ -13,6 +13,7 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -989,6 +990,89 @@ describe("runTuiEntry", () => {
       await flush();
     }
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
+  test("a selected terminal run ageing out of the live window clears the selection", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    let now = TERMINAL_LIST_FINISH_MS + 1_000;
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_BETA] }] },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler, nowMs: () => now },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
+
+    // Past the terminal retention window the row is no longer selectable.
+    now = TERMINAL_LIST_FINISH_MS + TUI_TERMINAL_WINDOW_MS + 1_000;
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId !== null; i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
+  test("a reconnected owner socket re-issues the selected run's wait exactly once", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const ownerMethods: string[] = [];
+    let discoveryPhase = 0;
+    const waitsIssued = () => ownerMethods.filter((m) => m === "wait:run-alpha").length;
+    const { deps } = entryDeps(
+      {},
+      {
+        socketPath: DAEMON2_SOCKET,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async (options) => {
+          const socketPath = options?.socketPath ?? DAEMON2_SOCKET;
+          // Reconnecting the owner socket builds a fresh client for the same path.
+          return (
+            socketPath === DAEMON1_SOCKET
+              ? fakeClient({ methods: ownerMethods, listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }] }] })
+              : fakeClient({ methods: [], listResponses: [{ runs: [] }] })
+          ) as TuiDaemonClient;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          // The owner socket drops on the second refresh and returns afterwards.
+          return discoveryPhase === 2 ? [DAEMON2_SOCKET] : [DAEMON1_SOCKET, DAEMON2_SOCKET];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-alpha");
+    await flush();
+    const waitsAfterSelect = waitsIssued();
+
+    await flushIntervalTick(refresh);
+    await flush();
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 30 && waitsIssued() === waitsAfterSelect; i += 1) {
+      await flush();
+    }
+    const waitsAfterReconnect = waitsIssued();
+    expect(waitsAfterReconnect).toBe(waitsAfterSelect + 1);
+
+    // The reconnect flag is consumed, so a further quiet refresh must not re-issue.
+    await flushIntervalTick(refresh);
+    await flush();
+    await flush();
+    expect(waitsIssued()).toBe(waitsAfterReconnect);
 
     view.quit();
     await pending;

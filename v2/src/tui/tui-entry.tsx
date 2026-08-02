@@ -173,8 +173,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
 
   const clients: Map<string, TuiDaemonClient> = new Map();
-  const clientSocketPaths = new Map<TuiDaemonClient, string>();
-  const reconnectedSocketPaths = new Set<string>();
   const lastGoodListBySocketPath = new Map<string, DaemonListResult>();
   let runOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
@@ -317,29 +315,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       }
     }
 
-    const selectedNodeId = currentState.selectedNodeId;
-    const clearSelection =
-      selectedNodeId !== null &&
-      !monitorSelectableNodeIds(
-        withMeasuredTerminal(
-          {
-            ...currentState,
-            pipelineSnapshotsBySocketPath: currentState.pipelineSnapshotsBySocketPath ?? {},
-          },
-          terminalSizeFn,
-        ),
-        nowMsFn(),
-      ).includes(selectedNodeId);
-
+    // An unselectable selection is cleared by the refresh path below, so this
+    // connection-update pass only has to abandon a wait whose owner went away.
     if (selectedRunOwnerDropped) {
       activeWaitToken += 1;
       setState({
         ...currentState,
         waitState: { kind: "none" },
       });
-    } else if (clearSelection) {
-      activeWaitToken += 1;
-      setState({ ...currentState, selectedNodeId: null, waitState: { kind: "none" }, steeringFeedback: null });
     }
 
     // Add clients for newly discovered sockets
@@ -349,8 +332,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         try {
           const client = await connectFn({ socketPath });
           clients.set(socketPath, client);
-          clientSocketPaths.set(client, socketPath);
-          if (lastGoodListBySocketPath.has(socketPath)) reconnectedSocketPaths.add(socketPath);
         } catch (error) {
           latestError = error;
           // Retry on next tick rather than blacklist; daemon mid-startup fails first probe.
@@ -405,7 +386,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               if (selectedRunId !== null && getOwner(selectedRunId) === client) {
                 selectedRunOwnerLost = true;
                 activeWaitToken += 1;
-                runOwners = new Map([...runOwners].filter(([, owner]) => owner !== client));
               }
               if (!firstError) firstError = error;
               continue;
@@ -501,15 +481,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         });
         const selectedRunId = selectedRunIdFromState(currentState);
         const selectedOwner = selectedRunId === null ? undefined : owners.get(selectedRunId);
-        const selectedOwnerSocket = selectedOwner === undefined ? undefined : clientSocketPaths.get(selectedOwner);
-        if (
-          selectedRunId !== null &&
-          selectedOwner !== undefined &&
-          (waitOwners.get(selectedRunId) !== selectedOwner ||
-            (selectedOwnerSocket !== undefined && reconnectedSocketPaths.has(selectedOwnerSocket)))
-        ) {
+        // A dropped or reconnected owner socket yields a fresh client object, so an
+        // owner-identity change is the whole re-wait condition.
+        if (selectedRunId !== null && selectedOwner !== undefined && waitOwners.get(selectedRunId) !== selectedOwner) {
           activeWaitToken += 1;
-          if (selectedOwnerSocket !== undefined) reconnectedSocketPaths.delete(selectedOwnerSocket);
           setState({ ...currentState, waitState: buildWaitStateForSelection(selectedRunId) });
           startWaitForRun(selectedRunId);
         }

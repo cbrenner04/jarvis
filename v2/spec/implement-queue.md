@@ -2,6 +2,10 @@
 
 Authority: operator priorities. Updated 2026-08-02.
 
+Spec cleanup 2026-08-02: deleted 12 ready-intents (10 already shipped and archived in `completed/`,
+2 speculative) and 9 dead seeds; folded `mutation-verification-artifact-reached-the-completion-commit`
+into `seeds/mutation-verification-outlives-its-run`. Everything remaining maps to the goal below.
+
 ## Goal
 
 TUI slices 1-4 are shipped, and slice 5 (command dock) has its parser, reusable start-admission API,
@@ -34,10 +38,12 @@ Both are ready-intents only — each still needs `jarvis run workflow plan` befo
 
 | Seed | Why |
 | --- | --- |
-| `seeds/mutation-verification-outlives-its-run` | An `iteration_timeout` stranded **three** applied `@mutate` directives in production source, and the verifier kept mutating that worktree after the run row was terminal. Salvage required reversing every directive mechanically. |
+| `seeds/pipeline-fanout-stage-dispatch-contends-on-the-prior-worktree` | Fan-out dispatch races the prior stage's worktree claim: a stage row settles `failed` while its invocation completes, and `pipeline wait` reports terminal with a sibling still `running`. Pipelines are not fully functional until this ships. |
+| `seeds/mutation-verification-outlives-its-run` | An `iteration_timeout` stranded **three** applied `@mutate` directives in production source, and the verifier kept mutating that worktree after the run row was terminal. Salvage required reversing every directive mechanically. Absorbs the committed-content check from the retired artifact seed. |
 | `seeds/gate-autofix-can-turn-a-green-tree-red` | `bun run fix` rewrites `findIndex` → `indexOf` on a possibly-`undefined` needle; the result fails `typecheck` on `main`. Red-gated a run twice and cannot self-repair, since every repair entry re-runs autofix. |
+| `seeds/codex-usage-is-never-recorded` | Codex is metered and led 99/100 invocations on 2026-08-02; the session agent-cost column is blank while actual spend accrues. |
 | `seeds/mutation-selector-fires-on-prose-mentions-of-the-marker` | #2518 selects on a bare `@mutate` substring, so a spec that discusses the marker in prose fails its own gate. |
-| `seeds/tui-waitstate-is-polled-but-no-longer-rendered` | Slice 4 left `waitState` with no reader while the `wait` RPC still fires per selection change; also names the right-pane/left-pane retention disagreement. |
+| `seeds/tui-waitstate-is-polled-but-no-longer-rendered` | Slice 4 left `waitState` with no reader while the `wait` RPC still fires per selection change; also names the right-pane/left-pane retention disagreement. Fold into slice 6 planning. |
 | `seeds/intent-landing-contract-rejects-wrapped-bullets` | Still open. Blocked two intent runs on 2026-08-01. |
 
 ## Harness fixes landed this session
@@ -55,16 +61,14 @@ Both are ready-intents only — each still needs `jarvis run workflow plan` befo
 | --- | --- | --- |
 | `seeds/iteration-timeout-discards-completed-subspecs` | Open, and it bit again this session | Cost a full salvage of dock-projection subspec 00. Workaround: split large subspecs at plan time. |
 | `seeds/out-of-scope-gate-classification-strands-caused-failures` | Open | Run-caused test failures classified out of scope (#2313). |
-| `seeds/mutation-verification-artifact-reached-the-completion-commit` | Open | Superseded in part by `mutation-verification-outlives-its-run`. |
-| `ready-intents/guard-bare-settimeout-in-deterministic-tests.md` | Ready | Hygiene. |
-| `ready-intents/aggregate-timeout-reaps-the-test-process-group.md` | Ready | Only if a hung test descendant is observed. |
-| `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Prereq to later review work only. |
-| `ready-intents/execution-loop-human-only-contracts.md` | Planned, **not implemented** | Spec `20260802T035103Z-execution-loop-human-only-contracts` is on `main` awaiting an implement run. |
+| `seeds/surface-the-completion-commit-error-instead-of-swallowing-it` | Open | `completion_commit_failed` is still a black box on `run list`/`run wait` — `completionCommitError` never reaches the daemon. Small. |
+| `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Not just prep: three of four v2 review prompts tell reviewers the payload is "not a unified diff" while sending one. |
+| `20260802T035103Z-execution-loop-human-only-contracts/` | Planned, **not implemented** | Spec is on `main` awaiting an implement run. Small (two consumer regressions + docs); run it rather than stranding it. |
 
 ## Rule
 
-No reliability phase is open beyond the tables above. Pipelines are done; the TUI brief is the
-active phase.
+No reliability phase is open beyond the tables above. Pipelines are done except the fan-out
+dispatch race (first row of open seeds); the TUI brief is the active phase.
 
 ## Configured pipeline
 

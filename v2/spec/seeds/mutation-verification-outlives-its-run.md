@@ -4,6 +4,11 @@ name: mutation-verification-outlives-its-run
 
 # An iteration timeout strands applied mutations, and the verifier keeps running after the run is terminal
 
+**Absorbs `mutation-verification-artifact-reached-the-completion-commit` (2026-08-02):** the
+committed-content check below is that seed's surviving requirement — PR #2314 shipped a mutation
+present in `HEAD` while the working copy read correct, so any pre-commit check must read the
+content being committed, not the working tree.
+
 ## Problem
 
 The runbook says a `SIGKILL` mid-verification can leave a mutated production file on disk. The
@@ -43,8 +48,9 @@ source that typechecks and often still passes most tests.
   throw, not only on the in-process happy path — rules out relying on the mutation loop reaching
   its own restore step.
 - Before any completion commit, refuse when a directive's replacement text is present in a target
-  file where its original is absent — rules out `git add -A` shipping a stranded mutation, which is
-  the failure that actually reaches `main`.
+  file where its original is absent, checking the staged/committed content rather than the working
+  copy — rules out `git add -A` shipping a stranded mutation, which is the failure that actually
+  reaches `main`, and rules out the working-copy-only comparison that passed on PR #2314.
 - Out of scope: the `iteration_timeout` non-resumability itself (seed
   `iteration-timeout-discards-completed-subspecs`), and directive syntax.
 
@@ -58,7 +64,8 @@ source that typechecks and often still passes most tests.
       path distinctly from the abort path.
 - [ ] The completion boundary refuses when a target file contains a directive's replacement text
       while missing its original, naming path and directive; a regression fails against the current
-      committer.
+      committer. The check reads staged/committed content: a second regression covers a mutation
+      present in `HEAD` but absent from the working copy.
 - [ ] Mutation checkpoint: removing the pre-commit stranded-mutation check turns that refusal test
       RED, via a `// @mutate` directive in the pinning file.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

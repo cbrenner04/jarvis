@@ -133,15 +133,23 @@ export type PipelineSnapshot = {
   pipelineId: string;
   name: string;
   state: PipelineDerivedState;
+  terminalAction?: Pipeline["definition"]["terminalAction"] | undefined;
+  seedPath?: string | undefined;
+  terminalPublicationSucceededAt: number | null;
+  terminalPublicationFailure: Pipeline["terminalPublicationFailure"];
   createdAt: number;
   finishedAtMs: number | null;
   stages: Array<{
+    id: string;
     stageId: string;
     branchKey: string;
+    position: number;
     status: string;
     workflowInvocationId: string | null;
     startedAt: number | null;
     endedAt: number | null;
+    artifact: unknown;
+    failureDetail: unknown;
   }>;
 };
 
@@ -167,15 +175,23 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     pipelineId: pipeline.id,
     name: pipeline.name,
     state,
+    terminalAction: pipeline.definition.terminalAction,
+    seedPath: pipeline.context?.seedPath,
+    terminalPublicationSucceededAt: pipeline.terminalPublicationSucceededAt,
+    terminalPublicationFailure: pipeline.terminalPublicationFailure,
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
     stages: pipeline.stages.map((stage) => ({
+      id: stage.id,
       stageId: stage.stageId,
       branchKey: stage.branchKey,
+      position: stage.position,
       status: stage.status,
       workflowInvocationId: stage.workflowInvocationId,
       startedAt: stage.startedAt,
       endedAt: stage.endedAt,
+      artifact: stage.artifact,
+      failureDetail: stage.failureDetail,
     })),
   };
 }

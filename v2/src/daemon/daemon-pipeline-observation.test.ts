@@ -110,10 +110,13 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 }
 
 function projectedStage(
-  row: Omit<PipelineSnapshot["stages"][number], "startedAt" | "endedAt"> &
+  row: Pick<
+    PipelineSnapshot["stages"][number],
+    "stageId" | "branchKey" | "status" | "workflowInvocationId"
+  > &
     Partial<Pick<PipelineSnapshot["stages"][number], "startedAt" | "endedAt">>,
-): PipelineSnapshot["stages"][number] {
-  return { startedAt: null, endedAt: null, ...row };
+) {
+  return expect.objectContaining({ startedAt: null, endedAt: null, ...row });
 }
 
 function pipelineWithStages(
@@ -188,7 +191,7 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
   expect(pipelines).toHaveLength(1);
   const loaded = stateStore.loadPipeline(pipelineId);
   if (!loaded) throw new Error("expected pipeline");
-  expect(pipelines[0]).toEqual({
+  expect(pipelines[0]).toMatchObject({
     pipelineId,
     name: "sample-pipeline",
     state: "awaiting-approval",
@@ -200,6 +203,110 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
       projectedStage({ stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null }),
     ],
   });
+});
+
+test("projectPipelineSnapshot projects stored terminal and admission diagnostics with JSON omission semantics", () => {
+  const successId = stateStore.createPipeline({
+    definition: { ...WORKFLOW_ONLY, terminalAction: "ready" },
+    context: { cwd: "/admission/repo", seedPath: "seeds/intent.md" },
+  });
+  stateStore.commitTerminalPublicationSuccess({ pipelineId: successId });
+  const failureId = stateStore.createPipeline({
+    definition: { ...WORKFLOW_ONLY, terminalAction: "merge" },
+    context: { cwd: "/admission/repo" },
+  });
+  stateStore.commitTerminalPublicationFailure({
+    pipelineId: failureId,
+    terminalAction: "merge",
+    failure: { operation: "gh pr merge", message: "merge failed", exitCode: 1 },
+  });
+  const absentId = stateStore.createPipeline({
+    definition: WORKFLOW_ONLY,
+    context: { cwd: "/admission/repo" },
+  });
+
+  const success = stateStore.loadPipeline(successId);
+  const failure = stateStore.loadPipeline(failureId);
+  const absent = stateStore.loadPipeline(absentId);
+  if (!success || !failure || !absent) throw new Error("expected stored pipelines");
+
+  const successSnapshot = projectPipelineSnapshot(success);
+  const failureSnapshot = projectPipelineSnapshot(failure);
+  // @mutate v2/src/daemon/pipeline-observation.ts "terminalAction: pipeline.definition.terminalAction," -> "terminalAction: undefined,"
+  expect(successSnapshot).toMatchObject({
+    terminalAction: "ready",
+    seedPath: "seeds/intent.md",
+    terminalPublicationSucceededAt: success.terminalPublicationSucceededAt,
+    terminalPublicationFailure: null,
+  });
+  expect(success.terminalPublicationSucceededAt).toBeNumber();
+  expect(failureSnapshot).toMatchObject({
+    terminalAction: "merge",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: {
+      terminalAction: "merge",
+      failure: { operation: "gh pr merge", message: "merge failed", exitCode: 1 },
+    },
+  });
+
+  const successWire = JSON.parse(JSON.stringify(successSnapshot)) as Record<string, unknown>;
+  const failureWire = JSON.parse(JSON.stringify(failureSnapshot)) as Record<string, unknown>;
+  const absentWire = JSON.parse(JSON.stringify(projectPipelineSnapshot(absent))) as Record<string, unknown>;
+  expect(successWire).not.toHaveProperty("cwd");
+  expect(failureWire).not.toHaveProperty("seedPath");
+  expect(absentWire).not.toHaveProperty("terminalAction");
+  expect(absentWire).not.toHaveProperty("seedPath");
+});
+
+test("projectPipelineSnapshot projects stored stage identity, position, and falsy JSON diagnostics", () => {
+  const pipelineId = stateStore.createPipeline({ definition: THREE_STAGE_DEFINITION });
+  stateStore.updateStage({ pipelineId, stageId: "plan", patch: { artifact: false, failureDetail: 0 } });
+  stateStore.updateStage({ pipelineId, stageId: "gate", patch: { artifact: "", failureDetail: null } });
+  stateStore.updateStage({ pipelineId, stageId: "implement", patch: { artifact: null, failureDetail: "" } });
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  if (!pipeline) throw new Error("expected stored pipeline");
+  const [plan, gate, implement] = pipeline.stages;
+  if (!plan || !gate || !implement) throw new Error("expected stored stages");
+
+  // @mutate v2/src/daemon/pipeline-observation.ts "artifact: stage.artifact," -> "artifact: null,"
+  expect(projectPipelineSnapshot(pipeline).stages).toEqual([
+    {
+      id: plan.id,
+      stageId: "plan",
+      branchKey: "default",
+      position: 0,
+      status: "pending",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: false,
+      failureDetail: 0,
+    },
+    {
+      id: gate.id,
+      stageId: "gate",
+      branchKey: "default",
+      position: 1,
+      status: "pending",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: "",
+      failureDetail: null,
+    },
+    {
+      id: implement.id,
+      stageId: "implement",
+      branchKey: "default",
+      position: 2,
+      status: "pending",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: "",
+    },
+  ]);
 });
 
 test("pipeline_list distinguishes all derived states and classifies only terminal states as terminal", () => {
@@ -273,7 +380,11 @@ test("pipeline_list preserves authored stage order from durable position, not in
 
   const pipeline = stateStore.loadPipeline(pipelineId);
   if (!pipeline) throw new Error("expected pipeline");
-  expect(projectPipelineSnapshot(pipeline).stages.map((stage) => stage.stageId)).toEqual(["implement", "gate", "plan"]);
+  expect(projectPipelineSnapshot(pipeline).stages.map(({ stageId, position }) => ({ stageId, position }))).toEqual([
+    { stageId: "implement", position: -1 },
+    { stageId: "gate", position: 1 },
+    { stageId: "plan", position: 99 },
+  ]);
 });
 
 test("derivePipelineState walks durable position order, not definition array index", () => {

@@ -24,12 +24,16 @@ const TREE_NOW_MS = 1_700_000_000_000;
 
 function implementStage(invocationId: string): PipelineSnapshot["stages"][number] {
   return {
+    id: "stage-implement",
     stageId: "implement",
     branchKey: "default",
+    position: 0,
     status: "running",
     workflowInvocationId: invocationId,
     startedAt: null,
     endedAt: null,
+    artifact: null,
+    failureDetail: null,
   };
 }
 
@@ -43,6 +47,8 @@ function pipelineSnapshot(
     finishedAtMs: null,
     stages: [],
     ...overrides,
+    terminalPublicationSucceededAt: overrides.terminalPublicationSucceededAt ?? null,
+    terminalPublicationFailure: overrides.terminalPublicationFailure ?? null,
   };
 }
 

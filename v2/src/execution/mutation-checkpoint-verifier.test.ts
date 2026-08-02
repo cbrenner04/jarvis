@@ -122,7 +122,9 @@ describe("verifyMutationCheckpoints", () => {
       expect(report[passes ? "caught" : "hollow"]).toEqual([]);
       expect(report[passes ? "hollow" : "caught"]).toHaveLength(1);
       if (passes) {
-        expect(describeHollow(report.hollow[0]!)).toMatch(/guard\.test\.ts:\d+: .*@mutate/);
+        const hollow = report.hollow[0];
+        if (!hollow) throw new Error("expected a hollow checkpoint");
+        expect(describeHollow(hollow)).toMatch(/guard\.test\.ts:\d+: .*@mutate/);
       }
     }
   });
@@ -140,7 +142,9 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(report.hollow).toHaveLength(1);
     expect(report.hollow[0]?.directive).toBeUndefined();
-    expect(describeHollow(report.hollow[0]!)).toContain('// @mutate <path> "<original>" -> "<replacement>"');
+    const hollow = report.hollow[0];
+    if (!hollow) throw new Error("expected a hollow checkpoint");
+    expect(describeHollow(hollow)).toContain('// @mutate <path> "<original>" -> "<replacement>"');
   });
 
   test("criteria without either marker are ignored", async () => {
@@ -238,7 +242,9 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(report.caught).toEqual([]);
     expect(report.hollow).toHaveLength(1);
-    expect(describeHollow(report.hollow[0]!)).toContain("scoped suite stayed green");
+    const hollow = report.hollow[0];
+    if (!hollow) throw new Error("expected a hollow checkpoint");
+    expect(describeHollow(hollow)).toContain("scoped suite stayed green");
   });
 
   test("the target file is restored after the mutation is applied", async () => {
@@ -301,7 +307,9 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(report.hollow).toHaveLength(1);
     expect(report.hollow[0]?.directive).toBeUndefined();
-    expect(describeHollow(report.hollow[0]!)).toContain("@mutate");
+    const hollow = report.hollow[0];
+    if (!hollow) throw new Error("expected a hollow checkpoint");
+    expect(describeHollow(hollow)).toContain("@mutate");
   });
 
   test("every linked directive is applied, so one hollow among several still refuses", async () => {

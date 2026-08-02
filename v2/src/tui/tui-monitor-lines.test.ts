@@ -1068,7 +1068,9 @@ describe("monitorRightPaneSegmentRows", () => {
   test("resolves pipeline detail for off-pane tree row selection", () => {
     // Mutation checkpoint: resolving selection from painted treeRows only must turn off-pane right-pane detail pin RED.
     const { state, layout, maxVisibleRows, pipelines } = overflowPaneMonitorFixture();
-    const offPanePipelineId = pipelines[maxVisibleRows]!.pipelineId;
+    const offPanePipeline = pipelines[maxVisibleRows];
+    if (!offPanePipeline) throw new Error("expected an off-pane pipeline");
+    const offPanePipelineId = offPanePipeline.pipelineId;
     const paintedIds = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS).treeRows.map((row) => row.id);
 
     expect(paintedIds).not.toContain(offPanePipelineId);

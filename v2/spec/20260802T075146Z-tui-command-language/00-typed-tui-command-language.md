@@ -26,14 +26,14 @@ The command dock has no pure language boundary, so input cannot become a typed c
 
 ## Acceptance criteria
 
-- [ ] `tui-command-parser.test.ts` adds parser regressions that fail against the pre-change baseline and pass after implementation: `start jarvis --seed v2/spec/seeds/foo.md`, `start jarvis --seed-text "ship it"`, `expand`, and `collapse` return their typed commands with seed mode and payload preserved.
-- [ ] `tui-command-parser.test.ts` proves the canonical `start` subset: seed flags follow the project; `--seed=value`, duplicate flags, `--`, unknown options, and flag-looking values return their specified error codes rather than being accepted or reinterpreted.
-- [ ] `tui-command-parser.test.ts` proves double-quoted whitespace, empty quotes, adjacent quoted/unquoted segments, escaped whitespace/quotes/backslashes, unsupported escapes, and trailing backslashes tokenize with the specified payload preservation and syntax removal.
-- [ ] `tui-command-parser.test.ts` proves the exported `code` discriminants for unknown verb, malformed/empty input, missing project, missing seed choice/value, both seed flags, duplicate seed flags, unknown options, extra positionals, unexpected arguments, and unterminated quote; it also pins the specified tokenizer, verb, and `start` validation precedence without throwing.
-- [ ] `tui-command-parser.test.ts` proves `expand` and `collapse` reject every operand or option with `unexpected_arguments`.
-- [ ] `tui-command-parser.test.ts` proves `approve`, `reject`, `resume`, `kill`, `pause`, and `log` always return `recognized_unavailable` after successful tokenization, including with trailing tokens, carrying their exact existing CLI command equivalents and no runtime planning labels.
-- [ ] `tui-command-parser.test.ts` carries a unique valid `// @mutate` directive for every added or modified conditional guard, including the real unknown-verb rejection guard; every directive targets a unique real condition, applying each mutation makes the scoped suite fail, normal production rejects invalid input, and production contains no inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-command-parser.test.ts` adds parser regressions that fail against the pre-change baseline and pass after implementation: `start jarvis --seed v2/spec/seeds/foo.md`, `start jarvis --seed-text "ship it"`, `expand`, and `collapse` return their typed commands with seed mode and payload preserved.
+- [x] `tui-command-parser.test.ts` proves the canonical `start` subset: seed flags follow the project; `--seed=value`, duplicate flags, `--`, unknown options, and flag-looking values return their specified error codes rather than being accepted or reinterpreted.
+- [x] `tui-command-parser.test.ts` proves double-quoted whitespace, empty quotes, adjacent quoted/unquoted segments, escaped whitespace/quotes/backslashes, unsupported escapes, and trailing backslashes tokenize with the specified payload preservation and syntax removal.
+- [x] `tui-command-parser.test.ts` proves the exported `code` discriminants for unknown verb, malformed/empty input, missing project, missing seed choice/value, both seed flags, duplicate seed flags, unknown options, extra positionals, unexpected arguments, and unterminated quote; it also pins the specified tokenizer, verb, and `start` validation precedence without throwing.
+- [x] `tui-command-parser.test.ts` proves `expand` and `collapse` reject every operand or option with `unexpected_arguments`.
+- [x] `tui-command-parser.test.ts` proves `approve`, `reject`, `resume`, `kill`, `pause`, and `log` always return `recognized_unavailable` after successful tokenization, including with trailing tokens, carrying their exact existing CLI command equivalents and no runtime planning labels.
+- [x] `tui-command-parser.test.ts` carries a unique valid `// @mutate` directive for every added or modified conditional guard, including the real unknown-verb rejection guard; every directive targets a unique real condition, applying each mutation makes the scoped suite fail, normal production rejects invalid input, and production contains no inversion hook.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -96,8 +96,8 @@ function snapshotStage(
     ...overrides,
     id: overrides.id ?? "stage",
     position: overrides.position ?? 0,
-    artifact: overrides.artifact ?? null,
-    failureDetail: overrides.failureDetail ?? null,
+    artifact: Object.hasOwn(overrides, "artifact") ? overrides.artifact : null,
+    failureDetail: Object.hasOwn(overrides, "failureDetail") ? overrides.failureDetail : null,
   };
 }
 
@@ -733,61 +733,176 @@ describe("monitorSelectableNodeIds", () => {
 });
 
 describe("monitorRightPaneSegmentRows", () => {
-  test("selecting a pipeline node yields pipeline fields only", () => {
-    // Mutation checkpoint: treating pipeline selection as run detail in monitorRightPaneSegmentRows must turn pipeline/stage right-pane pin RED.
-    const snapshot = pipelineSnapshot({
-      pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
-    });
-    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
+  const pipelineCreatedAt = TREE_NOW_MS - 125_000;
+  const pipelineFinishedAt = TREE_NOW_MS - 5_000;
+  const stageStartedAt = TREE_NOW_MS - 65_000;
+  const detailedStage = snapshotStage({
+    id: "record-z",
+    stageId: "implement",
+    position: 9,
+    status: "succeeded",
+    workflowInvocationId: "inv-detail-a",
+    startedAt: stageStartedAt,
+    endedAt: pipelineFinishedAt,
+    artifact: { z: 1, a: { z: false, a: "" } },
+    failureDetail: undefined,
+  });
+  const secondDetailedStage = snapshotStage({
+    id: "record-a",
+    stageId: "implement",
+    position: 1,
+    status: "succeeded",
+    workflowInvocationId: "inv-detail-b",
+    startedAt: stageStartedAt,
+    endedAt: pipelineFinishedAt,
+  });
+  const detailedStages = [detailedStage, secondDetailedStage];
+  const detailedSnapshot = pipelineSnapshot({
+    pipelineId: PIPELINE_ID,
+    state: "succeeded",
+    terminalAction: "ready",
+    seedPath: "seeds/intent.md",
+    terminalPublicationSucceededAt: pipelineFinishedAt,
+    createdAt: pipelineCreatedAt,
+    finishedAtMs: pipelineFinishedAt,
+    stages: detailedStages,
+  });
+  const detailedRun = workflowRun("run-detail-a", "completed", "inv-detail-a", { isLive: false });
+  const secondDetailedRun = workflowRun("run-detail-b", "completed", "inv-detail-b", { isLive: false });
+  const detailedRuns = [detailedRun, secondDetailedRun];
+  const pipelineBlock = [
+    `pipelineId: ${PIPELINE_ID}`,
+    "name: feature-pipeline",
+    "project: demo",
+    "state: succeeded",
+    "elapsed: 2m 0s",
+    `createdAt: ${pipelineCreatedAt}`,
+    `finishedAtMs: ${pipelineFinishedAt}`,
+    "terminalAction: ready",
+    "seedPath: seeds/intent.md",
+    `terminalPublicationSucceededAt: ${pipelineFinishedAt}`,
+    "terminalPublicationFailure: null",
+    "Stages",
+    "stage: implement branch=default status=succeeded elapsed=1m 0s",
+    "stage: implement branch=default status=succeeded elapsed=1m 0s",
+  ];
+
+  test("pipeline selection renders complete identity and durable-order stage roll-up", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow?.kind === \"pipeline\") {" -> "if (false) {"
     const state = monitorState({
-      runs: [matchedRun],
+      runs: detailedRuns,
       selectedNodeId: PIPELINE_ID,
-      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [detailedSnapshot] } },
     });
 
-    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
-
-    expect(lines).toEqual([`pipelineId: ${PIPELINE_ID}`, "name: feature-pipeline", "project: demo", "state: running"]);
+    expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual(pipelineBlock);
   });
 
-  test("selecting a stage node yields stage fields with empty branch for default", () => {
-    const snapshot = pipelineSnapshot({
-      pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
-    });
-    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+  test("stage selection appends the selected durable record with exact branch and stable diagnostics", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow?.kind === \"stage\") {" -> "if (false) {"
+    const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
-      runs: [matchedRun],
-      selectedNodeId: stageId,
-      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      runs: detailedRuns,
+      selectedNodeId: stageNodeId,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [detailedSnapshot] } },
     });
 
-    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
-
-    expect(lines).toEqual(["stageId: implement", "branch: ", "status: running"]);
+    expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual([
+      ...pipelineBlock,
+      "Stage",
+      "id: record-z",
+      "stageId: implement",
+      "branch: default",
+      "position: 9",
+      "status: succeeded",
+      "workflowInvocationId: inv-detail-a",
+      'artifact: {"a":{"a":"","z":false},"z":1}',
+      `startedAt: ${stageStartedAt}`,
+      `endedAt: ${pipelineFinishedAt}`,
+    ]);
   });
 
-  test("selecting a run leaf under a stage preserves workflow and outcome sections", () => {
-    const snapshot = pipelineSnapshot({
-      pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+  test("stage artifact and failure values preserve JSON omission and falsy semantics", () => {
+    const cases: ReadonlyArray<readonly [unknown, string | undefined]> = [
+      [undefined, undefined],
+      [null, "null"],
+      [false, "false"],
+      [0, "0"],
+      ["", ""],
+      ["plain", "plain"],
+      [{ z: [{ y: 2, a: 1 }], a: false }, '{"a":false,"z":[{"a":1,"y":2}]}'],
+    ];
+
+    for (const field of ["artifact", "failureDetail"] as const) {
+      for (const [value, expected] of cases) {
+        const stage = {
+          ...snapshotStage({ stageId: "inspect", artifact: undefined, failureDetail: undefined }),
+          [field]: value,
+        };
+        const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [stage] });
+        const state = monitorState({
+          selectedNodeId: monitorPipelineStageNodeId(PIPELINE_ID, "inspect", "default"),
+          pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+        });
+        const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+        const matching = lines.filter((line) => line.startsWith(`${field}:`));
+
+        expect(matching).toEqual(expected === undefined ? [] : [`${field}: ${expected}`]);
+      }
+    }
+  });
+
+  test("pipeline project is omitted when joined rows are absent or conflict", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (projects.size !== 1 || project.length === 0) return [];" -> "if (false) return [];"
+    const absent = pipelineSnapshot({
+      pipelineId: "pipe-absent",
+      stages: [snapshotStage({ stageId: "write", workflowInvocationId: null })],
     });
-    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
+    const conflicting = pipelineSnapshot({
+      pipelineId: "pipe-conflict",
+      stages: [
+        snapshotStage({ stageId: "write", workflowInvocationId: "inv-conflict-a" }),
+        snapshotStage({ stageId: "review", workflowInvocationId: "inv-conflict-b" }),
+      ],
+    });
+    const runs = [
+      workflowRun("run-conflict-a", "in-progress", "inv-conflict-a", { project: "alpha" }),
+      workflowRun("run-conflict-b", "in-progress", "inv-conflict-b", { project: "beta" }),
+    ];
+
+    for (const snapshot of [absent, conflicting]) {
+      const lines = monitorRightPaneSegmentRows(
+        monitorState({
+          runs,
+          selectedNodeId: snapshot.pipelineId,
+          pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+        }),
+        TREE_NOW_MS,
+      ).map(joinMonitorRow);
+      expect(lines.some((line) => line.startsWith("project:"))).toBe(false);
+    }
+  });
+
+  test("attributed run selection starts with the same pipeline block", () => {
+    const snapshot = pipelineSnapshot({
+      ...detailedSnapshot,
+      stages: [detailedStage],
+    });
     const state = monitorState({
-      runs: [matchedRun],
-      selectedNodeId: "run-implement",
-      waitState: { kind: "ready", runId: "run-implement", result: { runStatus: "in-progress" } },
+      runs: [detailedRun],
+      selectedNodeId: "run-detail-a",
+      waitState: { kind: "ready", runId: "run-detail-a", result: { runStatus: "completed" } },
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    const singleStageBlock = pipelineBlock.slice(0, -1);
 
+    expect(lines.slice(0, singleStageBlock.length)).toEqual(singleStageBlock);
     expect(lines.some((line) => line === "Workflow")).toBe(true);
     expect(lines.some((line) => line.startsWith("> implement"))).toBe(true);
     expect(lines).toContain("Outcome");
-    expect(lines).toContain("runStatus: in-progress");
+    expect(lines).toContain("runStatus: completed");
   });
 
   test("resolves pipeline detail for off-pane tree row selection", () => {
@@ -803,12 +918,14 @@ describe("monitorRightPaneSegmentRows", () => {
     );
 
     expect(lines).not.toContain("No run selected.");
-    expect(lines).toEqual([
+    expect(lines.slice(0, 4)).toEqual([
       `pipelineId: ${offPanePipelineId}`,
       `name: pipeline-${maxVisibleRows}`,
       "project: demo",
       "state: succeeded",
     ]);
+    expect(lines).toContain("elapsed: 1m 40s");
+    expect(lines).toContain("stage: plan branch=default status=succeeded elapsed=");
   });
 
   test("pipeline and stage selection hide the wait/outcome panel", () => {

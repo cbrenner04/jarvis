@@ -21,16 +21,16 @@
 
 ## Acceptance criteria
 
-- [ ] `mutation-checkpoint-verifier.test.ts` — `directive-only criteria receive caught and hollow verification` classifies a ticked directive-only criterion as `hollow` with `path:line` directive coordinates when its mutation leaves the scoped suite green and as `caught` when the mutation turns the suite red; it fails against the pre-fix phrase-only selector.
-- [ ] `mutation-checkpoint-verifier.test.ts` proves a ticked criterion selected by the literal `@mutate` marker but linking no `// @mutate` directive is classified `hollow`, preserving the resolve/apply contract after selection broadens.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `a ticked criterion linking no directive is hollow and names the required form` stays green, proving phrase-only prose with no linked directive remains classified `hollow`.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `criteria without either marker are ignored` proves a ticked criterion containing neither marker remains ignored, including prose using the word “mutation.”
-- [ ] `mutation-checkpoint-verifier.test.ts` proves criteria containing the literal `@mutate` marker remain ignored when unticked or human-only.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `directive-only criteria receive caught and hollow verification`; Mutation checkpoint: the regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "criterion.text.includes(CRITERION_MARKER) || criterion.text.includes(DIRECTIVE_MARKER)" -> "criterion.text.includes(CRITERION_MARKER)"`; reverting the real selection guard to phrase-only turns the named pin red, with no production invert hook.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust states that ticked non-human criteria are selected by `Mutation checkpoint:` or the literal, case-sensitive `@mutate` marker; selection does not parse a directive, and verification still requires a valid linked directive.
-- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria states the same literal-marker selection and linked-directive verification contract while retaining directive syntax and phrase-only refusal semantics.
-- [ ] `v2/docs/v1-behaviors.md` records the broadened literal-marker v2 completion-verification selector and unchanged resolve/apply/scoped-red contract.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `mutation-checkpoint-verifier.test.ts` — `directive-only criteria receive caught and hollow verification` classifies a ticked directive-only criterion as `hollow` with `path:line` directive coordinates when its mutation leaves the scoped suite green and as `caught` when the mutation turns the suite red; it fails against the pre-fix phrase-only selector.
+- [x] `mutation-checkpoint-verifier.test.ts` proves a ticked criterion selected by the literal `@mutate` marker but linking no `// @mutate` directive is classified `hollow`, preserving the resolve/apply contract after selection broadens.
+- [x] `mutation-checkpoint-verifier.test.ts` — `a ticked criterion linking no directive is hollow and names the required form` stays green, proving phrase-only prose with no linked directive remains classified `hollow`.
+- [x] `mutation-checkpoint-verifier.test.ts` — `criteria without either marker are ignored` proves a ticked criterion containing neither marker remains ignored, including prose using the word “mutation.”
+- [x] `mutation-checkpoint-verifier.test.ts` proves criteria containing the literal `@mutate` marker remain ignored when unticked or human-only.
+- [x] `mutation-checkpoint-verifier.test.ts` — `directive-only criteria receive caught and hollow verification`; Mutation checkpoint: the regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER)" -> "markerSource.includes(CRITERION_MARKER)"`; reverting the real selection guard to phrase-only turns the named pin red, with no production invert hook.
+- [x] `v2/docs/operator-runbook.md` § Gate trust states that ticked non-human criteria are selected by `Mutation checkpoint:` or the literal, case-sensitive `@mutate` marker; selection does not parse a directive, and verification still requires a valid linked directive.
+- [x] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria states the same literal-marker selection and linked-directive verification contract while retaining directive syntax and phrase-only refusal semantics.
+- [x] `v2/docs/v1-behaviors.md` records the broadened literal-marker v2 completion-verification selector and unchanged resolve/apply/scoped-red contract.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

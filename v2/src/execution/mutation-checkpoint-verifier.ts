@@ -69,9 +69,38 @@ const DIRECTIVE_MARKER = "@mutate";
 const PIN_TITLE_PATTERN = /^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
 const CRITERION_MARKER = "Mutation checkpoint:";
 const DIRECTIVE_FORM = '// @mutate <path> "<original>" -> "<replacement>"';
+const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
+const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
 
 function unescapeDirectiveText(text: string): string {
   return text.replace(/\\(.)/g, "$1");
+}
+
+/** Full Markdown blocks for acceptance criteria, including continuation lines. */
+function acceptanceCriterionBlocks(content: string): string[] {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line === "## Acceptance criteria");
+  if (start === -1) return [];
+
+  const blocks: string[] = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (LEVEL_TWO_HEADING_PATTERN.test(line)) break;
+    const item = line.match(CHECKLIST_ITEM_PATTERN);
+    if (item?.[2] === undefined) continue;
+
+    let block = item[2].trim();
+    for (i += 1; i < lines.length; i += 1) {
+      const continuation = lines[i] ?? "";
+      if (LEVEL_TWO_HEADING_PATTERN.test(continuation) || CHECKLIST_ITEM_PATTERN.test(continuation)) {
+        i -= 1;
+        break;
+      }
+      block += `\n${continuation.trim()}`;
+    }
+    blocks.push(block);
+  }
+  return blocks;
 }
 
 /** Occurrences of `needle` in `haystack`, counted without regex escaping concerns. */
@@ -248,9 +277,15 @@ export async function verifyMutationCheckpoints(
   const empty: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };
   if (!existsSync(subspecPath)) return empty;
 
-  const criteria = parseSpec(readFile(subspecPath)).acceptanceCriteria.filter(
-    (criterion) => criterion.checked && !criterion.humanOnly && criterion.text.includes(CRITERION_MARKER),
-  );
+  const subspec = readFile(subspecPath);
+  const criterionBlocks = acceptanceCriterionBlocks(subspec);
+  const criteria = parseSpec(subspec).acceptanceCriteria.filter((criterion, index) => {
+    if (!criterion.checked || criterion.humanOnly) return false;
+    // The block spans the criterion's continuation lines; fall back to the first
+    // line alone when block assembly and criterion order disagree.
+    const markerSource = criterionBlocks[index] ?? criterion.text;
+    return markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER);
+  });
   if (criteria.length === 0) return empty;
 
   const report_: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };

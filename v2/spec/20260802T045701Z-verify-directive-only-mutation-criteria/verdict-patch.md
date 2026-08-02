@@ -1,0 +1,3 @@
+- A marker anywhere within a checklist criterion’s full Markdown block must trigger selection, including continuation lines. Preserve ticked and non-human-only boundaries, and add regression coverage proving continuation-line `Mutation checkpoint:`/literal `@mutate` markers cannot bypass verification. Durable docs describe criteria as “containing” either marker without a first-line restriction; the current first-line-only selector violates that contract.
+
+- Preserve existing non-blocking handling of unparseable or unresolved directives. The spec explicitly retains pin-resolution semantics; changing that behavior requires a separate spec.

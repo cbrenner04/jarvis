@@ -240,6 +240,9 @@ test("selection stays inside the painted viewport", () => {
 
 Rules the harness enforces:
 
+- A ticked non-human-only criterion is selected by `Mutation checkpoint:` or the
+  literal, case-sensitive `@mutate` marker. Selection does not parse a directive;
+  successful verification still requires a valid linked directive.
 - The criterion names the pinning test file in backticks; the basename must resolve
   to exactly one file in the worktree.
 - The directive's target text must occur **exactly once** in the named path. Zero or
@@ -251,8 +254,8 @@ Rules the harness enforces:
   in the blocker. That outcome is often correct information: the guard may be dead code,
   in which case deleting it beats inventing a test for it.
 
-Prose `Mutation checkpoint:` comments remain useful context for a human reader; they
-are not the machine contract.
+Prose `Mutation checkpoint:` comments remain useful context for a human reader; without
+a linked directive they are refused and are not the machine contract.
 
 ### Behavioral acceptance criteria
 

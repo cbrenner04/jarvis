@@ -34,6 +34,10 @@ function subspecNaming(pinFile: string, pinTitle: string): string {
   ].join("\n");
 }
 
+function subspecWithCriteria(criteria: readonly string[]): string {
+  return ["# Spec", "", "## Acceptance criteria", "", ...criteria, ""].join("\n");
+}
+
 /** Records the scoped-suite calls and answers with a caller-supplied verdict. */
 function scopedRunner(passes: boolean): {
   run: (cwd: string, scope: string[]) => Promise<boolean>;
@@ -97,6 +101,110 @@ describe("pinningTestBasenameFromCriterion", () => {
 });
 
 describe("verifyMutationCheckpoints", () => {
+  test("directive-only criteria receive caught and hollow verification", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER)" -> "markerSource.includes(CRITERION_MARKER)"
+    for (const passes of [true, false]) {
+      const root = makeWorktree();
+      writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");
+      writeAt(
+        root,
+        "v2/src/guard.test.ts",
+        ['test("guard pin", () => {', '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
+      );
+      const subspec = writeAt(
+        root,
+        "spec/00.md",
+        subspecWithCriteria(["- [x] `guard.test.ts` — `guard pin` links literal `@mutate` evidence."]),
+      );
+
+      const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(passes).run });
+
+      expect(report[passes ? "caught" : "hollow"]).toEqual([]);
+      expect(report[passes ? "hollow" : "caught"]).toHaveLength(1);
+      if (passes) {
+        expect(describeHollow(report.hollow[0]!)).toMatch(/guard\.test\.ts:\d+: .*@mutate/);
+      }
+    }
+  });
+
+  test("a directive-only criterion linking no directive is hollow", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.test.ts", 'test("guard pin", () => {});');
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria(["- [x] `guard.test.ts` — `guard pin` requires literal `@mutate` evidence."]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expect(report.hollow).toHaveLength(1);
+    expect(report.hollow[0]?.directive).toBeUndefined();
+    expect(describeHollow(report.hollow[0]!)).toContain('// @mutate <path> "<original>" -> "<replacement>"');
+  });
+
+  test("criteria without either marker are ignored", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.test.ts", 'test("guard pin", () => {});');
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [x] `guard.test.ts` — `guard pin` has ordinary coverage.",
+        "- [x] `guard.test.ts` — `guard pin` discusses mutation testing in prose.",
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(true).run });
+
+    expect(report).toEqual({ hollow: [], unparseable: [], caught: [] });
+  });
+
+  test("unticked and human-only directive markers are ignored", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.test.ts", 'test("guard pin", () => {});');
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [ ] `guard.test.ts` — `guard pin` links `@mutate` evidence.",
+        "- [x] `guard.test.ts` — `guard pin` links `@mutate` evidence. (Manual)",
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(true).run });
+
+    expect(report).toEqual({ hollow: [], unparseable: [], caught: [] });
+  });
+
+  test("continuation-line markers cannot bypass verification", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");
+    writeAt(
+      root,
+      "v2/src/guard.test.ts",
+      ['test("guard pin", () => {', '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
+    );
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [x] `guard.test.ts` — `guard pin` is checked.",
+        "  Mutation checkpoint: continuation evidence.",
+        "- [x] `guard.test.ts` — `guard pin` is checked.",
+        "  Literal `@mutate` continuation evidence.",
+      ]),
+    );
+
+    const runner = scopedRunner(true);
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: runner.run });
+
+    expect(report.caught).toEqual([]);
+    expect(report.unparseable).toEqual([]);
+    expect(report.hollow).toHaveLength(2);
+    expect(runner.calls).toHaveLength(2);
+  });
+
   test("a directive whose mutation turns the suite red is caught", async () => {
     const root = makeWorktree();
     writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");

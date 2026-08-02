@@ -271,20 +271,16 @@ function dockInputAtoms(buffer: string, cursorOffset: number, columns: number): 
   const graphemes = Array.from(GRAPHEME_SEGMENTER.segment(buffer), ({ segment }) => segment);
   const cursor = Math.min(Math.max(0, cursorOffset), graphemes.length);
   const atoms: DockInputAtom[] = [];
-  let logicalColumn = Bun.stringWidth(dockPrompt(columns));
   for (const [index, grapheme] of graphemes.entries()) {
     if (index === cursor) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });
     if (grapheme === "\t") {
-      const width = TAB_STOP_COLUMNS - (logicalColumn % TAB_STOP_COLUMNS);
-      atoms.push({ text: " ".repeat(width), width, cursor: false });
-      logicalColumn += width;
+      atoms.push({ text: "\t", width: 0, cursor: false });
       continue;
     }
     const safe = sanitizeDockGrapheme(grapheme);
     const width = Bun.stringWidth(safe);
     const painted = width > columns ? DOCK_CONTROL_REPLACEMENT : safe;
     atoms.push({ text: painted, width: Bun.stringWidth(painted), cursor: false });
-    logicalColumn += Bun.stringWidth(painted);
   }
   if (cursor === graphemes.length) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });
   return atoms;
@@ -292,16 +288,25 @@ function dockInputAtoms(buffer: string, cursorOffset: number, columns: number): 
 
 function dockInputWindow(atoms: readonly DockInputAtom[], capacity: number): readonly DockInputAtom[] {
   const cursorIndex = atoms.findIndex((atom) => atom.cursor);
-  const prefixWidths = atoms.map((_, index) => atoms.slice(0, index).reduce((sum, atom) => sum + atom.width, 0));
-  const totalWidth = atoms.reduce((sum, atom) => sum + atom.width, 0);
-  const cursorColumn = prefixWidths[cursorIndex] ?? 0;
-  const desiredStart = Math.min(
-    Math.max(0, cursorColumn - Math.floor((capacity - 1) / 2)),
-    Math.max(0, totalWidth - capacity),
-  );
-  const firstAtOrAfterStart = prefixWidths.findIndex((width) => width >= desiredStart);
-  const start = Math.min(cursorIndex, Math.max(0, firstAtOrAfterStart));
-  return atoms.slice(start);
+  if (cursorIndex < 0) return [];
+  let start = cursorIndex;
+  let end = cursorIndex + 1;
+  let remaining = capacity - (atoms[cursorIndex]?.width || 1);
+  while (start > 0) {
+    const previous = atoms[start - 1]!;
+    const width = previous.width || TAB_STOP_COLUMNS;
+    if (width > remaining) break;
+    start -= 1;
+    remaining -= width;
+  }
+  while (end < atoms.length) {
+    const next = atoms[end]!;
+    const width = next.width || TAB_STOP_COLUMNS;
+    if (width > remaining) break;
+    end += 1;
+    remaining -= width;
+  }
+  return atoms.slice(start, end);
 }
 
 function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [string, string] {
@@ -312,10 +317,22 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
   const second = { content: "", used: 0, capacity: capacities[1] };
   let current = first;
   for (const atom of window) {
-    if (current.used + atom.width > current.capacity) current = second;
-    if (current.used + atom.width > current.capacity) break;
-    current.content += atom.text;
-    current.used += atom.width;
+    const tabWidth = (line: typeof first): number =>
+      TAB_STOP_COLUMNS - ((line.used + (line === first ? Bun.stringWidth(prompt) : 0)) % TAB_STOP_COLUMNS);
+    let width = atom.text === "\t" ? tabWidth(current) : atom.width;
+    if (current.used + width > current.capacity) current = second;
+    width = atom.text === "\t" ? tabWidth(current) : atom.width;
+    const fits = current.used + width <= current.capacity;
+    const text =
+      atom.text === "\t" && !fits
+        ? DOCK_CONTROL_REPLACEMENT
+        : atom.text === "\t"
+          ? " ".repeat(width)
+          : atom.text;
+    const paintedWidth = atom.text === "\t" && !fits ? 1 : width;
+    if (current.used + paintedWidth > current.capacity) break;
+    current.content += text;
+    current.used += paintedWidth;
   }
   if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {
     return [`${prompt}${DOCK_CURSOR}`, ""];
@@ -334,7 +351,10 @@ function dockHintLine(state: TuiMonitorState): string {
       ),
   );
   const selectedRun = state.runs.find((run) => run.runId === state.selectedNodeId);
-  const killable = selectedRun?.isLive === true && isActiveRunStatus(selectedRun.status);
+  const killable =
+    selectedRun?.isLive === true &&
+    isActiveRunStatus(selectedRun.status) &&
+    (state.actionableRunIds?.includes(selectedRun.runId) ?? true);
   return [
     "j/↓ next",
     "↑ previous",

@@ -590,6 +590,12 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (`finishedAtMs`, `endedAt`), not from terminal status alone; a local display tick
   advances active elapsed without extra `list` or `pipeline_list` RPC. Sources:
   `v2/src/tui/tui-entry.tsx`, `v2/docs/write-behavior.md`
+- [v2-only] The TUI paints a state-driven, fixed four-line dock: active-pipeline
+  status with invoking profile/socket key, refresh and RPC/result feedback; prompted
+  input with a visible cursor; a fixed continuation row; and selection/focus-specific
+  hints. Input is sanitized and display-width-windowed across the two input rows.
+  Editing and submission remain unavailable. Sources: `v2/src/tui/tui-monitor-lines.ts`,
+  `v2/src/tui/tui-ink-monitor.tsx`
 - [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
   daemon sockets, connects to each, and aggregates their `list` results into one
   monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);

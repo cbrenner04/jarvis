@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { Box as InkBox, renderToString, Text as InkText } from "ink";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
@@ -15,6 +16,7 @@ import {
 } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
+import { monitorDockLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
@@ -120,6 +122,21 @@ function regionBoxWidth(region: ReactElement | undefined): number | undefined {
   return undefined;
 }
 
+function dockRows(tree: unknown): { text: string; props: StubBoxProps }[] {
+  const dock = findRegion(tree, MonitorDock);
+  if (dock === undefined) throw new Error("expected dock");
+  const dockBox = (dock.props as { children?: ReactElement }).children;
+  if (dockBox === undefined || typeof dockBox !== "object" || !("props" in dockBox)) {
+    throw new Error("expected dock box");
+  }
+  const children = (dockBox.props as { children?: unknown }).children;
+  const rows = Array.isArray(children) ? children : children === undefined ? [] : [children];
+  return rows.map((row) => {
+    if (typeof row !== "object" || row === null || !("props" in row)) throw new Error("expected dock row");
+    return { text: collectInkText(row), props: (row as ReactElement<StubBoxProps>).props };
+  });
+}
+
 type StubBoxProps = {
   flexDirection?: "column" | "row";
   width?: number;
@@ -175,6 +192,15 @@ function stubBox(props: {
 
 function stubText(props: { children?: string; color?: string }): ReactElement {
   return createElement("monitor-text", props.color === undefined ? null : { color: props.color }, props.children);
+}
+
+function renderMonitorOutput(state: TuiMonitorState): string[] {
+  const Text = (props: { children?: string; color?: string }) =>
+    createElement(InkText, props.color === undefined ? null : { color: props.color }, props.children);
+  const Box = ({ children, ...props }: StubBoxProps) => createElement(InkBox, props, children);
+  return renderToString(createMonitorDisplay(state, Text, Box, TREE_NOW_MS), {
+    columns: state.terminalColumns ?? 245,
+  }).split("\n");
 }
 
 function shellState(
@@ -345,10 +371,60 @@ describe("createMonitorDisplay", () => {
     expect(rightText).toContain("status: in-progress");
     expect(rightText).toContain("runId: run-alpha");
     expect(rightText).not.toContain("run-beta");
-    expect(dockText).toContain("1 active · refresh 1s");
-    expect(leftText).not.toContain("1 active · refresh 1s");
-    expect(rightText).not.toContain("1 active · refresh 1s");
+    expect(dockText).toContain("0 active · unknown@unknown · refresh 1s");
+    expect(leftText).not.toContain("0 active · unknown@unknown · refresh 1s");
+    expect(rightText).not.toContain("0 active · unknown@unknown · refresh 1s");
     expect(regionBoxWidth(left)).toBe(computeShellLayout(245, 72, 0).leftWidth);
+  });
+
+  test("paints only the four projected dock rows in split and stacked shells", () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (Box === undefined) return rows;" -> "if (true) return rows;"
+    const snapshot = pipelineSnapshot({ pipelineId: "pipeline-dock", stages: [implementStage("inv-dock")] });
+    for (const terminalColumns of [120, 119]) {
+      const state = shellState([], "pipeline-dock", {
+        commandBuffer: "x".repeat(250),
+        commandCursor: 100,
+        machineProfile: "workstation",
+        keyedSocketDigest: "0123456789abcdef",
+        lastCommandResult: "ready",
+        pipelineSnapshotsBySocketPath: { "/socket": { pipelines: [snapshot] } },
+        terminalColumns,
+      });
+      const tree = createMonitorDisplay(state, stubText, stubBox, TREE_NOW_MS);
+      const rows = dockRows(tree);
+
+      expect(rows.map((row) => row.text)).toEqual(monitorDockLines(state));
+      expect(rows).toHaveLength(4);
+      expect(rows.every((row) => row.props.height === 1 && row.props.overflow === "hidden")).toBe(true);
+      expect(rows[0]?.text).toContain("1 active · workstation@0123456789abcdef · refresh 1s · result: ready");
+      expect(rows[1]?.text).toContain("▏");
+      expect(rows[2]?.text).not.toBe("");
+      expect(rows[3]?.text).toContain("e expand/collapse");
+    }
+  });
+
+  test("renders empty and long input as four fixed physical dock rows in both shells", () => {
+    for (const terminalColumns of [120, 119]) {
+      for (const commandBuffer of ["", `${"x".repeat(terminalColumns * 3)}\nend`]) {
+        const state = shellState([], null, {
+          commandBuffer,
+          commandCursor: commandBuffer.length,
+          machineProfile: "profile",
+          keyedSocketDigest: "digest",
+          terminalColumns,
+          terminalRows: 12,
+        });
+        const layout = computeShellLayout(terminalColumns, 12, 0);
+        const output = renderMonitorOutput(state);
+        const paintedDock = output.slice(layout.paneHeight);
+
+        expect(output).toHaveLength(12);
+        expect(paintedDock).toEqual(monitorDockLines(state));
+        expect(paintedDock).toHaveLength(layout.dockHeight);
+        expect(paintedDock.every((row) => Bun.stringWidth(row) <= terminalColumns)).toBe(true);
+        expect(paintedDock.every((row) => !/\p{Cc}/u.test(row))).toBe(true);
+      }
+    }
   });
 
   test("stacked shell vertically stacks left and right panes below 120 columns", () => {

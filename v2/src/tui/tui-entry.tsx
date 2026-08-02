@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
@@ -73,7 +74,15 @@ function selectedRunIdFromState(state: TuiMonitorState): string | null {
   return state.runs.some((run) => run.runId === nodeId) ? nodeId : null;
 }
 
-function emptyMonitorState(): TuiMonitorState {
+function keyedSocketDigest(socketPath: string): string {
+  const match = /^daemon-([0-9a-fA-F]{16})\.sock$/.exec(basename(socketPath));
+  if (match === null) return "unknown";
+  return match[1]!.toLowerCase();
+}
+
+function emptyMonitorState(
+  invocationIdentity: Pick<TuiMonitorState, "machineProfile" | "keyedSocketDigest">,
+): TuiMonitorState {
   return {
     runs: [],
     selectedNodeId: null,
@@ -81,6 +90,12 @@ function emptyMonitorState(): TuiMonitorState {
     steeringFeedback: null,
     expandedPipelineNodeIds: [],
     refreshIntervalLabel: tuiRefreshIntervalLabel(),
+    commandBuffer: "",
+    commandCursor: 0,
+    focus: "tree",
+    lastCommandResult: null,
+    lastRpcError: null,
+    ...invocationIdentity,
     pipelineSnapshotsBySocketPath: {},
   };
 }
@@ -137,8 +152,19 @@ function steeringFeedbackFromError(error: unknown): string {
   return `${feedback.code}: ${feedback.message}`;
 }
 
+function refreshRpcFeedback(error: unknown | undefined): string | null {
+  if (error === undefined) return null;
+  if (error instanceof RpcError || error instanceof RpcConnectionError) return steeringFeedbackFromError(error);
+  if (error instanceof Error) return `daemon_error: ${(error as Error).message}`;
+  return `daemon_error: ${String(error)}`;
+}
+
 /** Connect, prove liveness, and enter the interactive run monitor until quit. */
 export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
+  const invocationIdentity = {
+    machineProfile: deps.machineProfile,
+    keyedSocketDigest: keyedSocketDigest(deps.socketPath),
+  };
   const nowMsFn = deps.nowMs ?? (() => Date.now());
   const connectFn = deps.connectTuiDaemon ?? connectTuiDaemon;
   const refreshScheduler = deps.refreshScheduler ?? createIntervalScheduler();
@@ -147,12 +173,16 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const terminalSizeFn = deps.terminalSize ?? processTerminalSize;
 
   const clients: Map<string, TuiDaemonClient> = new Map();
+  const clientSocketPaths = new Map<TuiDaemonClient, string>();
+  const reconnectedSocketPaths = new Set<string>();
+  const lastGoodListBySocketPath = new Map<string, DaemonListResult>();
   let runOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
   let displayTickHandle: { close(): void } | undefined;
-  let currentState: TuiMonitorState = emptyMonitorState();
+  let currentState: TuiMonitorState = emptyMonitorState(invocationIdentity);
   let activeWaitToken = 0;
+  const waitOwners = new Map<string, TuiDaemonClient>();
   let refreshInFlight = false;
   let refreshQueued = false;
   const lastReadyByRunId = new Map<string, Extract<TuiWaitState, { kind: "ready" }>>();
@@ -168,7 +198,10 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const getOwner = (runId: string): TuiDaemonClient | undefined => runOwners.get(runId);
 
   const setState = (state: TuiMonitorState): void => {
-    currentState = withMeasuredTerminal(withLeftPaneTreeScrollFollow(state, nowMsFn()), terminalSizeFn);
+    currentState = withMeasuredTerminal(
+      withLeftPaneTreeScrollFollow({ ...state, ...invocationIdentity }, nowMsFn()),
+      terminalSizeFn,
+    );
     syncMonitor();
   };
 
@@ -176,6 +209,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     const waitToken = activeWaitToken;
     const owner = getOwner(runId);
     if (!owner) return;
+    waitOwners.set(runId, owner);
 
     void (async () => {
       try {
@@ -258,7 +292,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
     runAction((runId, owner) => owner[method](runId), rewaitOnSuccess);
 
-  const updateConnections = async (): Promise<void> => {
+  const updateConnections = async (): Promise<unknown | undefined> => {
     const sockets = await discoverFn();
     const allSockets = new Set(sockets);
     // Include invoking socket when: discovery returns no sockets (solo fallback), already listed, or already connected
@@ -268,74 +302,64 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
     // Close clients for sockets no longer live
     const currentSockets = new Set(clients.keys());
-    let snapshotsChanged = false;
     let selectedRunOwnerDropped = false;
     for (const socketPath of currentSockets) {
       if (!allSockets.has(socketPath)) {
         const client = clients.get(socketPath);
         client?.close();
         clients.delete(socketPath);
-
-        if (currentState.pipelineSnapshotsBySocketPath?.[socketPath] !== undefined) {
-          snapshotsChanged = true;
-        }
-
         const selectedRunId = selectedRunIdFromState(currentState);
         if (selectedRunId !== null && getOwner(selectedRunId) === client) {
           selectedRunOwnerDropped = true;
         }
+        runOwners = new Map([...runOwners].filter(([, owner]) => owner !== client));
       }
     }
 
-    const nextSnapshots = snapshotsChanged
-      ? Object.fromEntries(
-          Object.entries(currentState.pipelineSnapshotsBySocketPath ?? {}).filter(([path]) => clients.has(path)),
-        )
-      : currentState.pipelineSnapshotsBySocketPath;
-
     const selectedNodeId = currentState.selectedNodeId;
-    const selectedRunId = selectedRunIdFromState(currentState);
     const clearSelection =
-      selectedRunOwnerDropped ||
-      (selectedNodeId !== null &&
-        ((selectedRunId !== null && getOwner(selectedRunId) === undefined) ||
-          !monitorSelectableNodeIds(
-            withMeasuredTerminal(
-              {
-                ...currentState,
-                pipelineSnapshotsBySocketPath: nextSnapshots ?? currentState.pipelineSnapshotsBySocketPath ?? {},
-              },
-              terminalSizeFn,
-            ),
-            nowMsFn(),
-          ).includes(selectedNodeId)));
+      selectedNodeId !== null &&
+      !monitorSelectableNodeIds(
+        withMeasuredTerminal(
+          {
+            ...currentState,
+            pipelineSnapshotsBySocketPath: currentState.pipelineSnapshotsBySocketPath ?? {},
+          },
+          terminalSizeFn,
+        ),
+        nowMsFn(),
+      ).includes(selectedNodeId);
 
-    if (clearSelection) {
+    if (selectedRunOwnerDropped) {
       activeWaitToken += 1;
       setState({
         ...currentState,
-        selectedNodeId: null,
         waitState: { kind: "none" },
-        steeringFeedback: null,
-        ...(snapshotsChanged && nextSnapshots !== undefined ? { pipelineSnapshotsBySocketPath: nextSnapshots } : {}),
       });
-    } else if (snapshotsChanged && nextSnapshots !== undefined) {
-      setState({ ...currentState, pipelineSnapshotsBySocketPath: nextSnapshots });
+    } else if (clearSelection) {
+      activeWaitToken += 1;
+      setState({ ...currentState, selectedNodeId: null, waitState: { kind: "none" }, steeringFeedback: null });
     }
 
     // Add clients for newly discovered sockets
+    let latestError: unknown;
     for (const socketPath of allSockets) {
       if (!clients.has(socketPath)) {
         try {
-          clients.set(socketPath, await connectFn({ socketPath }));
-        } catch {
+          const client = await connectFn({ socketPath });
+          clients.set(socketPath, client);
+          clientSocketPaths.set(client, socketPath);
+          if (lastGoodListBySocketPath.has(socketPath)) reconnectedSocketPaths.add(socketPath);
+        } catch (error) {
+          latestError = error;
           // Retry on next tick rather than blacklist; daemon mid-startup fails first probe.
         }
       }
     }
+    return latestError;
   };
 
-  const refreshRuns = async (initial = false): Promise<void> => {
+  const refreshRuns = async (initial = false, admissionError?: unknown): Promise<void> => {
     if (refreshInFlight) {
       refreshQueued = true;
       return;
@@ -345,53 +369,64 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     try {
       do {
         refreshQueued = false;
+        let refreshError: unknown = initial ? admissionError : undefined;
 
         // Rediscover live sockets and update connections
         if (!initial) {
           try {
-            await updateConnections();
-          } catch {
+            refreshError = await updateConnections();
+          } catch (error) {
+            refreshError = error;
             // Rediscovery failure leaves the current connection set intact for that tick.
           }
         }
 
-        let pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {
+        const pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {
           ...(currentState.pipelineSnapshotsBySocketPath ?? {}),
         };
 
-        const listResults: Array<[TuiDaemonClient, DaemonListResult | undefined]> = [];
+        const liveListResults: Array<[TuiDaemonClient, DaemonListResult]> = [];
         let allClientsFailed = true;
         let firstError: unknown;
+        let selectedRunOwnerLost = false;
         for (const [socketPath, client] of [...clients.entries()]) {
           try {
-            listResults.push([client, await client.list()]);
+            const result = await client.list();
+            lastGoodListBySocketPath.set(socketPath, result);
+            liveListResults.push([client, result]);
             allClientsFailed = false;
           } catch (error) {
+            refreshError = error;
             if (socketPath === deps.socketPath) {
               client.close();
               clients.delete(socketPath);
-              listResults.push([client, undefined]);
+              const selectedRunId = selectedRunIdFromState(currentState);
+              if (selectedRunId !== null && getOwner(selectedRunId) === client) {
+                selectedRunOwnerLost = true;
+                activeWaitToken += 1;
+                runOwners = new Map([...runOwners].filter(([, owner]) => owner !== client));
+              }
               if (!firstError) firstError = error;
               continue;
             }
-            listResults.push([client, undefined]);
             if (!firstError) firstError = error;
           }
 
           try {
             pipelineSnapshotsBySocketPath[socketPath] = await client.pipelineList();
-          } catch {
+          } catch (error) {
+            refreshError = error;
             // Retain last-good per-daemon snapshot on observation failure.
           }
         }
-        pipelineSnapshotsBySocketPath = Object.fromEntries(
-          Object.entries(pipelineSnapshotsBySocketPath).filter(([path]) => clients.has(path)),
-        );
 
         if (initial && allClientsFailed) throw firstError;
 
-        const { rows: mergedRuns, owners } = mergeRunLists(listResults);
+        const retainedListResults: Array<[string, DaemonListResult]> = [...lastGoodListBySocketPath.entries()];
+        const { rows: mergedRuns } = mergeRunLists(retainedListResults);
+        const { owners } = mergeRunLists(liveListResults);
         runOwners = owners;
+        const actionableRunIds = [...owners.keys()];
 
         if (initial) {
           const refreshNowMs = nowMsFn();
@@ -402,6 +437,13 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               waitState: { kind: "none" },
               steeringFeedback: null,
               expandedPipelineNodeIds: [],
+              commandBuffer: "",
+              commandCursor: 0,
+              focus: "tree",
+              lastCommandResult: null,
+              lastRpcError: refreshRpcFeedback(refreshError),
+              actionableRunIds,
+              ...invocationIdentity,
               pipelineSnapshotsBySocketPath,
               terminalWindowNowMs: refreshNowMs,
             },
@@ -432,11 +474,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           ).includes(selectedNodeId)
         ) {
           setState({
+            ...currentState,
             runs: mergedRuns,
             selectedNodeId: null,
             waitState: { kind: "none" },
             steeringFeedback: null,
             expandedPipelineNodeIds: currentState.expandedPipelineNodeIds ?? [],
+            lastRpcError: refreshRpcFeedback(refreshError),
+            actionableRunIds,
             pipelineSnapshotsBySocketPath,
             terminalWindowNowMs: refreshNowMs,
           });
@@ -447,9 +492,26 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         setState({
           ...currentState,
           runs: mergedRuns,
+          ...(selectedRunOwnerLost ? { waitState: { kind: "none" } } : {}),
+          lastRpcError: refreshRpcFeedback(refreshError),
+          actionableRunIds,
           pipelineSnapshotsBySocketPath,
           terminalWindowNowMs: refreshNowMs,
         });
+        const selectedRunId = selectedRunIdFromState(currentState);
+        const selectedOwner = selectedRunId === null ? undefined : owners.get(selectedRunId);
+        const selectedOwnerSocket = selectedOwner === undefined ? undefined : clientSocketPaths.get(selectedOwner);
+        if (
+          selectedRunId !== null &&
+          selectedOwner !== undefined &&
+          (waitOwners.get(selectedRunId) !== selectedOwner ||
+            (selectedOwnerSocket !== undefined && reconnectedSocketPaths.has(selectedOwnerSocket)))
+        ) {
+          activeWaitToken += 1;
+          if (selectedOwnerSocket !== undefined) reconnectedSocketPaths.delete(selectedOwnerSocket);
+          setState({ ...currentState, waitState: buildWaitStateForSelection(selectedRunId) });
+          startWaitForRun(selectedRunId);
+        }
       } while (refreshQueued);
     } finally {
       refreshInFlight = false;
@@ -457,7 +519,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   };
 
   try {
-    await updateConnections();
+    const admissionError = await updateConnections();
 
     if (clients.size === 0) {
       await presentFeedback({ kind: "unavailable" }, deps);
@@ -469,7 +531,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     const statusChecks = Array.from(clients.values()).map((client) => client.status());
     await Promise.all([...healthChecks, ...statusChecks]);
 
-    await refreshRuns(true);
+    await refreshRuns(true, admissionError);
 
     if (currentState.selectedNodeId !== null) {
       setSelection(currentState.selectedNodeId);

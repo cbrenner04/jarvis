@@ -286,6 +286,7 @@ async function renderedTableRunIds(runs: DaemonListRunRow[]): Promise<string[]> 
   const view = createViewHost();
   const pending = runTuiEntry({
     socketPath: "/tmp/test.sock",
+    machineProfile: "test",
     nowMs: () => FIXED_NOW,
     viewHost: view.host,
     connectTuiDaemon: async () => fakeClient([{ runs }]),

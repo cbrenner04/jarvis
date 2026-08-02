@@ -1340,14 +1340,38 @@ describe("monitorDockLines", () => {
     ).toEqual(["▏", "�"]);
   });
 
+  test("expands tabs from their painted row after wrapping and windowing", () => {
+    const wrapped = monitorDockLines(
+      monitorState({ commandBuffer: "abcdef\tX", commandCursor: 8, terminalColumns: 8 }),
+    ).slice(1, 3);
+    const windowed = monitorDockLines(
+      monitorState({ commandBuffer: "0123456789\tX", commandCursor: 12, terminalColumns: 8 }),
+    ).slice(1, 3);
+
+    expect(wrapped).toEqual(["> abcdef", "    X▏"]);
+    expect(windowed).toEqual(["> 234567", "89  X▏"]);
+    expect([...wrapped, ...windowed].every((line) => Bun.stringWidth(line) <= 8)).toBe(true);
+  });
+
+  test("projects a large pasted buffer without changing it", () => {
+    const commandBuffer = "x".repeat(100_000);
+    const state = monitorState({ commandBuffer, commandCursor: commandBuffer.length, terminalColumns: 80 });
+
+    const lines = monitorDockLines(state);
+
+    expect(lines).toHaveLength(4);
+    expect(lines.slice(1, 3).join("")).toContain("▏");
+    expect(state.commandBuffer).toBe(commandBuffer);
+  });
+
   test("keeps clamped start, middle, and end cursors visible without mutating state", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (index === cursor) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (cursor === graphemes.length) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "prefixWidths.findIndex((width) => width >= desiredStart)" -> "prefixWidths.findIndex(() => false)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (cursorIndex < 0) return [];" -> "if (true) return [];"
     const buffer = "zero-one-two-three-four";
     const cases = [
       [-10, ["> ▏zero-on", "e-two-thre"]],
-      [9, ["> ero-one-", "▏two-three"]],
+      [9, ["> zero-one", "-▏two-thre"]],
       [10_000, ["> ne-two-t", "hree-four▏"]],
     ] as const;
     for (const [commandCursor, expected] of cases) {
@@ -1366,8 +1390,8 @@ describe("monitorDockLines", () => {
 
   test("keeps the cursor visible when an atomic grapheme consumes a row boundary", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "return columns === 1 ? \"\" : \"> \";" -> "return false ? \"\" : \"> \";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + atom.width > current.capacity) current = second;" -> "if (false) current = second;"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + atom.width > current.capacity) break;" -> "if (false) break;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + width > current.capacity) current = second;" -> "if (false) current = second;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + paintedWidth > current.capacity) break;" -> "if (false) break;"
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {" -> "if (false) {"
     const lines = monitorDockLines(monitorState({ commandBuffer: "界a", commandCursor: 2, terminalColumns: 3 }));
 
@@ -1401,6 +1425,7 @@ describe("monitorDockLines", () => {
     expect(hints(PIPELINE_ID)).toContain("e expand/collapse");
     expect(hints(stageId)).toContain("e expand/collapse");
     expect(hints(active.runId)).toContain("k kill");
+    expect(monitorDockLines({ ...base, selectedNodeId: active.runId, actionableRunIds: [] })[3]).not.toContain("k kill");
     expect(hints(active.runId)).not.toContain("expand/collapse");
     expect(hints(terminal.runId)).not.toContain("kill");
     expect(hints(notLive.runId)).not.toContain("kill");

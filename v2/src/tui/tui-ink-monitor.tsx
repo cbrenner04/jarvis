@@ -2,8 +2,8 @@ import { createElement, Fragment, type ReactElement, type ReactNode } from "reac
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
-  countActiveLiveRuns,
   livenessTone,
+  monitorDockLines,
   type MonitorLineRow,
   type MonitorSegmentTone,
   monitorLeftPaneQueueRows,
@@ -46,8 +46,6 @@ const TONE_COLORS: Record<MonitorSegmentTone, string> = {
 
 const DEFAULT_TERMINAL_COLUMNS = 245;
 const DEFAULT_TERMINAL_ROWS = 72;
-const DEFAULT_REFRESH_INTERVAL_LABEL = "1s";
-
 const TONE_COLUMNS = new Set<TreeColumnId>(["state", "live"]);
 
 function gridCellTone(column: TreeColumnId, tableRow: WorkflowTableRow): MonitorSegmentTone | undefined {
@@ -225,15 +223,12 @@ function renderLeftPaneContent(
   return rendered;
 }
 
-function renderDockContent(state: TuiMonitorState, Text: MonitorText): ReactElement[] {
-  const activeCount = countActiveLiveRuns(state);
-  const refreshLabel = state.refreshIntervalLabel ?? DEFAULT_REFRESH_INTERVAL_LABEL;
-  return [
-    createElement(Text, { key: 0 }, `${activeCount} active · refresh ${refreshLabel}`),
-    createElement(Text, { key: 1 }, ">"),
-    createElement(Text, { key: 2 }, ""),
-    createElement(Text, { key: 3 }, ""),
-  ];
+function renderDockContent(state: TuiMonitorState, Text: MonitorText, Box: MonitorBox | undefined): ReactElement[] {
+  const rows = monitorDockLines(state).map((text, key) => createElement(Text, { key }, text));
+  if (Box === undefined) return rows;
+  return rows.map((row, index) =>
+    createElement(Box, { key: index, flexDirection: "row", height: 1, overflow: "hidden" }, row),
+  );
 }
 
 /** Ink tree for one monitor snapshot; shared by the session host and render tests. */
@@ -254,7 +249,7 @@ export function createMonitorDisplay(
     nowMs,
   );
   const rightContent = renderSegmentRows(monitorRightPaneSegmentRows(state, nowMs), Text, Box);
-  const dockContent = renderDockContent(state, Text);
+  const dockContent = renderDockContent(state, Text, Box);
 
   const leftPane = createElement(
     MonitorLeftPane,

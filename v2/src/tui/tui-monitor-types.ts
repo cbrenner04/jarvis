@@ -45,6 +45,8 @@ export type TuiMonitorState = {
   lastCommandResult?: string | null;
   /** Latest recoverable monitor RPC failure; defaults to absent. */
   lastRpcError?: string | null;
+  /** Run ids backed by a currently connected client; retained rows may be absent. */
+  actionableRunIds?: readonly string[];
   /** Machine profile resolved for the invoking TUI command. */
   machineProfile?: string;
   /** Digest key of the invoking daemon socket. */
@@ -110,6 +112,8 @@ export type SocketDiscovery = () => Promise<string[]>;
 export type RunTuiEntryDeps = {
   /** Unix socket path; required. */
   socketPath: string;
+  /** Machine profile resolved before TUI admission. */
+  machineProfile: string;
   /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
   connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Injectable monitor refresh scheduler; defaults to a 1s interval poller. */

@@ -129,7 +129,7 @@ Empty selection: short welcome + example `start` command; optional registered-pr
 | ---- | ----------------------------------------------------------------------------------------------------------------- |
 | 1    | **Status** — active pipeline count, daemon profile/socket digest, refresh interval, last RPC error if any         |
 | 2    | **Input** — prompt `>` when editing; mirrors CLI grammar (`start jarvis --seed path`, `approve <stage-id>`, …)    |
-| 3    | **Input continuation** — second line for wrapped/pasted `--seed-text`; collapses to one line when empty           |
+| 3    | **Input continuation** — fixed second row for windowed/wrapped input; remains present when empty                   |
 | 4    | **Hints** — context keybindings for current selection (gate: `a`/`r`; run: kill/pause; global: `:` focus command) |
 
 Activate command focus with `:` or `/`; Esc returns focus to tree. Enter submits; Shift+Enter inserts newline on line 3 when entering multiline seed text.
@@ -205,7 +205,8 @@ pipeline context and stage roll-up for pipeline selection; adds the selected dur
 stage selection; adds selected durable-run detail for attributed runs; and shows only selected
 durable-run detail for unattributed runs. Rows wrap losslessly by display columns without splitting
 extended grapheme clusters; a grapheme wider than the effective width remains atomic and overflows
-that row.
+that row. The shipped pure dock projection derives fixed status, cursor-bearing input,
+continuation, and contextual-hint rows from monitor state and bounds each to display width.
 
 Still missing: the dock's input line is inert (no parser, no `start`), and there is no steering —
 approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed
@@ -237,7 +238,7 @@ Serialize 1 → 6. Each row is a seed.
 | 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485) |
 | 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492 |
 | 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** |
-| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | open |
+| 5   | **Command dock**    | Pure 4-line projection shipped; editing, CLI-mirror parser, `start` admission, and dispatch remain            | projection shipped; editing/dispatch open |
 | 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.

@@ -344,6 +344,21 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 | `jarvis run log <run-id> --follow` | Same replay, then keeps tailing new records until the daemon closes the stream — which happens automatically once the followed run settles — or the client disconnects |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
 
+The dock always occupies four physical rows: status, cursor-bearing input, input
+continuation (kept even when empty), and contextual hints. Status counts distinct
+retained pipelines as active when any retained observation is non-terminal, including
+contradictory terminal/non-terminal observations for one pipeline ID. It also shows the
+invoking `profile@socket-digest`, refresh label, and retained feedback; the latest RPC
+error takes precedence over the last command result. Discovery, connection, `list`, and
+`pipeline_list` failures retain last-good rows and snapshots; only a fully successful
+refresh clears the error, and refresh never clears a retained command result. Retained
+rows without a live client cannot be killed or waited on until ownership reconnects.
+Input is sanitized and windowed
+across its two display-width-bounded rows so the cursor stays visible without changing
+the buffer. Tree hints add expansion or kill only when the selection supports them;
+command-focus hints describe return/submit/newline actions. Editing and submission are
+not implemented yet.
+
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 
 **Overlapping daemons after rebuild:** When the executable is rebuilt, a new daemon with a different digest starts and automatically sends `supersede` to every other keyed daemon socket (best-effort, fire-and-forget after the new daemon's server is listening). A superseded daemon continues answering on its socket but stops admitting new `start` and `resume` requests (rejected with code `daemon_superseded`). Runs launched by a superseded daemon remain in-progress until settled; once settled, the daemon disappears on its own as callers switch to the new keyed socket. No manual stop command is needed.

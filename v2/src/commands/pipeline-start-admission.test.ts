@@ -417,7 +417,9 @@ describe("pipeline start admission", () => {
         }),
         request,
       });
-      await expect(admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps)).resolves.toEqual(expected);
+      await expect(admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps)).resolves.toEqual(
+        expected,
+      );
     }
   });
 });

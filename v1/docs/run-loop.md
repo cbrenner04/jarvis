@@ -228,10 +228,10 @@ Step definitions and install digest skip: [Ready script tiers](#ready-script-tie
 ## Completion
 
 Jarvis treats a spec as complete when all **non-human-only** acceptance criteria are checked.
-An acceptance criterion is classified as human-only if its text ends with (after trimming trailing
-whitespace and a single trailing period) one of these markers: `(Manual)`, `visual inspection only`,
-or `no automated guard` (case-insensitive, whole-phrase match). All other acceptance criteria
-are treated as automated.
+An acceptance criterion is human-only when its full bullet block (the first checklist line plus
+continuation lines) contains `(Manual)`, `visual inspection only`, or `no automated guard`.
+Matching is case-insensitive substring matching; markers can appear anywhere in the block and
+need not be whole phrases. All other acceptance criteria are treated as automated.
 
 A spec file is complete when:
 

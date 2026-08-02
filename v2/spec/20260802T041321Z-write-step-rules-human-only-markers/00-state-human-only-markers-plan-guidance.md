@@ -33,16 +33,16 @@ existing behavior rather than changing parser semantics.
 
 ## Acceptance criteria
 
-- [ ] A rendered `plan.prompt.draft` case in `v2/src/execution/write.test.ts` fails against the
+- [x] A rendered `plan.prompt.draft` case in `v2/src/execution/write.test.ts` fails against the
       pre-change bundled spec guidance and passes after the isolated `SPEC_GUIDANCE` section names
       `(Manual)`, `visual inspection only`, and `no automated guard`, says matching is
       case-insensitive substring matching, and permits each anywhere in the full bullet block. The
       test uses a marker-free sentinel for the separate `STEP_RULES` injection, so a whole-prompt
       assertion cannot obtain the contract from another source.
-- [ ] Focused v1 plan draft and review rendered cases in `v1/test/modes/plan/prompts.test.ts` fail
+- [x] Focused v1 plan draft and review rendered cases in `v1/test/modes/plan/prompts.test.ts` fail
       against the pre-change bundled guidance and independently pin the same isolated guidance
       contract; they do not rely on the v2 shared-plan rendering.
-- [ ] `v1/docs/spec-guidance.md` describes plan guidance consistent with the parser's existing
+- [x] `v1/docs/spec-guidance.md` describes plan guidance consistent with the parser's existing
       full-bullet, case-insensitive substring classification, including free marker placement.
 
 ## Documentation updates

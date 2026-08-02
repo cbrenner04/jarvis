@@ -135,7 +135,6 @@ describe("rendered prompt snapshots", () => {
     });
 
     expect(patch).toBe(readFixture(patchKey));
-    expect(patch).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(patch.endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
     expect(draft).toBe(readFixture(draftKey));
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));

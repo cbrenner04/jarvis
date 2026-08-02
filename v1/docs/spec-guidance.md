@@ -331,7 +331,7 @@ The good example is from the `blocked-run-retains-worktree-and-branch` spec.
 
 #### Human-only acceptance criteria
 
-An acceptance criterion is classified as **human-only** if its text ends with (after trimming trailing whitespace and a single trailing period) one of these markers: `(Manual)`, `visual inspection only`, or `no automated guard` (case-insensitive, whole-phrase match). Human-only criteria describe verification that the harness cannot automate — manual inspection, live testing, or external approval.
+An acceptance criterion is classified as **human-only** when any of these marker strings appears anywhere in its full bullet block: `(Manual)`, `visual inspection only`, or `no automated guard`. Matching is case-insensitive substring matching across the first checklist line and any continuation lines; markers need not be trailing or whole phrases, so `no automated guardrails` also qualifies. Human-only criteria describe verification that the harness cannot automate — manual inspection, live testing, or external approval.
 
 Human-only criteria do not block subspec completion. A run completes as soon as all **non-human-only** criteria are checked; unchecked human-only criteria remain for human verification after the run finishes. The run summary reflects this by labeling unchecked human-only criteria as "human-verify" rather than treating them as blockers (e.g., `4/7 (3 human-verify)` indicates 4 automated criteria checked, 7 total, 3 human-only unchecked).
 
@@ -378,7 +378,7 @@ Bad (unsatisfiable, will strand implement at blocked):
 - [ ] Review is approved.
 ```
 
-Fix by appending `(Manual)` to each (human-only escape), or rewriting as a satisfiable worktree-verifiable outcome.
+Fix by placing `(Manual)` anywhere in each full bullet block (human-only escape), or rewriting as a satisfiable worktree-verifiable outcome.
 
 Subspec heading contract (enforced by patch mode parser):
 - Acceptance criteria must use the exact heading `## Acceptance criteria`.

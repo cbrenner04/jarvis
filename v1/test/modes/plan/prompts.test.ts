@@ -1,7 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 import { buildVerdictActuatorPrompt } from "../../../src/modes/plan/verdict-actuator.ts";
+
+const BUNDLED_SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md"), "utf8");
+
+function extractSpecGuidance(prompt: string): string {
+  const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
+  const endMarker = "<<<SPEC_GUIDANCE_END>>>";
+  const begin = prompt.lastIndexOf(beginMarker);
+  const end = prompt.lastIndexOf(endMarker);
+  expect(begin).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(begin);
+  return prompt.slice(begin + beginMarker.length, end);
+}
+
+const HUMAN_ONLY_MARKER_GUIDANCE =
+  "marker strings appears anywhere in its full bullet block: `(Manual)`, `visual inspection only`, or `no automated guard`. Matching is case-insensitive substring matching across the first checklist line and any continuation lines; markers need not be trailing or whole phrases";
 
 describe("buildDraftPrompt", () => {
   test("replaces every occurrence of <NAME> (regression: previous code only replaced the first)", () => {
@@ -55,6 +72,16 @@ describe("buildDraftPrompt", () => {
     expect(prompt).toContain("PR body/title");
     expect(prompt).toContain("CI status");
     expect(prompt).toContain("review state");
+  });
+
+  test("draft prompt renders the bundled human-only marker guidance", () => {
+    const prompt = buildDraftPrompt({
+      name: "x",
+      intent: "marker-free intent",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
+    });
+
+    expect(extractSpecGuidance(prompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
   });
 });
 
@@ -124,9 +151,32 @@ describe("buildReviewPrompt", () => {
     });
     expect(prompt).toContain("This is the first review pass. The spec snapshot below is the original draft.");
   });
+
+  test("review prompt renders the bundled human-only marker guidance", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "marker-free intent",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
+      currentSpec: "marker-free spec",
+    });
+
+    expect(extractSpecGuidance(prompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+  });
 });
 
 describe("buildVerdictActuatorPrompt", () => {
+  test("verdict actuator renders the bundled human-only marker guidance", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "marker-free intent",
+      currentSpec: "marker-free spec",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
+      verdict: "marker-free verdict",
+    });
+
+    expect(extractSpecGuidance(prompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+  });
+
   test("targets spec files instead of intent refinement", () => {
     const prompt = buildVerdictActuatorPrompt({
       name: "p",

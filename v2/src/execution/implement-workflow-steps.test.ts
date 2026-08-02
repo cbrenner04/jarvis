@@ -21,6 +21,7 @@ import type { WithExternalWorktreeResult } from "./external-worktree.ts";
 import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 function writeJson(name: string, value: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));
@@ -197,6 +198,7 @@ describe("buildImplementWorkflowSteps", () => {
     if (step?.behavior !== "write") return;
     expect(step.role).toBe("implement");
     expect(step.promptId).toBe("patch.prompt.body");
+    expect(step.stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
     expect(step.agents).toEqual(["claude"]);
     expect(step.agentModelConfig).toEqual(VALID_AGENT_MODEL_CONFIG);
     expect(step.worktree).toEqual({

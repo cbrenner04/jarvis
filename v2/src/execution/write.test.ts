@@ -77,6 +77,29 @@ function expectGuardInversionWriteStepRules(prompt: string): void {
   expect(prompt).toContain("`invert*ForTest` type members");
 }
 
+function extractSpecGuidance(prompt: string): string {
+  const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
+  const endMarker = "<<<SPEC_GUIDANCE_END>>>";
+  const begin = prompt.lastIndexOf(beginMarker);
+  const end = prompt.lastIndexOf(endMarker);
+  expect(begin).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(begin);
+  return prompt.slice(begin + beginMarker.length, end);
+}
+
+const HUMAN_ONLY_MARKER_GUIDANCE =
+  "marker strings appears anywhere in its full bullet block: `(Manual)`, `visual inspection only`, or `no automated guard`. Matching is case-insensitive substring matching across the first checklist line and any continuation lines; markers need not be trailing or whole phrases";
+
+function extractFinalStepRules(prompt: string): string {
+  const marker = "\n\nHuman-only acceptance criteria contain";
+  const start = prompt.lastIndexOf(marker);
+  expect(start).toBeGreaterThan(-1);
+  return prompt.slice(start + 2);
+}
+
+const HUMAN_ONLY_STEP_RULES =
+  "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
+
 async function runPlanDraftWrite(args: {
   jarvisRoot: string;
   branchName: string;
@@ -469,8 +492,8 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(resolvedSubspecPath);
     expect(capturedPrompt).toContain(subspecBody);
     expect(capturedPrompt).toContain(repoGuidance);
-    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     expectGuardInversionWriteStepRules(capturedPrompt);
     expect(capturedPrompt).toContain(
       "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
@@ -514,6 +537,33 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Post-completion Shrink");
     expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+  });
+
+  test.each([
+    ["write.ready-repair", { GATE_COMMAND: "bun test", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" }],
+    [
+      "write.mutation-repair",
+      {
+        SURVIVING_MUTATION: "return true -> return false",
+        SOURCE_FILE: "v2/src/example.ts",
+        SOURCE_LINE: "1",
+        DUAL_CONSTRAINT_DETAIL: "Preserve the passing behavior.",
+      },
+    ],
+  ] as const)("%s renders the shared human-only step rules", async (promptId, promptPlaceholders) => {
+    const { jarvisRoot } = createJarvisHome();
+    let capturedPrompt = "";
+
+    await runWrite({
+      jarvisRoot,
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
+      promptId,
+      promptPlaceholders,
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+    });
+
+    expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
   });
 
   test("unresolved required placeholders fail as model_config without invoking binding", async () => {
@@ -1016,7 +1066,7 @@ describe("write behavior", () => {
     ]);
   });
 
-  test("plan preset draft step invokes binding and renders spec-guidance", async () => {
+  test("plan preset draft step isolates bundled human-only marker guidance", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const specPath = "v2/spec/2099-01-01T00-00-00Z-example";
@@ -1033,7 +1083,7 @@ describe("write behavior", () => {
         jarvisRoot,
       },
       specPath,
-      stepRules: "unused",
+      stepRules: "STEP_COMPLETION_SENTINEL",
       expectedArtifactPath: ".jarvis-plan-stage",
       promptId: "plan.prompt.draft",
       intentSeed,
@@ -1054,13 +1104,12 @@ describe("write behavior", () => {
       withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
     });
 
-    const specGuidance = readFileSync(
-      join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md"),
-      "utf8",
-    );
     expect(bindingInvoked).toBe(true);
     expect(result.result.kind).toBe("complete");
-    expect(capturedPrompt).toContain(specGuidance.slice(0, 80));
+    expect(capturedPrompt).toContain("STEP_COMPLETION_SENTINEL");
+    const specGuidance = extractSpecGuidance(capturedPrompt);
+    expect(specGuidance).not.toContain("STEP_COMPLETION_SENTINEL");
+    expect(specGuidance).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
   });
 
   test("plan-reviewed preset draft step invokes binding", async () => {

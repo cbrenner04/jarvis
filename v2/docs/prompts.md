@@ -24,6 +24,10 @@ Re-prompt issued when `intent.prompt.split` staged output fails landing-shape va
 
 Re-prompt issued when the ready gate fails during completion publication. Injects `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, and `GATE_OUTPUT`. Used by the write loop's publication boundary; see [`write-behavior.md`](./write-behavior.md#ready-finalization).
 
+### `write.mutation-repair`
+
+Re-prompt issued when mutation verification survives an implement change. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL`. Used by implement-initiated recovery; see [`write-behavior.md`](./write-behavior.md#ready-finalization).
+
 ### `write.coverage-advisory`
 
 Advisory re-prompt issued after a completing implement write when uncovered changed lines are detected. Injects `COVERAGE_REPORT` (the report text from `reportUncoveredChangedLines`). The advisory is **deliver-only**: the agent's response is logged but does not change the completion outcome, iteration count, or run status. Used by the write loop's completion path; see [`write-behavior.md`](./write-behavior.md#coverage-advisory).

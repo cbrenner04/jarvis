@@ -1242,8 +1242,8 @@ Operators add bullets here; delete when fixed.
   `bun test <file>` both passed; CI failed 26 v1 plan tests. **Read the committed diff, not the
   worktree**, when a CI failure cannot be reproduced locally:
   `git -C <worktree> show HEAD:<path>`. Recovery was `gh pr close` + `jarvis cleanup --abandon` +
-  a fresh implement run. Seed: `v2/spec/seeds/mutation-verification-artifact-reached-the-completion-commit.md`.
-  Cleanup: delete this bullet when it ships.
+  a fresh implement run. Seed: `v2/spec/seeds/mutation-verification-outlives-its-run.md` (absorbed
+  the original artifact seed). Cleanup: delete this bullet when it ships.
 
 - **`--abandon` refuses over a ready PR and over a dead keyed socket (2026-07-30):** retiring a
   wedged workspace after the executable was rebuilt hits two guards in sequence —

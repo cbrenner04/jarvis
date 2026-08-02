@@ -3,9 +3,9 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
   livenessTone,
-  monitorDockLines,
   type MonitorLineRow,
   type MonitorSegmentTone,
+  monitorDockLines,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,

@@ -324,11 +324,7 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
     width = atom.text === "\t" ? tabWidth(current) : atom.width;
     const fits = current.used + width <= current.capacity;
     const text =
-      atom.text === "\t" && !fits
-        ? DOCK_CONTROL_REPLACEMENT
-        : atom.text === "\t"
-          ? " ".repeat(width)
-          : atom.text;
+      atom.text === "\t" && !fits ? DOCK_CONTROL_REPLACEMENT : atom.text === "\t" ? " ".repeat(width) : atom.text;
     const paintedWidth = atom.text === "\t" && !fits ? 1 : width;
     if (current.used + paintedWidth > current.capacity) break;
     current.content += text;

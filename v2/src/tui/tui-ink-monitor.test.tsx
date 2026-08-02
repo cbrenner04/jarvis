@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { Box as InkBox, renderToString, Text as InkText } from "ink";
+import { Box as InkBox, Text as InkText, renderToString } from "ink";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";

@@ -1425,7 +1425,9 @@ describe("monitorDockLines", () => {
     expect(hints(PIPELINE_ID)).toContain("e expand/collapse");
     expect(hints(stageId)).toContain("e expand/collapse");
     expect(hints(active.runId)).toContain("k kill");
-    expect(monitorDockLines({ ...base, selectedNodeId: active.runId, actionableRunIds: [] })[3]).not.toContain("k kill");
+    expect(monitorDockLines({ ...base, selectedNodeId: active.runId, actionableRunIds: [] })[3]).not.toContain(
+      "k kill",
+    );
     expect(hints(active.runId)).not.toContain("expand/collapse");
     expect(hints(terminal.runId)).not.toContain("kill");
     expect(hints(notLive.runId)).not.toContain("kill");

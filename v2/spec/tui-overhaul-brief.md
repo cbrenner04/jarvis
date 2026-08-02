@@ -102,7 +102,7 @@ Narrower left panes drop columns from the right (agent → id → branch → pro
 
 **Be generous.** The right pane (~151 cols at reference size) is the command center's information surface — show everything the operator would otherwise grep CLI output for. Wrap long values; never truncate ids, paths, or error text here. Tree columns stay scannable; detail carries the full picture.
 
-**Sticky pipeline context** — whenever selection is inside a pipeline (pipeline, stage, or run), the top of the right pane always shows that pipeline's identity block:
+**Pipeline context** — pipeline selection shows this identity block and stage roll-up:
 
 - Full `pipelineId`, name, registered project, admitted definition name
 - Derived state, pipeline wall-clock elapsed, `createdAt`
@@ -110,15 +110,16 @@ Narrower left panes drop columns from the right (agent → id → branch → pro
 - Terminal publication outcome / PR when settled
 - Compact stage roll-up (every stage: id, branch when not `default`, status, elapsed)
 
-Below the sticky block, **selection detail** adds depth:
+Selection determines the remaining detail:
 
-| Selection | Additional detail                                                                                                                                                                                           |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pipeline  | Full admitted definition summary (stage list + review postures); owner daemon hint when multi-daemon                                                                                                        |
-| Stage     | Full stage record id, `workflowInvocationId`, artifact JSON, approval state, `failureDetail`, started/ended timestamps                                                                                      |
-| Run       | Full run id, branch, spec path, worktree, status, elapsed, agent/model, `loopOutcomeKind`, iterations, resumability, `error`, PR fields, **full workflow step list** with per-step status/attempts/outcomes |
+| Selection | Detail |
+| --------- | ------ |
+| Pipeline | Pipeline context and stage roll-up only |
+| Stage | Pipeline context and stage roll-up, then the selected durable-stage record |
+| Attributed run | Pipeline context and stage roll-up, then selected durable-run detail |
+| Unattributed run | Selected durable-run detail only |
 
-Queued runs selected from the Unattributed segment get a run-only block (no pipeline header).
+Queue rows are display-only and cannot be selected.
 
 Empty selection: short welcome + example `start` command; optional registered-project list with configured pipeline names.
 
@@ -195,17 +196,20 @@ Pipeline kill/pause: **out of scope** v1.
 
 Daemon + CLI: `pipeline start | list | wait | approve | reject | resume`; `run pause | resume | kill | list | log`.
 
-TUI (after slices 1-3): left tree pane / right detail pane / fixed 4-line dock, sized from
+TUI (after slices 1-4): left tree pane / right detail pane / fixed 4-line dock, sized from
 `stdout` each render with a stacked fallback below 120 cols. The left pane nests
 `pipeline → stage[branchKey] → run` from polled `pipeline_list` snapshots joined to `list` runs by
 `workflowInvocationId`, with three-deep selection, `e` expansion, reversible `j`/`k`, scroll-follow,
-and wall-clock elapsed at all three levels ticking locally between refreshes.
+and wall-clock elapsed at all three levels ticking locally between refreshes. The right pane shows
+pipeline context and stage roll-up for pipeline selection; adds the selected durable-stage record for
+stage selection; adds selected durable-run detail for attributed runs; and shows only selected
+durable-run detail for unattributed runs. Rows wrap losslessly by display columns without splitting
+extended grapheme clusters; a grapheme wider than the effective width remains atomic and overflows
+that row.
 
-Still missing, and the reason slices 4-6 exist: the right pane shows only the selected node's
-existing fields (no workflow step list, no error text, no sticky pipeline identity block), the dock's
-input line is inert (no parser, no `start`), and there is no steering — approve/reject/resume,
-run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no
-FIFO or labelling polish.
+Still missing: the dock's input line is inert (no parser, no `start`), and there is no steering —
+approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed
+segment renders but has no FIFO or labelling polish.
 
 ## Non-goals
 
@@ -232,7 +236,7 @@ Serialize 1 → 6. Each row is a seed.
 | 1   | **Shell layout**    | Left/right split + 4-line command dock; fixed-width tree columns; reference 245×72; stacked fallback <120 cols | **shipped** #2453, #2456 |
 | 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485) |
 | 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492 |
-| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | next |
+| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** |
 | 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | open |
 | 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open |
 

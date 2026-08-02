@@ -341,9 +341,9 @@ describe("createMonitorDisplay", () => {
     expect(leftText).toContain("run-alpha");
     expect(leftText).not.toContain("Outcome");
     expect(leftText).not.toContain("runStatus:");
-    expect(rightText).toContain("Outcome");
-    expect(rightText).toContain("runStatus: completed");
-    expect(rightText).not.toContain("run-alpha");
+    expect(rightText).toContain("Run");
+    expect(rightText).toContain("status: in-progress");
+    expect(rightText).toContain("runId: run-alpha");
     expect(rightText).not.toContain("run-beta");
     expect(dockText).toContain("1 active · refresh 1s");
     expect(leftText).not.toContain("1 active · refresh 1s");
@@ -440,7 +440,8 @@ describe("createMonitorDisplay", () => {
     const displayTickTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
 
     expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
-    expect(collectInkText(outOfWindowTree)).not.toContain("run-fresh-orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("run-fresh-orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
     expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
   });
 });

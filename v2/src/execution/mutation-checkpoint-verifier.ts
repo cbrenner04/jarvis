@@ -79,7 +79,7 @@ function unescapeDirectiveText(text: string): string {
 /** Full Markdown blocks for acceptance criteria, including continuation lines. */
 function acceptanceCriterionBlocks(content: string): string[] {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.findIndex((line) => line === "## Acceptance criteria");
+  const start = lines.indexOf("## Acceptance criteria");
   if (start === -1) return [];
 
   const blocks: string[] = [];

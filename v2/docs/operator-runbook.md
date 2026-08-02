@@ -1192,6 +1192,24 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook
 
 Operators add bullets here; delete when fixed.
 
+- **Gate autofix can turn a green tree red, and it never self-heals (2026-08-02):** `bun run fix`
+  rewrites `findIndex((x) => x === needle)` into `indexOf(needle)`; when the needle is possibly
+  `undefined` the result fails `typecheck`. Reproducible on `main` today. A run hits it as
+  `completion_commit_failed` with the autofix edits sitting uncommitted, then `ready_gate_failed` on
+  resume — and every repair entry re-runs autofix, so it re-breaks. Recovery is a hand edit in the
+  worktree, then `jarvis run resume`. Seed: `v2/spec/seeds/gate-autofix-can-turn-a-green-tree-red.md`.
+- **Any abnormal settle can strand an applied `@mutate` directive, not just `SIGKILL`
+  (2026-08-02):** an ordinary `iteration_timeout` left **three** mutations applied to production
+  source, and the scoped verification kept applying and restoring directives in that worktree
+  minutes after the run row was terminal — so a single read of the file is not trustworthy. When
+  salvaging such a worktree, reverse every directive mechanically (parse the test file's `@mutate`
+  lines and restore each replacement to its original) rather than eyeballing the diff. Seed:
+  `v2/spec/seeds/mutation-verification-outlives-its-run.md`.
+- **The `--detach` entry run ID is not the row to wait on (2026-08-02):** the entry frequently
+  reports `completed` while the write row for the same spec is still `live`. `jarvis run wait
+  <entry-id>` returning success is not the workflow finishing. Confirm against `jarvis run list`
+  and wait on the live row.
+
 - **`daemon status` reports on the *current* source digest, so a merge makes it read `stopped`
   (2026-07-30):** the `jarvis` launcher keys its daemon by a digest of the source tree, so every
   merge to `main` — including your own session's merges — rotates the key. `jarvis daemon status`

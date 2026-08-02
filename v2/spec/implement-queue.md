@@ -4,31 +4,22 @@ Authority: operator priorities. Updated 2026-08-02.
 
 ## Goal
 
-TUI slices 1-4 are shipped. Slice 5 (command dock) is **half shipped**: the parser, the pure dock
-projection, and the reusable start-admission API landed; wiring the dock into the shell is stuck at
-the mutation gate. Then slice 6 (steering + log) from
+TUI slices 1-4 are shipped, and slice 5 (command dock) has its parser, reusable start-admission API,
+dock projection, and painted dock on `main`. What remains is the half that makes the dock usable:
+typing into it and dispatching what was typed. Then slice 6 (steering + log) from
 [tui-overhaul-brief.md](tui-overhaul-brief.md).
 
 ## Start here next
 
-**Unblock [PR #2533](https://github.com/cbrenner04/jarvis/pull/2533)** (`20260802T075146Z-tui-dock-projection`,
-subspecs 01-03: dock identity, dock state/RPC feedback, painting). Criteria are ticked and
-`typecheck` / `check` / `test:v2` are green; the harness refuses completion on a surviving
-`operator-flip` in `v2/src/tui/tui-entry.tsx`.
+**`ready-intents/tui-command-editor`** — `:` / `/` focus, cursor editing, `Esc`, `Enter` submit,
+driven through the injected input hook. Nothing types into the dock today, so both the parser and
+the admission API sit without a caller.
 
-Both flagged sites are **unobservable defensive code**, verified by hand:
+Then **`ready-intents/tui-command-dispatch`** — route a parsed command to `admitPipelineStart`
+(already extracted and CLI-proven in #2530) and render the result in the dock. That pair finishes
+slice 5; after it, seed slice 6.
 
-- the run-owner eviction filter is superseded a few statements later by `runOwners = owners`,
-  rebuilt from the refresh's successful lists with no yield between them (already removed);
-- flipping the `clearSelection` guard leaves the whole suite green, because selection clearing is
-  already handled on refresh.
-
-So this needs a **decision**, not more coverage: delete the dead `clearSelection` block (a refactor
-beyond this spec's scope) or exempt these sites. Then
-`jarvis run resume e734022c-d610-459c-ab21-7f7268f8f083`.
-
-After that: slice 5's last leaves (`ready-intents/tui-command-editor`,
-`ready-intents/tui-command-dispatch`), then seed slice 6.
+Both are ready-intents only — each still needs `jarvis run workflow plan` before an implement run.
 
 | Slice | Shipped |
 | --- | --- |
@@ -36,7 +27,7 @@ After that: slice 5's last leaves (`ready-intents/tui-command-editor`,
 | 2 — pipeline tree | #2462, #2463, #2466, #2471, #2473, #2479, #2481, #2485 |
 | 3 — elapsed columns | #2490, #2492 |
 | 4 — detail pane | #2511 (wire), #2519 (pipeline + stage), #2521 (selected run + wrapping) |
-| 5 — command dock | #2529 (parser), #2530 (start admission), #2531 (dock rows); **#2533 open** |
+| 5 — command dock | #2529 (parser), #2530 (start admission), #2531 (dock rows), #2533 (painted dock); editor + dispatch open |
 | 6 — steering + log | not seeded |
 
 ## Open seeds, newest first

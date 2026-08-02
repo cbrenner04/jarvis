@@ -122,6 +122,15 @@ function ipcClientAbortingOnWait(frames: unknown[], sent: unknown[]): ReturnType
   };
 }
 
+function pipelineStartClients(frames: unknown[], sent: unknown[]): () => Promise<ReturnType<typeof makeIpcClient>> {
+  let connected = false;
+  return async () => {
+    if (connected) throw new Error("pipeline start must retain its admitted connection");
+    connected = true;
+    return makeIpcClient(frames, { sent });
+  };
+}
+
 function pipelineListFrame(id: string, pipelines: unknown[]): unknown {
   return { kind: "response", id, result: { pipelines } };
 }
@@ -271,11 +280,10 @@ describe("pipeline start", () => {
     const code = await withFixedUuid([SESSION_UUID, "pipe-start", "pipe-wait"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
         ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            pipelineFrames("pipe-start", ["pipe-wait"], "pipe-abc", [{ kind: "terminal", state: "succeeded" }]),
-            { sent },
-          ),
+        connectIpcClient: pipelineStartClients(
+          pipelineFrames("pipe-start", ["pipe-wait"], "pipe-abc", [{ kind: "terminal", state: "succeeded" }]),
+          sent,
+        ),
       }),
     );
 
@@ -300,7 +308,7 @@ describe("pipeline start", () => {
   });
 
   test("rejects invalid project pipeline configuration before daemon connect", async () => {
-    // Inversion target: resolveProjectPipeline failure branch in pipeline.ts — falling through to daemon IPC on resolution failure turns this test RED.
+    // Inversion target: resolveProjectPipeline failure branch in pipeline-start-admission.ts — falling through to daemon IPC turns this test RED.
     await expectPipelineConfigRejectedBeforeConnect(
       { name: "" },
       "invalid-project-pipeline-config: projects.demo.pipeline.name",
@@ -308,7 +316,7 @@ describe("pipeline start", () => {
   });
 
   test("rejects project pipeline missing terminalAction before daemon connect", async () => {
-    // Inversion target: resolveProjectPipeline failure branch in pipeline.ts — falling through to daemon IPC on resolution failure turns this test RED.
+    // Inversion target: resolveProjectPipeline failure branch in pipeline-start-admission.ts — falling through to daemon IPC turns this test RED.
     await expectPipelineConfigRejectedBeforeConnect(
       { name: "fast" },
       "invalid-project-pipeline-config: projects.demo.pipeline.terminalAction",
@@ -363,7 +371,7 @@ describe("pipeline start", () => {
   });
 
   test("--detach exits 0 after admission without pipeline_wait", async () => {
-    // Inversion target: startAdmittedPipeline detach branch in pipeline.ts — blocking on pipeline_wait when detach is true turns this test RED.
+    // Inversion target: runPipelineStartCommand detach branch in pipeline.ts — blocking on pipeline_wait when detach is true turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
     const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
@@ -389,14 +397,13 @@ describe("pipeline start", () => {
     const code = await withFixedUuid([SESSION_UUID, "pipe-att", "pipe-w1", "pipe-w2"], () =>
       main(["pipeline", "start", "demo", "--seed-text", "Ship feature"], cap.io, {
         ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            pipelineFrames("pipe-att", ["pipe-w1", "pipe-w2"], "pipe-att-1", [
-              { kind: "awaiting-approval", stageId: "approve-intent", branchKey: "default" },
-              { kind: "terminal", state: "failed" },
-            ]),
-            { sent },
-          ),
+        connectIpcClient: pipelineStartClients(
+          pipelineFrames("pipe-att", ["pipe-w1", "pipe-w2"], "pipe-att-1", [
+            { kind: "awaiting-approval", stageId: "approve-intent", branchKey: "default" },
+            { kind: "terminal", state: "failed" },
+          ]),
+          sent,
+        ),
       }),
     );
 
@@ -458,11 +465,10 @@ describe("pipeline start", () => {
     const code = await withFixedUuid([SESSION_UUID, "pipe-seed", "pipe-seed-w"], () =>
       main(["pipeline", "start", "demo", "--seed", seedRelative], cap.io, {
         ...pipelineDeps(configPath),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            pipelineFrames("pipe-seed", ["pipe-seed-w"], "pipe-seed-1", [{ kind: "terminal", state: "succeeded" }]),
-            { sent },
-          ),
+        connectIpcClient: pipelineStartClients(
+          pipelineFrames("pipe-seed", ["pipe-seed-w"], "pipe-seed-1", [{ kind: "terminal", state: "succeeded" }]),
+          sent,
+        ),
       }),
     );
 

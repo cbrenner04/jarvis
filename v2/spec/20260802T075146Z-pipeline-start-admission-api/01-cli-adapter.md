@@ -18,10 +18,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/pipeline.test.ts` pipeline-start attached, detached, seed-path, seed-text, and refusal tests stay green after the adapter extraction.
-- [ ] `v2/src/commands/pipeline.test.ts` tests `prints admitted pipeline ID on valid start`, `--detach exits 0 after admission without pipeline_wait`, and `attached start waits through awaiting-approval to terminal JSON and exit code` stay green: output, detach behavior, attached wait, terminal JSON, and exit selection are unchanged.
-- [ ] `v2/src/commands/pipeline.test.ts` tests `failed daemon admission exits non-zero with stderr detail and no pipeline ID on stdout` and `operator abort during attached start reports stderr detail without boundary JSON` stay green; daemon refusal and attached abort rendering remain unchanged.
-- [ ] `v2/src/commands/pipeline-start-admission.test.ts` and the pipeline-start coverage in `v2/src/commands/pipeline.test.ts` pass after the refactor, and `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/pipeline.test.ts` pipeline-start attached, detached, seed-path, seed-text, and refusal tests stay green after the adapter extraction.
+- [x] `v2/src/commands/pipeline.test.ts` tests `prints admitted pipeline ID on valid start`, `--detach exits 0 after admission without pipeline_wait`, and `attached start waits through awaiting-approval to terminal JSON and exit code` stay green: output, detach behavior, attached wait, terminal JSON, and exit selection are unchanged.
+- [x] `v2/src/commands/pipeline.test.ts` tests `failed daemon admission exits non-zero with stderr detail and no pipeline ID on stdout` and `operator abort during attached start reports stderr detail without boundary JSON` stay green; daemon refusal and attached abort rendering remain unchanged.
+- [x] `v2/src/commands/pipeline-start-admission.test.ts` and the pipeline-start coverage in `v2/src/commands/pipeline.test.ts` pass after the refactor, and `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

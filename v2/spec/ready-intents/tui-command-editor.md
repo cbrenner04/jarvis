@@ -33,10 +33,3 @@ The injected input hook routes every key to tree controls. Operators cannot focu
 - `v2/docs/v1-behaviors.md` — record command focus and injected-input behavior.
 
 ## Prerequisites
-
-- A reusable detached pipeline-start admission API returns an admitted pipeline id or named failure without waiting.
-- The CLI preserves its existing attached and detached behavior around that admission API.
-- A pure parser returns typed `start`, `expand`, and `collapse` commands plus named parse and recognized-unavailable errors.
-- Recognized unavailable verbs name their existing CLI equivalents without runtime planning labels.
-- A pure monitor-state projection produces exactly four dock rows with command buffer, cursor, focus, result/error, daemon status, and contextual hints.
-- Split and stacked monitor layouts reserve exactly four dock rows for empty and long input.

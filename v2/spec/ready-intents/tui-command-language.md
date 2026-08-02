@@ -30,6 +30,3 @@ The dock has no tokenizer or parser, so input cannot become a testable command o
 None — the parser is internal until dock submission consumes it.
 
 ## Prerequisites
-
-- A reusable detached pipeline-start admission API accepts a project plus exactly one seed source and returns an admitted pipeline id or named failure.
-- The CLI continues to own attached waiting and operator output around that admission API.

@@ -33,8 +33,3 @@ Dock content is hardcoded in the ink renderer, omits daemon identity and errors,
 - `v2/docs/v1-behaviors.md` — record the state-driven four-line dock.
 
 ## Prerequisites
-
-- A reusable detached pipeline-start admission API returns an admitted pipeline id or named failure without waiting.
-- The CLI preserves its existing attached and detached behavior around that admission API.
-- A pure parser returns typed `start`, `expand`, and `collapse` commands plus named parse and recognized-unavailable errors.
-- Recognized unavailable verbs name their existing CLI equivalents without runtime planning labels.

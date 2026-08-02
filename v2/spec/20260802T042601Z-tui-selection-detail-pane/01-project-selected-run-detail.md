@@ -22,13 +22,13 @@ The right pane can show `waitState` outcome values for a run other than the sele
 
 ## Acceptance criteria
 
-- [ ] A selected run renders its full run id, project, branch, status, liveness, creation/finish timestamps, step id, workflow invocation id, every workflow step's id/role/status/terminal outcome/attempt count, loop outcome, iterations, resumability, error, review passes/behavior, worktree path, and PR number/URL when present; `undefined` fields are absent and other falsy or null values remain distinguishable.
-- [ ] An unattributed run renders only that selected run's detail, without the pipeline identity or stage roll-up; an attributed run retains the preceding 00 pipeline block.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` adds selected-run regressions that fail against the 00 baseline and pass after this slice: every listed field conflicts on a non-selected row, `waitState` conflicts on status/outcome/iterations/resumability, and neither conflicting source appears in the selected detail. The regression also pins retained steering feedback and absent wait-state rows.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries `// @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"`; the conflicting-row pin turns red under the mutation.
-- [ ] The production guard delta in this slice is limited to selected-run existence, optional-field omission, and the no-`waitState` detail branch. `v2/src/tui/tui-monitor-lines.test.ts` carries a uniquely targeted `// @mutate` directive for each; its selected-run, omission, and wait-feedback pins turn red, with no production invert hooks.
-- [ ] Existing `v2/src/tui/tui-monitor-lines.test.ts` selection, off-pane resolution, workflow-collapse, and steering-feedback tests stay green.
-- [ ] `v2/src/tui/tui-ink-monitor.test.tsx` passes with only its two invalidated assertions rewritten to the new contract; every other assertion in that file is unchanged.
+- [x] A selected run renders its full run id, project, branch, status, liveness, creation/finish timestamps, step id, workflow invocation id, every workflow step's id/role/status/terminal outcome/attempt count, loop outcome, iterations, resumability, error, review passes/behavior, worktree path, and PR number/URL when present; `undefined` fields are absent and other falsy or null values remain distinguishable.
+- [x] An unattributed run renders only that selected run's detail, without the pipeline identity or stage roll-up; an attributed run retains the preceding 00 pipeline block.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` adds selected-run regressions that fail against the 00 baseline and pass after this slice: every listed field conflicts on a non-selected row, `waitState` conflicts on status/outcome/iterations/resumability, and neither conflicting source appears in the selected detail. The regression also pins retained steering feedback and absent wait-state rows.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` carries `// @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"`; the conflicting-row pin turns red under the mutation.
+- [x] The production guard delta in this slice is limited to selected-run existence, optional-field omission, and the no-`waitState` detail branch. `v2/src/tui/tui-monitor-lines.test.ts` carries a uniquely targeted `// @mutate` directive for each; its selected-run, omission, and wait-feedback pins turn red, with no production invert hooks.
+- [x] Existing `v2/src/tui/tui-monitor-lines.test.ts` selection, off-pane resolution, workflow-collapse, and steering-feedback tests stay green.
+- [x] `v2/src/tui/tui-ink-monitor.test.tsx` passes with only its two invalidated assertions rewritten to the new contract; every other assertion in that file is unchanged.
 
 ## Documentation updates
 

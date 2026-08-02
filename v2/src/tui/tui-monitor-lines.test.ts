@@ -13,6 +13,7 @@ import {
   monitorTextLines,
   orderSelectableRuns,
   RUN_STATUS_TONES,
+  wrapMonitorRows,
 } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
@@ -192,8 +193,13 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "  run-beta demo beta completed not-live",
   "Queue",
   "  run-queued demo queued queued waiting: memory headroom",
-  "Outcome",
-  "runStatus: in-progress",
+  "Run",
+  "runId: run-alpha",
+  "project: demo",
+  "branch: alpha",
+  "status: in-progress",
+  "isLive: true",
+  "createdAt: 0",
   "daemon_error: paused",
   "Press up/down or j to select; e expands pipeline/stage; q or Ctrl-C to quit.",
 ] as const;
@@ -883,26 +889,180 @@ describe("monitorRightPaneSegmentRows", () => {
     }
   });
 
-  test("attributed run selection starts with the same pipeline block", () => {
+  test("attributed run detail is resolved only from the selected durable row", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (selectedRun === undefined) {" -> "if (true) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "value === undefined ? [] :" -> "false ? [] :"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.steeringFeedback !== null) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun)];" -> "const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun), ...(state.waitState.kind === \"ready\" ? [row(untoned(`runStatus: ${state.waitState.result.runStatus}`))] : [])];"
     const snapshot = pipelineSnapshot({
       ...detailedSnapshot,
       stages: [detailedStage],
     });
+    const selectedRun: DaemonListRunRow = {
+      ...detailedRun,
+      branch: "selected-branch",
+      createdAt: 101,
+      finishedAtMs: 202,
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 0,
+      resumable: false,
+      error: {
+        reason: "agent_blocked",
+        retryable: false,
+        nextAction: "inspect_spec",
+        publicationFailure: { operation: "publish", message: "failed", exitCode: 0, stdoutTail: "" },
+      },
+      reviewPasses: 0,
+      reviewBehavior: "light",
+      worktreePath: "",
+      prNumber: 0,
+      prUrl: "",
+      workflow: {
+        invocationId: "inv-detail-a",
+        steps: [
+          { stepId: "selected-plan", role: "plan", status: "completed", terminalOutcome: "", attemptCount: 0 },
+          { stepId: "selected-run", role: "implement", status: "in_progress", attemptCount: 2 },
+        ],
+      },
+      stepId: "selected-run",
+    };
+    const conflictingRun: DaemonListRunRow = {
+      runId: "run-conflicting",
+      project: "conflicting-project",
+      branch: "conflicting-branch",
+      status: "failed",
+      isLive: true,
+      createdAt: 303,
+      finishedAtMs: 404,
+      loopOutcomeKind: "invocation_failure",
+      iterationsConsumed: 99,
+      resumable: true,
+      error: { reason: "quota_exhausted", retryable: true, nextAction: "retry_later" },
+      reviewPasses: 7,
+      reviewBehavior: "debate",
+      worktreePath: "/conflicting/worktree",
+      prNumber: 77,
+      prUrl: "https://example.test/conflicting",
+      workflow: {
+        invocationId: "inv-conflicting",
+        steps: [
+          {
+            stepId: "conflicting-step",
+            role: "review",
+            status: "stopped",
+            terminalOutcome: "blocked",
+            attemptCount: 8,
+          },
+        ],
+      },
+      stepId: "conflicting-step",
+    };
     const state = monitorState({
-      runs: [detailedRun],
+      runs: [conflictingRun, selectedRun],
       selectedNodeId: "run-detail-a",
-      waitState: { kind: "ready", runId: "run-detail-a", result: { runStatus: "completed" } },
+      waitState: {
+        kind: "ready",
+        runId: "run-conflicting",
+        result: {
+          runStatus: "failed",
+          loopOutcomeKind: "invocation_failure",
+          iterationsConsumed: 88,
+          resumable: true,
+        },
+      },
+      steeringFeedback: "daemon_error: retained steering",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
     const singleStageBlock = pipelineBlock.slice(0, -1);
 
-    expect(lines.slice(0, singleStageBlock.length)).toEqual(singleStageBlock);
-    expect(lines.some((line) => line === "Workflow")).toBe(true);
-    expect(lines.some((line) => line.startsWith("> implement"))).toBe(true);
-    expect(lines).toContain("Outcome");
-    expect(lines).toContain("runStatus: completed");
+    expect(lines).toEqual([
+      ...singleStageBlock,
+      "Run",
+      "runId: run-detail-a",
+      "project: demo",
+      "branch: selected-branch",
+      "status: completed",
+      "isLive: false",
+      "createdAt: 101",
+      "finishedAtMs: 202",
+      "stepId: selected-run",
+      "workflowInvocationId: inv-detail-a",
+      "Workflow",
+      "  selected-plan plan completed  attempts=0",
+      "> selected-run implement in_progress attempts=2",
+      "loopOutcomeKind: complete",
+      "iterationsConsumed: 0",
+      "resumable: false",
+      'error: {"nextAction":"inspect_spec","publicationFailure":{"exitCode":0,"message":"failed","operation":"publish","stdoutTail":""},"reason":"agent_blocke',
+      'd","retryable":false}',
+      "reviewPasses: 0",
+      "reviewBehavior: light",
+      "worktreePath: ",
+      "prNumber: 0",
+      "prUrl: ",
+      "daemon_error: retained steering",
+    ]);
+    expect(lines.some((line) => line.includes("conflicting"))).toBe(false);
+    expect(lines).not.toContain("Outcome");
+    expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
+    expect(lines).not.toContain("iterationsConsumed: 88");
+    expect(lines).not.toContain("resumable: true");
+  });
+
+  test("unattributed run detail preserves null and omits only undefined fields without wait rows", () => {
+    const selectedRun: DaemonListRunRow = {
+      runId: "run-unattributed",
+      project: "",
+      branch: "",
+      status: "paused",
+      isLive: false,
+      createdAt: 0,
+      iterationsConsumed: 0,
+      resumable: false,
+      error: null as unknown as NonNullable<DaemonListRunRow["error"]>,
+      reviewPasses: 0,
+      worktreePath: "",
+      prNumber: 0,
+      prUrl: "",
+    };
+    const waitStates: TuiMonitorState["waitState"][] = [
+      { kind: "pending", runId: "run-other" },
+      { kind: "ready", runId: "run-other", result: { runStatus: "failed" } },
+      { kind: "error", runId: "run-other" },
+    ];
+
+    for (const waitState of waitStates) {
+      const lines = monitorRightPaneSegmentRows(
+        monitorState({ runs: [selectedRun], selectedNodeId: selectedRun.runId, waitState }),
+        TREE_NOW_MS,
+      ).map(joinMonitorRow);
+
+      expect(lines).toEqual([
+        "Run",
+        "runId: run-unattributed",
+        "project: ",
+        "branch: ",
+        "status: paused",
+        "isLive: false",
+        "createdAt: 0",
+        "iterationsConsumed: 0",
+        "resumable: false",
+        "error: null",
+        "reviewPasses: 0",
+        "worktreePath: ",
+        "prNumber: 0",
+        "prUrl: ",
+      ]);
+      expect(lines.some((line) => line.startsWith("pipelineId:"))).toBe(false);
+      expect(lines).not.toContain("Stages");
+      expect(lines).not.toContain("Outcome");
+      expect(lines.some((line) => line.startsWith("Waiting for "))).toBe(false);
+      expect(lines.some((line) => line.startsWith("Wait failed for "))).toBe(false);
+      expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
+    }
   });
 
   test("resolves pipeline detail for off-pane tree row selection", () => {
@@ -953,5 +1113,128 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(pipelineLines.some((line) => line.startsWith("runStatus:"))).toBe(false);
     expect(stageLines.some((line) => line === "Outcome")).toBe(false);
     expect(stageLines.some((line) => line.startsWith("runStatus:"))).toBe(false);
+  });
+
+  const wideCombiningValue = `${"界".repeat(8)}-${"e\u0301".repeat(12)}`;
+  const wrappingRun: DaemonListRunRow = {
+    runId: `run-${wideCombiningValue}`,
+    project: "demo",
+    branch: "wrap-detail",
+    status: "failed",
+    isLive: false,
+    createdAt: 0,
+    error: {
+      reason: "agent_blocked",
+      retryable: false,
+      nextAction: "inspect_spec",
+      publicationFailure: {
+        operation: "publish",
+        message: `failure-${wideCombiningValue}`,
+        exitCode: 1,
+        stdoutTail: "",
+      },
+    },
+    worktreePath: `/workspace/${"long-segment/".repeat(8)}`,
+  };
+
+  function wrappingState(terminalColumns: number, steeringFeedback: string | null = null): TuiMonitorState {
+    return monitorState({
+      runs: [wrappingRun],
+      selectedNodeId: wrappingRun.runId,
+      steeringFeedback,
+      terminalColumns,
+      terminalRows: 72,
+    });
+  }
+
+  test("split detail wraps losslessly by display columns without ellipsis", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "wrapMonitorRows(rows, effectiveRightPaneWidth(layout, columns))" -> "rows"
+    const columns = 120;
+    const width = computeShellLayout(columns, 72, 0).rightWidth;
+    const rows = monitorRightPaneSegmentRows(wrappingState(columns), TREE_NOW_MS);
+    const unwrapped = monitorRightPaneSegmentRows(wrappingState(10_000), TREE_NOW_MS);
+
+    expect(rows.length).toBeGreaterThan(unwrapped.length);
+    expect(rows.every((line) => Bun.stringWidth(joinMonitorRow(line)) <= width)).toBe(true);
+    expect(rows.map(joinMonitorRow).join("")).toBe(unwrapped.map(joinMonitorRow).join(""));
+    expect(rows.some((line) => joinMonitorRow(line).includes("…"))).toBe(false);
+  });
+
+  test("stacked detail uses the full terminal width", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.layoutMode === \"split\"" -> "true"
+    const columns = 80;
+    const layout = computeShellLayout(columns, 72, 0);
+    const rows = monitorRightPaneSegmentRows(wrappingState(columns), TREE_NOW_MS);
+
+    expect(layout.layoutMode).toBe("stacked");
+    expect(rows.every((line) => Bun.stringWidth(joinMonitorRow(line)) <= columns)).toBe(true);
+    expect(rows.some((line) => Bun.stringWidth(joinMonitorRow(line)) > layout.rightWidth)).toBe(true);
+    expect(rows.map(joinMonitorRow).join("")).toBe(
+      monitorRightPaneSegmentRows(wrappingState(10_000), TREE_NOW_MS).map(joinMonitorRow).join(""),
+    );
+  });
+
+  test("one-column detail floors width, preserves zero-column marks, and atomically overflows wide graphemes", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(1, layout.layoutMode === \"split\" ? layout.rightWidth : columns)" -> "layout.layoutMode === \"split\" ? layout.rightWidth : columns"
+    const feedback = `\u0301${"narrow".repeat(4)}界`;
+    const state = monitorState({
+      runs: [SINGLE_STEP_RUN],
+      selectedNodeId: SINGLE_STEP_RUN.runId,
+      steeringFeedback: feedback,
+      terminalColumns: 0,
+      terminalRows: 72,
+    });
+    const rows = monitorRightPaneSegmentRows(state, TREE_NOW_MS);
+
+    expect(rows.filter((line) => joinMonitorRow(line) !== "界").every((line) => Bun.stringWidth(joinMonitorRow(line)) <= 1)).toBe(
+      true,
+    );
+    expect(rows.map(joinMonitorRow)).toContain("\u0301n");
+    expect(rows.map(joinMonitorRow)).toContain("界");
+    expect(rows.at(-1)).toEqual({ segments: [{ text: "界" }] });
+    expect(rows.map(joinMonitorRow).join("")).toBe(
+      monitorRightPaneSegmentRows({ ...state, terminalColumns: 10_000 }, TREE_NOW_MS)
+        .map(joinMonitorRow)
+        .join(""),
+    );
+    expect(rows.some((line) => joinMonitorRow(line).includes("…"))).toBe(false);
+  });
+
+  test("wrapping preserves source segment tones across wide and combining characters", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (segments.length > 0 && usedWidth + graphemeWidth > width) flush();" -> "if (false) flush();"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current !== undefined && current.tone === segment.tone) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (segments.length > 0 || wrapped.length === 0) flush();" -> "if (false) flush();"
+    const source = [
+      {
+        segments: [
+          { text: "ab界", tone: "active" as const },
+          { text: "e\u0301z", tone: "failure" as const },
+        ],
+      },
+    ];
+    const wrapped = wrapMonitorRows(source, 3);
+
+    expect(wrapped.map(joinMonitorRow)).toEqual(["ab", "界e\u0301", "z"]);
+    expect(wrapped.flatMap((line) => line.segments)).toEqual([
+      { text: "ab", tone: "active" },
+      { text: "界", tone: "active" },
+      { text: "e\u0301", tone: "failure" },
+      { text: "z", tone: "failure" },
+    ]);
+  });
+
+  test("wrapping keeps combining, tone, and ZWJ grapheme clusters atomic", () => {
+    const source = [{ segments: [{ text: "A👍🏽e\u0301👨‍👩‍👧‍👦B", tone: "failure" as const }] }];
+    const wrapped = wrapMonitorRows(source, 1);
+
+    expect(wrapped.map(joinMonitorRow)).toEqual(["A", "👍🏽", "e\u0301", "👨‍👩‍👧‍👦", "B"]);
+    expect(wrapped.flatMap((line) => line.segments)).toEqual([
+      { text: "A", tone: "failure" },
+      { text: "👍🏽", tone: "failure" },
+      { text: "e\u0301", tone: "failure" },
+      { text: "👨‍👩‍👧‍👦", tone: "failure" },
+      { text: "B", tone: "failure" },
+    ]);
+    expect(wrapped.map(joinMonitorRow).join("")).toBe("A👍🏽e\u0301👨‍👩‍👧‍👦B");
   });
 });

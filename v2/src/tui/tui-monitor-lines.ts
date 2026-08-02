@@ -78,6 +78,8 @@ export type MonitorLineRow = {
   segments: readonly MonitorSegment[];
 };
 
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 export const RUN_STATUS_TONES: Record<RunStatus, MonitorSegmentTone> = {
   "in-progress": "active",
   completed: "success",
@@ -106,6 +108,41 @@ function separator(): MonitorSegment {
 
 function row(...segments: MonitorSegment[]): MonitorLineRow {
   return { segments };
+}
+
+export function wrapMonitorRows(rows: readonly MonitorLineRow[], width: number): MonitorLineRow[] {
+  return rows.flatMap((line) => {
+    const wrapped: MonitorLineRow[] = [];
+    let segments: MonitorSegment[] = [];
+    let usedWidth = 0;
+
+    const flush = (): void => {
+      wrapped.push({ segments });
+      segments = [];
+      usedWidth = 0;
+    };
+
+    for (const segment of line.segments) {
+      for (const { segment: grapheme } of GRAPHEME_SEGMENTER.segment(segment.text)) {
+        const graphemeWidth = Bun.stringWidth(grapheme);
+        // A grapheme wider than width remains whole on an otherwise empty row.
+        if (segments.length > 0 && usedWidth + graphemeWidth > width) flush();
+        const current = segments.at(-1);
+        if (current !== undefined && current.tone === segment.tone) {
+          current.text += grapheme;
+        } else {
+          segments.push({ text: grapheme, ...(segment.tone === undefined ? {} : { tone: segment.tone }) });
+        }
+        usedWidth += graphemeWidth;
+      }
+    }
+    if (segments.length > 0 || wrapped.length === 0) flush();
+    return wrapped;
+  });
+}
+
+function effectiveRightPaneWidth(layout: ShellLayout, columns: number): number {
+  return Math.max(1, layout.layoutMode === "split" ? layout.rightWidth : columns);
 }
 
 export function joinMonitorRow(line: MonitorLineRow): string {
@@ -355,17 +392,56 @@ function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined):
   ];
 }
 
-/** Workflow, outcome, and steering detail for the right pane. */
-export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
+function selectedRunDetailRows(run: DaemonListRunRow): MonitorLineRow[] {
+  const lines = [
+    row(untoned("Run")),
+    ...detailRows([
+      ["runId", run.runId],
+      ["project", run.project],
+      ["branch", run.branch],
+      ["status", run.status],
+      ["isLive", run.isLive],
+      ["createdAt", run.createdAt],
+      ["finishedAtMs", run.finishedAtMs],
+      ["stepId", run.stepId],
+      ["workflowInvocationId", run.workflow?.invocationId],
+    ]),
+  ];
+  if (run.workflow !== undefined) {
+    lines.push(row(untoned("Workflow")));
+    for (const step of run.workflow.steps) {
+      const marker = step.status === "in_progress" ? ">" : " ";
+      const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
+      lines.push(
+        row(
+          untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
+        ),
+      );
+    }
+  }
+  lines.push(
+    ...detailRows([
+      ["loopOutcomeKind", run.loopOutcomeKind],
+      ["iterationsConsumed", run.iterationsConsumed],
+      ["resumable", run.resumable],
+      ["error", run.error],
+      ["reviewPasses", run.reviewPasses],
+      ["reviewBehavior", run.reviewBehavior],
+      ["worktreePath", run.worktreePath],
+      ["prNumber", run.prNumber],
+      ["prUrl", run.prUrl],
+    ]),
+  );
+  return lines;
+}
+
+function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): MonitorLineRow[] {
   const selected = state.selectedNodeId;
   if (selected === null) {
     return [row(untoned("No run selected."))];
   }
 
-  const columns = state.terminalColumns ?? 245;
-  const terminalRows = state.terminalRows ?? 72;
-  const layout = computeShellLayout(columns, terminalRows, state.dividerOffset ?? 0);
-  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   // Mutation checkpoint: resolving selection from painted treeRows only must turn off-pane right-pane detail pin RED.
   const treeRow = fullTreeRows.find((entry) => entry.id === selected);
 
@@ -385,53 +461,25 @@ export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date
   }
 
   const selectedRunId =
-    treeRow?.kind === "run"
-      ? treeRow.id
-      : unattributedRows.some((tableRow) => monitorTreeRun(tableRow).runId === selected)
-        ? selected
-        : null;
-  if (selectedRunId === null) {
+    treeRow?.kind === "run" ? treeRow.id : monitorSelectableRuns(state).find((run) => run.runId === selected)?.runId;
+  const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
+  if (selectedRun === undefined) {
     return [row(untoned("No run selected."))];
   }
-
-  const lines: MonitorLineRow[] = [...pipelineLines];
-  const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
-  if (selectedRun?.workflow !== undefined) {
-    lines.push(row(untoned("Workflow")));
-    for (const step of selectedRun.workflow.steps) {
-      const marker = step.status === "in_progress" ? ">" : " ";
-      const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
-      lines.push(
-        row(
-          untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
-        ),
-      );
-    }
-  }
-  lines.push(row(untoned("Outcome")), ...outcomeLines(state, selectedRunId));
+  const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun)];
   if (state.steeringFeedback !== null) {
     lines.push(row(untoned(state.steeringFeedback)));
   }
   return lines;
 }
 
-function outcomeLines(state: TuiMonitorState, _selectedRunId: string): MonitorLineRow[] {
-  const waitState = state.waitState;
-  if (waitState.kind === "pending") return [row(untoned(`Waiting for ${waitState.runId}...`))];
-  if (waitState.kind === "ready") {
-    return [
-      row(untoned(`runStatus: ${waitState.result.runStatus}`)),
-      ...(waitState.result.loopOutcomeKind !== undefined
-        ? [row(untoned(`loopOutcomeKind: ${waitState.result.loopOutcomeKind}`))]
-        : []),
-      ...(waitState.result.iterationsConsumed !== undefined
-        ? [row(untoned(`iterationsConsumed: ${waitState.result.iterationsConsumed}`))]
-        : []),
-      ...(waitState.result.resumable !== undefined ? [row(untoned(`resumable: ${waitState.result.resumable}`))] : []),
-    ];
-  }
-  if (waitState.kind === "error") return [row(untoned(`Wait failed for ${waitState.runId}.`))];
-  return [row(untoned("No outcome yet."))];
+/** Pipeline, stage, selected-run, and steering detail for the right pane. */
+export function monitorRightPaneSegmentRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
+  const columns = state.terminalColumns ?? 245;
+  const terminalRows = state.terminalRows ?? 72;
+  const layout = computeShellLayout(columns, terminalRows, state.dividerOffset ?? 0);
+  const rows = unwrappedRightPaneSegmentRows(state, layout, nowMs);
+  return wrapMonitorRows(rows, effectiveRightPaneWidth(layout, columns));
 }
 
 /** Segment rows for the ink run monitor from one snapshot. */

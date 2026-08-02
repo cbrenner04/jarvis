@@ -575,10 +575,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 ## TUI / observability
 
 - [v2 additive] `jarvis tui` is an interactive read-only run monitor over daemon
-  IPC: prove `health` + `status`, poll `list` for run rows/liveness, drive the
-  outcome panel from invocation-boundary `wait`, preserve selection by `runId`,
-  and quit with `q` or Ctrl-C. The ink shell is a split-pane layout (stacked below
-  120 terminal columns): left tree/queue, right workflow/outcome/steering, and a
+  IPC: prove `health` + `status`, poll `list` for run rows/liveness, preserve
+  selection by `runId`, and quit with `q` or Ctrl-C. The ink shell is a split-pane
+  layout (stacked below 120 terminal columns): left tree/queue, right
+  selection-keyed durable detail/steering, and a
   fixed 4-line dock; `[` / `]` nudge the left/right divider. The left-pane grid
   `live` column shows `idle` for non-live runs (five-character width); `jarvis run
   list` and segment-style monitor lines still use `not-live`. The `elapsed` column
@@ -616,8 +616,14 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] TUI pipeline tree: the left pane merges daemon `pipeline_list`
   snapshots with run rows by `workflowInvocationId`, nests pipeline → stage → run,
   and keeps unattributed runs in a flat segment below. Selection is three-deep
-  (pipeline, stage, or run); the right pane shows pipeline/stage metadata or run
-  workflow/outcome/steering by selection kind. Sources:
+  (pipeline, stage, or run): pipeline selection shows pipeline context and stage
+  roll-up; stage selection adds the selected durable-stage record; an attributed
+  run adds selected durable-run workflow/outcome/error/PR/worktree detail from its
+  durable `list` row (not `wait`), followed by retained steering feedback; an
+  unattributed run shows only that durable-run detail. Rows hard-wrap losslessly by display-column width without
+  ellipsis, using split right-pane or stacked terminal width with a one-column
+  floor; extended grapheme clusters stay atomic, so a wider grapheme can overflow a
+  narrower row; tones survive wrapping. Sources:
   `v2/src/tui/tui-monitor-pipeline-tree.ts`, `v2/src/tui/tui-monitor-lines.ts`
 - [v2 additive] TUI pipeline-tree **`e`** and row navigation: **`e`** toggles
   expansion on the selected pipeline or stage (no-op on run leaves and unattributed

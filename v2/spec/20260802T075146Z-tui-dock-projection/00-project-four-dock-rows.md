@@ -23,13 +23,13 @@ Dock state has no pure, CI-observable projection.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` adds a projection regression that fails against the hardcoded baseline and proves one call returns exactly four ordered rows: status, prompted input with a visible cursor, continuation, and hints.
-- [ ] Status reports each distinct pipeline once; contradictory terminal/non-terminal observations remain active, duplicate snapshots do not inflate the count, and retained snapshots still count after a refresh failure. It reports invoking profile/keyed-socket digest, refresh interval, and RPC error ahead of a retained result when both exist.
-- [ ] At split and stacked widths, rendered row text is control/newline-safe and display-width-bounded, so empty, exact-fit, one-column-overflow, and longer-than-two-row input produce four non-wrapping physical rows. Coverage proves prompt accounting, tabs/newlines, tiny widths, and over-wide graphemes without splitting a grapheme.
-- [ ] For start, middle, and end cursor positions, projection clamps the grapheme-offset cursor, keeps its marker visible across the two-row window, and leaves buffer and cursor unchanged.
-- [ ] Tree-focus hints retain global controls; they omit expansion and kill for absent, terminal, non-live, and otherwise non-actionable selections, include each only when applicable, and command focus shows command copy with no tree actions.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries one valid `// @mutate` directive for every added or modified executable projection guard, including effect-suppressing guards; inverting each real source condition turns its pin red, with no production inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` adds a projection regression that fails against the hardcoded baseline and proves one call returns exactly four ordered rows: status, prompted input with a visible cursor, continuation, and hints.
+- [x] Status reports each distinct pipeline once; contradictory terminal/non-terminal observations remain active, duplicate snapshots do not inflate the count, and retained snapshots still count after a refresh failure. It reports invoking profile/keyed-socket digest, refresh interval, and RPC error ahead of a retained result when both exist.
+- [x] At split and stacked widths, rendered row text is control/newline-safe and display-width-bounded, so empty, exact-fit, one-column-overflow, and longer-than-two-row input produce four non-wrapping physical rows. Coverage proves prompt accounting, tabs/newlines, tiny widths, and over-wide graphemes without splitting a grapheme.
+- [x] For start, middle, and end cursor positions, projection clamps the grapheme-offset cursor, keeps its marker visible across the two-row window, and leaves buffer and cursor unchanged.
+- [x] Tree-focus hints retain global controls; they omit expansion and kill for absent, terminal, non-live, and otherwise non-actionable selections, include each only when applicable, and command focus shows command copy with no tree actions.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` carries one valid `// @mutate` directive for every added or modified executable projection guard, including effect-suppressing guards; inverting each real source condition turns its pin red, with no production inversion hook.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

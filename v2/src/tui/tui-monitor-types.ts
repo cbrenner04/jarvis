@@ -14,6 +14,8 @@ export type TuiWaitState =
   | { kind: "ready"; runId: string; result: WaitRunCompletionResult }
   | { kind: "error"; runId: string };
 
+export type TuiMonitorFocus = "tree" | "command";
+
 /** Operator-visible monitor snapshot. */
 export type TuiMonitorState = {
   runs: readonly DaemonListRunRow[];
@@ -33,6 +35,20 @@ export type TuiMonitorState = {
   terminalRows?: number;
   /** Dock refresh label (e.g. `1s`); defaults when omitted. */
   refreshIntervalLabel?: string;
+  /** Session-local command text; defaults to empty. */
+  commandBuffer?: string;
+  /** Grapheme-cluster cursor offset in {@link commandBuffer}; defaults to zero. */
+  commandCursor?: number;
+  /** Active monitor surface; defaults to the tree. */
+  focus?: TuiMonitorFocus;
+  /** Retained command feedback; defaults to absent. */
+  lastCommandResult?: string | null;
+  /** Latest recoverable monitor RPC failure; defaults to absent. */
+  lastRpcError?: string | null;
+  /** Machine profile resolved for the invoking TUI command. */
+  machineProfile?: string;
+  /** Digest key of the invoking daemon socket. */
+  keyedSocketDigest?: string;
   /** Last-good per-daemon `pipeline_list` snapshots keyed by socket path. */
   pipelineSnapshotsBySocketPath?: Readonly<Record<string, PipelineListResult>>;
   /** Clock snapshot for unattributed terminal retention; updated on daemon refresh only. */

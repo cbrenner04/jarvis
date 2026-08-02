@@ -17,6 +17,7 @@ import {
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { WriteWorkflowStep } from "./workflow-runner.ts";
 import { executeWrite } from "./write.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const match: ProjectMatch = { key: "demo", root: "/repo" };
 const intent = {
@@ -64,6 +65,7 @@ async function executeBuiltDraftStep(
   const step = built.steps[0];
   if (step?.behavior !== "write") throw new Error("expected write step");
   const draftStep: WriteWorkflowStep = step;
+  expect(draftStep.stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
   const bindings: InvocationBinding[] = [
     {
       id: "agent",

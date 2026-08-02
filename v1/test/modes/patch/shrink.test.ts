@@ -15,6 +15,7 @@ import { dirname, join, relative } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import { type Config, DEFAULT_CONFIG } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 import {
   accumulateImplementationTouchedFiles,
   detectDeletedTestInScope,
@@ -404,6 +405,9 @@ describe("buildShrinkPrompt", () => {
       expect(prompt).toContain("Simplification checklist");
       expect(prompt).toContain("read-only");
       expect(prompt).not.toContain("Follow these Jarvis rules:");
+      const stepRules = prompt.slice(prompt.lastIndexOf("Human-only acceptance criteria contain"));
+      expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
+      expect(stepRules).toContain("case-insensitive substring matching");
     } finally {
       cleanup();
     }

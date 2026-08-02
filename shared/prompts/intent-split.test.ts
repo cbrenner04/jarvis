@@ -18,6 +18,9 @@ const BASE_OPTS = {
 
 const normalize = (text: string): string => text.replace(/\s+/g, " ").trim();
 
+const HUMAN_ONLY_STEP_RULES =
+  "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
+
 describe("buildIntentSplitPrompt", () => {
   test("intent split prompt states landing filename contract", () => {
     const prompt = buildIntentSplitPrompt(BASE_OPTS);
@@ -33,7 +36,9 @@ describe("buildIntentSplitPrompt", () => {
     expect(prompt).toContain("Be terse in communication artifacts");
     expect(prompt).toContain("one prerequisite behavior per physical line as `- ...`");
     expect(prompt).toContain("Write the authored intents as markdown files under `.jarvis-intent-stage`");
-    expect(prompt).toContain(DEFAULT_WRITE_STEP_RULES);
+    const stepRules = prompt.split("## Step completion\n\n")[1];
+    expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
+    expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
     expect(prompt).not.toContain("No planning labels in code.");
     expect(INTENT_SPLIT_PROMPT_ID).toBe("intent.prompt.split");
   });

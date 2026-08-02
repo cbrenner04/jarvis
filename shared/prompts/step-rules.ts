@@ -1,9 +1,10 @@
 /**
- * The terminal-token contract every write-loop step prompt carries. Lives in `shared`
+ * The contract every write-loop step prompt carries. Lives in `shared`
  * because both the v1 patch prompt and the v2 write loop render it — v1 must not import
  * from v2.
  */
 export const DEFAULT_WRITE_STEP_RULES =
+  "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.\n" +
   "Guard-inversion criteria require a source mutation on the real guard and a comment checkpoint on the pinning test that names that mutation — production invert hooks are forbidden.\n" +
   "Do not add `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, or `invert*ForTest` type members in production code.\n" +
   "The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.\n" +

@@ -6,6 +6,7 @@ import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { ReviewWorkflowStep } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const match: ProjectMatch = { key: "demo", root: "/repo" };
 const load = (steps: readonly WorkflowSourceStep[]): LoadedWorkflowStep[] =>
@@ -46,7 +47,11 @@ describe("buildIntentWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.steps).toHaveLength(1);
-    expect(result.steps[0]).toMatchObject({ behavior: "write", promptId: "intent.prompt.split" });
+    expect(result.steps[0]).toMatchObject({
+      behavior: "write",
+      promptId: "intent.prompt.split",
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+    });
   });
 
   test("defaults omitted reviewBehavior to light for multi-pass runs", async () => {

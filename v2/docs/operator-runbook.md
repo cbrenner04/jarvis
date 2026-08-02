@@ -1223,13 +1223,6 @@ Operators add bullets here; delete when fixed.
   conflicts and then fails that assertion. Resolution: renumber the later migration and bump the
   count. Worth checking before dispatching two specs that both touch persistence.
 
-- **A wrapped `(Manual)` criterion is not read as human-only (2026-07-30):** the marker is matched
-  on the criterion's first line only, so a line-wrapped criterion ending in `(Manual)` blocks
-  `spec.criteria-ticked` and settles `contract_miss`. Two dispatches burned on
-  `workflow-collapse-drops-test-flag`. Workaround: move the marker to the first line of the bullet
-  (#2321). Seed: `v2/spec/seeds/human-only-marker-read-from-first-line-only.md`. Cleanup: delete
-  when it ships.
-
 - **`idle_output_timeout` clusters with machine load (2026-07-30):** at 5–8 concurrent implement
   lanes (load average 15–25 on this machine) three runs settled `idle_output_timeout`
   (`retryable: false`, `nextAction: "stop"`) — `cleanup-prunes-merged-dead-branches`,

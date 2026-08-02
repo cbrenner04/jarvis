@@ -441,15 +441,23 @@ canonical principle text and rationale.
 ## Terminal token
 
 Write-step prompts carry `stepRules` from `DEFAULT_WRITE_STEP_RULES`: the
-agent's final response line must be exactly one of `done`, `no-work`, `blocked`,
+shared rules state that an acceptance criterion is human-only when `(Manual)`,
+`visual inspection only`, or `no automated guard` appears anywhere in its full
+bullet block (first checklist line plus continuation lines). Recognition is
+case-insensitive substring matching; markers need not be trailing or whole
+phrases. The agent's final response line must be exactly one of `done`,
+`no-work`, `blocked`,
 or `progress`, with nothing after it. `done` and `no-work` end the step; use
 `progress` when work remains and the agent is not stuck; use `blocked` when
 stuck and record the blocker where the mode's rules require (mode-neutral — no
 spec path in the shared text). Patch mode binds appending `## Blocker` to
 `blocked` in `prompts/patch/rules.md` §Stop. Plan-draft and intent-split
 builders append the same text under `## Step completion` (see
-[`prompts.md`](./prompts.md)); `write.execute`, `patch.prompt.body`, and
-`patch.prompt.shrink` interpolate it via `<STEP_RULES>` as the final block.
+[`prompts.md`](./prompts.md)); `write.execute`, `patch.prompt.body`,
+`patch.prompt.shrink`, `write.ready-repair`, and `write.mutation-repair`
+interpolate it via `<STEP_RULES>` as the final block. These consumers cover v1
+patch and v2 intent, plan, legacy write, implement, ready-repair, and
+mutation-repair flows.
 
 ## Write-step prompt placeholders
 
@@ -461,7 +469,7 @@ names fail the step as `model_config` before any binding runs.
 | Placeholder | Source |
 | --- | --- |
 | `SPEC_PATH` | Worktree-resolved `specPath` |
-| `STEP_RULES` | Step `stepRules` (`patch.prompt.body`, `patch.prompt.shrink`, `write.execute`) |
+| `STEP_RULES` | Step `stepRules` (`patch.prompt.body`, `patch.prompt.shrink`, `write.execute`, `write.ready-repair`, `write.mutation-repair`) |
 | `PRINCIPLES` | `write.principles` registry body |
 | `REPO_GUIDANCE` | `AGENTS.md` and `CLAUDE.md` at the worktree root (same as v1 `readRepoGuidance`) |
 | `ACTIVE_SUBSPEC_PATH` | Worktree-resolved `expectedArtifactPath`, with trailing newline when non-empty |

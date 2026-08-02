@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildWriteLoopInput, buildWriteLoopInputFromCliValues, parseWriteArgs } from "./write-loop-input.ts";
+import {
+  buildWriteLoopInput,
+  buildWriteLoopInputFromCliValues,
+  DEFAULT_WRITE_STEP_RULES,
+  parseWriteArgs,
+} from "./write-loop-input.ts";
 
 const FIXTURE_CLI_VALUES = {
   "project-root": "/tmp/repo",
@@ -33,9 +38,10 @@ describe("buildWriteLoopInput", () => {
     expect(fromCli.input).toMatchObject({
       worktree: fromFields.input.worktree,
       specPath: fromFields.input.specPath,
-      stepRules: fromFields.input.stepRules,
+      stepRules: DEFAULT_WRITE_STEP_RULES,
       expectedArtifactPath: fromFields.input.expectedArtifactPath,
     });
+    expect(fromFields.input.stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
     expect("maxIterations" in fromCli.input).toBe(false);
   });
 

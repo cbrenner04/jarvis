@@ -3,12 +3,24 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderIntentReviewDebateRolePrompt } from "./review-intent.ts";
+import { renderPlanReviewCriticPrompt } from "./review-plan.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
   planReviewProfile,
   type ReviewProfileSpec,
 } from "./review-profile.ts";
+
+function extractSpecGuidance(prompt: string): string {
+  const begin = prompt.lastIndexOf("<<<SPEC_GUIDANCE_BEGIN>>>");
+  const end = prompt.lastIndexOf("<<<SPEC_GUIDANCE_END>>>");
+  expect(begin).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(begin);
+  return prompt.slice(begin, end);
+}
+
+const HUMAN_ONLY_MARKER_GUIDANCE =
+  "marker strings appears anywhere in its full bullet block: `(Manual)`, `visual inspection only`, or `no automated guard`. Matching is case-insensitive substring matching across the first checklist line and any continuation lines; markers need not be trailing or whole phrases";
 
 describe("ReviewPromptProfile", () => {
   test("defines one domain contract for light and debate review", () => {
@@ -50,5 +62,23 @@ describe("ReviewPromptProfile", () => {
     expect(advocate).toContain("finding");
     expect(adjudicator).toContain("response");
     expect(adjudicator).not.toContain("plan.prompt.review");
+  });
+
+  test("isolates bundled human-only guidance in v2 intent and plan review prompts", () => {
+    const intentStage = mkdtempSync(join(tmpdir(), "intent-review-guidance-"));
+    writeFileSync(join(intentStage, "intent.md"), "# Intent\n\nmarker-free input\n", "utf8");
+    const planSpec = mkdtempSync(join(tmpdir(), "plan-review-guidance-"));
+    writeFileSync(join(planSpec, "intent.md"), "# Intent\n\nmarker-free input\n", "utf8");
+    writeFileSync(join(planSpec, "index.md"), "# Plan\n\n- [ ] marker-free criterion\n", "utf8");
+
+    const intentPrompt = renderIntentReviewDebateRolePrompt("adversary", {
+      stagingDir: intentStage,
+      verdictPath: join(intentStage, "verdict.md"),
+      totalPasses: 1,
+    });
+    const planPrompt = renderPlanReviewCriticPrompt({ worktreePath: "/repo", specPath: planSpec });
+
+    expect(extractSpecGuidance(intentPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+    expect(extractSpecGuidance(planPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
   });
 });

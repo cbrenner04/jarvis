@@ -2,7 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "../../shared/prompts/step-rules.ts";
 import { buildPrompt, buildVerdictActuatorPrompt, readRepoGuidance } from "../src/modes/patch/prompt.ts";
+
+function extractFinalStepRules(prompt: string): string {
+  const start = prompt.lastIndexOf("\n\nHuman-only acceptance criteria contain");
+  expect(start).toBeGreaterThan(-1);
+  return prompt.slice(start + 2);
+}
+
+const HUMAN_ONLY_STEP_RULES =
+  "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
 
 function withTempRepo(run: (root: string) => void): void {
   const root = join(import.meta.dir, ".tmp-prompt-test", String(Date.now()));
@@ -132,6 +142,13 @@ describe("buildPrompt", () => {
     expect(prompt).toContain(
       "Tests reaching machine/user-config resolution must inject an explicit config fixture/path and mocked profile; never read the ambient machine config.",
     );
+  });
+
+  test("isolates shared human-only rules in the patch step-rules block", () => {
+    const stepRules = extractFinalStepRules(buildPrompt("spec/example/index.md"));
+
+    expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
+    expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
   });
 });
 

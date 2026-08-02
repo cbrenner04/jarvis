@@ -1353,6 +1353,22 @@ describe("monitorDockLines", () => {
     expect([...wrapped, ...windowed].every((line) => Bun.stringWidth(line) <= 8)).toBe(true);
   });
 
+  test("paints a tab that overshoots its row as one control glyph instead of blanking the row", () => {
+    // A tab expands to the next four-column stop above `used`, which overshoots a
+    // 7-column row. Dropping it would drop the cursor atom with it and fall back to
+    // an empty input row, losing the buffer from view.
+    const ascii = monitorDockLines(
+      monitorState({ commandBuffer: "ab\t\t", commandCursor: 4, terminalColumns: 7 }),
+    ).slice(1, 3);
+    const wide = monitorDockLines(
+      monitorState({ commandBuffer: "中a\t\t", commandCursor: 4, terminalColumns: 7 }),
+    ).slice(1, 3);
+
+    expect(ascii).toEqual(["> ab", "    �▏"]);
+    expect(wide).toEqual(["> 中a", "    �▏"]);
+    expect([...ascii, ...wide].every((line) => Bun.stringWidth(line) <= 7)).toBe(true);
+  });
+
   test("projects a large pasted buffer without changing it", () => {
     const commandBuffer = "x".repeat(100_000);
     const state = monitorState({ commandBuffer, commandCursor: commandBuffer.length, terminalColumns: 80 });
@@ -1404,7 +1420,7 @@ describe("monitorDockLines", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "snapshot.pipelineId === state.selectedNodeId" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts "monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === state.selectedNodeId)" -> "state.runs.find(() => false)"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "selectedRun?.isLive === true && isActiveRunStatus(selectedRun.status)" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "    selectedRun?.isLive === true &&" -> "    false &&"
     // @mutate v2/src/tui/tui-monitor-lines.ts "...(expandable ? [\"e expand/collapse\"] : [])" -> "...[]"
     // @mutate v2/src/tui/tui-monitor-lines.ts "...(killable ? [\"k kill\"] : [])" -> "...[]"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });

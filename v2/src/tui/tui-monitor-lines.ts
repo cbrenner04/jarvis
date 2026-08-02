@@ -196,11 +196,6 @@ function queueRow(run: DaemonListRunRow): MonitorLineRow {
   );
 }
 
-/** Non-queued runs with `isLive: true` for the dock active count. */
-export function countActiveLiveRuns(state: TuiMonitorState): number {
-  return state.runs.filter((run) => run.status !== "queued" && run.isLive).length;
-}
-
 const TERMINAL_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set([
   "succeeded",
   "failed",
@@ -322,12 +317,16 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
     let width = atom.text === "\t" ? tabWidth(current) : atom.width;
     if (current.used + width > current.capacity) current = second;
     width = atom.text === "\t" ? tabWidth(current) : atom.width;
-    // A tab is re-measured against the row it lands on, so it always stops within
-    // that row's capacity; an atom that still does not fit ends the row.
-    const text = atom.text === "\t" ? " ".repeat(width) : atom.text;
-    if (current.used + width > current.capacity) break;
+    // A tab expands to the next stop above `used`, which can overshoot a narrow row
+    // even after re-measuring; paint it as a single control glyph rather than
+    // dropping it, which would take the cursor atom with it and blank the row.
+    const fits = current.used + width <= current.capacity;
+    const text =
+      atom.text === "\t" && !fits ? DOCK_CONTROL_REPLACEMENT : atom.text === "\t" ? " ".repeat(width) : atom.text;
+    const paintedWidth = atom.text === "\t" && !fits ? 1 : width;
+    if (current.used + paintedWidth > current.capacity) break;
     current.content += text;
-    current.used += width;
+    current.used += paintedWidth;
   }
   if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {
     return [`${prompt}${DOCK_CURSOR}`, ""];

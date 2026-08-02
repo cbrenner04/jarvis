@@ -963,6 +963,56 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
+  test("dropping one socket evicts only that client's run ownership", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const survivorMethods: string[] = [];
+    let discoveryPhase = 0;
+    const clients = new Map([
+      [DAEMON1_SOCKET, fakeClient({ methods: [], listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }] }] })],
+      [
+        DAEMON2_SOCKET,
+        fakeClient({ methods: survivorMethods, listResponses: [{ runs: [{ ...RUN_GAMMA, isLive: true }] }] }),
+      ],
+    ]);
+    const { deps } = entryDeps(
+      {},
+      {
+        socketPath: DAEMON2_SOCKET,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async (options) => {
+          const client = options?.socketPath === undefined ? undefined : clients.get(options.socketPath);
+          if (client === undefined) throw new Error(`missing client for ${options?.socketPath}`);
+          return client as TuiDaemonClient;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          // The first daemon goes away after the opening refresh.
+          return discoveryPhase === 1 ? [DAEMON1_SOCKET, DAEMON2_SOCKET] : [DAEMON2_SOCKET];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.runs.some((run) => run.runId === "run-alpha"); i += 1) {
+      await flush();
+    }
+
+    view.selectNode("run-gamma");
+    await flush();
+    view.pauseSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    // run-gamma is owned by the surviving daemon; evicting daemon1 must not take its owner with it.
+    expect(survivorMethods).toContain("pause:run-gamma");
+  });
+
   test("invocation identity survives discovery addition, selection, and removal", async () => {
     // @mutate v2/src/tui/tui-entry.tsx "if (match === null) return \"unknown\";" -> "if (match !== null) return \"unknown\";"
     const view = createViewHost();

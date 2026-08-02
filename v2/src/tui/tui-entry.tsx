@@ -312,7 +312,8 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         if (selectedRunId !== null && getOwner(selectedRunId) === client) {
           selectedRunOwnerDropped = true;
         }
-        runOwners = new Map([...runOwners].filter(([, owner]) => owner !== client));
+        // Owners are rebuilt from this refresh's successful lists below, so a
+        // dropped client's entries cannot outlive this cycle.
       }
     }
 

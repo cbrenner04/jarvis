@@ -12,11 +12,13 @@ The right pane can show `waitState` outcome values for a run other than the sele
 - Remove `waitState` pending, ready, and error rows from right-pane detail. `waitState` is not a diagnostic source; existing auxiliary steering feedback remains after run detail.
 - Attributed runs retain the 00 pipeline block; unattributed runs render only selected-run detail.
 - Keep wrapping, spec path, agent/model binding, per-step timestamps, command dispatch, and pane scrolling unchanged.
+- Removing the `waitState` rows invalidates two assertions in `v2/src/tui/tui-ink-monitor.test.tsx` — one requires the removed `Outcome`/`runStatus` panel, the other requires a selected durable run to vanish when filtered from the left pane. Updating those two assertions to the new contract is in scope; deleting or weakening any other assertion in that file is not.
 
 ## Work
 
 - Replace wait-derived outcome rows in `v2/src/tui/tui-monitor-lines.ts` with selected-row diagnostics.
 - Extend `v2/src/tui/tui-monitor-lines.test.ts` with attributed and unattributed selected-run regressions and cross-run isolation.
+- Update the two invalidated `v2/src/tui/tui-ink-monitor.test.tsx` assertions to the new contract.
 
 ## Acceptance criteria
 
@@ -26,6 +28,7 @@ The right pane can show `waitState` outcome values for a run other than the sele
 - [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries `// @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"`; the conflicting-row pin turns red under the mutation.
 - [ ] The production guard delta in this slice is limited to selected-run existence, optional-field omission, and the no-`waitState` detail branch. `v2/src/tui/tui-monitor-lines.test.ts` carries a uniquely targeted `// @mutate` directive for each; its selected-run, omission, and wait-feedback pins turn red, with no production invert hooks.
 - [ ] Existing `v2/src/tui/tui-monitor-lines.test.ts` selection, off-pane resolution, workflow-collapse, and steering-feedback tests stay green.
+- [ ] `v2/src/tui/tui-ink-monitor.test.tsx` passes with only its two invalidated assertions rewritten to the new contract; every other assertion in that file is unchanged.
 
 ## Documentation updates
 

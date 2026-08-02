@@ -7,6 +7,7 @@ import {
   buildMonitorPipelineTree,
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
+  monitorPipelineStageNodeId,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
@@ -198,6 +199,165 @@ function queueRow(run: DaemonListRunRow): MonitorLineRow {
 /** Non-queued runs with `isLive: true` for the dock active count. */
 export function countActiveLiveRuns(state: TuiMonitorState): number {
   return state.runs.filter((run) => run.status !== "queued" && run.isLive).length;
+}
+
+const TERMINAL_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set([
+  "succeeded",
+  "failed",
+  "rejected",
+  "interrupted",
+]);
+
+const DOCK_CURSOR = "▏";
+const DOCK_CONTROL_REPLACEMENT = "�";
+const DEFAULT_DOCK_COLUMNS = 245;
+const DEFAULT_DOCK_REFRESH_LABEL = "1s";
+const TAB_STOP_COLUMNS = 4;
+
+type DockInputAtom = {
+  text: string;
+  width: number;
+  cursor: boolean;
+};
+
+/** Distinct retained pipelines with at least one non-terminal observation. */
+export function countActivePipelines(state: TuiMonitorState): number {
+  const activeByPipelineId = new Map<string, boolean>();
+  for (const snapshot of mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath)) {
+    activeByPipelineId.set(
+      snapshot.pipelineId,
+      (activeByPipelineId.get(snapshot.pipelineId) ?? false) || !TERMINAL_PIPELINE_STATES.has(snapshot.state),
+    );
+  }
+  return [...activeByPipelineId.values()].filter(Boolean).length;
+}
+
+function sanitizeDockGrapheme(grapheme: string): string {
+  if (/^[\p{Cc}\p{Cf}]+$/u.test(grapheme)) return DOCK_CONTROL_REPLACEMENT;
+  return grapheme;
+}
+
+function fitDockRow(text: string, columns: number): string {
+  let result = "";
+  let used = 0;
+  for (const { segment } of GRAPHEME_SEGMENTER.segment(text)) {
+    const safe = sanitizeDockGrapheme(segment);
+    const paintedWidth = Bun.stringWidth(safe);
+    if (used + paintedWidth > columns) break;
+    result += safe;
+    used += paintedWidth;
+  }
+  return result;
+}
+
+function dockStatusLine(state: TuiMonitorState): string {
+  const profile = state.machineProfile ?? "unknown";
+  const digest = state.keyedSocketDigest ?? "unknown";
+  const refresh = state.refreshIntervalLabel ?? DEFAULT_DOCK_REFRESH_LABEL;
+  const feedback =
+    state.lastRpcError !== null && state.lastRpcError !== undefined
+      ? ` · error: ${state.lastRpcError}`
+      : state.lastCommandResult !== null && state.lastCommandResult !== undefined
+        ? ` · result: ${state.lastCommandResult}`
+        : "";
+  return `${countActivePipelines(state)} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;
+}
+
+function dockPrompt(columns: number): string {
+  return columns === 1 ? "" : "> ";
+}
+
+function dockInputAtoms(buffer: string, cursorOffset: number, columns: number): DockInputAtom[] {
+  const graphemes = Array.from(GRAPHEME_SEGMENTER.segment(buffer), ({ segment }) => segment);
+  const cursor = Math.min(Math.max(0, cursorOffset), graphemes.length);
+  const atoms: DockInputAtom[] = [];
+  let logicalColumn = Bun.stringWidth(dockPrompt(columns));
+  for (const [index, grapheme] of graphemes.entries()) {
+    if (index === cursor) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });
+    if (grapheme === "\t") {
+      const width = TAB_STOP_COLUMNS - (logicalColumn % TAB_STOP_COLUMNS);
+      atoms.push({ text: " ".repeat(width), width, cursor: false });
+      logicalColumn += width;
+      continue;
+    }
+    const safe = sanitizeDockGrapheme(grapheme);
+    const width = Bun.stringWidth(safe);
+    const painted = width > columns ? DOCK_CONTROL_REPLACEMENT : safe;
+    atoms.push({ text: painted, width: Bun.stringWidth(painted), cursor: false });
+    logicalColumn += Bun.stringWidth(painted);
+  }
+  if (cursor === graphemes.length) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });
+  return atoms;
+}
+
+function dockInputWindow(atoms: readonly DockInputAtom[], capacity: number): readonly DockInputAtom[] {
+  const cursorIndex = atoms.findIndex((atom) => atom.cursor);
+  const prefixWidths = atoms.map((_, index) => atoms.slice(0, index).reduce((sum, atom) => sum + atom.width, 0));
+  const totalWidth = atoms.reduce((sum, atom) => sum + atom.width, 0);
+  const cursorColumn = prefixWidths[cursorIndex] ?? 0;
+  const desiredStart = Math.min(
+    Math.max(0, cursorColumn - Math.floor((capacity - 1) / 2)),
+    Math.max(0, totalWidth - capacity),
+  );
+  const firstAtOrAfterStart = prefixWidths.findIndex((width) => width >= desiredStart);
+  const start = Math.min(cursorIndex, Math.max(0, firstAtOrAfterStart));
+  return atoms.slice(start);
+}
+
+function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [string, string] {
+  const prompt = dockPrompt(columns);
+  const capacities = [columns - Bun.stringWidth(prompt), columns] as const;
+  const window = dockInputWindow(atoms, capacities[0] + capacities[1]);
+  const first = { content: "", used: 0, capacity: capacities[0] };
+  const second = { content: "", used: 0, capacity: capacities[1] };
+  let current = first;
+  for (const atom of window) {
+    if (current.used + atom.width > current.capacity) current = second;
+    if (current.used + atom.width > current.capacity) break;
+    current.content += atom.text;
+    current.used += atom.width;
+  }
+  if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {
+    return [`${prompt}${DOCK_CURSOR}`, ""];
+  }
+  return [`${prompt}${first.content}`, second.content];
+}
+
+function dockHintLine(state: TuiMonitorState): string {
+  if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit · Shift+Enter newline";
+  const expandable = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath).some(
+    (snapshot) =>
+      snapshot.pipelineId === state.selectedNodeId ||
+      snapshot.stages.some(
+        (stage) =>
+          monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId,
+      ),
+  );
+  const selectedRun = state.runs.find((run) => run.runId === state.selectedNodeId);
+  const killable = selectedRun?.isLive === true && isActiveRunStatus(selectedRun.status);
+  return [
+    "j/↓ next",
+    "↑ previous",
+    "[/] divider",
+    ": command",
+    ...(expandable ? ["e expand/collapse"] : []),
+    ...(killable ? ["k kill"] : []),
+    "q quit",
+  ].join(" · ");
+}
+
+/** Fixed status, input, continuation, and contextual-hint dock rows. */
+export function monitorDockLines(state: TuiMonitorState): [string, string, string, string] {
+  const columns = Math.max(1, state.terminalColumns ?? DEFAULT_DOCK_COLUMNS);
+  const buffer = state.commandBuffer ?? "";
+  const cursor = state.commandCursor ?? 0;
+  const [input, continuation] = paintDockInputRows(dockInputAtoms(buffer, cursor, columns), columns);
+  return [
+    fitDockRow(dockStatusLine(state), columns),
+    fitDockRow(input, columns),
+    fitDockRow(continuation, columns),
+    fitDockRow(dockHintLine(state), columns),
+  ];
 }
 
 /** Workflow table rows for the left-pane grid (empty when no selectable runs). */

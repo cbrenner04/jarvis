@@ -3,9 +3,11 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import {
+  countActivePipelines,
   firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
+  monitorDockLines,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
   monitorSegmentRows,
@@ -1238,5 +1240,176 @@ describe("monitorRightPaneSegmentRows", () => {
       { text: "B", tone: "failure" },
     ]);
     expect(wrapped.map(joinMonitorRow).join("")).toBe("A👍🏽e\u0301👨‍👩‍👧‍👦B");
+  });
+});
+
+describe("monitorDockLines", () => {
+  test("projects exactly four ordered dock rows from one state snapshot", () => {
+    const state = monitorState({
+      commandBuffer: "start",
+      commandCursor: 5,
+      machineProfile: "workstation",
+      keyedSocketDigest: "0123456789abcdef",
+      refreshIntervalLabel: "2s",
+      lastCommandResult: "ready",
+      terminalColumns: 90,
+      pipelineSnapshotsBySocketPath: {
+        "/socket": { pipelines: [pipelineSnapshot({ pipelineId: "active" })] },
+      },
+    });
+
+    const lines = monitorDockLines(state);
+
+    expect(lines).toEqual([
+      "1 active · workstation@0123456789abcdef · refresh 2s · result: ready",
+      "> start▏",
+      "",
+      "j/↓ next · ↑ previous · [/] divider · : command · q quit",
+    ]);
+    expect(lines).toHaveLength(4);
+    expect(lines).not.toEqual(["1 active · refresh 2s", ">", "", ""]);
+  });
+
+  test("counts retained pipeline identities once and prioritizes RPC errors", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "(activeByPipelineId.get(snapshot.pipelineId) ?? false) || !TERMINAL_PIPELINE_STATES.has(snapshot.state)" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts ".filter(Boolean)" -> ""
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.lastRpcError !== null && state.lastRpcError !== undefined" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.lastCommandResult !== null && state.lastCommandResult !== undefined" -> "false"
+    const terminal = pipelineSnapshot({ pipelineId: "contradictory", state: "succeeded", finishedAtMs: 20 });
+    const nonTerminal = pipelineSnapshot({ pipelineId: "contradictory", state: "running", finishedAtMs: null });
+    const duplicate = pipelineSnapshot({ pipelineId: "duplicate", state: "pending" });
+    const terminalOnly = pipelineSnapshot({ pipelineId: "terminal-only", state: "failed", finishedAtMs: 30 });
+    const state = monitorState({
+      machineProfile: "profile",
+      keyedSocketDigest: "digest",
+      refreshIntervalLabel: "750ms",
+      lastRpcError: "list\nfailed",
+      lastCommandResult: "retained\rresult",
+      pipelineSnapshotsBySocketPath: {
+        "/a": { pipelines: [terminal, duplicate, terminalOnly] },
+        "/b": { pipelines: [nonTerminal, duplicate] },
+      },
+      terminalColumns: 120,
+    });
+
+    expect(countActivePipelines(state)).toBe(2);
+    expect(monitorDockLines(state)[0]).toBe("2 active · profile@digest · refresh 750ms · error: list�failed");
+    expect(monitorDockLines({ ...state, lastRpcError: null })[0]).toBe(
+      "2 active · profile@digest · refresh 750ms · result: retained�result",
+    );
+    expect(countActivePipelines({ ...state, lastRpcError: "refresh failed" })).toBe(2);
+  });
+
+  test("bounds and sanitizes input at split, stacked, and tiny widths", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (/^[\\p{Cc}\\p{Cf}]+$/u.test(grapheme)) return DOCK_CONTROL_REPLACEMENT;" -> "if (false) return DOCK_CONTROL_REPLACEMENT;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (used + paintedWidth > columns) break;" -> "if (false) break;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (grapheme === \"\\t\") {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "width > columns ? DOCK_CONTROL_REPLACEMENT : safe" -> "false ? DOCK_CONTROL_REPLACEMENT : safe"
+    for (const terminalColumns of [80, 120]) {
+      for (const commandBuffer of [
+        "",
+        "x".repeat(terminalColumns - 3),
+        "x".repeat(terminalColumns - 2),
+        "x".repeat(terminalColumns * 3),
+      ]) {
+        const lines = monitorDockLines(
+          monitorState({
+            commandBuffer,
+            commandCursor: commandBuffer.length,
+            machineProfile: `unsafe\n${"p".repeat(terminalColumns)}`,
+            terminalColumns,
+          }),
+        );
+        expect(lines).toHaveLength(4);
+        expect(lines.every((line) => !/\p{Cc}/u.test(line))).toBe(true);
+        expect(lines.every((line) => Bun.stringWidth(line) <= terminalColumns)).toBe(true);
+      }
+    }
+
+    expect(
+      monitorDockLines(monitorState({ commandBuffer: "abcde", commandCursor: 5, terminalColumns: 8 })).slice(1, 3),
+    ).toEqual(["> abcde▏", ""]);
+    expect(
+      monitorDockLines(monitorState({ commandBuffer: "abcdef", commandCursor: 6, terminalColumns: 8 })).slice(1, 3),
+    ).toEqual(["> abcdef", "▏"]);
+    expect(
+      monitorDockLines(monitorState({ commandBuffer: "\tA\nB", commandCursor: 4, terminalColumns: 8 })).slice(1, 3),
+    ).toEqual([">   A�B▏", ""]);
+    expect(
+      monitorDockLines(monitorState({ commandBuffer: "界", commandCursor: 0, terminalColumns: 1 })).slice(1, 3),
+    ).toEqual(["▏", "�"]);
+  });
+
+  test("keeps clamped start, middle, and end cursors visible without mutating state", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (index === cursor) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (cursor === graphemes.length) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "prefixWidths.findIndex((width) => width >= desiredStart)" -> "prefixWidths.findIndex(() => false)"
+    const buffer = "zero-one-two-three-four";
+    const cases = [
+      [-10, ["> ▏zero-on", "e-two-thre"]],
+      [9, ["> ero-one-", "▏two-three"]],
+      [10_000, ["> ne-two-t", "hree-four▏"]],
+    ] as const;
+    for (const [commandCursor, expected] of cases) {
+      const state = monitorState({ commandBuffer: buffer, commandCursor, terminalColumns: 10 });
+      const before = structuredClone(state);
+      const rows = monitorDockLines(state).slice(1, 3);
+      const input = rows.join("");
+
+      expect(rows).toEqual([...expected]);
+      expect(input.match(/▏/gu)).toHaveLength(1);
+      expect(state).toEqual(before);
+      expect(state.commandBuffer).toBe(buffer);
+      expect(state.commandCursor).toBe(commandCursor);
+    }
+  });
+
+  test("keeps the cursor visible when an atomic grapheme consumes a row boundary", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return columns === 1 ? \"\" : \"> \";" -> "return false ? \"\" : \"> \";"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + atom.width > current.capacity) current = second;" -> "if (false) current = second;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + atom.width > current.capacity) break;" -> "if (false) break;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {" -> "if (false) {"
+    const lines = monitorDockLines(monitorState({ commandBuffer: "界a", commandCursor: 2, terminalColumns: 3 }));
+
+    expect(lines.slice(1, 3)).toEqual(["> ▏", ""]);
+    expect(lines.slice(1, 3).join("")).toContain("▏");
+  });
+
+  test("shows only contextual tree actions or command-focus copy", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if ((state.focus ?? \"tree\") === \"command\") return \"Esc tree · Enter submit · Shift+Enter newline\";" -> "if (false) return \"Esc tree · Enter submit · Shift+Enter newline\";"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "snapshot.pipelineId === state.selectedNodeId" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === state.selectedNodeId)" -> "state.runs.find(() => false)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "selectedRun?.isLive === true && isActiveRunStatus(selectedRun.status)" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(expandable ? [\"e expand/collapse\"] : [])" -> "...[]"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(killable ? [\"k kill\"] : [])" -> "...[]"
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const active = workflowRun("run-active", "in-progress", INVOCATION_MATCHED);
+    const terminal = workflowRun("run-terminal", "completed", "inv-terminal", { isLive: true });
+    const notLive = workflowRun("run-idle", "in-progress", "inv-idle", { isLive: false });
+    const base = monitorState({
+      runs: [active, terminal, notLive],
+      pipelineSnapshotsBySocketPath: { "/socket": { pipelines: [snapshot] } },
+      terminalColumns: 200,
+    });
+    const hints = (selectedNodeId: string | null) => monitorDockLines({ ...base, selectedNodeId })[3];
+
+    expect(hints(null)).toContain(": command");
+    expect(hints(null)).not.toContain("expand/collapse");
+    expect(hints(null)).not.toContain("kill");
+    expect(hints(PIPELINE_ID)).toContain("e expand/collapse");
+    expect(hints(stageId)).toContain("e expand/collapse");
+    expect(hints(active.runId)).toContain("k kill");
+    expect(hints(active.runId)).not.toContain("expand/collapse");
+    expect(hints(terminal.runId)).not.toContain("kill");
+    expect(hints(notLive.runId)).not.toContain("kill");
+    expect(hints("other-node")).not.toContain("kill");
+
+    const commandHints = monitorDockLines({ ...base, selectedNodeId: active.runId, focus: "command" })[3];
+    expect(commandHints).toBe("Esc tree · Enter submit · Shift+Enter newline");
+    expect(commandHints).not.toContain("kill");
+    expect(commandHints).not.toContain("expand");
+    expect(commandHints).not.toContain(": command");
   });
 });

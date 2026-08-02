@@ -2,7 +2,8 @@
 
 Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Replaces the 2026-07-27 brief. **Status 2026-08-01: slices 1-3 shipped; slice 4 is next.**
+Replaces the 2026-07-27 brief. **Status 2026-08-02: slices 1-4 shipped; slice 5 is three-fifths
+shipped and its last runtime piece is open in [#2533](https://github.com/cbrenner04/jarvis/pull/2533).**
 TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because
 CI cannot observe them; prove layout with pure functions, keybindings through the injected input
 hook, and behavior through production monitor state
@@ -207,7 +208,15 @@ durable-run detail for unattributed runs. Rows wrap losslessly by display column
 extended grapheme clusters; a grapheme wider than the effective width remains atomic and overflows
 that row.
 
-Still missing: the dock's input line is inert (no parser, no `start`), and there is no steering —
+Slice 5 has landed three pieces that are not yet wired together: a pure typed command parser
+(`tui-command-parser.ts`, #2529), a reusable `pipeline_start` admission API the CLI now goes through
+too (`pipeline-start-admission.ts`, #2530), and the four dock rows as a pure function over monitor
+state (`monitorDockLines`, #2531).
+
+Still missing: `renderDockContent` still paints the old hardcoded block, so none of the above is
+visible yet — that wiring plus dock command state is
+[#2533](https://github.com/cbrenner04/jarvis/pull/2533). Nothing types into the dock (focus keys,
+cursor editing, submit) and nothing dispatches a parsed command. There is no steering —
 approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed
 segment renders but has no FIFO or labelling polish.
 
@@ -225,6 +234,7 @@ All met as of 2026-08-01.
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | ----- |
 | Intent fan-out (`20260731T030451Z-pipeline-intent-split-fan-out-execution`)    | Multi-branch stage rows                                                | shipped |
 | Richer `pipeline_list` (`branchKey`, `createdAt`, stage `startedAt`/`endedAt`) | Nesting labels and elapsed                                             | shipped #2463, #2490 |
+| `pipeline_list` diagnostics (`terminalAction`, `seedPath`, publication outcome, stage `id`/`position`/`artifact`/`failureDetail`) | Detail-pane content | shipped #2511 |
 | `terminal-window-renders-finishless-rows`                                      | Terminal nested runs stay visible until FIFO drops the parent pipeline | shipped |
 
 ## Minimum slices
@@ -236,8 +246,8 @@ Serialize 1 → 6. Each row is a seed.
 | 1   | **Shell layout**    | Left/right split + 4-line command dock; fixed-width tree columns; reference 245×72; stacked fallback <120 cols | **shipped** #2453, #2456 |
 | 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485) |
 | 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492 |
-| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** |
-| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | open |
+| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** #2511 (wire), #2519, #2521 |
+| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **partial** — #2529 parser, #2530 start admission, #2531 dock rows; painting open in #2533; editor + dispatch not started |
 | 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.

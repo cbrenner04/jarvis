@@ -2,8 +2,8 @@
 
 Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Replaces the 2026-07-27 brief. **Status 2026-08-02: slices 1-4 shipped; slice 5 is three-fifths
-shipped and its last runtime piece is open in [#2533](https://github.com/cbrenner04/jarvis/pull/2533).**
+Replaces the 2026-07-27 brief. **Status 2026-08-02: slices 1-4 shipped; slice 5 has its parser,
+start-admission API, and painted dock shipped — command editing and dispatch remain.**
 TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because
 CI cannot observe them; prove layout with pure functions, keybindings through the injected input
 hook, and behavior through production monitor state
@@ -130,7 +130,7 @@ Empty selection: short welcome + example `start` command; optional registered-pr
 | ---- | ----------------------------------------------------------------------------------------------------------------- |
 | 1    | **Status** — active pipeline count, daemon profile/socket digest, refresh interval, last RPC error if any         |
 | 2    | **Input** — prompt `>` when editing; mirrors CLI grammar (`start jarvis --seed path`, `approve <stage-id>`, …)    |
-| 3    | **Input continuation** — second line for wrapped/pasted `--seed-text`; collapses to one line when empty           |
+| 3    | **Input continuation** — fixed second row for windowed/wrapped input; remains present when empty                   |
 | 4    | **Hints** — context keybindings for current selection (gate: `a`/`r`; run: kill/pause; global: `:` focus command) |
 
 Activate command focus with `:` or `/`; Esc returns focus to tree. Enter submits; Shift+Enter inserts newline on line 3 when entering multiline seed text.
@@ -206,17 +206,18 @@ pipeline context and stage roll-up for pipeline selection; adds the selected dur
 stage selection; adds selected durable-run detail for attributed runs; and shows only selected
 durable-run detail for unattributed runs. Rows wrap losslessly by display columns without splitting
 extended grapheme clusters; a grapheme wider than the effective width remains atomic and overflows
-that row.
+that row. The shipped pure dock projection derives fixed status, cursor-bearing input,
+continuation, and contextual-hint rows from monitor state and bounds each to display width.
 
-Slice 5 has landed three pieces that are not yet wired together: a pure typed command parser
-(`tui-command-parser.ts`, #2529), a reusable `pipeline_start` admission API the CLI now goes through
-too (`pipeline-start-admission.ts`, #2530), and the four dock rows as a pure function over monitor
-state (`monitorDockLines`, #2531).
+Slice 5 has landed four pieces: a pure typed command parser (`tui-command-parser.ts`, #2529), a
+reusable `pipeline_start` admission API the CLI now goes through too
+(`pipeline-start-admission.ts`, #2530), the four dock rows as a pure function over monitor state
+(`monitorDockLines`, #2531), and the painted dock plus its session state (#2533).
 
-Still missing: `renderDockContent` still paints the old hardcoded block, so none of the above is
-visible yet — that wiring plus dock command state is
-[#2533](https://github.com/cbrenner04/jarvis/pull/2533). Nothing types into the dock (focus keys,
-cursor editing, submit) and nothing dispatches a parsed command. There is no steering —
+Still missing: the parser and the admission API have no caller — nothing types into the dock (focus
+keys, cursor editing, submit) and nothing dispatches a parsed command, so `start` is still
+CLI-only. Those are `ready-intents/tui-command-editor` and `ready-intents/tui-command-dispatch`.
+There is no steering —
 approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed
 segment renders but has no FIFO or labelling polish.
 
@@ -247,7 +248,7 @@ Serialize 1 → 6. Each row is a seed.
 | 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485) |
 | 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492 |
 | 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** #2511 (wire), #2519, #2521 |
-| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **partial** — #2529 parser, #2530 start admission, #2531 dock rows; painting open in #2533; editor + dispatch not started |
+| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **partial** — #2529 parser, #2530 start admission, #2531 dock rows, #2533 painting; editor + dispatch not started |
 | 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.

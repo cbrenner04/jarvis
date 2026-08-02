@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
+import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "../testing/cli-test-helpers.ts";
 
 describe("tui command", () => {
   test("jarvis tui dispatches to runTuiEntry with the production socket path", async () => {
@@ -7,6 +7,7 @@ describe("tui command", () => {
     let seenSocketPath: string | undefined;
 
     const code = await main(["tui"], captureIo().io, {
+      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
       socketPath: paths.socketPath,
       runTuiEntry: async (deps) => {
         seenSocketPath = deps?.socketPath;
@@ -24,6 +25,7 @@ describe("tui command", () => {
     let seenSocketDiscovery: unknown;
 
     const code = await main(["tui"], captureIo().io, {
+      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
       socketPath: paths.socketPath,
       runTuiEntry: async (deps) => {
         seenSocketPath = deps?.socketPath;
@@ -36,6 +38,47 @@ describe("tui command", () => {
     expect(seenSocketPath).toBe(paths.socketPath);
     expect(seenSocketDiscovery).toBeDefined();
     expect(typeof seenSocketDiscovery).toBe("function");
+  });
+
+  test("jarvis tui resolves and supplies the invoking profile and keyed socket before opening", async () => {
+    // @mutate v2/src/commands/tui.ts "if (machineProfile === undefined) return Promise.resolve(1);" -> "if (machineProfile !== undefined) return Promise.resolve(1);"
+    const socketPath = "/tmp/daemon-0123456789abcdef.sock";
+    let seenSocketPath: string | undefined;
+    let seenMachineProfile: string | undefined;
+
+    const code = await main(["tui"], captureIo().io, {
+      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
+      socketPath,
+      runTuiEntry: async (deps) => {
+        seenSocketPath = deps.socketPath;
+        seenMachineProfile = deps.machineProfile;
+        return 0;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(seenSocketPath).toBe(socketPath);
+    expect(seenMachineProfile).toBe("workstation");
+  });
+
+  test.each([
+    ["missing", {}],
+    ["invalid", { machineProfile: 42 }],
+  ])("jarvis tui rejects a %s machine profile before opening the monitor", async (_label, config) => {
+    const cap = captureIo();
+    let monitorOpenCount = 0;
+
+    const code = await main(["tui"], cap.io, {
+      machineConfigPath: writeMachineConfig(config),
+      runTuiEntry: async () => {
+        monitorOpenCount += 1;
+        return 0;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(monitorOpenCount).toBe(0);
+    expect(cap.read().stderr).toContain("missing required 'machineProfile' key");
   });
 
   test("jarvis tui with extra args prints usage and exits 1", async () => {
@@ -117,6 +160,7 @@ describe("tui command", () => {
     let discoveryPhase = 0;
 
     const code = await main(["tui"], captureIo().io, {
+      machineConfigPath: writeMachineConfig({ machineProfile: "workstation" }),
       socketPath: paths.socketPath,
       runTuiEntry: async (_deps) => {
         const discovery = async () => {

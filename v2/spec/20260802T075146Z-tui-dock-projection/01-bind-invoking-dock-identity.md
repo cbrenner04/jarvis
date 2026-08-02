@@ -17,11 +17,11 @@ The dock cannot identify the daemon invoked by `jarvis tui` independently of dis
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/tui.test.ts` adds a regression that fails against the baseline and proves TUI admission resolves and supplies the invoking machine profile and keyed socket; missing or invalid profile opens no monitor and reports the existing command error.
-- [ ] `v2/src/tui/tui-entry.test.tsx` proves monitor state retains the supplied invocation identity while discovery adds, removes, or selects other daemon sockets.
-- [ ] The displayed identity uses the invoking socket basename's exact 16-character key or `unknown` for an unparseable path; discovered daemon identity never substitutes for it.
-- [ ] `v2/src/commands/tui.test.ts` and `v2/src/tui/tui-entry.test.tsx` carry a valid `// @mutate` directive for every added or modified executable identity/admission guard, including effect-suppressing guards; inverting each real source condition turns its pin red, with no production inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/tui.test.ts` adds a regression that fails against the baseline and proves TUI admission resolves and supplies the invoking machine profile and keyed socket; missing or invalid profile opens no monitor and reports the existing command error.
+- [x] `v2/src/tui/tui-entry.test.tsx` proves monitor state retains the supplied invocation identity while discovery adds, removes, or selects other daemon sockets.
+- [x] The displayed identity uses the invoking socket basename's exact 16-character key or `unknown` for an unparseable path; discovered daemon identity never substitutes for it.
+- [x] `v2/src/commands/tui.test.ts` and `v2/src/tui/tui-entry.test.tsx` carry a valid `// @mutate` directive for every added or modified executable identity/admission guard, including effect-suppressing guards; inverting each real source condition turns its pin red, with no production inversion hook.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

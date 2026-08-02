@@ -13,6 +13,7 @@ import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -728,6 +729,7 @@ function entryDeps(
     clientOptions,
     deps: {
       socketPath: "/tmp/test.sock",
+      machineProfile: "unknown",
       connectTuiDaemon: async () => fakeClient(clientOptions),
       socketDiscovery: async () => [],
       ...overrides,
@@ -741,12 +743,485 @@ async function flush(): Promise<void> {
 }
 
 describe("runTuiEntry", () => {
+  test("dock session state starts explicit and survives refresh and display updates", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
+      },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const dockSessionState = {
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+        lastCommandResult: null,
+        lastRpcError: null,
+      } as const;
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+
+      await flushIntervalTick(refresh);
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+
+      const stateCountBeforeDisplay = view.monitorStates.length;
+      await flushIntervalTick(displayTick);
+      expect(view.monitorStates.length).toBeGreaterThan(stateCountBeforeDisplay);
+      expect(view.monitorStates.at(-1)).toMatchObject(dockSessionState);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("recoverable refresh failures retain observations and latest feedback until full success", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (error === undefined) return null;" -> "if (error !== undefined) return null;"
+    // @mutate v2/src/tui/tui-entry.tsx "if (error instanceof RpcError || error instanceof RpcConnectionError) return steeringFeedbackFromError(error);" -> "if (!(error instanceof RpcError || error instanceof RpcConnectionError)) return steeringFeedbackFromError(error);"
+    // @mutate v2/src/tui/tui-entry.tsx "if (error instanceof Error) return `daemon_error: ${(error as Error).message}`;" -> "if (!(error instanceof Error)) return `daemon_error: ${(error as Error).message}`;"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const client = fakeClient({
+      listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }, { runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
+      pipelineListResponses: [
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+        { pipelines: [PIPELINE_SNAPSHOT_ALPHA] },
+        { pipelines: [PIPELINE_SNAPSHOT_BETA] },
+      ],
+    });
+    let listCalls = 0;
+    const list = client.list.bind(client);
+    client.list = async () => {
+      listCalls += 1;
+      if (listCalls === 3) {
+        throw new RpcError("list_failed", "list failed");
+      }
+      return list();
+    };
+    let pipelineListCalls = 0;
+    const pipelineList = client.pipelineList.bind(client);
+    client.pipelineList = async () => {
+      pipelineListCalls += 1;
+      if (pipelineListCalls === 3) {
+        throw new RpcConnectionError("pipeline observation failed");
+      }
+      return pipelineList();
+    };
+    let discoveryCalls = 0;
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => client,
+        socketDiscovery: async () => {
+          discoveryCalls += 1;
+          if (discoveryCalls === 2) throw new Error("discovery failed");
+          return [];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const retainedResult = view.monitorStates.at(-1)?.lastCommandResult;
+      const retainedObservations = {
+        runs: [RUN_ALPHA],
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_ALPHA] } },
+        lastCommandResult: retainedResult,
+      };
+
+      await flushIntervalTick(refresh);
+      for (let attempt = 0; attempt < 20 && view.monitorStates.at(-1)?.lastRpcError === null; attempt += 1) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        ...retainedObservations,
+        lastRpcError: "daemon_error: discovery failed",
+      });
+
+      await flushIntervalTick(refresh);
+      for (
+        let attempt = 0;
+        attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== "list_failed: list failed";
+        attempt += 1
+      ) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        ...retainedObservations,
+        lastRpcError: "list_failed: list failed",
+      });
+
+      await flushIntervalTick(refresh);
+      for (
+        let attempt = 0;
+        attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== "daemon_error: pipeline observation failed";
+        attempt += 1
+      ) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        ...retainedObservations,
+        lastRpcError: "daemon_error: pipeline observation failed",
+      });
+      expect(view.isClosed()).toBe(false);
+
+      await flushIntervalTick(refresh);
+      for (let attempt = 0; attempt < 20 && view.monitorStates.at(-1)?.lastRpcError !== null; attempt += 1) {
+        await flush();
+      }
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        runs: [RUN_BETA],
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_BETA] } },
+        lastCommandResult: retainedResult,
+        lastRpcError: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("partial initial admission opens with retained connection feedback", async () => {
+    const view = createViewHost();
+    const first = fakeClient({ listResponses: [{ runs: [RUN_ALPHA] }] });
+    const pending = runTuiEntry({
+      socketPath: DAEMON1_SOCKET,
+      machineProfile: "test",
+      viewHost: view.host,
+      socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
+      connectTuiDaemon: async (options) => {
+        if (options?.socketPath === DAEMON1_SOCKET) return first;
+        throw new RpcConnectionError("second daemon unavailable");
+      },
+    });
+
+    await view.waitUntilOpen();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      runs: [RUN_ALPHA],
+      lastRpcError: "daemon_error: second daemon unavailable",
+    });
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("retained rows lose actions while disconnected and resume ownership after reconnect", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const firstMethods: string[] = [];
+    const secondMethods: string[] = [];
+    const first = fakeClient({ methods: firstMethods, listResponses: [{ runs: [RUN_ALPHA] }] });
+    const firstList = first.list.bind(first);
+    let firstListCalls = 0;
+    first.list = async () => {
+      firstListCalls += 1;
+      if (firstListCalls > 1) throw new RpcConnectionError("connection reset");
+      return firstList();
+    };
+    const second = fakeClient({ methods: secondMethods, listResponses: [{ runs: [RUN_ALPHA] }] });
+    const clients = [first, second];
+    let clientIndex = 0;
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => clients[clientIndex++] ?? Promise.reject(new Error("missing client")),
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flushIntervalTick(refresh);
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      runs: [RUN_ALPHA],
+      selectedNodeId: "run-alpha",
+      actionableRunIds: [],
+      waitState: { kind: "none" },
+    });
+    view.killSelected();
+    await flush();
+    expect(firstMethods).not.toContain("kill:run-alpha");
+
+    await flushIntervalTick(refresh);
+    expect(view.monitorStates.at(-1)?.actionableRunIds).toEqual(["run-alpha"]);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+    expect(secondMethods).toContain("wait:run-alpha");
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("a selected pipeline that leaves the snapshot clears the selection", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("pipe-alpha");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    // The pipeline disappears from the next snapshot, so its row is no longer selectable.
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId === "pipe-alpha"; i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
+  test("a selected terminal run ageing out of the live window clears the selection", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    let now = TERMINAL_LIST_FINISH_MS + 1_000;
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_BETA] }] },
+      { viewHost: view.host, refreshScheduler: refresh.scheduler, nowMs: () => now },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-beta");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
+
+    // Past the terminal retention window the row is no longer selectable.
+    now = TERMINAL_LIST_FINISH_MS + TUI_TERMINAL_WINDOW_MS + 1_000;
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId !== null; i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
+  test("a reconnected owner socket re-issues the selected run's wait exactly once", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const ownerMethods: string[] = [];
+    let discoveryPhase = 0;
+    const waitsIssued = () => ownerMethods.filter((m) => m === "wait:run-alpha").length;
+    const { deps } = entryDeps(
+      {},
+      {
+        socketPath: DAEMON2_SOCKET,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async (options) => {
+          const socketPath = options?.socketPath ?? DAEMON2_SOCKET;
+          // Reconnecting the owner socket builds a fresh client for the same path.
+          return (
+            socketPath === DAEMON1_SOCKET
+              ? fakeClient({ methods: ownerMethods, listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }] }] })
+              : fakeClient({ methods: [], listResponses: [{ runs: [] }] })
+          ) as TuiDaemonClient;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          // The owner socket drops on the second refresh and returns afterwards.
+          return discoveryPhase === 2 ? [DAEMON2_SOCKET] : [DAEMON1_SOCKET, DAEMON2_SOCKET];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-alpha");
+    await flush();
+    const waitsAfterSelect = waitsIssued();
+
+    await flushIntervalTick(refresh);
+    await flush();
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 30 && waitsIssued() === waitsAfterSelect; i += 1) {
+      await flush();
+    }
+    const waitsAfterReconnect = waitsIssued();
+    expect(waitsAfterReconnect).toBe(waitsAfterSelect + 1);
+
+    // The reconnect flag is consumed, so a further quiet refresh must not re-issue.
+    await flushIntervalTick(refresh);
+    await flush();
+    await flush();
+    expect(waitsIssued()).toBe(waitsAfterReconnect);
+
+    view.quit();
+    await pending;
+  });
+
+  test("dropping one socket evicts only that client's run ownership", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const survivorMethods: string[] = [];
+    let discoveryPhase = 0;
+    const clients = new Map([
+      [DAEMON1_SOCKET, fakeClient({ methods: [], listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }] }] })],
+      [
+        DAEMON2_SOCKET,
+        fakeClient({ methods: survivorMethods, listResponses: [{ runs: [{ ...RUN_GAMMA, isLive: true }] }] }),
+      ],
+    ]);
+    const { deps } = entryDeps(
+      {},
+      {
+        socketPath: DAEMON2_SOCKET,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async (options) => {
+          const client = options?.socketPath === undefined ? undefined : clients.get(options.socketPath);
+          if (client === undefined) throw new Error(`missing client for ${options?.socketPath}`);
+          return client as TuiDaemonClient;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          // The first daemon goes away after the opening refresh.
+          return discoveryPhase === 1 ? [DAEMON1_SOCKET, DAEMON2_SOCKET] : [DAEMON2_SOCKET];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.runs.some((run) => run.runId === "run-alpha"); i += 1) {
+      await flush();
+    }
+
+    view.selectNode("run-gamma");
+    await flush();
+    view.pauseSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    // run-gamma is owned by the surviving daemon; evicting daemon1 must not take its owner with it.
+    expect(survivorMethods).toContain("pause:run-gamma");
+  });
+
+  test("invocation identity survives discovery addition, selection, and removal", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (match === null) return \"unknown\";" -> "if (match !== null) return \"unknown\";"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const invokingSocket = "/tmp/daemon-ABCDEF0123456789.sock";
+    const discoveredSocket = "/tmp/daemon-fedcba9876543210.sock";
+    let discoveryPhase = 0;
+    const clients = new Map([
+      [invokingSocket, fakeClient({ listResponses: [{ runs: [RUN_ALPHA] }] })],
+      [discoveredSocket, fakeClient({ listResponses: [{ runs: [RUN_BETA] }] })],
+    ]);
+    const { deps } = entryDeps(
+      {},
+      {
+        socketPath: invokingSocket,
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async (options) => {
+          const socketPath = options?.socketPath;
+          const client = socketPath === undefined ? undefined : clients.get(socketPath);
+          if (client === undefined) throw new Error(`missing client for ${socketPath}`);
+          return client;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          return discoveryPhase === 1 || discoveryPhase >= 3 ? [invokingSocket] : [invokingSocket, discoveredSocket];
+        },
+      },
+    );
+    const invocationDeps = { ...deps, machineProfile: "workstation" };
+    const invocationIdentity = {
+      machineProfile: "workstation",
+      keyedSocketDigest: "abcdef0123456789",
+    };
+
+    const pending = runTuiEntry(invocationDeps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)).toMatchObject(invocationIdentity);
+
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && !view.monitorStates.at(-1)?.runs.some((run) => run.runId === "run-beta"); i += 1) {
+      await flush();
+    }
+    view.selectNode("run-beta");
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: "run-beta",
+      ...invocationIdentity,
+    });
+
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.runs.some((run) => run.runId === "run-beta"); i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: "run-beta",
+      ...invocationIdentity,
+    });
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("unparseable invoking socket stays unknown when discovery supplies a keyed socket", async () => {
+    const view = createViewHost();
+    const discoveredSocket = "/tmp/daemon-fedcba9876543210.sock";
+    const { deps } = entryDeps(
+      { listResponses: [{ runs: [RUN_ALPHA] }] },
+      {
+        socketPath: "/tmp/not-a-keyed-daemon.sock",
+        viewHost: view.host,
+        socketDiscovery: async () => [discoveredSocket],
+      },
+    );
+
+    const invocationDeps = { ...deps, machineProfile: "workstation" };
+    const pending = runTuiEntry(invocationDeps);
+    await view.waitUntilOpen();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      machineProfile: "workstation",
+      keyedSocketDigest: "unknown",
+    });
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
   test("unavailable daemon at connect records unavailable feedback, exits 1, and skips list/wait", async () => {
     const view = createViewHost();
     let attempted = false;
 
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
+      machineProfile: "test",
       viewHost: view.host,
       connectTuiDaemon: async () => {
         attempted = true;
@@ -983,9 +1458,17 @@ describe("runTuiEntry", () => {
       waitState: { kind: "none" },
       steeringFeedback: null,
       expandedPipelineNodeIds: [],
+      commandBuffer: "",
+      commandCursor: 0,
+      focus: "tree",
+      lastCommandResult: null,
+      lastRpcError: null,
+      machineProfile: "unknown",
+      keyedSocketDigest: "unknown",
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
       terminalWindowNowMs: expect.any(Number),
+      actionableRunIds: [],
     });
   });
 
@@ -1559,9 +2042,17 @@ describe("runTuiEntry", () => {
       steeringFeedback: null,
       expandedPipelineNodeIds: [],
       leftPaneTreeScrollOffset: 0,
+      commandBuffer: "",
+      commandCursor: 0,
+      focus: "tree",
+      lastCommandResult: null,
+      lastRpcError: null,
+      machineProfile: "unknown",
+      keyedSocketDigest: "unknown",
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
       terminalWindowNowMs: expect.any(Number),
+      actionableRunIds: ["run-beta"],
     });
   });
 
@@ -1686,6 +2177,7 @@ describe("runTuiEntry", () => {
 
     const unhealthy = await runTuiEntry({
       socketPath: "/tmp/test.sock",
+      machineProfile: "test",
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -1695,6 +2187,7 @@ describe("runTuiEntry", () => {
 
     const unavailableStatus = await runTuiEntry({
       socketPath: "/tmp/test.sock",
+      machineProfile: "test",
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -1711,11 +2204,29 @@ describe("runTuiEntry", () => {
   });
 
   test("post-proof initial list failure shows rpc-error not unavailable feedback", async () => {
-    const view = createViewHost();
+    // @mutate v2/src/tui/tui-entry.tsx "if (initial && allClientsFailed) throw firstError;" -> "if (initial && !allClientsFailed) throw firstError;"
+    const feedbackStates: TuiViewState[] = [];
+    let monitorOpened = false;
+    const refresh = createIntervalScheduler();
+    const viewHost: TuiViewHost = {
+      show(state) {
+        feedbackStates.push(state);
+      },
+      async openMonitor() {
+        monitorOpened = true;
+        return {
+          update() {},
+          async waitUntilExit() {},
+          close() {},
+        };
+      },
+    };
 
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
-      viewHost: view.host,
+      machineProfile: "test",
+      viewHost,
+      refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () =>
         fakeClient({
           listError: new RpcConnectionError("malformed RPC reply: invalid list result"),
@@ -1723,7 +2234,8 @@ describe("runTuiEntry", () => {
     });
 
     expect(code).toBe(1);
-    expect(view.feedbackStates).toEqual([
+    expect(monitorOpened).toBe(false);
+    expect(feedbackStates).toEqual([
       {
         kind: "rpc-error",
         code: "daemon_error",
@@ -1775,6 +2287,7 @@ describe("runTuiEntry", () => {
 
     const pending = runTuiEntry({
       socketPath: "/tmp/test.sock",
+      machineProfile: "test",
       viewHost: view.host,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () => client,
@@ -2553,7 +3066,7 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.runs.map((r) => r.runId)).toEqual(["run-alpha"]);
+    expect(view.monitorStates.at(-1)?.runs.map((r) => r.runId)).toEqual(["run-alpha", "run-beta"]);
 
     view.quit();
     await pending;
@@ -2664,7 +3177,7 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
 
     view.quit();
@@ -2722,7 +3235,7 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-beta");
     expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
 
     view.quit();
@@ -2837,7 +3350,7 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("rediscovery: invoking socket list failure evicts stale client and reconnects", async () => {
+  test("rediscovery: invoking socket list failure retains rows while replacing the stale client", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
 
@@ -2886,7 +3399,8 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     const afterFailureState = view.monitorStates.at(-1);
-    expect(afterFailureState?.runs.length).toBe(0);
+    expect(afterFailureState?.runs.map((run) => run.runId)).toEqual(["run-alpha"]);
+    expect(afterFailureState?.lastRpcError).toBe("daemon_error: connection reset");
 
     // Second refresh: new invoking client connects and succeeds
     refresh.tick();
@@ -3178,9 +3692,11 @@ describe("runTuiEntry", () => {
     });
     expect(client2Options.methods).toContain("pipeline_list");
 
-    // Tick 3: invoking-socket list fails on daemon1; daemon1 snapshot evicted, daemon2 retained.
+    // Tick 3: invoking-socket list fails on daemon1; both last-good snapshots remain retained.
     await flushIntervalTick(refresh);
-    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toBeUndefined();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
     expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
       pipelines: [PIPELINE_SNAPSHOT_BETA],
     });

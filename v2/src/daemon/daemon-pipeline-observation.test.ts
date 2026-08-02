@@ -110,10 +110,7 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
 }
 
 function projectedStage(
-  row: Pick<
-    PipelineSnapshot["stages"][number],
-    "stageId" | "branchKey" | "status" | "workflowInvocationId"
-  > &
+  row: Pick<PipelineSnapshot["stages"][number], "stageId" | "branchKey" | "status" | "workflowInvocationId"> &
     Partial<Pick<PipelineSnapshot["stages"][number], "startedAt" | "endedAt">>,
 ) {
   return expect.objectContaining({ startedAt: null, endedAt: null, ...row });

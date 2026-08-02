@@ -102,7 +102,7 @@ describe("pinningTestBasenameFromCriterion", () => {
 
 describe("verifyMutationCheckpoints", () => {
   test("directive-only criteria receive caught and hollow verification", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "criterion.text.includes(CRITERION_MARKER) || criterion.text.includes(DIRECTIVE_MARKER)" -> "criterion.text.includes(CRITERION_MARKER)"
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER)" -> "markerSource.includes(CRITERION_MARKER)"
     for (const passes of [true, false]) {
       const root = makeWorktree();
       writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");

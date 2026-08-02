@@ -279,15 +279,13 @@ export async function verifyMutationCheckpoints(
 
   const subspec = readFile(subspecPath);
   const criterionBlocks = acceptanceCriterionBlocks(subspec);
-  const criteria = parseSpec(subspec).acceptanceCriteria.filter(
-    (criterion, index) =>
-      criterion.checked &&
-      !criterion.humanOnly &&
-      (criterion.text.includes(CRITERION_MARKER) ||
-        criterion.text.includes(DIRECTIVE_MARKER) ||
-        criterionBlocks[index]?.includes(CRITERION_MARKER) ||
-        criterionBlocks[index]?.includes(DIRECTIVE_MARKER)),
-  );
+  const criteria = parseSpec(subspec).acceptanceCriteria.filter((criterion, index) => {
+    if (!criterion.checked || criterion.humanOnly) return false;
+    // The block spans the criterion's continuation lines; fall back to the first
+    // line alone when block assembly and criterion order disagree.
+    const markerSource = criterionBlocks[index] ?? criterion.text;
+    return markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER);
+  });
   if (criteria.length === 0) return empty;
 
   const report_: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };

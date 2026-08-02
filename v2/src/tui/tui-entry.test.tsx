@@ -963,6 +963,37 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
+  test("a selected pipeline that leaves the snapshot clears the selection", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }, { pipelines: [] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("pipe-alpha");
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
+
+    // The pipeline disappears from the next snapshot, so its row is no longer selectable.
+    await flushIntervalTick(refresh);
+    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId === "pipe-alpha"; i += 1) {
+      await flush();
+    }
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
+
+    view.quit();
+    await pending;
+  });
+
   test("dropping one socket evicts only that client's run ownership", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();

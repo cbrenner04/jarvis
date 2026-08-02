@@ -2,7 +2,11 @@
 
 Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Replaces the 2026-07-27 brief. Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
+Replaces the 2026-07-27 brief. **Status 2026-08-01: slices 1-3 shipped; slice 4 is next.**
+TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because
+CI cannot observe them; prove layout with pure functions, keybindings through the injected input
+hook, and behavior through production monitor state
+([test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy)). Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
 
 ## Goal
 
@@ -55,7 +59,7 @@ Below **120 cols** width: fall back to stacked layout (tree above detail, same d
 No time-based window (not the current run monitor's 1h / 20-row cap). The left tree is a **FIFO viewport**:
 
 - **Active** pipelines (non-terminal derived state) are always shown and never dropped.
-- **Terminal** pipelines stay until the expanded tree would exceed the pane; then **oldest by finish time** fall off first (FIFO among terminals only). Finish time = derived terminal settle (`terminalPublicationSucceededAt` when present, else stage/pipeline failure or reject timestamp).
+- **Terminal** pipelines stay until the expanded tree would exceed the pane; then **oldest by finish time** fall off first (FIFO among terminals only). Finish time = derived terminal settle (`terminalPublicationSucceededAt` when present, else stage/pipeline failure or reject timestamp). **Superseded in slice 2 (#2479, #2481, #2485):** navigation-time FIFO eviction made rows permanently unreachable (14 of 30 pipelines lost on a down-and-up walk at 100×24), so flatten now retains every node and the pane paints a scrolling viewport over it. Idle retention of terminal pipelines remains a valid future refinement; navigation-time dropping does not.
 - Sort key within the pane: active pipelines top (by `createdAt`), then terminal pipelines below (by finish time, oldest first). New admissions append at the bottom among actives.
 - Falling off is **display-only**; store and `jarvis pipeline list` unchanged.
 - Unattributed runs and queue segments use the same FIFO rule within their segment.
@@ -66,8 +70,8 @@ No strong operator preference — ship the minimum first, add polish if dogfoodi
 
 **Ship (slice 2):**
 
-- **Reveal on select** — expand ancestors so the selected row is always visible; siblings stay collapsed.
-- **Post-start focus** — after `start`, select the new pipeline and reveal it (ancestors only; pipeline row visible).
+- **Reveal on select** — expand ancestors so the selected row is always visible; siblings stay collapsed. **Shipped #2471.** Note the correction: an earlier build also self-expanded the *selected* node, which made `e` a visual no-op on it and broke `j`/`k` reversibility. Reveal is ancestors-only; descending with `j` persists the expansion instead.
+- **Post-start focus** — after `start`, select the new pipeline and reveal it (ancestors only; pipeline row visible). Deferred with `start` itself to slice 5.
 
 **Add if cheap during slice 2, else defer:**
 
@@ -191,7 +195,17 @@ Pipeline kill/pause: **out of scope** v1.
 
 Daemon + CLI: `pipeline start | list | wait | approve | reject | resume`; `run pause | resume | kill | list | log`.
 
-TUI: flat run table, space-separated columns, workflow collapse, no pipelines, no command line, no elapsed columns, detail crammed into the same scroll as the table.
+TUI (after slices 1-3): left tree pane / right detail pane / fixed 4-line dock, sized from
+`stdout` each render with a stacked fallback below 120 cols. The left pane nests
+`pipeline → stage[branchKey] → run` from polled `pipeline_list` snapshots joined to `list` runs by
+`workflowInvocationId`, with three-deep selection, `e` expansion, reversible `j`/`k`, scroll-follow,
+and wall-clock elapsed at all three levels ticking locally between refreshes.
+
+Still missing, and the reason slices 4-6 exist: the right pane shows only the selected node's
+existing fields (no workflow step list, no error text, no sticky pipeline identity block), the dock's
+input line is inert (no parser, no `start`), and there is no steering — approve/reject/resume,
+run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no
+FIFO or labelling polish.
 
 ## Non-goals
 
@@ -201,24 +215,26 @@ TUI: flat run table, space-separated columns, workflow collapse, no pipelines, n
 
 ## Prerequisites
 
-| Dependency                                                                     | Why                                                                    |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| Intent fan-out (`20260731T030451Z-pipeline-intent-split-fan-out-execution`)    | Multi-branch stage rows                                                |
-| Richer `pipeline_list` (`branchKey`, `createdAt`, stage `startedAt`/`endedAt`) | Nesting labels and elapsed                                             |
-| `terminal-window-renders-finishless-rows`                                      | Terminal nested runs stay visible until FIFO drops the parent pipeline |
+All met as of 2026-08-01.
+
+| Dependency                                                                     | Why                                                                    | State |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- | ----- |
+| Intent fan-out (`20260731T030451Z-pipeline-intent-split-fan-out-execution`)    | Multi-branch stage rows                                                | shipped |
+| Richer `pipeline_list` (`branchKey`, `createdAt`, stage `startedAt`/`endedAt`) | Nesting labels and elapsed                                             | shipped #2463, #2490 |
+| `terminal-window-renders-finishless-rows`                                      | Terminal nested runs stay visible until FIFO drops the parent pipeline | shipped |
 
 ## Minimum slices
 
 Serialize 1 → 6. Each row is a seed.
 
-| #   | Slice               | Delivers                                                                                                       |
-| --- | ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1   | **Shell layout**    | Left/right split + 4-line command dock; fixed-width tree columns; reference 245×72; stacked fallback <120 cols |
-| 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 |
-| 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              |
-| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   |
-| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    |
-| 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        |
+| #   | Slice               | Delivers                                                                                                       | State |
+| --- | ------------------- | -------------------------------------------------------------------------------------------------------------- | ----- |
+| 1   | **Shell layout**    | Left/right split + 4-line command dock; fixed-width tree columns; reference 245×72; stacked fallback <120 cols | **shipped** #2453, #2456 |
+| 2   | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485) |
+| 3   | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492 |
+| 4   | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | next |
+| 5   | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | open |
+| 6   | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.
 

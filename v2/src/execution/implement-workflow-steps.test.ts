@@ -19,9 +19,9 @@ import { openStateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { WithExternalWorktreeResult } from "./external-worktree.ts";
 import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 function writeJson(name: string, value: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "implement-workflow-steps-test-"));

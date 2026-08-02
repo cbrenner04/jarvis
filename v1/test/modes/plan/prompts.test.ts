@@ -5,10 +5,7 @@ import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 import { buildVerdictActuatorPrompt } from "../../../src/modes/plan/verdict-actuator.ts";
 
-const BUNDLED_SPEC_GUIDANCE = readFileSync(
-  join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md"),
-  "utf8",
-);
+const BUNDLED_SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md"), "utf8");
 
 function extractSpecGuidance(prompt: string): string {
   const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";

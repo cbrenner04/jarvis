@@ -12,10 +12,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
+import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import { type Config, DEFAULT_CONFIG } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 import {
   accumulateImplementationTouchedFiles,
   detectDeletedTestInScope,

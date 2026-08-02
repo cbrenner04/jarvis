@@ -1186,9 +1186,9 @@ describe("monitorRightPaneSegmentRows", () => {
     });
     const rows = monitorRightPaneSegmentRows(state, TREE_NOW_MS);
 
-    expect(rows.filter((line) => joinMonitorRow(line) !== "界").every((line) => Bun.stringWidth(joinMonitorRow(line)) <= 1)).toBe(
-      true,
-    );
+    expect(
+      rows.filter((line) => joinMonitorRow(line) !== "界").every((line) => Bun.stringWidth(joinMonitorRow(line)) <= 1),
+    ).toBe(true);
     expect(rows.map(joinMonitorRow)).toContain("\u0301n");
     expect(rows.map(joinMonitorRow)).toContain("界");
     expect(rows.at(-1)).toEqual({ segments: [{ text: "界" }] });

@@ -158,16 +158,8 @@ function resolveAdmissionConfig(
   deps: PipelineStartAdmissionDeps,
 ): AdmissionConfig | PipelineStartAdmissionResult {
   let registry: Record<string, { root: string; origin?: string }>;
-  let projectRecord: Record<string, unknown> | undefined;
-  let agents: readonly string[] | undefined;
   try {
     registry = deps.readProjectRegistry();
-    const entry = registry[projectKey];
-    if (entry === undefined) {
-      return preAdmissionFailure("unregistered-project", `unregistered project: ${projectKey}\n`);
-    }
-    projectRecord = deps.readProjectConfigRecord(projectKey, deps.configPath);
-    agents = deps.loadMachineConfig(deps.configPath);
   } catch (error) {
     return preAdmissionFailure("configuration-read-exception", formatLifecycleError(error));
   }
@@ -176,6 +168,16 @@ function resolveAdmissionConfig(
   if (projectEntry === undefined) {
     return preAdmissionFailure("unregistered-project", `unregistered project: ${projectKey}\n`);
   }
+
+  let projectRecord: Record<string, unknown> | undefined;
+  let agents: readonly string[] | undefined;
+  try {
+    projectRecord = deps.readProjectConfigRecord(projectKey, deps.configPath);
+    agents = deps.loadMachineConfig(deps.configPath);
+  } catch (error) {
+    return preAdmissionFailure("configuration-read-exception", formatLifecycleError(error));
+  }
+
   if (projectRecord === undefined || !("pipeline" in projectRecord)) {
     return preAdmissionFailure("missing-pipeline", `projects.${projectKey}.pipeline is required\n`);
   }

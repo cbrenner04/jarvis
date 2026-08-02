@@ -144,7 +144,7 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects absent, duplicate, and malformed seed fields before configuration access", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!hasExclusiveValidSeed) {" -> "if (false) {"
+    // @mutate v2/src/commands/pipeline-start-admission.ts "if (hasSeedPath === hasSeedText) return invalid;" -> "if (false) return invalid;"
     for (const input of [
       { projectKey: "demo" },
       { projectKey: "demo", seedPath: "seed.md", seedText: "text" },

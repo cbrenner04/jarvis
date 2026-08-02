@@ -27,8 +27,8 @@ The right pane omits available diagnostics, loses pipeline context below the pip
 - [ ] An unattributed run renders only run detail, with no pipeline identity block.
 - [ ] `v2/src/tui/tui-monitor-lines.test.ts` uses a non-selected run with conflicting values to prove each listed run detail value comes from the selected row and fails against the baseline behavior.
 - [ ] `v2/src/tui/tui-monitor-lines.test.ts` proves a value wider than `layout.rightWidth` wraps across rows with no `…` and fails against the baseline behavior.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries `// @mutate v2/src/tui/tui-monitor-lines.ts "const selectedRun = state.runs.find((run) => run.runId === selectedRunId);" -> "const selectedRun = state.runs[0];"`; its selected-row detail pin fails under that mutation.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries `// @mutate v2/src/tui/tui-monitor-lines.ts "layout.rightWidth" -> "Number.MAX_SAFE_INTEGER"`; its wrapping pin fails under that mutation.
+- [ ] Mutation checkpoint: `v2/src/tui/tui-monitor-lines.test.ts` carries a `// @mutate` directive against `v2/src/tui/tui-monitor-lines.ts` that resolves the selected run by position instead of by id; its selected-row detail pin fails under that mutation.
+- [ ] Mutation checkpoint: `v2/src/tui/tui-monitor-lines.test.ts` carries a `// @mutate` directive against `v2/src/tui/tui-monitor-lines.ts` that removes the right-pane width bound from wrapping; its wrapping pin fails under that mutation.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

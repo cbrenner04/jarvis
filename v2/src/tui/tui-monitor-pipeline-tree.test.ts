@@ -56,6 +56,8 @@ function pipelineSnapshot(
     finishedAtMs: null,
     stages: [],
     ...overrides,
+    terminalPublicationSucceededAt: overrides.terminalPublicationSucceededAt ?? null,
+    terminalPublicationFailure: overrides.terminalPublicationFailure ?? null,
   };
 }
 
@@ -69,6 +71,10 @@ function snapshotStage(
     startedAt: null,
     endedAt: null,
     ...overrides,
+    id: overrides.id ?? "stage",
+    position: overrides.position ?? 0,
+    artifact: overrides.artifact ?? null,
+    failureDetail: overrides.failureDetail ?? null,
   };
 }
 

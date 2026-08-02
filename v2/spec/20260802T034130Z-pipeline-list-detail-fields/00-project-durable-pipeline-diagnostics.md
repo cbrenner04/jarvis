@@ -21,16 +21,16 @@
 
 ## Acceptance criteria
 
-- [ ] Each `pipeline_list` snapshot adds top-level `terminalAction` from the admitted definition and unchanged `seedPath` from durable admission context; absent optional values are omitted from the JSON wire result, and `seedPath` may remain relative to admission `cwd` without exposing `cwd`.
-- [ ] Each `pipeline_list` snapshot adds nullable `terminalPublicationSucceededAt` and `terminalPublicationFailure`; daemon regression records separately pin success with `terminalPublicationFailure: null` and failure with `terminalPublicationSucceededAt: null`.
-- [ ] Each `pipeline_list` stage adds durable `id`, authored `position`, `artifact`, and `failureDetail`; regression expectations retain stored order and distinguish `null` from falsy non-null JSON values such as `false`, `0`, and `""`.
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` adds terminal/admission and stage-diagnostic regression expectations that fail against the baseline projection and pass after implementation.
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "terminalAction: pipeline.definition.terminalAction," -> "terminalAction: undefined,"`; its terminal/admission projection pin fails under that source mutation.
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "artifact: stage.artifact," -> "artifact: null,"`; its stage-diagnostic projection pin fails under that source mutation.
-- [ ] No production guard is added or modified; the projection remains unconditional and the two source-mutation checkpoints above turn their corresponding tests red.
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` tests `pipeline_list distinguishes all derived states and classifies only terminal states as terminal`, `pipeline_list preserves authored stage order from durable position, not insertion order`, `projectPipelineSnapshot includes stage startedAt and endedAt from durable records`, and its live list/non-follow tests stay green; `v2/src/commands/pipeline.test.ts` test `prints one minified JSON snapshot with ordered stage projection` stays single-fetch.
-- [ ] The exact-output `pipeline list` regression in `v2/src/commands/pipeline.test.ts` pins all added fields and their omitted-versus-`null` JSON serialization.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Each `pipeline_list` snapshot adds top-level `terminalAction` from the admitted definition and unchanged `seedPath` from durable admission context; absent optional values are omitted from the JSON wire result, and `seedPath` may remain relative to admission `cwd` without exposing `cwd`.
+- [x] Each `pipeline_list` snapshot adds nullable `terminalPublicationSucceededAt` and `terminalPublicationFailure`; daemon regression records separately pin success with `terminalPublicationFailure: null` and failure with `terminalPublicationSucceededAt: null`.
+- [x] Each `pipeline_list` stage adds durable `id`, authored `position`, `artifact`, and `failureDetail`; regression expectations retain stored order and distinguish `null` from falsy non-null JSON values such as `false`, `0`, and `""`.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` adds terminal/admission and stage-diagnostic regression expectations that fail against the baseline projection and pass after implementation.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "terminalAction: pipeline.definition.terminalAction," -> "terminalAction: undefined,"`; its terminal/admission projection pin fails under that source mutation.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` carries `// @mutate v2/src/daemon/pipeline-observation.ts "artifact: stage.artifact," -> "artifact: null,"`; its stage-diagnostic projection pin fails under that source mutation.
+- [x] No production guard is added or modified; the projection remains unconditional and the two source-mutation checkpoints above turn their corresponding tests red.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` tests `pipeline_list distinguishes all derived states and classifies only terminal states as terminal`, `pipeline_list preserves authored stage order from durable position, not insertion order`, `projectPipelineSnapshot includes stage startedAt and endedAt from durable records`, and its live list/non-follow tests stay green; `v2/src/commands/pipeline.test.ts` test `prints one minified JSON snapshot with ordered stage projection` stays single-fetch.
+- [x] The exact-output `pipeline list` regression in `v2/src/commands/pipeline.test.ts` pins all added fields and their omitted-versus-`null` JSON serialization.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

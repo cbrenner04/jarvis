@@ -134,11 +134,49 @@ const SAMPLE_PIPELINE_SNAPSHOT = {
   pipelineId: "pipe-1",
   name: "sample-pipeline",
   state: "awaiting-approval",
+  terminalAction: "ready",
+  seedPath: "seeds/intent.md",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
   stages: [
-    { stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" },
-    { stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null },
-    { stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null },
+    {
+      id: "stage-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: "inv-plan",
+      startedAt: 1_700_000_001_000,
+      endedAt: 1_700_000_002_000,
+      artifact: false,
+      failureDetail: 0,
+    },
+    {
+      id: "stage-gate",
+      stageId: "gate",
+      branchKey: "default",
+      position: 1,
+      status: "awaiting",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: "",
+      failureDetail: null,
+    },
   ],
+};
+
+const SAMPLE_PIPELINE_WITH_OMITTED_OPTIONALS = {
+  pipelineId: "pipe-2",
+  name: "no-options",
+  state: "succeeded",
+  terminalPublicationSucceededAt: 1_700_000_004_000,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_003_000,
+  finishedAtMs: 1_700_000_004_000,
+  stages: [],
 };
 
 const LIVE_RUNNING_SNAPSHOT = {
@@ -494,13 +532,18 @@ describe("pipeline list", () => {
       main(["pipeline", "list"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
-          makeIpcClient([pipelineListFrame("pipe-list", [SAMPLE_PIPELINE_SNAPSHOT])], { sent }),
+          makeIpcClient(
+            [pipelineListFrame("pipe-list", [SAMPLE_PIPELINE_SNAPSHOT, SAMPLE_PIPELINE_WITH_OMITTED_OPTIONALS])],
+            { sent },
+          ),
       }),
     );
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
-      stdout: `${JSON.stringify({ pipelines: [SAMPLE_PIPELINE_SNAPSHOT] })}\n`,
+      stdout: `${JSON.stringify({
+        pipelines: [SAMPLE_PIPELINE_SNAPSHOT, SAMPLE_PIPELINE_WITH_OMITTED_OPTIONALS],
+      })}\n`,
       stderr: "",
     });
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);

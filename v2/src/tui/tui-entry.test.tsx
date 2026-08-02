@@ -1110,7 +1110,8 @@ describe("runTuiEntry", () => {
       // currentState on the 245x72 fallback, so ids are derived for a pane the shell never paints.
     };
 
-    const initialState = view.monitorStates.at(-1)!;
+    const initialState = view.monitorStates.at(-1);
+    if (!initialState) throw new Error("expected initial monitor state");
     const initialLayout = computeShellLayout(terminalColumns, terminalRows, 0);
     const { treeRows: initialPaintedTreeRows } = monitorLeftPaneTreeRows(
       initialState,
@@ -1280,7 +1281,9 @@ describe("runTuiEntry", () => {
       assertPaintedTreeSelection();
     }
 
-    const offPaneId = pipelines[maxVisibleRows]!.pipelineId;
+    const offPanePipeline = pipelines[maxVisibleRows];
+    if (!offPanePipeline) throw new Error("expected an off-pane pipeline");
+    const offPaneId = offPanePipeline.pipelineId;
     view.selectNode(offPaneId);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);

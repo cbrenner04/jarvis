@@ -23,7 +23,7 @@ name: render-completion-commit-errors-in-run-cli
 - [ ] `run.test.ts` proves `run wait` prints `error.completionCommitError` for `completion_commit_failed`; the regression fails against baseline daemon projection.
 - [ ] `run.test.ts` proves `run list` appends the JSON-encoded message without shifting existing columns and prints `-` when absent; the regression fails against baseline CLI formatting.
 - [ ] Messages containing tabs or newlines remain within one `run list` column and one physical output row.
-- [ ] Added or modified guards carry `// @mutate` directives on their real source conditions; named pinning tests turn red under each mutation and no production inversion hook is added.
+- [ ] `run.test.ts` links a `// @mutate` directive in each pinning test to every added or modified guard's real source condition; each mutation turns its test red and adds no production inversion hook.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -23,7 +23,7 @@ name: emit-completion-commit-errors-from-execution-loops
 - [ ] `workflow-runner.test.ts` proves committer-throw and no-commit-SHA dirty failures log the same `completionCommitError` returned by the workflow; the regressions fail against baseline.
 - [ ] `write-loop.test.ts` proves completion publication and repair-path failures log the same `completionCommitError` returned by the write loop; the regressions fail against baseline.
 - [ ] Publication failures retain both `completionCommitError` and normalized `publicationFailure` on the terminal event.
-- [ ] Added or modified guards carry `// @mutate` directives on their real source conditions; named pinning tests turn red under each mutation and no production inversion hook is added.
+- [ ] `workflow-runner.test.ts` and `write-loop.test.ts` link a `// @mutate` directive in each pinning test to every added or modified guard's real source condition; each mutation turns its test red and adds no production inversion hook.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

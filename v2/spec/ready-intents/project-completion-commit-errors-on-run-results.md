@@ -22,7 +22,7 @@ name: project-completion-commit-errors-on-run-results
 
 - [ ] `run-operator-error.test.ts` maps a persisted `completion_commit_failed` message to `error.completionCommitError` while retaining any `publicationFailure`; the regression fails against baseline.
 - [ ] `daemon-wait-run-completion.test.ts` proves `list` and `wait`, including a workflow entry whose stopping sibling owns the failure, return the same underlying completion-commit message; the regression fails against baseline.
-- [ ] Added or modified guards carry `// @mutate` directives on their real source conditions; named pinning tests turn red under each mutation and no production inversion hook is added.
+- [ ] `run-operator-error.test.ts` and `daemon-wait-run-completion.test.ts` link a `// @mutate` directive in each pinning test to every added or modified guard's real source condition; each mutation turns its test red and adds no production inversion hook.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

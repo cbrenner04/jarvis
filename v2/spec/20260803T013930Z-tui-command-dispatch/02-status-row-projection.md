@@ -18,6 +18,8 @@ Command submission feedback and refresh-owned RPC feedback share one fixed statu
 
 - Project retained command and RPC feedback together on the fixed status row in `v2/src/tui/tui-monitor-lines.ts`.
 - Add pinning coverage in `v2/src/tui/tui-monitor-lines.test.ts`.
+- Document the shipped dock and status-row grammar in `v2/docs/operator-runbook.md` § Observe.
+- Record shipped TUI admission and explicit expansion in `v2/docs/v1-behaviors.md`; correct stale command-dock language in `v2/spec/tui-overhaul-brief.md`.
 
 ## Acceptance criteria
 
@@ -25,7 +27,12 @@ Command submission feedback and refresh-owned RPC feedback share one fixed statu
 - [ ] `v2/src/tui/tui-monitor-lines.test.ts` proves when both `lastRpcError` and `lastCommandResult` are retained the status row shows middle-dot `error: …` before middle-dot `result: …`, a successful refresh clears only the RPC suffix, and narrow-width projection still exposes both suffixes when they fit after the fixed prefix.
 - [ ] `v2/src/tui/tui-monitor-lines.test.ts` carries a valid `// @mutate` directive for every added or modified status-row coexistence guard; inverting each real source condition turns its pin red, and production has no inversion hook.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] `v2/docs/operator-runbook.md` § Observe documents dock grammar, retained success/failure outcomes, detached start semantics, explicit expansion/collapse, expansion-selection feedback codes (`no_selection`, `run_leaf`, `unattributed`, `stale_non_expandable`), status-row `error`/`result` suffix ordering, and CLI fallbacks for unavailable verbs.
+- [ ] `v2/docs/v1-behaviors.md` records TUI pipeline admission and local explicit `expand`/`collapse` commands.
+- [ ] `v2/spec/tui-overhaul-brief.md` replaces the `expand`/`collapse` toggle row with explicit expansion/collapse semantics for the selected pipeline or stage node, and replaces the "parser and admission API have no caller" dispatch gap with command-dock dispatch shipped status while steering commands remain open.
 
 ## Documentation updates
 
-None — visible status-row grammar lands in `03-operator-runbook`.
+- `v2/docs/operator-runbook.md` § Observe — grammar, outcomes, detached start, expansion, feedback codes, status-row ordering, and CLI fallbacks.
+- `v2/docs/v1-behaviors.md` — TUI admission and explicit expansion commands.
+- `v2/spec/tui-overhaul-brief.md` — explicit expand/collapse semantics and command-dock dispatch shipped; steering open.

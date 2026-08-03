@@ -40,6 +40,17 @@ Two distinct defects:
 This is worse than a lost run: the surviving artifact is a **silent behavior change** in production
 source that typechecks and often still passes most tests.
 
+**Recurred 2026-08-03** on `20260803T013930Z-tui-command-dispatch`. The worktree of a run that had
+already settled held `if (false) {` where `if (current !== undefined && current.tone ===
+segment.tone) {` belongs in `wrapMonitorRows` — the directive pinned at
+`tui-monitor-lines.test.ts:1209`. It was copied forward during a hand salvage and only caught by
+diffing before commit; it reached the salvage branch, not `main` (PR #2575). The same file later
+read *restored* with no run of the operator's touching it, which is the "verification still
+applying and restoring minutes after the row is terminal" behavior above, observed a second time.
+The salvage also showed the operator-side version of the trap: applying the two new directives by
+hand to confirm they kill left **both** stranded when the backup `cp` silently failed, because
+`.git` in a worktree is a file and `cp x .git/backup` fails with `Not a directory`.
+
 ## Decisions
 
 - Wire the scoped verification run to the run's `AbortSignal` and give it its own timeout — rules

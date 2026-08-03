@@ -20,7 +20,7 @@ Prior art: PR #2555 — keep `chainedInputRoot` ready-intent read-path changes; 
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` proves two sibling branches from one approved fan-out both reach `running` without either recording `failed` on a predecessor `worktree_claimed`; the regression fails against baseline serial dispatch.
+- [ ] `pipeline-execution.test.ts` proves two sibling branches from one approved fan-out both reach `running` without either recording `failed` with `worktree_claimed` naming another stage's invocation while its own entry run is still live; the regression fails against baseline serial dispatch.
 - [ ] `pipeline-stage-resolve.test.ts` proves a branch resolving its next stage never reads a sibling's artifact when branches settle in a controlled order; the regression fails against baseline single-key maps.
 - [ ] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete with fake stores implementing every `StateStore` method the dispatch path calls.
 - [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.

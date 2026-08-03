@@ -22,7 +22,7 @@ Prior art: PR #2555 (draft, do not merge) — lift linkage/settlement tests, not
 
 - [ ] `pipeline-stage-dispatch.test.ts` proves a live entry run keeps the stage `running` with `workflowInvocationId` set until settlement; inverting the live guard turns the regression red.
 - [ ] `pipeline-stage-dispatch.test.ts` proves non-success settlement mirrors the owning run's operator error and `nextAction` instead of `harness_failure`; the regression fails against baseline.
-- [ ] `pipeline-execution.test.ts` proves a stage never reads `failed` while its recorded `workflowInvocationId` names a still-live entry run; the regression fails against baseline.
+- [ ] `pipeline-execution.test.ts` proves a stage stays `running` and never records `failed` while its recorded `workflowInvocationId` names a still-live entry run; the regression fails against baseline.
 - [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

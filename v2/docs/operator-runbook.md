@@ -715,10 +715,15 @@ It cost one wrong conclusion this session. Print `sorted(d.keys())` on one row b
 field is absent.
 
 `cost_usd` is per-invocation agent cost, so agent-side spend is queryable per run and per spec —
-metered agents record billed or list-price dollars; cursor rows from this change forward carry
-list-price `cost_usd` when usage and a priced `priceKey` settle (`cost_source: "computed"`).
-Pre-computed cursor rows lack comparable `cost_usd` (`no-price` or `no-usage`). That is the
-source for the agent-cost column in a session report; the operator's own `/cost` is separate.
+metered agents record billed or list-price dollars; codex and cursor rows from this change
+forward carry list-price `cost_usd` when usage and a priced `priceKey` settle
+(`cost_source: "computed"`). Codex `no-usage` means correlation missed, every matched
+`token_count` had `info: null`, or usage shape was unextractable; `no-price` means usage
+was mapped but the binding's `priceKey` is absent from `data/prices.json` or catalog load
+failed; `unavailable` on usage means no agent-reported counters were settled (distinct from
+`no-price`, which still carries mapped usage). Pre-computed cursor rows lack comparable
+`cost_usd` (`no-price` or `no-usage`). That is the source for the agent-cost column in a
+session report; the operator's own `/cost` is separate.
 
 ### Workflow reports a stale worktree claim
 

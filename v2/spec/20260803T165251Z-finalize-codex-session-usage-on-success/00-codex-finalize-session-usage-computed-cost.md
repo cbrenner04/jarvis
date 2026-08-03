@@ -75,33 +75,36 @@ result (`usage_source` / `cost_source` both `"unavailable"`). Read the matched r
 
 ## Acceptance criteria
 
-- [ ] `agents.test.ts` — matched rollout with non-null `token_count` `info` settles `ok` with
+- [x] `agents.test.ts` — matched rollout with non-null `token_count` `info` settles `ok` with
   `usage_source: "agent"`, mapped `usage` (`input_tokens: 24372`, `output_tokens: 282`,
   `cache_read_input_tokens: 11008`), `cost_source: "computed"`, and `cost_usd` within tolerance of
   `computeCost` against `data/prices.json` for raw `total_token_usage` 35380 input / 11008 cached /
   282 output on `gpt-5.6-sol` (document expected ≈`0.135824`; catalog-coupled, use `toBeCloseTo` not
   exact equality); `executeWithQuotaFallback` telemetry `rows[0]` matches the same usage/cost fields;
   fails against the bare `return result` success path.
-- [ ] `agents.test.ts` — matched rollout whose `token_count` events all carry `info: null` settles
+- [x] `agents.test.ts` — matched rollout whose `token_count` events all carry `info: null` settles
   `usage_source: "unavailable"`, `cost_source: "no-usage"`, and a warning, without throwing.
-- [ ] `agents.test.ts` — rollout with multiple `token_count` events including a decreasing final
+- [x] `agents.test.ts` — rollout with multiple `token_count` events including a decreasing final
   non-null total and a trailing `info: null` event uses the last non-null `info` event (not v1
   max-total).
-- [ ] `agents.test.ts` — priced usage with unknown `priceKey` keeps `cost_usd: null` and
+- [x] `agents.test.ts` — priced usage with unknown `priceKey` keeps `cost_usd: null` and
   `cost_source: "no-price"`.
-- [ ] `agents.test.ts` — matched rollout with non-null `info` but unextractable usage shape (e.g.
+- [x] `agents.test.ts` — matched rollout with non-null `info` but unextractable usage shape (e.g.
   non-object `total_token_usage` on the selected event) settles `usage_source: "unavailable"` and
   `cost_source: "no-usage"` with a warning, without throwing.
-- [ ] `agents.test.ts` — `codex session usage unavailable remains ok with warning metadata` stays
+- [x] `agents.test.ts` — `codex session usage unavailable remains ok with warning metadata` stays
   green.
-- [ ] `agents.test.ts` — a `// @mutate` directive on the matched-session finalize call restoring the
+- [x] `agents.test.ts` — a `// @mutate` directive on the matched-session finalize call restoring the
   bare `return result;` success path turns the priced-usage pinning test RED.
-- [ ] `agents.test.ts` — a `// @mutate` directive removing the cached-input subtraction from the
+- [x] `agents.test.ts` — a `// @mutate` directive removing the cached-input subtraction from the
   mapped `input_tokens` turns the priced-usage pinning test RED.
-- [ ] `agents.test.ts` — a `// @mutate` directive inverting the non-null `info` guard turns the
-  all-null-info pinning test RED with `usage_source: "agent"` and zero-token usage (not
-  `unavailable`/`no-usage`), proving the guard blocks spurious agent settlement.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`,
+- [x] `agents.test.ts` — a `// @mutate` directive disabling the `all-info-null` dispatch branch turns
+  the all-null-info pinning test RED on its warning text, proving that branch is load-bearing rather
+  than redundant with the unextractable-usage fallthrough (both settle `unavailable`/`no-usage`, so
+  the warning is the only discriminator). Inverting the non-null `info` guard itself cannot yield
+  agent-settled zero-token usage — `info: null` events map to no usage either way — so the pinning
+  test asserts the exact warning instead.
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`,
   `bun run test:integration:v1`, `bun run test:integration:shared`, and
   `bun run test:integration:v2` pass.
 

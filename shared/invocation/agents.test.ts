@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { computeCost } from "../prices/cost.ts";
+import { loadPrices } from "../prices/load.ts";
 import { createResolvedAgentBinding } from "./agents.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
@@ -133,6 +135,56 @@ function telemetryForRows(rows: InvocationCompletedRecord[]) {
     branch: "branch",
     specRef: "spec",
     invocationIds: ["invocation"],
+  };
+}
+
+const CODEX_FIXTURE_MARKER_ID = "fixture-marker";
+const CODEX_FIXTURE_MARKER = `<!-- jarvis-codex-invocation: ${CODEX_FIXTURE_MARKER_ID} -->`;
+
+function codexUserMessageLine(marker = CODEX_FIXTURE_MARKER): string {
+  return JSON.stringify({
+    type: "event_msg",
+    payload: { type: "user_message", message: `prompt\n${marker}` },
+  });
+}
+
+function codexTokenCountLine(opts: { input: number; cached: number; output: number; info?: unknown }): string {
+  return JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info:
+        opts.info === undefined
+          ? {
+              total_token_usage: {
+                input_tokens: opts.input,
+                cached_input_tokens: opts.cached,
+                output_tokens: opts.output,
+              },
+            }
+          : opts.info,
+    },
+  });
+}
+
+function spawnWritingCodexRollout(sessionsDir: string, lines: string[], outcomes: FakeOutcome[]) {
+  const inner = fakeSpawn(outcomes);
+  const spawn = (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, "session.jsonl"), `${lines.join("\n")}\n`);
+    return inner.spawn(binary, argv, opts);
+  };
+  return { spawn, calls: inner.calls };
+}
+
+function codexBindingOpts(
+  sessionsDir: string,
+  spawn: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess,
+) {
+  return {
+    spawn,
+    codexSessionsDir: sessionsDir,
+    randomUUID: () => CODEX_FIXTURE_MARKER_ID,
   };
 }
 
@@ -627,6 +679,170 @@ describe("createResolvedAgentBinding", () => {
       cost_source: "no-usage",
       warnings: ["codex usage unavailable: no session JSONL changed after this invocation"],
     });
+  });
+
+  test("codex binding with matched rollout settles priced session usage and computed list-price cost", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const pricedUsage = {
+      input_tokens: 24372,
+      output_tokens: 282,
+      cache_read_input_tokens: 11008,
+      cache_creation_input_tokens: null,
+    };
+    const pricedBinding = {
+      agentId: "codex" as const,
+      adapterModel: "gpt-5.6-sol",
+      priceKey: "gpt-5.6-sol",
+    };
+    const rolloutLines = [codexUserMessageLine(), codexTokenCountLine({ input: 35380, cached: 11008, output: 282 })];
+    const fake = spawnWritingCodexRollout(sessionsDir, rolloutLines, [
+      { kind: "settle", code: 0, stdout: "done", stderr: "" },
+      { kind: "settle", code: 0, stdout: "done", stderr: "" },
+    ]);
+    const binding = createResolvedAgentBinding(pricedBinding, codexBindingOpts(sessionsDir, fake.spawn));
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      stdout: "done",
+      stderr: "",
+      usage: pricedUsage,
+      usage_source: "agent",
+      cost_source: "computed",
+    });
+    const expectedCost = computeCost(pricedUsage, "gpt-5.6-sol", loadPrices()).cost_usd;
+    expect(result.kind === "ok" && result.cost_usd).toBeCloseTo(expectedCost ?? 0, 10);
+    expect(result.kind === "ok" && result.cost_usd).toBeCloseTo(0.135824, 10);
+    // @mutate shared/invocation/agents.ts "return finalizeCodexInvocationResult(result, resolved.sessionFile, args.priceKey);" -> "return result;"
+
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [createResolvedAgentBinding(pricedBinding, codexBindingOpts(sessionsDir, fake.spawn))],
+      telemetry: telemetryForRows(rows),
+    });
+
+    expect(rows[0]).toMatchObject({
+      usage: pricedUsage,
+      usage_source: "agent",
+      cost_source: "computed",
+    });
+    expect(rows[0]?.cost_usd).toBeCloseTo(0.135824, 10);
+    // @mutate shared/invocation/agents.ts "Math.max(0, input - cachedInput)" -> "input"
+  });
+
+  test("codex binding with matched rollout whose token_count info is all null keeps unavailable no-usage", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const fake = spawnWritingCodexRollout(
+      sessionsDir,
+      [codexUserMessageLine(), codexTokenCountLine({ input: 0, cached: 0, output: 0, info: null })],
+      [{ kind: "settle", code: 0, stdout: "done", stderr: "" }],
+    );
+    const binding = createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      codexBindingOpts(sessionsDir, fake.spawn),
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+    });
+    // The null-info branch and the unextractable-usage fallthrough both settle unavailable/no-usage,
+    // so only the warning text distinguishes them. Assert it, or the guard below is unprovable.
+    expect(result.kind === "ok" && result.warnings).toEqual([
+      "codex usage unavailable: matched session has token_count events with null info only",
+    ]);
+    // @mutate shared/invocation/agents.ts "if (selected === \"all-info-null\") {" -> "if (false) {"
+  });
+
+  test("codex binding uses last non-null token_count event, not max total", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const fake = spawnWritingCodexRollout(
+      sessionsDir,
+      [
+        codexUserMessageLine(),
+        codexTokenCountLine({ input: 50000, cached: 40000, output: 500 }),
+        codexTokenCountLine({ input: 20000, cached: 8000, output: 100 }),
+        codexTokenCountLine({ input: 0, cached: 0, output: 0, info: null }),
+      ],
+      [{ kind: "settle", code: 0, stdout: "done", stderr: "" }],
+    );
+    const binding = createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      codexBindingOpts(sessionsDir, fake.spawn),
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      usage: {
+        input_tokens: 12000,
+        output_tokens: 100,
+        cache_read_input_tokens: 8000,
+        cache_creation_input_tokens: null,
+      },
+      usage_source: "agent",
+    });
+  });
+
+  test("codex binding with priced usage and unknown priceKey keeps no-price", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const fake = spawnWritingCodexRollout(
+      sessionsDir,
+      [codexUserMessageLine(), codexTokenCountLine({ input: 35380, cached: 11008, output: 282 })],
+      [{ kind: "settle", code: 0, stdout: "done", stderr: "" }],
+    );
+    const binding = createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.6-sol", priceKey: "unknown-price-key" },
+      codexBindingOpts(sessionsDir, fake.spawn),
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      usage_source: "agent",
+      cost_usd: null,
+      cost_source: "no-price",
+    });
+  });
+
+  test("codex binding with non-object total_token_usage keeps unavailable no-usage", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const fake = spawnWritingCodexRollout(
+      sessionsDir,
+      [
+        codexUserMessageLine(),
+        codexTokenCountLine({
+          input: 0,
+          cached: 0,
+          output: 0,
+          info: { total_token_usage: "bad" },
+        }),
+      ],
+      [{ kind: "settle", code: 0, stdout: "done", stderr: "" }],
+    );
+    const binding = createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      codexBindingOpts(sessionsDir, fake.spawn),
+    );
+
+    const result = await binding.invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({
+      kind: "ok",
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+    });
+    expect(result.kind === "ok" && result.warnings?.length).toBeGreaterThan(0);
   });
 
   test("codex telemetry uses resolved binding metadata", async () => {

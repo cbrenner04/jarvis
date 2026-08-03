@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { computeCost } from "../prices/cost.ts";
+import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
@@ -75,6 +75,7 @@ export function createResolvedAgentBinding(
           prompt: invokeArgs.prompt,
           cwd: invokeArgs.cwd,
           adapterModel,
+          priceKey,
           ...pickAgentRunOptions(invokeArgs),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
@@ -611,6 +612,7 @@ async function runCodexBinding(args: {
   prompt: string;
   cwd: string;
   adapterModel: string;
+  priceKey: string;
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -673,7 +675,170 @@ async function runCodexBinding(args: {
       warnings: resolved.warnings,
     };
   }
-  return result;
+  return finalizeCodexInvocationResult(result, resolved.sessionFile, args.priceKey);
+}
+
+function finalizeCodexInvocationResult(result: InvocationOk, sessionFile: string, priceKey: string): InvocationOk {
+  const rollout = readCodexSessionRollout(sessionFile);
+  if (rollout.kind === "read-error") {
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: mergeWarnings(result.warnings, [rollout.warning]),
+    };
+  }
+
+  const selected = selectLastCodexTokenCountEvent(rollout.lines);
+  if (selected === null) {
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: mergeWarnings(result.warnings, [
+        "codex usage unavailable: could not extract token usage from matched session rollout",
+      ]),
+    };
+  }
+  if (selected === "all-info-null") {
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: mergeWarnings(result.warnings, [
+        "codex usage unavailable: matched session has token_count events with null info only",
+      ]),
+    };
+  }
+
+  const usage = mapCodexTokenUsageFromEvent(selected);
+  if (usage === null) {
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_usd: null,
+      cost_source: "no-usage",
+      warnings: mergeWarnings(result.warnings, [
+        "codex usage unavailable: could not extract token usage from matched session rollout",
+      ]),
+    };
+  }
+
+  let cost_usd: number | null = null;
+  let cost_source: InvocationOk["cost_source"] = "no-usage";
+  try {
+    const cost = computeCost(usage, priceKey, loadPrices());
+    cost_usd = cost.cost_usd;
+    cost_source = cost.cost_source;
+  } catch {
+    cost_usd = null;
+    cost_source = "no-price";
+  }
+
+  return {
+    ...result,
+    usage,
+    usage_source: "agent",
+    cost_usd,
+    cost_source,
+    ...(rollout.parseWarnings.length > 0 ? { warnings: mergeWarnings(result.warnings, rollout.parseWarnings) } : {}),
+  };
+}
+
+function mergeWarnings(existing: string[] | undefined, added: string[]): string[] {
+  return [...(existing ?? []), ...added];
+}
+
+function readCodexSessionRollout(
+  sessionFile: string,
+): { kind: "lines"; lines: string[]; parseWarnings: string[] } | { kind: "read-error"; warning: string } {
+  let content: string;
+  try {
+    content = readFileSync(sessionFile, "utf8");
+  } catch {
+    return {
+      kind: "read-error",
+      warning: "codex usage unavailable: could not read matched session file",
+    };
+  }
+  const parseWarnings: string[] = [];
+  const lines: string[] = [];
+  let malformed = 0;
+  for (const line of content.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    try {
+      JSON.parse(line);
+      lines.push(line);
+    } catch {
+      malformed += 1;
+    }
+  }
+  if (malformed > 0) {
+    parseWarnings.push(`skipped ${malformed} malformed JSONL line(s) in codex session file`);
+  }
+  return { kind: "lines", lines, parseWarnings };
+}
+
+function selectLastCodexTokenCountEvent(lines: string[]): Record<string, unknown> | "all-info-null" | null {
+  let lastNonNullInfoEvent: Record<string, unknown> | null = null;
+  let sawTokenCount = false;
+  let sawNonNullInfo = false;
+
+  for (const line of lines) {
+    const event = parseJsonObject(line);
+    if (event === null) continue;
+    const payload = event.payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const rec = payload as Record<string, unknown>;
+    if (event.type !== "event_msg" || rec.type !== "token_count") continue;
+    sawTokenCount = true;
+    const info = rec.info;
+    if (info === null) continue;
+    if (typeof info !== "object" || Array.isArray(info)) continue;
+    sawNonNullInfo = true;
+    lastNonNullInfoEvent = event;
+  }
+
+  if (!sawTokenCount) {
+    return null;
+  }
+  if (!sawNonNullInfo) {
+    return "all-info-null";
+  }
+  return lastNonNullInfoEvent;
+}
+
+function mapCodexTokenUsageFromEvent(event: Record<string, unknown>): Usage | null {
+  const payload = event.payload;
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const payloadRec = payload as Record<string, unknown>;
+  if (payloadRec.type !== "token_count") return null;
+  const info = payloadRec.info;
+  if (info === null || typeof info !== "object" || Array.isArray(info)) return null;
+  const infoRec = info as Record<string, unknown>;
+  const total = infoRec.total_token_usage;
+  if (total === null || typeof total !== "object" || Array.isArray(total)) return null;
+  const totalRec = total as Record<string, unknown>;
+
+  const input = codexNumberOrNull(totalRec.input_tokens);
+  const cachedInput = codexNumberOrNull(totalRec.cached_input_tokens);
+  const output = codexNumberOrNull(totalRec.output_tokens);
+
+  const freshInput = input !== null ? (cachedInput !== null ? Math.max(0, input - cachedInput) : input) : null;
+
+  return {
+    input_tokens: freshInput,
+    output_tokens: output,
+    cache_read_input_tokens: cachedInput,
+    cache_creation_input_tokens: null,
+  };
+}
+
+function codexNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
 }
 
 async function runCursorBinding(args: {

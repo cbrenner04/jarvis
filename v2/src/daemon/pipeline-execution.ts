@@ -1135,8 +1135,19 @@ async function advanceFanOutStageResolution(
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
   stageRecords: readonly PipelineStageRecord[],
 ): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, branchKey, split, stageArtifacts, store, dispatch, wait, loadLogRecords } =
-    args;
+  const {
+    pipelineId,
+    definition,
+    stage,
+    index,
+    branchKey,
+    split,
+    stageArtifacts,
+    store,
+    dispatch,
+    wait,
+    loadLogRecords,
+  } = args;
   const splitPosition = split?.splitPosition ?? index - 1;
   const downstreamInputs = intentDownstreamInputsForFanOut(definition, splitPosition, stageRecords);
   if (downstreamInputs === undefined || downstreamInputs.length < 2) {

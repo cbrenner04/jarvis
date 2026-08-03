@@ -1856,9 +1856,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     dispatch: pipelineDispatch,
     wait: pipelineWait,
     resolveStage,
-    ...(logReader !== undefined
-      ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) }
-      : {}),
+    ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
     ...(deps.executeTerminalPublication !== undefined
       ? { executeTerminalPublication: deps.executeTerminalPublication }
       : {}),

@@ -26,6 +26,7 @@
 - Add a real-resolution, real-workflow-start sibling regression with a deterministic admission barrier and distinct destination identities.
 - Convert the focused pre-admission refusal case to assert its durable stage row; retain no-wait behavior.
 - Pin each ownership, admission, and pre-admission-refusal guard with uniquely applicable mutation directives.
+- Keep `// @mutate` directives in the pinning test files only; production source carries no marker comment.
 
 ## Acceptance criteria
 
@@ -33,6 +34,7 @@
 - [ ] `pipeline-stage-dispatch.test.ts` — `pre-run dispatch refusal leaves the stage failed and unlinked` uses a durable `StateStore` row and a genuine `ok: false` pre-admission dispatch result to prove `failed`, null `startedAt`, and null `workflowInvocationId`, with no wait call. It is labeled pre-admission seam coverage and does not stand in for the real-admission regression.
 - [ ] `pipeline-execution.test.ts` — `returns reopen refusal for ineligible failed shapes without stage dispatch` stays green, preserving `multiple_failed_stages` resume refusal. No criterion claims a destination-worktree retry/backoff preservation because no such current mechanism or pinning test exists.
 - [ ] Every added or changed ownership, admission, and pre-admission-refusal guard has one uniquely applicable single-line `// @mutate` directive on its real source condition in `daemon-pipeline-approval.test.ts` or `pipeline-stage-dispatch.test.ts`; each named pin turns RED when its mutation is applied independently, with no production inversion hook.
+- [ ] A skip guard for an already-`running` sibling stage record is pinned by a **re-entry** regression that seeds a `running` durable stage row before advancing fan-out resolution and proves that branch is not re-dispatched. A guard whose only reachable case is re-entry cannot be killed by a first-dispatch test.
 
 ## Documentation updates
 

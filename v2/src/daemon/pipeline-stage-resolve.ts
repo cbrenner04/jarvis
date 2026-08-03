@@ -32,6 +32,31 @@ export type PipelineStageResolutionResult =
   | { ok: true; results: Array<{ steps: AnyWorkflowStep[] }> }
   | { ok: false; error: string };
 
+export type PipelineOwnershipKey = { readonly project: string; readonly branch: string };
+
+/** `(project, branch)` ownership key for a resolved workflow stage's first step. */
+export function workflowStageOwnershipKey(steps: readonly AnyWorkflowStep[]): PipelineOwnershipKey {
+  const firstStep = steps[0];
+  if (firstStep === undefined) {
+    throw new Error("workflowStageOwnershipKey requires a non-empty steps array");
+  }
+  return firstStep.behavior === "write"
+    ? { project: firstStep.worktree.projectName, branch: firstStep.worktree.branchName }
+    : { project: firstStep.project, branch: firstStep.branch };
+}
+
+export function predecessorOwnershipKey(project: string, branch: string): PipelineOwnershipKey {
+  return { project, branch };
+}
+
+/** True when a successor destination key differs from its chained predecessor's ownership key. */
+export function destinationDistinctFromPredecessor(
+  destination: PipelineOwnershipKey,
+  predecessor: PipelineOwnershipKey,
+): boolean {
+  return destination.project !== predecessor.project || destination.branch !== predecessor.branch;
+}
+
 export function isFanOutStageResolution(
   result: Extract<PipelineStageResolutionResult, { ok: true }>,
 ): result is { ok: true; results: Array<{ steps: AnyWorkflowStep[] }> } {
@@ -60,8 +85,8 @@ const WORKFLOW_POSTURE_PRESETS: Record<string, Partial<Record<string, CliWorkflo
 
 const FIXED_REVIEW_PASSES = 1;
 
-function selectChainedStageCwd(_contextCwd: string, priorWorktreePath: string): string {
-  return priorWorktreePath;
+function selectChainedStageCwd(contextCwd: string, priorWorktreePath: string): string {
+  return priorWorktreePath.length > 0 ? priorWorktreePath : contextCwd;
 }
 
 function unmappedResult(stage: PipelineStage & { kind: "workflow" }): { ok: false; error: string } {
@@ -359,7 +384,7 @@ async function resolveImplementStage(
   const customBuilder = builders.implement;
   if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
     const input: BuildImplementWorkflowStepsInput = {
-      cwd: prior.cwd,
+      cwd: prior.worktreePath,
       baseRef: prior.branch,
       specPath,
       reviewPasses: FIXED_REVIEW_PASSES,
@@ -376,7 +401,7 @@ async function resolveImplementStage(
     };
   }
   const input: BuildImplementWorkflowStepsInput = {
-    cwd: prior.cwd,
+    cwd: prior.worktreePath,
     baseRef: prior.branch,
     specPath,
     reviewPasses: FIXED_REVIEW_PASSES,
@@ -434,7 +459,8 @@ async function resolvePlanStage(
     };
   }
   const input: PlanWorkflowInput = {
-    cwd: prior.cwd,
+    cwd: context.cwd,
+    chainedInputRoot: prior.worktreePath,
     readyIntent: prior.specPath,
     reviewPasses: stage.review === "none" ? 0 : FIXED_REVIEW_PASSES,
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),

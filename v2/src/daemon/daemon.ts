@@ -719,6 +719,11 @@ export type RunControlHandlerDeps = {
   pipelineDispatch?: PipelineWorkflowDispatch;
   /** Test seam replacing the daemon's workflow wait closure for pipeline stages. */
   pipelineWait?: PipelineWorkflowWait;
+  /** Test seam invoked at workflow-start admission, before ownership is claimed. */
+  onPipelineWorkflowStartAdmission?: (args: {
+    steps: readonly AnyWorkflowStep[];
+    ownershipKey: OwnershipKey;
+  }) => void | Promise<void>;
   /** Test seam for pipeline terminal publication settlement. */
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
 };
@@ -1827,14 +1832,14 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   /** Thin closure around `handleWorkflowStart`, the seam `pipeline-stage-dispatch.ts` calls to dispatch a stage. */
   const defaultPipelineDispatch: PipelineWorkflowDispatch = async (steps) => {
+    const ownershipKey = workflowStartOwnershipKey(steps);
+    await deps.onPipelineWorkflowStartAdmission?.({ steps, ownershipKey });
     const started = await handleWorkflowStart(steps);
     if (started.kind === "error") {
       return { ok: false, code: started.code, message: started.message };
     }
     const { runId } = started.result as { runId: string };
-    const run = store.loadRun(runId);
-    const invocationId = run?.workflowSnapshot?.invocationId;
-    return { ok: true, entryRunId: runId, ...(invocationId !== undefined ? { invocationId } : {}) };
+    return { ok: true, entryRunId: runId };
   };
 
   /** Thin closure around the `wait` machinery, reporting only the terminal rollup status. */
@@ -1986,8 +1991,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     /** Whether daemon is currently retiring. */
     isRetiring,
   };
-  activeRunsByHandler.set(handlersOut, activeRuns);
-  return handlersOut;
+  const handlersWithPipelineSeams = { ...handlersOut, pipelineDispatch, pipelineWait };
+  activeRunsByHandler.set(handlersWithPipelineSeams, activeRuns);
+  return handlersWithPipelineSeams;
 }
 
 /**
@@ -2294,6 +2300,8 @@ export async function startDaemonRuntime(
     setRetiring,
     hasActiveRuns,
     isRetiring,
+    pipelineDispatch: _pipelineDispatch,
+    pipelineWait: _pipelineWait,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,

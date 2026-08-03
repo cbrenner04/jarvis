@@ -1,16 +1,26 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlers } from "./daemon.ts";
-import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
+import { createRunControlHandlers, type OwnershipKey } from "./daemon.ts";
+import {
+  destinationDistinctFromPredecessor,
+  predecessorOwnershipKey,
+  resolveStageWorkflowSteps,
+  type PipelineStageResolutionResult,
+  workflowStageOwnershipKey,
+} from "./pipeline-stage-resolve.ts";
+import { runPipeline } from "./pipeline-execution.ts";
+import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -35,10 +45,63 @@ function controllableBindingFactory(): {
   return { factory, settle: () => settleFn?.() };
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await predicate()) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
 }
+
+function initGitRepo(root: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+}
+
+function createFanOutRepo(): {
+  repoRoot: string;
+  configPath: string;
+  intentBranch: string;
+  intentWorktree: string;
+  readyA: string;
+  readyB: string;
+} {
+  const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-fan-out-approval-repo-"));
+  initGitRepo(repoRoot);
+  writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+  const intentBranch = "intent/split";
+  const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+  const readyA = "spec/ready-intents/alpha.md";
+  const readyB = "spec/ready-intents/beta.md";
+  execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+  mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+  writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n## Prerequisites\n", "utf8");
+  writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n## Prerequisites\n", "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: intentWorktree });
+  execFileSync("git", ["commit", "-qm", "intent"], { cwd: intentWorktree });
+
+  const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  return { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB };
+}
+
+const FAN_OUT_LINEAR_DEFINITION: PipelineDefinition = {
+  name: "fan-out-linear",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
 
 const ADMISSION_CONTEXT = {
   cwd: "/fake",
@@ -247,3 +310,120 @@ test("pipeline_reject returns refused envelope for non-awaiting gate", async () 
     result: { kind: "refused", pipelineId, stageId: "gate", reason: "status_not_awaiting" },
   });
 });
+
+test("concurrent approved sibling branches own destination worktrees", async () => {
+  const localStore = openStateStore(
+    join(tmpdir(), `jarvis-fan-out-concurrent-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
+  const localExecutor = createFakeWriteLoopExecutor();
+  try {
+  const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
+  const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
+  const planWaits = new Map<string, ReturnType<typeof deferred<"completed">>>();
+  const barrierSlots: Array<{ ownershipKey: OwnershipKey; steps: readonly AnyWorkflowStep[] }> = [];
+  let releaseBarrier: () => void = () => undefined;
+  const admissionBarrier = new Promise<void>((resolve) => {
+    releaseBarrier = () => resolve();
+  });
+
+  const baseHandlers = createRunControlHandlers({
+    stateStore: localStore,
+    writeLoopExecutor: localExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    onPipelineWorkflowStartAdmission: async ({ steps, ownershipKey }) => {
+      if (!ownershipKey.branch.startsWith("plan/")) return;
+      barrierSlots.push({ ownershipKey, steps });
+      if (barrierSlots.length === 2) {
+        const predecessor = predecessorOwnershipKey("demo", intentBranch);
+        expect(new Set(barrierSlots.map((slot) => `${slot.ownershipKey.project}:${slot.ownershipKey.branch}`)).size).toBe(
+          2,
+        );
+        for (const slot of barrierSlots) {
+          expect(destinationDistinctFromPredecessor(slot.ownershipKey, predecessor)).toBe(true);
+          expect(workflowStageOwnershipKey(slot.steps).branch).not.toBe(intentBranch);
+          const writeStep = slot.steps.find((step) => step.behavior === "write");
+          if (writeStep?.behavior === "write" && writeStep.landing?.kind === "plan-tree") {
+            const inputPath = writeStep.landing.inputs?.paths?.[0];
+            expect(inputPath).toBeDefined();
+            expect(existsSync(inputPath as string)).toBe(true);
+            expect((inputPath as string).startsWith(intentWorktree)).toBe(true);
+          }
+        }
+        releaseBarrier();
+      }
+      await admissionBarrier;
+    },
+    pipelineWait: async (entryRunId) => {
+      const run = localStore.loadRun(entryRunId);
+      if (run?.branch?.startsWith("plan/")) {
+        const pending = deferred<"completed">();
+        planWaits.set(entryRunId, pending);
+        return pending.promise;
+      }
+      if (run?.branch?.startsWith("implement/")) {
+        return "completed";
+      }
+      localStore.setRunSpecPath(entryRunId, "spec/ready-intents");
+      localStore.setRunDownstreamInputs(entryRunId, [readyA, readyB]);
+      return "completed";
+    },
+  });
+
+  const intentRunId = localStore.createRun({
+    project: "demo",
+    branch: intentBranch,
+    worktreePath: intentWorktree,
+    specPath: "spec/ready-intents",
+    status: "completed",
+    specRef: "main",
+    stepId: "intent",
+  });
+  localStore.setRunDownstreamInputs(intentRunId, [readyA, readyB]);
+  const intentArtifact: PipelineStageArtifact = {
+    entryRunId: intentRunId,
+    specPath: "spec/ready-intents",
+    downstreamInputs: [readyA, readyB],
+  };
+  const pipelineId = localStore.createPipeline({ definition: FAN_OUT_LINEAR_DEFINITION, context });
+  localStore.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: intentRunId },
+  });
+
+  const runPromise = runPipeline(pipelineId, {
+    store: localStore,
+    context,
+    dispatch: baseHandlers.pipelineDispatch,
+    wait: baseHandlers.pipelineWait,
+    resolveStage: resolveStageWorkflowSteps,
+  });
+
+  await waitFor(() => barrierSlots.length === 2, 15000);
+  await waitFor(() => {
+    const pipeline = localStore.loadPipeline(pipelineId);
+    return (
+      pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status === "running" &&
+      pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status === "running"
+    );
+  }, 15000);
+
+  const pipelineAtAdmission = localStore.loadPipeline(pipelineId);
+  expect(pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status).toBe(
+    "running",
+  );
+  expect(pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status).toBe(
+    "running",
+  );
+
+  for (const pending of planWaits.values()) pending.resolve("completed");
+  localExecutor.settleAll();
+  await runPromise;
+  await flushBackgroundRuns();
+  // @mutate v2/src/daemon/pipeline-stage-resolve.ts "chainedInputRoot: prior.worktreePath," -> "chainedInputRoot: undefined,"
+  } finally {
+    localExecutor.abortAll();
+    localStore.close();
+  }
+}, 20000);

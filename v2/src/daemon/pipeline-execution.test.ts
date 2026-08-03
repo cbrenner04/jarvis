@@ -2742,6 +2742,63 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
   });
 
+  test("re-entry skips already-running fan-out branch rows without re-dispatch", async () => {
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+    };
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": {
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+        worktreePath: "/intent",
+        branch: "intent/split",
+      },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "default",
+      patch: { status: "skipped" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "default",
+      patch: { status: "skipped" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "alpha",
+      patch: { status: "running", workflowInvocationId: "run-alpha-running" },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = fanOutPipelineDeps(store, dispatchLog);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "alpha")).toEqual([]);
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
+      { stageId: "plan", branchKey: "beta" },
+    ]);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("running");
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (targetRecord?.status === \"running\") continue;" -> "if (false) continue;"
+  });
+
   test("duplicate downstreamInputs branchKey fails admission", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
       "run-intent": {

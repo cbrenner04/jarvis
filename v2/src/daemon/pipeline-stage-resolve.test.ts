@@ -19,8 +19,11 @@ import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   type PipelineContext,
   type PipelineStageResolveDeps,
+  destinationDistinctFromPredecessor,
+  predecessorOwnershipKey,
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,
+  workflowStageOwnershipKey,
 } from "./pipeline-stage-resolve.ts";
 
 const QUEUE_WIDGET_SEED_REL = "v2/spec/seeds/queue-widget-refactor.md";
@@ -674,8 +677,8 @@ describe("resolveStageWorkflowSteps", () => {
       deps,
     );
     expect(result.ok).toBe(true);
-    // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
-    expect(seenInput?.cwd).toBe(intentWorktree);
+    expect(seenInput?.cwd).toBe(operatorCwd);
+    expect(seenInput?.chainedInputRoot).toBe(intentWorktree);
     expect(seenInput?.readyIntent).toBe(readyIntentRel);
   });
 
@@ -844,8 +847,8 @@ describe("resolveStageWorkflowSteps", () => {
     const readyB = "spec/ready-intents/beta.md";
     const directorySpecPath = "spec/ready-intents";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
-    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n", "utf8");
-    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n", "utf8");
+    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n## Prerequisites\n", "utf8");
+    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n## Prerequisites\n", "utf8");
 
     const seenReadyIntents: string[] = [];
     const builders = fakeBuilders({
@@ -1041,5 +1044,63 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.error).toContain(`${planSpecDir}/index.md`);
     expect(result.error).toMatch(/index/i);
     expect(result.error).not.toContain("Non-index spec requires --artifact");
+  });
+
+  test("destinationDistinctFromPredecessor is true when destination and predecessor keys differ", () => {
+    expect(
+      destinationDistinctFromPredecessor(
+        { project: "demo", branch: "plan/alpha" },
+        { project: "demo", branch: "intent/feature" },
+      ),
+    ).toBe(true);
+  });
+
+  test("destinationDistinctFromPredecessor is false when destination equals predecessor", () => {
+    expect(
+      destinationDistinctFromPredecessor(
+        { project: "demo", branch: "intent/feature" },
+        { project: "demo", branch: "intent/feature" },
+      ),
+    ).toBe(false);
+  });
+
+  test("fan-out plan resolutions each own a destination distinct from the predecessor worktree", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-resolve-ownership-repo-"));
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+    const intentBranch = "intent/split";
+    const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+    const readyA = "spec/ready-intents/alpha.md";
+    const readyB = "spec/ready-intents/beta.md";
+    execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n## Prerequisites\n", "utf8");
+    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n## Prerequisites\n", "utf8");
+    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const directorySpecPath = "spec/ready-intents";
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+    const stageArtifacts = new Map([["intent", stageArtifact("run-intent", directorySpecPath, [readyA, readyB])]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok || !("results" in result)) throw new Error("expected fan-out results");
+    const predecessor = predecessorOwnershipKey("demo", intentBranch);
+    const destinations = result.results.map((entry) => workflowStageOwnershipKey(entry.steps));
+    expect(destinations).toHaveLength(2);
+    expect(new Set(destinations.map((key) => `${key.project}:${key.branch}`)).size).toBe(2);
+    for (const destination of destinations) {
+      expect(destinationDistinctFromPredecessor(destination, predecessor)).toBe(true);
+    }
   });
 });

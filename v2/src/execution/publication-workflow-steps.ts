@@ -44,6 +44,8 @@ export type IntentWorkflowInput = {
 export type PlanWorkflowInput = {
   cwd: string;
   readyIntent: string;
+  /** When set, read `readyIntent` from this root instead of `cwd` (chained pipeline handoff). */
+  chainedInputRoot?: string;
   targetDir?: string;
   configPath?: string;
   reviewPasses?: number;
@@ -525,9 +527,10 @@ function planSource(
       return { error: "plan: --target-dir must be a relative non-traversing path" };
     const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
+    const chainedInputRoot = input.chainedInputRoot ?? input.cwd;
     const ready =
-      deps.readReadyIntent?.(join(input.cwd, input.readyIntent)) ??
-      validateReadyIntent(join(input.cwd, input.readyIntent));
+      deps.readReadyIntent?.(join(chainedInputRoot, input.readyIntent)) ??
+      validateReadyIntent(join(chainedInputRoot, input.readyIntent));
     if (!ready.ok) return { error: ready.message };
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
@@ -535,7 +538,7 @@ function planSource(
       input.targetDir,
       config,
       modePlan,
-      canonicalTargetDir(project, join(input.cwd, input.readyIntent), "ready-intents"),
+      canonicalTargetDir(project, join(chainedInputRoot, input.readyIntent), "ready-intents"),
     );
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
     const git = config.git !== false && (config.plan?.commit ?? true);
@@ -568,7 +571,7 @@ function planSource(
         durablePath: durableSpecPath,
         inputs: {
           sourceRoot: project.root,
-          paths: [join(input.cwd, input.readyIntent)],
+          paths: [join(chainedInputRoot, input.readyIntent)],
           consumeFrom: git ? "worktree" : "source",
         },
       } satisfies PublicationLanding,

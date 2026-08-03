@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import type { Run, RunStatus, StateStore } from "../persistence/state-store.ts";
+import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { openStateStore, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import {
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
@@ -117,7 +120,15 @@ describe("dispatchPipelineStage", () => {
     expect(terminalPatch?.patch.artifact).toBeUndefined();
   });
 
-  test("a dispatch refusal records failed and failureDetail immediately with no linkage ever written", async () => {
+  test("pre-run dispatch refusal leaves the stage failed and unlinked", async () => {
+    const store = openStateStore(
+      join(tmpdir(), `jarvis-pre-admission-refusal-${process.pid}-${Date.now()}-${Math.random()}.db`),
+    );
+    const definition: PipelineDefinition = {
+      name: "pre-admission",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const pipelineId = store.createPipeline({ definition, context: { cwd: "/repo", seed: "seed" } });
     const dispatch: PipelineWorkflowDispatch = async () => ({
       ok: false,
       code: "worktree_claimed",
@@ -128,16 +139,23 @@ describe("dispatchPipelineStage", () => {
       waitCalled = true;
       return "completed";
     };
-    const { store, patches } = fakeStore();
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId,
+      stageId: "s1",
+      steps: [okStep],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(waitCalled).toBe(false);
-    expect(patches).toHaveLength(1);
-    expect(patches[0]?.patch.status).toBe("failed");
-    expect(patches[0]?.patch.failureDetail).toEqual({ code: "worktree_claimed", message: "already claimed" });
-    expect(patches[0]?.patch.startedAt).toBeUndefined();
-    expect(patches[0]?.patch.workflowInvocationId).toBeUndefined();
+    const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "s1");
+    expect(stage?.status).toBe("failed");
+    expect(stage?.startedAt).toBeNull();
+    expect(stage?.workflowInvocationId).toBeNull();
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (!dispatched.ok) {" -> "if (false) {"
+    store.close();
   });
 
   test("a completed rollup without a recorded spec path records failed, not succeeded with an empty artifact", async () => {

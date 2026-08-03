@@ -147,6 +147,9 @@ test("resume returns after admission before async continuation runs", async () =
   expect(response).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status).toBe("pending");
 
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status === "running",
+  );
   stage2.settle();
   await waitFor(
     () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s2")?.status === "succeeded",

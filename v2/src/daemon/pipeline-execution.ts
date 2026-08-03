@@ -1140,11 +1140,17 @@ async function advanceFanOutStageResolution(
   const pipeline = store.loadPipeline(pipelineId);
   const loadedStages = pipeline?.stages ?? [];
   let currentBranchFailed = false;
+  const pendingDispatches: Array<{
+    targetBranchKey: string;
+    branchIndex: number;
+    steps: AnyWorkflowStep[];
+  }> = [];
   for (let branchIndex = 0; branchIndex < admission.branchKeys.length; branchIndex += 1) {
     const targetBranchKey = admission.branchKeys[branchIndex];
     if (targetBranchKey === undefined) continue;
     const targetRecord = findStageRecord(loadedStages, stage.stageId, targetBranchKey);
     if (targetRecord?.status === "succeeded") continue;
+    if (targetRecord?.status === "running") continue;
     if (
       pipeline !== null &&
       targetRecord !== undefined &&
@@ -1154,24 +1160,30 @@ async function advanceFanOutStageResolution(
     }
     const steps = resolution.results[branchIndex]?.steps;
     if (steps === undefined) continue;
-    await dispatchPipelineStage({
-      pipelineId,
-      stageId: stage.stageId,
-      branchKey: targetBranchKey,
-      steps,
-      dispatch,
-      wait,
-      store,
-    });
-    const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
-    const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
-    if (settledRecord?.status !== "succeeded") {
-      skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
-      if (targetBranchKey === branchKey) currentBranchFailed = true;
-    } else {
-      carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
-    }
+    pendingDispatches.push({ targetBranchKey, branchIndex, steps });
   }
+
+  await Promise.all(
+    pendingDispatches.map(async ({ targetBranchKey, steps }) => {
+      await dispatchPipelineStage({
+        pipelineId,
+        stageId: stage.stageId,
+        branchKey: targetBranchKey,
+        steps,
+        dispatch,
+        wait,
+        store,
+      });
+      const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
+      const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
+      if (settledRecord?.status !== "succeeded") {
+        skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
+        if (targetBranchKey === branchKey) currentBranchFailed = true;
+      } else {
+        carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
+      }
+    }),
+  );
   return currentBranchFailed ? "stop" : "continue";
 }
 

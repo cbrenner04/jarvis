@@ -33,10 +33,10 @@ Primary: `v2/src/daemon/pipeline-stage-dispatch.ts`. In-scope: `pipeline-stage-d
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-dispatch.test.ts` — after admission, a still-live entry run leaves the stage `running` with `workflowInvocationId` equal to that entry run id until settlement; the live-window `// @mutate` directive above makes the regression fail against baseline.
-- [ ] `pipeline-stage-dispatch.test.ts` — non-success settlement on a settled entry run with `loop_finished` / `completion_commit_failed` terminal log context records the full composed operator error (`reason: "completion_commit_failed"`, `nextAction: "resume"`, `retryable: true`), not `harness_failure` / `stop`; the mirroring `// @mutate` directive above makes the regression fail against baseline.
-- [ ] `pipeline-stage-dispatch.test.ts` — pre-run dispatch refusal (`worktree_claimed`) records `failed` with no `workflowInvocationId` ever written.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, and `bun run test:v2` exit zero.
+- [x] `pipeline-stage-dispatch.test.ts` — after admission, a still-live entry run leaves the stage `running` with `workflowInvocationId` equal to that entry run id until settlement; the live-window `// @mutate` directive above makes the regression fail against baseline.
+- [x] `pipeline-stage-dispatch.test.ts` — non-success settlement on a settled entry run with `loop_finished` / `completion_commit_failed` terminal log context records the full composed operator error (`reason: "completion_commit_failed"`, `nextAction: "resume"`, `retryable: true`), not `harness_failure` / `stop`; the mirroring `// @mutate` directive above makes the regression fail against baseline.
+- [x] `pipeline-stage-dispatch.test.ts` — pre-run dispatch refusal (`worktree_claimed`) records `failed` with no `workflowInvocationId` ever written.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, and `bun run test:v2` exit zero.
 
 ## Documentation updates
 

@@ -30,9 +30,9 @@ Primary: `v2/src/daemon/pipeline-execution.ts`. In-scope: `pipeline-execution.te
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — while `workflowInvocationId` names a still-live entry run, the stage row stays `running` with linkage and timestamps intact — no premature `failed`, no `endedAt`, no clearing or replacing `workflowInvocationId`; the live-guard `// @mutate` directive above makes the regression fail against baseline.
-- [ ] `pipeline-execution.test.ts` — fan-out re-entry with a deferred-settlement admitted entry run does not terminalize or stamp terminal timestamps until that run settles; pre-run `worktree_claimed` refusal remains unlinked (subspec 00).
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `pipeline-execution.test.ts` — while `workflowInvocationId` names a still-live entry run, the stage row stays `running` with linkage and timestamps intact — no premature `failed`, no `endedAt`, no clearing or replacing `workflowInvocationId`; the live-guard `// @mutate` directive above makes the regression fail against baseline.
+- [x] `pipeline-execution.test.ts` — fan-out re-entry with a deferred-settlement admitted entry run does not terminalize or stamp terminal timestamps until that run settles; pre-run `worktree_claimed` refusal remains unlinked (subspec 00).
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

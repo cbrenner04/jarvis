@@ -6,7 +6,7 @@ name: entry-run-settlement-terminalizes-live-rows
 
 ## Problem
 
-#2566 stopped the ordered-progression and fan-out writers from terminalizing a stage whose
+PR #2566 stopped the ordered-progression and fan-out writers from terminalizing a stage whose
 `workflowInvocationId` names a live entry run. It did not guard the **writer** that actually records
 the terminal patch.
 

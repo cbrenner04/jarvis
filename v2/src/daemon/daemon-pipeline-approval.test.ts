@@ -6,21 +6,21 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, type OwnershipKey } from "./daemon.ts";
-import {
-  destinationDistinctFromPredecessor,
-  predecessorOwnershipKey,
-  resolveStageWorkflowSteps,
-  type PipelineStageResolutionResult,
-  workflowStageOwnershipKey,
-} from "./pipeline-stage-resolve.ts";
 import { recoverContinuablePipelines, runPipeline } from "./pipeline-execution.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import {
+  destinationDistinctFromPredecessor,
+  type PipelineStageResolutionResult,
+  predecessorOwnershipKey,
+  resolveStageWorkflowSteps,
+  workflowStageOwnershipKey,
+} from "./pipeline-stage-resolve.ts";
 
 const { createWriteStep } = writeStepFixtures();
 
@@ -317,111 +317,112 @@ test("concurrent approved sibling branches own destination worktrees", async () 
   );
   const localExecutor = createFakeWriteLoopExecutor();
   try {
-  const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
-  const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
-  const planWaits = new Map<string, ReturnType<typeof deferred<"completed">>>();
-  const barrierSlots: Array<{ ownershipKey: OwnershipKey; steps: readonly AnyWorkflowStep[] }> = [];
-  let releaseBarrier: () => void = () => undefined;
-  const admissionBarrier = new Promise<void>((resolve) => {
-    releaseBarrier = () => resolve();
-  });
+    const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
+    const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
+    const planWaits = new Map<string, ReturnType<typeof deferred<"completed">>>();
+    const barrierSlots: Array<{ ownershipKey: OwnershipKey; steps: readonly AnyWorkflowStep[] }> = [];
+    let releaseBarrier: () => void = () => undefined;
+    const admissionBarrier = new Promise<void>((resolve) => {
+      releaseBarrier = () => resolve();
+    });
 
-  const baseHandlers = createRunControlHandlers({
-    stateStore: localStore,
-    writeLoopExecutor: localExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    onPipelineWorkflowStartAdmission: async ({ steps, ownershipKey }) => {
-      if (!ownershipKey.branch.startsWith("plan/")) return;
-      barrierSlots.push({ ownershipKey, steps });
-      if (barrierSlots.length === 2) {
-        const predecessor = predecessorOwnershipKey("demo", intentBranch);
-        expect(new Set(barrierSlots.map((slot) => `${slot.ownershipKey.project}:${slot.ownershipKey.branch}`)).size).toBe(
-          2,
-        );
-        for (const slot of barrierSlots) {
-          expect(destinationDistinctFromPredecessor(slot.ownershipKey, predecessor)).toBe(true);
-          expect(workflowStageOwnershipKey(slot.steps).branch).not.toBe(intentBranch);
-          const writeStep = slot.steps.find((step) => step.behavior === "write");
-          if (writeStep?.behavior === "write" && writeStep.landing?.kind === "plan-tree") {
-            const inputPath = writeStep.landing.inputs?.paths?.[0];
-            expect(inputPath).toBeDefined();
-            expect(existsSync(inputPath as string)).toBe(true);
-            expect((inputPath as string).startsWith(intentWorktree)).toBe(true);
+    const baseHandlers = createRunControlHandlers({
+      stateStore: localStore,
+      writeLoopExecutor: localExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      onPipelineWorkflowStartAdmission: async ({ steps, ownershipKey }) => {
+        if (!ownershipKey.branch.startsWith("plan/")) return;
+        barrierSlots.push({ ownershipKey, steps });
+        if (barrierSlots.length === 2) {
+          const predecessor = predecessorOwnershipKey("demo", intentBranch);
+          expect(
+            new Set(barrierSlots.map((slot) => `${slot.ownershipKey.project}:${slot.ownershipKey.branch}`)).size,
+          ).toBe(2);
+          for (const slot of barrierSlots) {
+            expect(destinationDistinctFromPredecessor(slot.ownershipKey, predecessor)).toBe(true);
+            expect(workflowStageOwnershipKey(slot.steps).branch).not.toBe(intentBranch);
+            const writeStep = slot.steps.find((step) => step.behavior === "write");
+            if (writeStep?.behavior === "write" && writeStep.landing?.kind === "plan-tree") {
+              const inputPath = writeStep.landing.inputs?.paths?.[0];
+              expect(inputPath).toBeDefined();
+              expect(existsSync(inputPath as string)).toBe(true);
+              expect((inputPath as string).startsWith(intentWorktree)).toBe(true);
+            }
           }
+          releaseBarrier();
         }
-        releaseBarrier();
-      }
-      await admissionBarrier;
-    },
-    pipelineWait: async (entryRunId) => {
-      const run = localStore.loadRun(entryRunId);
-      if (run?.branch?.startsWith("plan/")) {
-        const pending = deferred<"completed">();
-        planWaits.set(entryRunId, pending);
-        return pending.promise;
-      }
-      if (run?.branch?.startsWith("implement/")) {
+        await admissionBarrier;
+      },
+      pipelineWait: async (entryRunId) => {
+        const run = localStore.loadRun(entryRunId);
+        if (run?.branch?.startsWith("plan/")) {
+          const pending = deferred<"completed">();
+          planWaits.set(entryRunId, pending);
+          return pending.promise;
+        }
+        if (run?.branch?.startsWith("implement/")) {
+          return "completed";
+        }
+        localStore.setRunSpecPath(entryRunId, "spec/ready-intents");
+        localStore.setRunDownstreamInputs(entryRunId, [readyA, readyB]);
         return "completed";
-      }
-      localStore.setRunSpecPath(entryRunId, "spec/ready-intents");
-      localStore.setRunDownstreamInputs(entryRunId, [readyA, readyB]);
-      return "completed";
-    },
-  });
+      },
+    });
 
-  const intentRunId = localStore.createRun({
-    project: "demo",
-    branch: intentBranch,
-    worktreePath: intentWorktree,
-    specPath: "spec/ready-intents",
-    status: "completed",
-    specRef: "main",
-    stepId: "intent",
-  });
-  localStore.setRunDownstreamInputs(intentRunId, [readyA, readyB]);
-  const intentArtifact: PipelineStageArtifact = {
-    entryRunId: intentRunId,
-    specPath: "spec/ready-intents",
-    downstreamInputs: [readyA, readyB],
-  };
-  const pipelineId = localStore.createPipeline({ definition: FAN_OUT_LINEAR_DEFINITION, context });
-  localStore.updateStage({
-    pipelineId,
-    stageId: "intent",
-    patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: intentRunId },
-  });
+    const intentRunId = localStore.createRun({
+      project: "demo",
+      branch: intentBranch,
+      worktreePath: intentWorktree,
+      specPath: "spec/ready-intents",
+      status: "completed",
+      specRef: "main",
+      stepId: "intent",
+    });
+    localStore.setRunDownstreamInputs(intentRunId, [readyA, readyB]);
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: intentRunId,
+      specPath: "spec/ready-intents",
+      downstreamInputs: [readyA, readyB],
+    };
+    const pipelineId = localStore.createPipeline({ definition: FAN_OUT_LINEAR_DEFINITION, context });
+    localStore.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: intentRunId },
+    });
 
-  const runPromise = runPipeline(pipelineId, {
-    store: localStore,
-    context,
-    dispatch: baseHandlers.pipelineDispatch,
-    wait: baseHandlers.pipelineWait,
-    resolveStage: resolveStageWorkflowSteps,
-  });
+    const runPromise = runPipeline(pipelineId, {
+      store: localStore,
+      context,
+      dispatch: baseHandlers.pipelineDispatch,
+      wait: baseHandlers.pipelineWait,
+      resolveStage: resolveStageWorkflowSteps,
+    });
 
-  await waitFor(() => barrierSlots.length === 2, 15000);
-  await waitFor(() => {
-    const pipeline = localStore.loadPipeline(pipelineId);
-    return (
-      pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status === "running" &&
-      pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status === "running"
-    );
-  }, 15000);
+    await waitFor(() => barrierSlots.length === 2, 15000);
+    await waitFor(() => {
+      const pipeline = localStore.loadPipeline(pipelineId);
+      return (
+        pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status ===
+          "running" &&
+        pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status === "running"
+      );
+    }, 15000);
 
-  const pipelineAtAdmission = localStore.loadPipeline(pipelineId);
-  expect(pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status).toBe(
-    "running",
-  );
-  expect(pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status).toBe(
-    "running",
-  );
+    const pipelineAtAdmission = localStore.loadPipeline(pipelineId);
+    expect(
+      pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")?.status,
+    ).toBe("running");
+    expect(
+      pipelineAtAdmission?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.status,
+    ).toBe("running");
 
-  for (const pending of planWaits.values()) pending.resolve("completed");
-  localExecutor.settleAll();
-  await runPromise;
-  await flushBackgroundRuns();
-  // @mutate v2/src/daemon/pipeline-stage-resolve.ts "chainedInputRoot: prior.worktreePath," -> "chainedInputRoot: undefined,"
+    for (const pending of planWaits.values()) pending.resolve("completed");
+    localExecutor.settleAll();
+    await runPromise;
+    await flushBackgroundRuns();
+    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "chainedInputRoot: prior.worktreePath," -> "chainedInputRoot: undefined,"
   } finally {
     localExecutor.abortAll();
     localStore.close();
@@ -437,7 +438,10 @@ test("admitted fan-out stages remain adopted through settlement", async () => {
     const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
     const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
     const planWaits = new Map<string, ReturnType<typeof deferred<"completed">>>();
-    const observedStages = new Map<string, Array<{ status: string; workflowInvocationId: string | null; endedAt: unknown }>>();
+    const observedStages = new Map<
+      string,
+      Array<{ status: string; workflowInvocationId: string | null; endedAt: unknown }>
+    >();
 
     const baseHandlers = createRunControlHandlers({
       stateStore: localStore,
@@ -499,7 +503,9 @@ test("admitted fan-out stages remain adopted through settlement", async () => {
       expect(stage?.endedAt).toBeNull();
       if (stage?.workflowInvocationId) {
         expect(localStore.loadRun(stage.workflowInvocationId)?.status).not.toBe("completed");
-        observedStages.set(branchKey, [{ status: stage.status, workflowInvocationId: stage.workflowInvocationId, endedAt: stage.endedAt }]);
+        observedStages.set(branchKey, [
+          { status: stage.status, workflowInvocationId: stage.workflowInvocationId, endedAt: stage.endedAt },
+        ]);
       }
     }
 
@@ -599,9 +605,9 @@ test("restart recovery adopts an admitted entry run before stage linkage", async
       branchKey: "alpha",
     });
     expect(admitted?.id).toBeDefined();
-    const alphaBeforeRestart = localStore.loadPipeline(pipelineId)?.stages.find(
-      (stage) => stage.stageId === "plan" && stage.branchKey === "alpha",
-    );
+    const alphaBeforeRestart = localStore
+      .loadPipeline(pipelineId)
+      ?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha");
     expect(alphaBeforeRestart?.status).not.toBe("failed");
     expect(alphaBeforeRestart?.workflowInvocationId).toBeNull();
 
@@ -633,9 +639,9 @@ test("restart recovery adopts an admitted entry run before stage linkage", async
     localExecutor.settleAll();
     await flushBackgroundRuns();
 
-    const alphaAfterRecovery = localStore.loadPipeline(pipelineId)?.stages.find(
-      (stage) => stage.stageId === "plan" && stage.branchKey === "alpha",
-    );
+    const alphaAfterRecovery = localStore
+      .loadPipeline(pipelineId)
+      ?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha");
     expect(alphaAfterRecovery?.workflowInvocationId).toBe(admitted?.id);
     expect(alphaAfterRecovery?.status).toBe("succeeded");
     // @mutate v2/src/daemon/pipeline-execution.ts "if (admitted !== null && isLiveEntryRun(store, admitted.id)) {" -> "if (false) {"

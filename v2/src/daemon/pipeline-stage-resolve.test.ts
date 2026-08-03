@@ -17,9 +17,9 @@ import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
+  destinationDistinctFromPredecessor,
   type PipelineContext,
   type PipelineStageResolveDeps,
-  destinationDistinctFromPredecessor,
   predecessorOwnershipKey,
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,

@@ -65,11 +65,7 @@ export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
 }
 
 /** Best-effort failure write-back for an unexpected throw/rejection before entry-run admission. */
-function settleUnexpectedThrow(
-  store: StateStore,
-  target: PipelineStageTarget,
-  error: unknown,
-): void {
+function settleUnexpectedThrow(store: StateStore, target: PipelineStageTarget, error: unknown): void {
   try {
     store.updateStage({
       ...stageStoreTarget(target),
@@ -101,7 +97,7 @@ export async function settlePipelineStageFromEntryRun(args: {
   store: StateStore;
   stageTarget: PipelineStageTarget;
   entryRunId: string;
-  invocationId?: string;
+  invocationId?: string | undefined;
   wait: PipelineWorkflowWait;
 }): Promise<void> {
   const { store, stageTarget, entryRunId, invocationId, wait } = args;

@@ -1123,9 +1123,9 @@ function intentDownstreamInputsForFanOut(
 
 function linkedEntryRunId(
   store: StateStore,
-  pipelineId: string,
-  stageId: string,
-  branchKey: string,
+  _pipelineId: string,
+  _stageId: string,
+  _branchKey: string,
   record: PipelineStageRecord | undefined,
 ): string | undefined {
   if (record?.workflowInvocationId !== null && record?.workflowInvocationId !== undefined) {

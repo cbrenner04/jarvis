@@ -1111,9 +1111,7 @@ class StateStoreImpl implements StateStore {
   }
 
   setPipelineStageAdmission(runId: string, admission: PipelineStageAdmission): void {
-    this.db
-      .prepare("UPDATE runs SET pipeline_stage_admission = ? WHERE id = ?")
-      .run(JSON.stringify(admission), runId);
+    this.db.prepare("UPDATE runs SET pipeline_stage_admission = ? WHERE id = ?").run(JSON.stringify(admission), runId);
   }
 
   clearPipelineStageAdmission(runId: string): void {

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { openStateStore, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,

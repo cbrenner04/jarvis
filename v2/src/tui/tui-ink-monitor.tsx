@@ -367,13 +367,7 @@ export async function openInkMonitor(
         }
         if (key.return && key.shift) return;
         const editorSpecialKey =
-          key.escape ||
-          key.leftArrow ||
-          key.rightArrow ||
-          key.backspace ||
-          key.delete ||
-          key.upArrow ||
-          key.downArrow;
+          key.escape || key.leftArrow || key.rightArrow || key.backspace || key.delete || key.upArrow || key.downArrow;
         if (editorSpecialKey) {
           if (key.escape) controls.focusTree();
           else if (key.leftArrow) controls.moveCommandCursorLeft();

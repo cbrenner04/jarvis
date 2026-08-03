@@ -272,6 +272,9 @@ function noopControls(): TuiMonitorControls {
     deleteCommandBackward() {},
     deleteCommandForward() {},
     submitCommand() {},
+    async admitDetachedPipelineStart() {
+      return { kind: "admitted", pipelineId: "noop-pipeline" };
+    },
     selectNode() {},
     selectNextRun() {},
     selectPreviousRun() {},

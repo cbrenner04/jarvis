@@ -1,9 +1,31 @@
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { formatConnectionError } from "../cli/ipc.ts";
+import { formatConnectionError, request } from "../cli/ipc.ts";
+import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import { TUI_LOG_USAGE, TUI_USAGE } from "../cli/usage.ts";
-import { resolveMachineProfile } from "../config/machine-config-loader.ts";
+import { loadMachineConfig, readProjectConfigRecord, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
+import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
+import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
+import type { IpcClient } from "../ipc/client.ts";
+import type { DetachedPipelineStartAdmission } from "../tui/tui-monitor-types.ts";
+import { admitPipelineStart } from "./pipeline-start-admission.ts";
+
+function detachedPipelineStartAdmission(deps: CliDeps): DetachedPipelineStartAdmission {
+  return (input) =>
+    admitPipelineStart(input, {
+      cwd: deps.cwd(),
+      configPath: deps.machineConfigPath,
+      readProjectRegistry: deps.readProjectRegistry,
+      readProjectConfigRecord,
+      loadMachineConfig,
+      loadAgentModelConfig: deps.loadAgentModelConfig,
+      resolveProjectPipeline,
+      getPipelineDefinition,
+      connect: () => connectWithAutoStart(deps, deps.socketPath),
+      request: (connection, method, params) => request(connection as IpcClient, method, params),
+    });
+}
 
 export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   if (argv.length === 0) {
@@ -19,6 +41,7 @@ export function runTuiCommand(argv: readonly string[], io: Io, deps: CliDeps): P
       socketPath: deps.socketPath,
       socketDiscovery: discoverLiveDaemonSockets,
       machineProfile,
+      admitDetachedPipelineStart: detachedPipelineStartAdmission(deps),
     };
     return deps.runTuiEntry(entryDeps);
   }

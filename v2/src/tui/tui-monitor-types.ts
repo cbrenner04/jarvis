@@ -1,8 +1,17 @@
+import type {
+  PipelineStartAdmissionInput,
+  PipelineStartAdmissionResult,
+} from "../commands/pipeline-start-admission.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { ConnectTuiDaemonOptions, PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi } from "./tui-ink-runtime.ts";
+
+/** Detached pipeline-start admission bound at the TUI command entry boundary. */
+export type DetachedPipelineStartAdmission = (
+  input: PipelineStartAdmissionInput,
+) => Promise<PipelineStartAdmissionResult>;
 
 /** Operator-visible non-monitor feedback states. */
 export type TuiViewState = { kind: "rpc-error"; code: string; message: string } | { kind: "unavailable" };
@@ -69,6 +78,8 @@ export type TuiMonitorControls = {
   deleteCommandBackward(): void;
   deleteCommandForward(): void;
   submitCommand(commandBuffer: string): void;
+  /** Detached `pipeline_start` admission using the same seams as `jarvis pipeline start --detach`. */
+  admitDetachedPipelineStart(input: PipelineStartAdmissionInput): Promise<PipelineStartAdmissionResult>;
   /** Change selection to the given tree or unattributed row when present in the selectable list. */
   selectNode(nodeId: string): void;
   /** Move to the next selectable row in display order. */
@@ -120,6 +131,8 @@ export type RunTuiEntryDeps = {
   socketPath: string;
   /** Machine profile resolved before TUI admission. */
   machineProfile: string;
+  /** Detached pipeline-start admission bound from the invoking CLI command. */
+  admitDetachedPipelineStart: DetachedPipelineStartAdmission;
   /** Injectable daemon client seam; defaults to {@link connectTuiDaemon}. */
   connectTuiDaemon?: (options?: ConnectTuiDaemonOptions) => Promise<TuiDaemonClient>;
   /** Injectable monitor refresh scheduler; defaults to a 1s interval poller. */

@@ -1,14 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Writable } from "node:stream";
 import { createElement, type ReactElement } from "react";
+import type { PipelineStartAdmissionResult } from "../commands/pipeline-start-admission.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import * as tuiCommandParser from "./tui-command-parser.ts";
 import type { PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
-import { runTuiEntry } from "./tui-entry.tsx";
+import {
+  commandSubmissionBlockedByPendingAdmission,
+  expansionCommandSelectionError,
+  runTuiEntry,
+  shouldApplyCommandSettlement,
+} from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import {
@@ -20,6 +27,7 @@ import {
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
+  DetachedPipelineStartAdmission,
   RunTuiEntryDeps,
   TuiMonitorControls,
   TuiMonitorSession,
@@ -36,6 +44,11 @@ import {
 } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
+
+const noopDetachedAdmission: DetachedPipelineStartAdmission = async () => ({
+  kind: "admitted",
+  pipelineId: "test-pipeline",
+});
 
 const RUN_ALPHA: DaemonListRunRow = {
   runId: "run-alpha",
@@ -547,6 +560,9 @@ function createViewHost() {
     host,
     feedbackStates,
     monitorStates,
+    getControls() {
+      return controls;
+    },
     async waitUntilOpen() {
       await opened.promise;
     },
@@ -762,6 +778,7 @@ function entryDeps(
     deps: {
       socketPath: "/tmp/test.sock",
       machineProfile: "unknown",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       connectTuiDaemon: async () => fakeClient(clientOptions),
       socketDiscovery: async () => [],
       ...overrides,
@@ -895,45 +912,426 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("keeps submission handoff inert", async () => {
+  test("dispatches focused command submissions through parse-once routing and detached admission", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "const parsed = parseTuiCommand(commandBuffer);" -> "parseTuiCommand(commandBuffer); const parsed = parseTuiCommand(commandBuffer);"
+    // @mutate v2/src/tui/tui-entry.tsx "if (commandSubmissionBlockedByPendingAdmission(admissionPending)) return;" -> "if (false) return;"
+    // @mutate v2/src/tui/tui-entry.tsx "return monitorOpen && submissionEditorGeneration === currentEditorGeneration;" -> "return false;"
+    // @mutate v2/src/tui/tui-entry.tsx "lastCommandResult: result.pipelineId," -> "lastCommandResult: result.pipelineId, selectedNodeId: null,"
+    // @mutate v2/src/tui/tui-entry.tsx "if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;" -> "if (false) return null;"
+    const parseSpy = spyOn(tuiCommandParser, "parseTuiCommand");
     const view = createViewHost();
-    const { deps, clientOptions } = entryDeps({ methods: [] }, { viewHost: view.host });
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        admitDetachedPipelineStart: async (input) => {
+          admissionCalls += 1;
+          if (input.seedPath !== undefined) {
+            expect(input).toEqual({ projectKey: "demo", seedPath: "seeds/foo.md" });
+          } else {
+            expect(input).toEqual({ projectKey: "demo", seedText: "Ship feature" });
+          }
+          return admissionGate.promise;
+        },
+      },
+    );
     const pending = runTuiEntry(deps);
 
     try {
       await view.waitUntilOpen();
       await flush();
       view.focusCommand();
-      view.insertCommandText("kill run-alpha");
-      view.moveCommandCursorLeft();
-      const current = view.monitorStates.at(-1);
-      expect(current).toBeDefined();
-      if (current === undefined) throw new Error("expected command editor state");
-      const beforeSubmission = cloneState(current);
-      const dockBeforeSubmission = monitorDockLines(beforeSubmission);
-      const methodsBeforeSubmission = [...(clientOptions.methods ?? [])];
-      const stateCountBeforeSubmission = view.monitorStates.length;
 
-      view.submitCommand(beforeSubmission.commandBuffer ?? "");
+      view.insertCommandText("start demo --seed seeds/foo.md");
+      const pathSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(pathSeedBuffer);
+      expect(parseSpy).toHaveBeenCalledTimes(1);
+      expect(parseSpy).toHaveBeenCalledWith(pathSeedBuffer);
+      expect(admissionCalls).toBe(1);
+      const pendingStateCount = view.monitorStates.length;
+      view.selectNode("run-orphan");
       await flush();
+      expect(view.monitorStates.length).toBeGreaterThan(pendingStateCount);
+      expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
 
-      expect(clientOptions.methods).toEqual(methodsBeforeSubmission);
-      expect(view.feedbackStates).toEqual([]);
-      expect(view.monitorStates).toHaveLength(stateCountBeforeSubmission);
-      const afterSubmission = view.monitorStates.at(-1);
-      expect(afterSubmission).toEqual(beforeSubmission);
-      expect(afterSubmission).toBeDefined();
-      if (afterSubmission !== undefined) expect(monitorDockLines(afterSubmission)).toEqual(dockBeforeSubmission);
-      expect(afterSubmission).toMatchObject({
+      view.submitCommand(pathSeedBuffer);
+      expect(parseSpy).toHaveBeenCalledTimes(1);
+      expect(admissionCalls).toBe(1);
+
+      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-admitted" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-admitted",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+        selectedNodeId: "run-orphan",
+      });
+
+      view.focusCommand();
+      view.insertCommandText("start demo --seed-text Ship feature");
+      const _textSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      const textAdmissionGate = deferred<PipelineStartAdmissionResult>();
+      let textAdmissionCalls = 0;
+      const textView = createViewHost();
+      const textPending = runTuiEntry(
+        entryDeps(
+          {
+            methods: [],
+            listResponses: [{ runs: pipelineTreeListFixture() }],
+            pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+          },
+          {
+            viewHost: textView.host,
+            nowMs: () => WORKFLOW_FILTER_NOW_MS,
+            admitDetachedPipelineStart: async (input) => {
+              textAdmissionCalls += 1;
+              expect(input).toEqual({ projectKey: "demo", seedText: "Ship feature" });
+              return textAdmissionGate.promise;
+            },
+          },
+        ).deps,
+      );
+      await textView.waitUntilOpen();
+      await flush();
+      textView.focusCommand();
+      textView.insertCommandText('start demo --seed-text "Ship feature"');
+      const textBuffer = textView.monitorStates.at(-1)?.commandBuffer ?? "";
+      const statesBeforeResolve = textView.monitorStates.length;
+      textView.submitCommand(textBuffer);
+      expect(textAdmissionCalls).toBe(1);
+      expect(textView.monitorStates.length).toBeGreaterThanOrEqual(statesBeforeResolve);
+      textAdmissionGate.resolve({ kind: "admitted", pipelineId: "pipe-text" });
+      await flush();
+      expect(textView.monitorStates.at(-1)?.lastCommandResult).toBe("pipe-text");
+      textView.quit();
+      expect(await textPending).toBe(0);
+    } finally {
+      parseSpy.mockRestore();
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("suppresses stale admission settlements and post-close updates", async () => {
+    const view = createViewHost();
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return admissionGate.promise;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("start demo --seed-text pending");
+      const bufferBeforeEdit = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(bufferBeforeEdit);
+      expect(admissionCalls).toBe(1);
+
+      view.insertCommandText("!");
+      await flush();
+      const edited = view.monitorStates.at(-1);
+      expect(edited).toMatchObject({ commandBuffer: `${bufferBeforeEdit}!`, focus: "command" });
+
+      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-stale" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${bufferBeforeEdit}!`,
         focus: "command",
-        commandBuffer: "kill run-alpha",
-        commandCursor: 13,
         lastCommandResult: null,
       });
     } finally {
       view.quit();
     }
     expect(await pending).toBe(0);
+
+    const closeView = createViewHost();
+    const closeGate = deferred<PipelineStartAdmissionResult>();
+    let closeAdmissionCalls = 0;
+    const closePending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+        {
+          viewHost: closeView.host,
+          admitDetachedPipelineStart: async () => {
+            closeAdmissionCalls += 1;
+            return closeGate.promise;
+          },
+        },
+      ).deps,
+    );
+    await closeView.waitUntilOpen();
+    await flush();
+    closeView.focusCommand();
+    closeView.insertCommandText("start demo --seed-text close");
+    const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
+    closeView.submitCommand(closeBuffer);
+    expect(closeAdmissionCalls).toBe(1);
+    const statesBeforeClose = closeView.monitorStates.length;
+    closeView.quit();
+    closeGate.resolve({ kind: "admitted", pipelineId: "pipe-after-close" });
+    await flush();
+    expect(closeView.monitorStates).toHaveLength(statesBeforeClose);
+    expect(await closePending).toBe(0);
+  });
+
+  test("reports parser and admission failures without losing repairable command input", async () => {
+    const view = createViewHost();
+    let admissionCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return {
+            kind: "pre-admission-failure",
+            failure: "unregistered-project",
+            detail: "unregistered project: missing\n",
+          };
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      const submitParseFailure = (buffer: string, feedback: string): void => {
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText(buffer);
+        const current = view.monitorStates.at(-1);
+        expect(current).toBeDefined();
+        if (current === undefined) throw new Error("expected command editor state");
+        const beforeCalls = admissionCalls;
+        view.submitCommand(current.commandBuffer ?? "");
+        expect(admissionCalls).toBe(beforeCalls);
+        expect(view.monitorStates.at(-1)).toMatchObject({
+          focus: "command",
+          commandBuffer: current.commandBuffer,
+          commandCursor: current.commandCursor,
+          lastCommandResult: feedback,
+        });
+      };
+
+      submitParseFailure("wat", "unknown_verb");
+      submitParseFailure("approve foo", "recognized_unavailable · jarvis pipeline approve");
+      submitParseFailure("start", "missing_project");
+
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("start missing --seed-text text");
+      const preAdmissionBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(preAdmissionBuffer);
+      await flush();
+      expect(admissionCalls).toBe(1);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: preAdmissionBuffer,
+        lastCommandResult: "unregistered-project: unregistered project: missing\n",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+
+    const refusalDetail = "pipeline_start refused: branch locked\n";
+    const refusalView = createViewHost();
+    let refusalCalls = 0;
+    const refusalPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [RUN_ALPHA] }] },
+        {
+          viewHost: refusalView.host,
+          admitDetachedPipelineStart: async () => {
+            refusalCalls += 1;
+            return {
+              kind: "admission-failure",
+              failure: "daemon-refusal",
+              detail: refusalDetail,
+            };
+          },
+        },
+      ).deps,
+    );
+    await refusalView.waitUntilOpen();
+    await flush();
+    refusalView.focusCommand();
+    refusalView.insertCommandText("start demo --seed-text retry");
+    const refusalBuffer = refusalView.monitorStates.at(-1)?.commandBuffer ?? "";
+    refusalView.submitCommand(refusalBuffer);
+    await flush();
+    expect(refusalCalls).toBe(1);
+    expect(refusalView.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer: refusalBuffer,
+      lastCommandResult: refusalDetail,
+    });
+    refusalView.quit();
+    expect(await refusalPending).toBe(0);
+  });
+
+  test("dispatches explicit expand and collapse without admission", async () => {
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+    let admissionCalls = 0;
+    deps.admitDetachedPipelineStart = async () => {
+      admissionCalls += 1;
+      return { kind: "admitted", pipelineId: "unused" };
+    };
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-multi");
+      view.focusCommand();
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(admissionCalls).toBe(0);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        selectedNodeId: "pipe-multi",
+        commandBuffer: "",
+        commandCursor: 0,
+        lastCommandResult: null,
+      });
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain("pipe-multi");
+
+      view.insertCommandText("collapse");
+      view.submitCommand("collapse");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+
+      view.insertCommandText("collapse");
+      view.submitCommand("collapse");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).not.toContain("pipe-multi");
+
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      view.selectNode(PIPELINE_STAGE_MULTI);
+      view.focusCommand();
+      view.insertCommandText("expand");
+      view.submitCommand("expand");
+      expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toContain(PIPELINE_STAGE_MULTI);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("reports expansion selection feedback without mutating expansion state", async () => {
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("expand");
+    emptyView.submitCommand("expand");
+    expect(emptyView.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: null,
+      focus: "command",
+      commandBuffer: "expand",
+      lastCommandResult: "no_selection",
+      expandedPipelineNodeIds: [],
+    });
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectExpansionFailure = (feedback: string, setup: () => void): void => {
+        setup();
+        const before = view.monitorStates.at(-1);
+        expect(before).toBeDefined();
+        if (before === undefined) throw new Error("expected monitor state");
+        const expandedBefore = [...(before.expandedPipelineNodeIds ?? [])];
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText("expand");
+        const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+        view.submitCommand(commandBuffer);
+        expect(view.monitorStates.at(-1)).toMatchObject({
+          focus: "command",
+          commandBuffer,
+          lastCommandResult: feedback,
+        });
+        expect([...(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [])].sort()).toEqual(expandedBefore.sort());
+      };
+
+      await view.toggleExpansion();
+      view.selectNode("run-review");
+      expectExpansionFailure("run_leaf", () => {});
+
+      view.selectNode("run-orphan");
+      expectExpansionFailure("unattributed", () => {});
+
+      expect(
+        expansionCommandSelectionError(
+          {
+            runs: pipelineMultiListFixture(),
+            selectedNodeId: "pipe-gone",
+            waitState: { kind: "none" },
+            steeringFeedback: null,
+            pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
+            terminalWindowNowMs: WORKFLOW_FILTER_NOW_MS,
+          },
+          WORKFLOW_FILTER_NOW_MS,
+        ),
+      ).toBe("stale_non_expandable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("command dispatch guard predicates reject inverted conditions", () => {
+    expect(commandSubmissionBlockedByPendingAdmission(true)).toBe(true);
+    expect(commandSubmissionBlockedByPendingAdmission(false)).toBe(false);
+    expect(shouldApplyCommandSettlement(1, 1, true)).toBe(true);
+    expect(shouldApplyCommandSettlement(1, 2, true)).toBe(false);
+    expect(shouldApplyCommandSettlement(1, 1, false)).toBe(false);
   });
 
   test("dock session state starts explicit and survives refresh and display updates", async () => {
@@ -1093,6 +1491,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry({
       socketPath: DAEMON1_SOCKET,
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
       connectTuiDaemon: async (options) => {
@@ -1415,6 +1814,7 @@ describe("runTuiEntry", () => {
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () => {
         attempted = true;
@@ -2371,6 +2771,7 @@ describe("runTuiEntry", () => {
     const unhealthy = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -2381,6 +2782,7 @@ describe("runTuiEntry", () => {
     const unavailableStatus = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -2418,6 +2820,7 @@ describe("runTuiEntry", () => {
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () =>
@@ -2481,6 +2884,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () => client,

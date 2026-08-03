@@ -81,6 +81,7 @@ omit keys):
 - `usage_source`: `"agent" | "estimated" | "unavailable" | null`
 - `cost_usd`: `number | null`
 - `cost_source`: `"agent" | "computed" | "estimated" | "no-price" | "no-usage" | "unavailable" | null`
+- `warnings`: `string[]` — always present (`[]` when the adapter returned none or the exit kind is non-ok)
 - `exit_kind`, `exit_reason`
 
 `cost_source: "computed"` — harness list-price math via `computeCost` (published

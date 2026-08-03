@@ -1,14 +1,20 @@
 import { basename } from "node:path";
+import type {
+  PipelineStartAdmissionInput,
+  PipelineStartAdmissionResult,
+} from "../commands/pipeline-start-admission.ts";
 import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import { parseTuiCommand, type TuiCommandError, type TuiCommandParseResult } from "./tui-command-parser.ts";
 import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import {
   firstSelectableNodeId,
   mergePipelineSnapshots,
+  monitorLeftPaneTreeRows,
   monitorSelectableNodeIds,
   monitorTerminalFilterNowMs,
   withLeftPaneTreeScrollFollow,
@@ -23,6 +29,7 @@ import type {
   TuiViewState,
   TuiWaitState,
 } from "./tui-monitor-types.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
 const COMMAND_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -145,6 +152,57 @@ function pipelineNodesForState(state: TuiMonitorState, displayNowMs: number) {
   }).pipelineNodes;
 }
 
+export function commandSubmissionBlockedByPendingAdmission(admissionPending: boolean): boolean {
+  return admissionPending;
+}
+
+export function shouldApplyCommandSettlement(
+  submissionEditorGeneration: number,
+  currentEditorGeneration: number,
+  monitorOpen: boolean,
+): boolean {
+  // Mutation checkpoint: negating monitorOpen or generation equality must turn stale-settlement suppression RED.
+  return monitorOpen && submissionEditorGeneration === currentEditorGeneration;
+}
+
+export type ExpansionCommandSelectionError = "no_selection" | "run_leaf" | "unattributed" | "stale_non_expandable";
+
+export function expansionCommandSelectionError(
+  state: TuiMonitorState,
+  nowMs: number,
+): ExpansionCommandSelectionError | null {
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId === null) return "no_selection";
+
+  const pipelineNodes = pipelineNodesForState(state, nowMs);
+  // Mutation checkpoint: short-circuiting this guard before expansion eligibility must turn explicit-expansion pin RED.
+  if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;
+
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
+  if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
+  return "stale_non_expandable";
+}
+
+function formatCommandParseFeedback(error: TuiCommandError): string {
+  if (error.code === "recognized_unavailable") return `${error.code} · ${error.command}`;
+  return error.code;
+}
+
+function formatAdmissionFailureFeedback(
+  result: Extract<PipelineStartAdmissionResult, { kind: "pre-admission-failure" | "admission-failure" }>,
+): string {
+  if (result.kind === "admission-failure" && result.failure === "daemon-refusal") return result.detail;
+  return `${result.failure}: ${result.detail}`;
+}
+
+function startAdmissionInput(command: Extract<TuiCommandParseResult, { kind: "start" }>): PipelineStartAdmissionInput {
+  return command.seed.mode === "path"
+    ? { projectKey: command.project, seedPath: command.seed.value }
+    : { projectKey: command.project, seedText: command.seed.value };
+}
+
 function entryErrorFeedback(error: unknown): TuiViewState {
   if (error instanceof RpcError) {
     return { kind: "rpc-error", code: error.code, message: error.message };
@@ -194,9 +252,16 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let refreshQueued = false;
   const lastReadyByRunId = new Map<string, Extract<TuiWaitState, { kind: "ready" }>>();
   let resolveQuit!: () => void;
+  let monitorOpen = false;
+  let admissionPending = false;
+  let commandEditorGeneration = 0;
   const quitPromise = new Promise<void>((resolve) => {
     resolveQuit = resolve;
   });
+
+  const bumpCommandEditorGeneration = (): void => {
+    commandEditorGeneration += 1;
+  };
 
   const syncMonitor = (): void => {
     void Promise.resolve(session?.update(monitorShellState(currentState, terminalSizeFn)));
@@ -221,6 +286,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   };
 
   const setCommandEditor = (graphemes: readonly string[], cursor: number): void => {
+    bumpCommandEditorGeneration();
     setState({
       ...currentState,
       commandBuffer: graphemes.join(""),
@@ -559,9 +625,11 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       monitorShellState(currentState, terminalSizeFn),
       {
         focusCommand() {
+          bumpCommandEditorGeneration();
           setState({ ...currentState, focus: "command" });
         },
         focusTree() {
+          bumpCommandEditorGeneration();
           setState({ ...currentState, focus: "tree" });
         },
         insertCommandText,
@@ -579,7 +647,79 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         deleteCommandForward() {
           deleteCommandGrapheme(0);
         },
-        submitCommand(_commandBuffer) {},
+        submitCommand(commandBuffer) {
+          // Mutation checkpoint: negating commandSubmissionBlockedByPendingAdmission must turn single in-flight admission RED.
+          if (commandSubmissionBlockedByPendingAdmission(admissionPending)) return;
+
+          const parsed = parseTuiCommand(commandBuffer);
+          if (parsed.kind === "error") {
+            setState({
+              ...currentState,
+              lastCommandResult: formatCommandParseFeedback(parsed),
+            });
+            return;
+          }
+
+          if (parsed.kind === "expand" || parsed.kind === "collapse") {
+            const selectionError = expansionCommandSelectionError(currentState, nowMsFn());
+            if (selectionError !== null) {
+              setState({
+                ...currentState,
+                lastCommandResult: selectionError,
+              });
+              return;
+            }
+            const selectedNodeId = currentState.selectedNodeId;
+            if (selectedNodeId === null) return;
+            const expanded = new Set(currentState.expandedPipelineNodeIds ?? []);
+            if (parsed.kind === "expand") {
+              expanded.add(selectedNodeId);
+            } else {
+              expanded.delete(selectedNodeId);
+            }
+            setState({
+              ...currentState,
+              expandedPipelineNodeIds: [...expanded],
+              commandBuffer: "",
+              commandCursor: 0,
+              lastCommandResult: null,
+            });
+            bumpCommandEditorGeneration();
+            return;
+          }
+
+          const submissionEditorGeneration = commandEditorGeneration;
+          admissionPending = true;
+          void (async () => {
+            try {
+              const result = await deps.admitDetachedPipelineStart(startAdmissionInput(parsed));
+              if (!shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)) {
+                return;
+              }
+              if (result.kind === "admitted") {
+                setState({
+                  ...currentState,
+                  lastCommandResult: result.pipelineId,
+                  commandBuffer: "",
+                  commandCursor: 0,
+                  // Mutation checkpoint: restoring a captured selection in admitted settlement must turn selection non-mutation RED.
+                  focus: "tree",
+                });
+                bumpCommandEditorGeneration();
+                return;
+              }
+              setState({
+                ...currentState,
+                lastCommandResult: formatAdmissionFailureFeedback(result),
+              });
+            } finally {
+              admissionPending = false;
+            }
+          })();
+        },
+        admitDetachedPipelineStart(input) {
+          return deps.admitDetachedPipelineStart(input);
+        },
         selectNode(nodeId) {
           if (!monitorSelectableNodeIds(currentState, nowMsFn()).includes(nodeId)) return;
           if (currentState.selectedNodeId === nodeId) return;
@@ -666,6 +806,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       },
       deps,
     );
+    monitorOpen = true;
 
     refreshHandle = refreshScheduler.start(() => {
       void refreshRuns(false).catch(() => {});
@@ -685,6 +826,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     }
     throw error;
   } finally {
+    monitorOpen = false;
     refreshHandle?.close();
     displayTickHandle?.close();
     session?.close();

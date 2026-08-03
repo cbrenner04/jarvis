@@ -2,7 +2,7 @@
 
 Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Replaces the 2026-07-27 brief. **Status 2026-08-03: slices 1-4 shipped; slice 5 is functional end to end — the dock edits (#2545) and dispatches (#2554) — with subspecs 02-04 of `20260803T013930Z-tui-command-dispatch/` remaining.** TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because CI cannot observe them; prove layout with pure functions, keybindings through the injected input hook, and behavior through production monitor state ([test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy)). Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
+Replaces the 2026-07-27 brief. **Status 2026-08-03: slices 1-5 shipped; the dock edits (#2545), dispatches (#2554), and projects both feedback channels on its status row (#2575). Slice 6 (steering + log) is unseeded.** TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because CI cannot observe them; prove layout with pure functions, keybindings through the injected input hook, and behavior through production monitor state ([test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy)). Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
 
 ## Goal
 
@@ -227,7 +227,7 @@ Serialize 1 → 6. Each row is a seed.
 | 2 | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485)                                              |
 | 3 | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492                                                                                          |
 | 4 | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** #2511 (wire), #2519, #2521                                                                            |
-| 5 | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **partial** — #2529 parser, #2530 start admission, #2531 dock rows, #2533 painting, #2545 editor, #2554 dispatch; subspecs 02-04 open |
+| 5 | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **shipped** — #2529 parser, #2530 start admission, #2531 dock rows, #2533 painting, #2545 editor, #2554 dispatch, #2575 status-row projection |
 | 6 | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open                                                                                                              |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.

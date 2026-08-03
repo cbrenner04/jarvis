@@ -390,9 +390,11 @@ and a settlement that arrives after you have typed or navigated does not clobber
 newer state.
 
 **Outcomes.** An admitted `start` reports the pipeline id in `result:`, clears the buffer
-and cursor, and restores tree focus. Everything else — parse errors, pre-admission
-failures, and daemon refusals — **retains command focus, buffer, and cursor** so the
-input is repairable, and reports its named code; a daemon refusal preserves the daemon's
+and cursor, and restores tree focus; a successful `expand`/`collapse` likewise clears the
+buffer and cursor. Failures — parse errors, pre-admission
+failures, daemon refusals, and ineligible expansion selections — **retain command focus,
+buffer, and cursor** so the
+input is repairable, and report their named code; a daemon refusal preserves the daemon's
 `detail` verbatim.
 
 **Expansion feedback codes** (nothing changes when one fires):
@@ -412,9 +414,10 @@ reports `recognized_unavailable` naming its exact CLI equivalent:
 | `approve` / `reject` | `jarvis pipeline approve` / `jarvis pipeline reject` |
 | `resume` | `jarvis pipeline resume` |
 | `kill` / `pause` | `jarvis run kill` / `jarvis run pause` |
-| `log` | `jarvis tui log <run-id>` |
+| `log` | `jarvis tui log` |
 
-Any other verb reports `unknown_verb`. Malformed `start` input reports the specific
+An empty or whitespace-only buffer reports `malformed_input`; any other verb reports
+`unknown_verb`. Malformed `start` input reports the specific
 code — `missing_project`, `missing_seed_choice`, `missing_seed_value`, `both_seed_flags`,
 `duplicate_seed_flag`, `unknown_option`, `extra_positional` — and unbalanced quoting
 reports `unterminated_quote`.

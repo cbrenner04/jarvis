@@ -289,7 +289,10 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a
 - **Observability log stream.** Structured event log (`iteration_started`,
   `boundary_committed`, `loop_finished`) keyed by run ID, queryable by sink +
   reader interfaces. Appended directly by the write loop; not part of the
-  orchestration store. Each run's `seq` is unique and monotonic across
+  orchestration store. A completion-failure `loop_finished` event may carry
+  generic `completionCommitError` text alongside normalized
+  `publicationFailure`; orchestration rows retain neither diagnostic. Each
+  run's `seq` is unique and monotonic across
   concurrent writers on the same log file; allocation reads the durable log at
   append time (synchronous read → next seq → write). Consumers query via `tail`
   (snapshot of persisted events) or `follow` (replay from seq 1, then stream new

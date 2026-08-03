@@ -20,12 +20,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/log-stream.test.ts` appends and tails a `completion_commit_failed` `loop_finished` record with its exact `completionCommitError`; the contract-level regression fails against the baseline, including through type checking if generic JSONL serialization preserves an unknown field at runtime.
-- [ ] `v2/src/persistence/log-stream.test.ts` tails a raw serialized pre-field `loop_finished` JSONL record and preserves its absence of `completionCommitError`.
-- [ ] Guard inversion: every added or modified production guard has a source-mutation checkpoint in its pinning test and the scoped suite fails when inverted; the planned type-only contract adds no guard.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
-- [ ] `v2/docs/v2-architecture.md` records `completionCommitError` on durable completion-failure log events and keeps orchestration rows free of diagnostic text.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 durable-log addition.
+- [x] `v2/src/persistence/log-stream.test.ts` appends and tails a `completion_commit_failed` `loop_finished` record with its exact `completionCommitError`; the contract-level regression fails against the baseline, including through type checking if generic JSONL serialization preserves an unknown field at runtime.
+- [x] `v2/src/persistence/log-stream.test.ts` tails a raw serialized pre-field `loop_finished` JSONL record and preserves its absence of `completionCommitError`.
+- [x] Guard inversion: every added or modified production guard has a source-mutation checkpoint in its pinning test and the scoped suite fails when inverted; the planned type-only contract adds no guard.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/docs/v2-architecture.md` records `completionCommitError` on durable completion-failure log events and keeps orchestration rows free of diagnostic text.
+- [x] `v2/docs/v1-behaviors.md` records the v2 durable-log addition.
 
 ## Documentation updates
 

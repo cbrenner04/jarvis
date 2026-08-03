@@ -23,7 +23,7 @@ Then **`ready-intents/fan-out-concurrent-sibling-dispatch`** and **`ready-intent
 
 ## The fan-out rescope
 
-The original spec (`fan-out-stage-dispatch-preserves-workflow-ownership`) was retired by #2562 after adversarial review disproved its premise: destination worktrees were **already** distinct from the predecessor on `main`, so its ownership guard enforced nothing and its headline change was inert. Three implement attempts went into it — two blocked on hollow mutation checkpoints, the third produced a red gate and dead code. PR #2555 remains open as a DO-NOT-MERGE record.
+The original spec (`fan-out-stage-dispatch-preserves-workflow-ownership`) was retired by #2562 after adversarial review disproved its premise: destination worktrees were **already** distinct from the predecessor on `main`, so its ownership guard enforced nothing and its headline change was inert. Three implement attempts went into it — two blocked on hollow mutation checkpoints, the third produced a red gate and dead code. PR #2555 was closed unmerged; its branch `fan-out-destination-ownership` is retained, since the concurrent-dispatch `Promise.all` work and the `stageArtifacts` branch-keying defect are both referenced by the two remaining intents.
 
 The rescoped seed (#2562) split into three intents (#2563). The first, stage linkage, shipped in #2566 in a single pass with every guard proven reachable.
 

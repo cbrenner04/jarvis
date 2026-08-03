@@ -44,6 +44,16 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
     clearPipelineStageAdmission: (runId: string) => {
       admissionsByRun.delete(runId);
     },
+    loadPipeline: (pipelineId: string) => {
+      const stages = new Map<string, Record<string, unknown>>();
+      for (const patch of patches) {
+        if (patch.pipelineId !== pipelineId) continue;
+        const branchKey = (patch as { branchKey?: string }).branchKey ?? "default";
+        const key = `${patch.stageId}::${branchKey}`;
+        stages.set(key, { stageId: patch.stageId, branchKey, ...(stages.get(key) ?? {}), ...patch.patch });
+      }
+      return { stages: [...stages.values()] } as unknown as ReturnType<StateStore["loadPipeline"]>;
+    },
     findAdmittedEntryRunForStage: (args: Record<string, unknown>) => {
       for (const [runId, admission] of admissionsByRun.entries()) {
         if (

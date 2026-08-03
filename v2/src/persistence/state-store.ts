@@ -1131,8 +1131,8 @@ class StateStoreImpl implements StateStore {
          ORDER BY created_at DESC, rowid DESC
          LIMIT 1`,
       )
-      .get(args.pipelineId, args.stageId, args.branchKey) as { id: string } | undefined;
-    if (row === undefined) return null;
+      .get(args.pipelineId, args.stageId, args.branchKey) as { id: string } | null;
+    if (row === null) return null;
     return this.loadRun(row.id);
   }
 

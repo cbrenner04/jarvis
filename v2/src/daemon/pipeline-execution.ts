@@ -1155,6 +1155,93 @@ async function adoptLiveLinkedPipelineStage(
   });
 }
 
+type FanOutBranchTargets = {
+  pendingDispatches: Array<{ targetBranchKey: string; branchIndex: number; steps: AnyWorkflowStep[] }>;
+  pendingAdoptions: Array<{ targetBranchKey: string; entryRunId: string }>;
+};
+
+/**
+ * Classify each admitted fan-out branch into dispatch, adoption, or skip without mutating
+ * anything. Reads the stage snapshot loaded once by the caller, so no branch can change class
+ * mid-partition.
+ */
+function partitionFanOutBranchTargets(
+  args: AdvanceWorkflowStageArgs,
+  opts: {
+    branchKeys: readonly string[];
+    pipeline: (Pipeline & { stages: PipelineStageRecord[] }) | null;
+    loadedStages: readonly PipelineStageRecord[];
+    results: Array<{ steps: AnyWorkflowStep[] }>;
+  },
+): FanOutBranchTargets {
+  const { pipelineId, stage, split, store } = args;
+  const targets: FanOutBranchTargets = { pendingDispatches: [], pendingAdoptions: [] };
+  for (let branchIndex = 0; branchIndex < opts.branchKeys.length; branchIndex += 1) {
+    const targetBranchKey = opts.branchKeys[branchIndex];
+    if (targetBranchKey === undefined) continue;
+    const targetRecord = findStageRecord(opts.loadedStages, stage.stageId, targetBranchKey);
+    if (targetRecord?.status === "succeeded") continue;
+    const linkedEntryRun = linkedEntryRunId(store, pipelineId, stage.stageId, targetBranchKey, targetRecord);
+    if (linkedEntryRun !== undefined) {
+      targets.pendingAdoptions.push({ targetBranchKey, entryRunId: linkedEntryRun });
+      continue;
+    }
+    if (targetRecord?.status === "pending") {
+      const admitted = store.findAdmittedEntryRunForStage({
+        pipelineId,
+        stageId: stage.stageId,
+        branchKey: targetBranchKey,
+      });
+      if (admitted !== null && isLiveEntryRun(store, admitted.id)) {
+        targets.pendingAdoptions.push({ targetBranchKey, entryRunId: admitted.id });
+        continue;
+      }
+    }
+    if (targetRecord?.status === "running" || targetRecord?.status === "interrupted") continue;
+    if (
+      opts.pipeline !== null &&
+      targetRecord !== undefined &&
+      !branchSuffixPredecessorsSatisfied(opts.pipeline, targetRecord, split)
+    ) {
+      continue;
+    }
+    const steps = opts.results[branchIndex]?.steps;
+    if (steps === undefined) continue;
+    targets.pendingDispatches.push({ targetBranchKey, branchIndex, steps });
+  }
+  return targets;
+}
+
+/**
+ * Record one settled fan-out branch and report whether it failed. A branch still `running`
+ * against a live entry run is left alone — its own settlement owns the terminal write — so
+ * later stages are not skipped out from under it.
+ */
+function settleFanOutBranchOutcome(args: {
+  store: StateStore;
+  pipelineId: string;
+  stageId: string;
+  targetBranchKey: string;
+  index: number;
+  stageArtifacts: Map<string, PipelineStageArtifact>;
+}): boolean {
+  const settledStages = args.store.loadPipeline(args.pipelineId)?.stages ?? [];
+  const settledRecord = findStageRecord(settledStages, args.stageId, args.targetBranchKey);
+  if (settledRecord?.status === "succeeded") {
+    carryForwardArtifact(args.stageArtifacts, args.stageId, settledRecord.artifact);
+    return false;
+  }
+  if (
+    settledRecord?.status === "running" &&
+    settledRecord.workflowInvocationId !== null &&
+    isLiveEntryRun(args.store, settledRecord.workflowInvocationId)
+  ) {
+    return true;
+  }
+  skipRemainingStages(args.store, args.pipelineId, settledStages, args.index + 1, args.targetBranchKey);
+  return true;
+}
+
 async function advanceFanOutStageResolution(
   args: AdvanceWorkflowStageArgs,
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
@@ -1183,45 +1270,12 @@ async function advanceFanOutStageResolution(
   const pipeline = store.loadPipeline(pipelineId);
   const loadedStages = pipeline?.stages ?? [];
   let currentBranchFailed = false;
-  const pendingDispatches: Array<{
-    targetBranchKey: string;
-    branchIndex: number;
-    steps: AnyWorkflowStep[];
-  }> = [];
-  const pendingAdoptions: Array<{ targetBranchKey: string; entryRunId: string }> = [];
-  for (let branchIndex = 0; branchIndex < admission.branchKeys.length; branchIndex += 1) {
-    const targetBranchKey = admission.branchKeys[branchIndex];
-    if (targetBranchKey === undefined) continue;
-    const targetRecord = findStageRecord(loadedStages, stage.stageId, targetBranchKey);
-    if (targetRecord?.status === "succeeded") continue;
-    const linkedEntryRun = linkedEntryRunId(store, pipelineId, stage.stageId, targetBranchKey, targetRecord);
-    if (linkedEntryRun !== undefined) {
-      pendingAdoptions.push({ targetBranchKey, entryRunId: linkedEntryRun });
-      continue;
-    }
-    if (targetRecord?.status === "pending") {
-      const admitted = store.findAdmittedEntryRunForStage({
-        pipelineId,
-        stageId: stage.stageId,
-        branchKey: targetBranchKey,
-      });
-      if (admitted !== null && isLiveEntryRun(store, admitted.id)) {
-        pendingAdoptions.push({ targetBranchKey, entryRunId: admitted.id });
-        continue;
-      }
-    }
-    if (targetRecord?.status === "running" || targetRecord?.status === "interrupted") continue;
-    if (
-      pipeline !== null &&
-      targetRecord !== undefined &&
-      !branchSuffixPredecessorsSatisfied(pipeline, targetRecord, split)
-    ) {
-      continue;
-    }
-    const steps = resolution.results[branchIndex]?.steps;
-    if (steps === undefined) continue;
-    pendingDispatches.push({ targetBranchKey, branchIndex, steps });
-  }
+  const { pendingDispatches, pendingAdoptions } = partitionFanOutBranchTargets(args, {
+    branchKeys: admission.branchKeys,
+    pipeline,
+    loadedStages,
+    results: resolution.results,
+  });
 
   await Promise.all([
     ...pendingDispatches.map(async ({ targetBranchKey, steps }) => {
@@ -1234,22 +1288,15 @@ async function advanceFanOutStageResolution(
         wait,
         store,
       });
-      const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
-      const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
-      if (settledRecord?.status !== "succeeded") {
-        if (
-          settledRecord?.status === "running" &&
-          settledRecord.workflowInvocationId !== null &&
-          isLiveEntryRun(store, settledRecord.workflowInvocationId)
-        ) {
-          if (targetBranchKey === branchKey) currentBranchFailed = true;
-          return;
-        }
-        skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
-        if (targetBranchKey === branchKey) currentBranchFailed = true;
-      } else {
-        carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
-      }
+      const branchFailed = settleFanOutBranchOutcome({
+        store,
+        pipelineId,
+        stageId: stage.stageId,
+        targetBranchKey,
+        index,
+        stageArtifacts,
+      });
+      if (branchFailed && targetBranchKey === branchKey) currentBranchFailed = true;
     }),
     ...pendingAdoptions.map(async ({ targetBranchKey, entryRunId }) => {
       await adoptAndSettlePipelineStage({
@@ -1258,22 +1305,15 @@ async function advanceFanOutStageResolution(
         entryRunId,
         wait,
       });
-      const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
-      const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
-      if (settledRecord?.status !== "succeeded") {
-        if (
-          settledRecord?.status === "running" &&
-          settledRecord.workflowInvocationId !== null &&
-          isLiveEntryRun(store, settledRecord.workflowInvocationId)
-        ) {
-          if (targetBranchKey === branchKey) currentBranchFailed = true;
-          return;
-        }
-        skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
-        if (targetBranchKey === branchKey) currentBranchFailed = true;
-      } else {
-        carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
-      }
+      const branchFailed = settleFanOutBranchOutcome({
+        store,
+        pipelineId,
+        stageId: stage.stageId,
+        targetBranchKey,
+        index,
+        stageArtifacts,
+      });
+      if (branchFailed && targetBranchKey === branchKey) currentBranchFailed = true;
     }),
   ]);
   return currentBranchFailed ? "stop" : "continue";

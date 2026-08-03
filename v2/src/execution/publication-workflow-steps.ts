@@ -542,46 +542,70 @@ function planSource(
     );
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
     const git = config.git !== false && (config.plan?.commit ?? true);
-    const root = jarvisHome();
-    const branch = `plan/${ready.name}`;
-    const cwd = join(root, "worktrees", project.key, branch);
-    const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
-    const specDir = join(target, `${timestamp}-${ready.name}`);
-    const durableSpecPath = git ? specDir : join(root, "specs", projectSafeId(project.key), "plans", ready.name);
-    const source: WriteWorkflowSourceStep = {
-      behavior: "write",
-      stepId: "plan",
-      role: "plan",
-      promptId: PUBLICATIONS.plan.promptId,
-      promptPlaceholders: { WORKDIR: cwd },
-      stepRules: DEFAULT_WRITE_STEP_RULES,
-      worktree: {
-        projectRoot: project.root,
-        projectName: project.key,
-        branchName: branch,
-        baseRef: git ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none",
-        jarvisRoot: root,
-        ...(git ? {} : { git: false, localPath: join(root, "specs", projectSafeId(project.key), "plans", ready.name) }),
-      },
-      specPath: durableSpecPath,
-      expectedArtifactPath: PLAN_STAGE,
-      landing: {
-        kind: "plan-tree",
-        stagingDir: PLAN_STAGE,
-        durablePath: durableSpecPath,
-        inputs: {
-          sourceRoot: project.root,
-          paths: [join(chainedInputRoot, input.readyIntent)],
-          consumeFrom: git ? "worktree" : "source",
-        },
-      } satisfies PublicationLanding,
-      intentSeed: ready.content,
-      workflowInvocationId: crypto.randomUUID(),
-      creationTitle: `plan: ${ready.name}`,
-      publishCompletion: true,
-    };
-    return { source, identity: { name: ready.name, branch } };
+    return await buildPlanWriteSource({
+      projectKey: project.key,
+      projectRoot: project.root,
+      readyName: ready.name,
+      readyContent: ready.content,
+      target,
+      git,
+      readyIntentPath: join(chainedInputRoot, input.readyIntent),
+      ...(deps.resolveBaseBranch !== undefined ? { resolveBaseBranch: deps.resolveBaseBranch } : {}),
+    });
   })();
+}
+
+/** Build the plan write step once its project, ready-intent, and target dir are resolved. */
+async function buildPlanWriteSource(args: {
+  projectKey: string;
+  projectRoot: string;
+  readyName: string;
+  readyContent: string;
+  target: string;
+  git: boolean;
+  readyIntentPath: string;
+  resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;
+}): Promise<{ source: WriteWorkflowSourceStep; identity: PlanWorkflowIdentity }> {
+  const { projectKey, projectRoot, readyName, readyContent, target, git, readyIntentPath } = args;
+  const root = jarvisHome();
+  const branch = `plan/${readyName}`;
+  const cwd = join(root, "worktrees", projectKey, branch);
+  const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+  const localPath = join(root, "specs", projectSafeId(projectKey), "plans", readyName);
+  const durableSpecPath = git ? join(target, `${timestamp}-${readyName}`) : localPath;
+  const source: WriteWorkflowSourceStep = {
+    behavior: "write",
+    stepId: "plan",
+    role: "plan",
+    promptId: PUBLICATIONS.plan.promptId,
+    promptPlaceholders: { WORKDIR: cwd },
+    stepRules: DEFAULT_WRITE_STEP_RULES,
+    worktree: {
+      projectRoot,
+      projectName: projectKey,
+      branchName: branch,
+      baseRef: git ? await (args.resolveBaseBranch ?? getBaseBranch)(projectRoot) : "none",
+      jarvisRoot: root,
+      ...(git ? {} : { git: false, localPath }),
+    },
+    specPath: durableSpecPath,
+    expectedArtifactPath: PLAN_STAGE,
+    landing: {
+      kind: "plan-tree",
+      stagingDir: PLAN_STAGE,
+      durablePath: durableSpecPath,
+      inputs: {
+        sourceRoot: projectRoot,
+        paths: [readyIntentPath],
+        consumeFrom: git ? "worktree" : "source",
+      },
+    } satisfies PublicationLanding,
+    intentSeed: readyContent,
+    workflowInvocationId: crypto.randomUUID(),
+    creationTitle: `plan: ${readyName}`,
+    publishCompletion: true,
+  };
+  return { source, identity: { name: readyName, branch } };
 }
 export const buildReviewedPlanWorkflowSteps = buildPlanWorkflowSteps;
 export async function buildReviewedPlanLightWorkflowSteps(

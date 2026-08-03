@@ -249,12 +249,13 @@ function dockStatusLine(state: TuiMonitorState): string {
   const profile = state.machineProfile ?? "unknown";
   const digest = state.keyedSocketDigest ?? "unknown";
   const refresh = state.refreshIntervalLabel ?? DEFAULT_DOCK_REFRESH_LABEL;
-  const feedback =
-    state.lastRpcError !== null && state.lastRpcError !== undefined
-      ? ` · error: ${state.lastRpcError}`
-      : state.lastCommandResult !== null && state.lastCommandResult !== undefined
-        ? ` · result: ${state.lastCommandResult}`
-        : "";
+  let feedback = "";
+  if (state.lastRpcError !== null && state.lastRpcError !== undefined) {
+    feedback += ` · error: ${state.lastRpcError}`;
+  }
+  if (state.lastCommandResult !== null && state.lastCommandResult !== undefined) {
+    feedback += ` · result: ${state.lastCommandResult}`;
+  }
   return `${countActivePipelines(state)} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;
 }
 

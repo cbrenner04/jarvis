@@ -1270,11 +1270,9 @@ describe("monitorDockLines", () => {
     expect(lines).not.toEqual(["1 active · refresh 2s", ">", "", ""]);
   });
 
-  test("counts retained pipeline identities once and prioritizes RPC errors", () => {
+  test("counts retained pipeline identities once and projects RPC and command feedback together", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "(activeByPipelineId.get(snapshot.pipelineId) ?? false) || !TERMINAL_PIPELINE_STATES.has(snapshot.state)" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts ".filter(Boolean)" -> ""
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.lastRpcError !== null && state.lastRpcError !== undefined" -> "false"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.lastCommandResult !== null && state.lastCommandResult !== undefined" -> "false"
     const terminal = pipelineSnapshot({ pipelineId: "contradictory", state: "succeeded", finishedAtMs: 20 });
     const nonTerminal = pipelineSnapshot({ pipelineId: "contradictory", state: "running", finishedAtMs: null });
     const duplicate = pipelineSnapshot({ pipelineId: "duplicate", state: "pending" });
@@ -1293,11 +1291,47 @@ describe("monitorDockLines", () => {
     });
 
     expect(countActivePipelines(state)).toBe(2);
-    expect(monitorDockLines(state)[0]).toBe("2 active · profile@digest · refresh 750ms · error: list�failed");
+    const controlReplacement = "\uFFFD";
+    expect(monitorDockLines(state)[0]).toBe(
+      `2 active · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
+    );
     expect(monitorDockLines({ ...state, lastRpcError: null })[0]).toBe(
-      "2 active · profile@digest · refresh 750ms · result: retained�result",
+      `2 active · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
     );
     expect(countActivePipelines({ ...state, lastRpcError: "refresh failed" })).toBe(2);
+  });
+
+  test("retains command feedback alongside RPC errors, clears only RPC on refresh, and fits both suffixes at narrow widths", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.lastRpcError !== null && state.lastRpcError !== undefined) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.lastCommandResult !== null && state.lastCommandResult !== undefined) {" -> "if (false) {"
+    const state = monitorState({
+      machineProfile: "profile",
+      keyedSocketDigest: "digest",
+      refreshIntervalLabel: "750ms",
+      lastRpcError: "daemon_error: list failed",
+      lastCommandResult: "pipe-admitted",
+      terminalColumns: 120,
+    });
+    const statusPrefix = "0 active · profile@digest · refresh 750ms";
+    const bothSuffixes = " · error: daemon_error: list failed · result: pipe-admitted";
+    const fullStatus = `${statusPrefix}${bothSuffixes}`;
+
+    const lines = monitorDockLines(state);
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe(fullStatus);
+
+    const afterSuccessfulRefresh = monitorDockLines({ ...state, lastRpcError: null });
+    expect(afterSuccessfulRefresh).toHaveLength(4);
+    expect(afterSuccessfulRefresh[0]).toBe(`${statusPrefix} · result: pipe-admitted`);
+
+    const narrowWidth = Bun.stringWidth(fullStatus);
+    expect(monitorDockLines({ ...state, terminalColumns: narrowWidth })[0]).toBe(fullStatus);
+
+    const tooNarrow = Bun.stringWidth(statusPrefix) + 8;
+    const truncated = monitorDockLines({ ...state, terminalColumns: tooNarrow })[0];
+    expect(truncated.startsWith(statusPrefix)).toBe(true);
+    expect(truncated).not.toContain("pipe-admitted");
+    expect(Bun.stringWidth(truncated)).toBeLessThanOrEqual(tooNarrow);
   });
 
   test("bounds and sanitizes input at split, stacked, and tiny widths", () => {

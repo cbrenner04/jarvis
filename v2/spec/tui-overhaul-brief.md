@@ -2,7 +2,7 @@
 
 Meta-index phase. Operator ordering: [implement-queue.md](implement-queue.md). **Do not send this brief to** `plan` — fan slices with `jarvis run workflow intent`.
 
-Replaces the 2026-07-27 brief. **Status 2026-08-03: slices 1-4 shipped; slice 5 is functional end to end — the dock edits (#2545) and dispatches (#2554) — with subspecs 02-04 of `20260803T013930Z-tui-command-dispatch/` remaining.** TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because CI cannot observe them; prove layout with pure functions, keybindings through the injected input hook, and behavior through production monitor state ([test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy)). Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
+Replaces the 2026-07-27 brief. **Status 2026-08-03: slices 1-5 shipped; the dock edits (#2545), dispatches (#2554), and projects both feedback channels on its status row (#2575). Slice 6 (steering + log) is unseeded.** TUI test strategy is settled for the whole phase — rendered-ink assertions are unsupported because CI cannot observe them; prove layout with pure functions, keybindings through the injected input hook, and behavior through production monitor state ([test-writing.md § TUI test strategy](../docs/test-writing.md#tui-test-strategy)). Goal is a **Jarvis command center**: one terminal app to start pipelines in any registered project, monitor them, steer gates and runs, and read enough state to decide without cross-checking CLI output.
 
 ## Goal
 
@@ -173,7 +173,7 @@ Commands are entered in the **command dock** (bottom 4 lines). Grammar mirrors C
 | `resume`                        | `resume`                           | `pipeline_resume` on selected pipeline                      |
 | `kill` / `pause` / `resume-run` | `kill`                             | `run` RPC on selected nested run                            |
 | `log`                           | `log`                              | `jarvis tui log <run-id>` for selected run                  |
-| `expand` / `collapse`           | `expand`                           | Toggle selected pipeline/stage node                         |
+| `expand` / `collapse`           | `expand`                           | Explicitly add/remove selected pipeline/stage node          |
 
 Keybindings remain for frequent actions (`j`/`k`, `e`, `a`/`r` on gates, etc.). Command dock and keys share one dispatch layer.
 
@@ -196,7 +196,7 @@ TUI (after slices 1-4): left tree pane / right detail pane / fixed 4-line dock, 
 
 Slice 5 has landed six pieces: a pure typed command parser (`tui-command-parser.ts`, #2529), a reusable `pipeline_start` admission API the CLI now goes through too (`pipeline-start-admission.ts`, #2530), the four dock rows as a pure function over monitor state (`monitorDockLines`, #2531), the painted dock plus its session state (#2533), command focus and grapheme-cursor editing driven through the injected input hook (#2545), and dispatch — a submitted `start` reaches `admitPipelineStart` on the same seams as `jarvis pipeline start`, detached, plus `expand`/`collapse` and parse-error feedback (#2554).
 
-Still missing: subspecs 02-04 of `20260803T013930Z-tui-command-dispatch/` — status-row projection, operator runbook, parity catalog. 03 and 04 are documentation-only subspecs, which is over-split; folding them into 02's Documentation updates would save two implement runs. There is no steering — approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no FIFO or labelling polish.
+Slice 5 is complete: subspec 02 shipped the status-row projection that carries RPC and command feedback together, along with the operator-runbook and parity documentation folded into it (#2573 retired the two documentation-only subspecs). Still missing: there is no steering — approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no FIFO or labelling polish.
 
 One doc claim to correct when slice 6 touches the dock: `operator-runbook.md` says "Shift+Enter is ignored", but outside the kitty keyboard protocol terminals send a bare `\r`, so Shift+Enter submits. Harmless while submission was inert; wrong now that dispatch has landed.
 
@@ -227,7 +227,7 @@ Serialize 1 → 6. Each row is a seed.
 | 2 | **Pipeline tree**   | Poll `pipeline_list` + `list`; join; nested rows; expand/collapse; selection drives right pane                 | **shipped** #2462, #2463, #2466 (+#2471, #2473, #2479, #2481, #2485)                                              |
 | 3 | **Elapsed columns** | Wire timestamps; wall clock in tree; local tick between refreshes                                              | **shipped** #2490, #2492                                                                                          |
 | 4 | **Detail pane**     | Structured right-pane content per selection depth; workflow steps and errors                                   | **shipped** #2511 (wire), #2519, #2521                                                                            |
-| 5 | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **partial** — #2529 parser, #2530 start admission, #2531 dock rows, #2533 painting, #2545 editor, #2554 dispatch; subspecs 02-04 open |
+| 5 | **Command dock**    | 4-line dock; CLI-mirror parser; `start` admission; dispatch                                                    | **shipped** — #2529 parser, #2530 start admission, #2531 dock rows, #2533 painting, #2545 editor, #2554 dispatch, #2575 status-row projection |
 | 6 | **Steering + log**  | Approve/reject/resume; run pause/kill; log follow; unattributed segment                                        | open                                                                                                              |
 
 Follow-ons (not blocking): PR/publication blocks in detail; column-divider resize polish.

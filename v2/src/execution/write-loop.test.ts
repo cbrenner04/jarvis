@@ -413,6 +413,9 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    setPipelineStageAdmission: (runId, admission) => inner.setPipelineStageAdmission(runId, admission),
+    clearPipelineStageAdmission: (runId) => inner.clearPipelineStageAdmission(runId),
+    findAdmittedEntryRunForStage: (args) => inner.findAdmittedEntryRunForStage(args),
     loadRun: (runId) => inner.loadRun(runId),
     findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
     findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),

@@ -2755,6 +2755,7 @@ describe("pipeline branch fan-out execution", () => {
         worktreePath: "/intent",
         branch: "intent/split",
       },
+      "run-alpha-running": { specPath: "spec/alpha/plan.md", status: "in-progress" },
       "run-beta-1-2": { specPath: "spec/beta/plan.md" },
       "run-beta-2-4": { specPath: "spec/beta/implement.md" },
     });
@@ -2795,8 +2796,8 @@ describe("pipeline branch fan-out execution", () => {
     expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
       { stageId: "plan", branchKey: "beta" },
     ]);
-    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("running");
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (targetRecord?.status === \"running\") continue;" -> "if (false) continue;"
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (isLiveEntryRun(store, record.workflowInvocationId)) return record.workflowInvocationId;" -> "if (false) return record.workflowInvocationId;"
   });
 
   test("duplicate downstreamInputs branchKey fails admission", async () => {

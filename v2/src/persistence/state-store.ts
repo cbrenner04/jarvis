@@ -147,6 +147,15 @@ export type Run = {
   retainedFinalizationCheckpoint?: RetainedFinalizationCheckpoint | null;
   /** True when a non-null checkpoint column could not be parsed. */
   retainedFinalizationCheckpointCorrupt?: boolean;
+  /** Durable pipeline-stage target recorded at entry-run admission before stage linkage. */
+  pipelineStageAdmission?: PipelineStageAdmission | null;
+};
+
+/** Run-to-stage identity recorded when a pipeline stage admits an entry run. */
+export type PipelineStageAdmission = {
+  pipelineId: string;
+  stageId: string;
+  branchKey: string;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -411,6 +420,15 @@ export interface StateStore {
   /** Persist the publication-tail checkpoint for gate-only finalization resume. */
   setRetainedFinalizationCheckpoint(runId: string, checkpoint: RetainedFinalizationCheckpoint): void;
 
+  /** Record the pipeline stage that admitted an entry run before durable stage linkage. */
+  setPipelineStageAdmission(runId: string, admission: PipelineStageAdmission): void;
+
+  /** Clear admission metadata after stage linkage is durable. */
+  clearPipelineStageAdmission(runId: string): void;
+
+  /** Newest non-terminal run admitted for one pipeline stage target; null when none. */
+  findAdmittedEntryRunForStage(args: PipelineStageAdmission): (Run & { attempts: Attempt[] }) | null;
+
   /** Whether a non-terminal `queued` run exists for `(project, branch)`. */
   hasQueuedRun(args: { project: string; branch: string }): boolean;
 
@@ -582,7 +600,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
-  retained_finalization_checkpoint AS retainedFinalizationCheckpointJson`;
+  retained_finalization_checkpoint AS retainedFinalizationCheckpointJson,
+  pipeline_stage_admission AS pipelineStageAdmissionJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -724,6 +743,10 @@ const SCHEMA_MIGRATIONS = [
     id: "021-run-downstream-inputs",
     up: "ALTER TABLE runs ADD COLUMN downstream_inputs TEXT",
   },
+  {
+    id: "022-run-pipeline-stage-admission",
+    up: "ALTER TABLE runs ADD COLUMN pipeline_stage_admission TEXT",
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -858,12 +881,14 @@ type RunRow = Omit<
   | "retainedFinalizationCheckpoint"
   | "retainedFinalizationCheckpointCorrupt"
   | "downstreamInputs"
+  | "pipelineStageAdmission"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
   readyGateRepairFenceJson: string | null;
   retainedFinalizationCheckpointJson: string | null;
   downstreamInputsJson: string | null;
+  pipelineStageAdmissionJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -904,6 +929,23 @@ function parseRetainedFinalizationCheckpoint(json: string | null): RetainedFinal
   }
 }
 
+function parsePipelineStageAdmission(json: string | null): PipelineStageAdmission | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as PipelineStageAdmission;
+    if (
+      typeof parsed.pipelineId !== "string" ||
+      typeof parsed.stageId !== "string" ||
+      typeof parsed.branchKey !== "string"
+    ) {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
+
 function mapRunRow(row: RunRow): Run {
   const {
     workflowSnapshotJson,
@@ -911,10 +953,12 @@ function mapRunRow(row: RunRow): Run {
     readyGateRepairFenceJson,
     retainedFinalizationCheckpointJson,
     downstreamInputsJson,
+    pipelineStageAdmissionJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
+  const parsedAdmission = parsePipelineStageAdmission(pipelineStageAdmissionJson);
   let downstreamInputs: readonly string[] | null | undefined;
   if (downstreamInputsJson !== null) {
     try {
@@ -934,6 +978,7 @@ function mapRunRow(row: RunRow): Run {
     retainedFinalizationCheckpoint:
       parsedCheckpoint === "invalid" || parsedCheckpoint === null ? null : parsedCheckpoint,
     ...(parsedCheckpoint === "invalid" ? { retainedFinalizationCheckpointCorrupt: true } : {}),
+    pipelineStageAdmission: parsedAdmission === "invalid" || parsedAdmission === null ? null : parsedAdmission,
   };
 }
 
@@ -1063,6 +1108,34 @@ class StateStoreImpl implements StateStore {
     this.db
       .prepare("UPDATE runs SET retained_finalization_checkpoint = ? WHERE id = ?")
       .run(JSON.stringify(checkpoint), runId);
+  }
+
+  setPipelineStageAdmission(runId: string, admission: PipelineStageAdmission): void {
+    this.db
+      .prepare("UPDATE runs SET pipeline_stage_admission = ? WHERE id = ?")
+      .run(JSON.stringify(admission), runId);
+  }
+
+  clearPipelineStageAdmission(runId: string): void {
+    this.db.prepare("UPDATE runs SET pipeline_stage_admission = NULL WHERE id = ?").run(runId);
+  }
+
+  findAdmittedEntryRunForStage(args: PipelineStageAdmission): (Run & { attempts: Attempt[] }) | null {
+    const terminalStatuses = [...TERMINAL_RUN_STATUSES].map((status) => `'${status}'`).join(", ");
+    const row = this.db
+      .prepare(
+        `SELECT id FROM runs
+         WHERE pipeline_stage_admission IS NOT NULL
+           AND json_extract(pipeline_stage_admission, '$.pipelineId') = ?
+           AND json_extract(pipeline_stage_admission, '$.stageId') = ?
+           AND json_extract(pipeline_stage_admission, '$.branchKey') = ?
+           AND status NOT IN (${terminalStatuses})
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(args.pipelineId, args.stageId, args.branchKey) as { id: string } | undefined;
+    if (row === undefined) return null;
+    return this.loadRun(row.id);
   }
 
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null {

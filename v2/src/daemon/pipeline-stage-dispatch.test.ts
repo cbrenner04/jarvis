@@ -5,6 +5,7 @@ import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { openStateStore, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import {
+  adoptAndSettlePipelineStage,
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
@@ -23,8 +24,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
   store: StateStore;
   patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }>;
+  admissions: Array<{ runId: string; admission: Record<string, unknown> }>;
 } {
   const patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }> = [];
+  const admissions: Array<{ runId: string; admission: Record<string, unknown> }> = [];
+  const admissionsByRun = new Map<string, Record<string, unknown>>();
   const store = {
     updateStage: (args: { pipelineId: string; stageId: string; patch: Record<string, unknown> }) => {
       patches.push(args);
@@ -33,8 +37,28 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       const run = runsById[runId];
       return run ? ({ id: runId, attempts: [], ...run } as unknown as Run & { attempts: [] }) : null;
     },
+    setPipelineStageAdmission: (runId: string, admission: Record<string, unknown>) => {
+      admissions.push({ runId, admission });
+      admissionsByRun.set(runId, admission);
+    },
+    clearPipelineStageAdmission: (runId: string) => {
+      admissionsByRun.delete(runId);
+    },
+    findAdmittedEntryRunForStage: (args: Record<string, unknown>) => {
+      for (const [runId, admission] of admissionsByRun.entries()) {
+        if (
+          admission.pipelineId === args.pipelineId &&
+          admission.stageId === args.stageId &&
+          admission.branchKey === args.branchKey
+        ) {
+          const run = runsById[runId];
+          if (run) return { id: runId, attempts: [], ...run } as unknown as Run & { attempts: [] };
+        }
+      }
+      return null;
+    },
   } as unknown as StateStore;
-  return { store, patches };
+  return { store, patches, admissions };
 }
 
 describe("dispatchPipelineStage", () => {
@@ -68,7 +92,7 @@ describe("dispatchPipelineStage", () => {
     const linkagePatch = patches.find((p) => p.patch.workflowInvocationId !== undefined);
     expect(linkagePatch?.patch.workflowInvocationId).toBe("entry-1");
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
-
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "store.setPipelineStageAdmission(dispatched.entryRunId, stageTargetKey(stageTarget));" -> ""
     waitDeferred.resolve("completed");
     await donePromise;
   });
@@ -156,6 +180,84 @@ describe("dispatchPipelineStage", () => {
     expect(stage?.workflowInvocationId).toBeNull();
     // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (!dispatched.ok) {" -> "if (false) {"
     store.close();
+  });
+
+  test("post-admission linkage-write failure preserves the live entry run and settles after recovery", async () => {
+    let linkageWrites = 0;
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "entry-link-fail",
+      invocationId: "inv-link-fail",
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store, patches, admissions } = fakeStore({
+      "entry-link-fail": { specPath: "spec/recover.md", status: "in-progress" },
+    });
+    const originalUpdateStage = store.updateStage.bind(store);
+    store.updateStage = (args) => {
+      if (args.patch.workflowInvocationId !== undefined) {
+        linkageWrites += 1;
+        if (linkageWrites === 1) throw new Error("forced linkage write failure");
+      }
+      originalUpdateStage(args);
+    };
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
+    expect(admissions).toHaveLength(1);
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId: "entry-link-fail",
+      invocationId: "inv-link-fail",
+      wait,
+    });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId: "entry-link-fail",
+      invocationId: "inv-link-fail",
+      specPath: "spec/recover.md",
+    });
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
+  });
+
+  test("post-admission wait rejection preserves the live entry run and settles after recovery", async () => {
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "entry-wait-fail",
+      invocationId: "inv-wait-fail",
+    });
+    let waitAttempts = 0;
+    const wait: PipelineWorkflowWait = async () => {
+      waitAttempts += 1;
+      if (waitAttempts === 1) throw new Error("forced wait rejection");
+      return "completed";
+    };
+    const { store, patches } = fakeStore({
+      "entry-wait-fail": { specPath: "spec/wait-recover.md", status: "in-progress" },
+    });
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
+    expect(patches.find((p) => p.patch.workflowInvocationId === "entry-wait-fail")).toBeDefined();
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId: "entry-wait-fail",
+      invocationId: "inv-wait-fail",
+      wait,
+    });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId: "entry-wait-fail",
+      invocationId: "inv-wait-fail",
+      specPath: "spec/wait-recover.md",
+    });
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });
 
   test("a completed rollup without a recorded spec path records failed, not succeeded with an empty artifact", async () => {

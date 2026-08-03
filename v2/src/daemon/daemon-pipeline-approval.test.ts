@@ -19,7 +19,7 @@ import {
   type PipelineStageResolutionResult,
   workflowStageOwnershipKey,
 } from "./pipeline-stage-resolve.ts";
-import { runPipeline } from "./pipeline-execution.ts";
+import { recoverContinuablePipelines, runPipeline } from "./pipeline-execution.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -427,3 +427,221 @@ test("concurrent approved sibling branches own destination worktrees", async () 
     localStore.close();
   }
 }, 20000);
+
+test("admitted fan-out stages remain adopted through settlement", async () => {
+  const localStore = openStateStore(
+    join(tmpdir(), `jarvis-fan-out-adopted-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
+  const localExecutor = createFakeWriteLoopExecutor();
+  try {
+    const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
+    const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
+    const planWaits = new Map<string, ReturnType<typeof deferred<"completed">>>();
+    const observedStages = new Map<string, Array<{ status: string; workflowInvocationId: string | null; endedAt: unknown }>>();
+
+    const baseHandlers = createRunControlHandlers({
+      stateStore: localStore,
+      writeLoopExecutor: localExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      pipelineWait: async (entryRunId) => {
+        const run = localStore.loadRun(entryRunId);
+        if (run?.branch?.startsWith("plan/")) {
+          const pending = deferred<"completed">();
+          planWaits.set(entryRunId, pending);
+          return pending.promise;
+        }
+        if (run?.branch?.startsWith("implement/")) {
+          return "completed";
+        }
+        localStore.setRunSpecPath(entryRunId, "spec/ready-intents");
+        localStore.setRunDownstreamInputs(entryRunId, [readyA, readyB]);
+        return "completed";
+      },
+    });
+
+    const intentRunId = localStore.createRun({
+      project: "demo",
+      branch: intentBranch,
+      worktreePath: intentWorktree,
+      specPath: "spec/ready-intents",
+      status: "completed",
+      specRef: "main",
+      stepId: "intent",
+    });
+    localStore.setRunDownstreamInputs(intentRunId, [readyA, readyB]);
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: intentRunId,
+      specPath: "spec/ready-intents",
+      downstreamInputs: [readyA, readyB],
+    };
+    const pipelineId = localStore.createPipeline({ definition: FAN_OUT_LINEAR_DEFINITION, context });
+    localStore.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: intentRunId },
+    });
+
+    const runPromise = runPipeline(pipelineId, {
+      store: localStore,
+      context,
+      dispatch: baseHandlers.pipelineDispatch,
+      wait: baseHandlers.pipelineWait,
+      resolveStage: resolveStageWorkflowSteps,
+    });
+
+    await waitFor(() => planWaits.size === 2, 15000);
+    const pipelineWhileLive = localStore.loadPipeline(pipelineId);
+    for (const branchKey of ["alpha", "beta"] as const) {
+      const stage = pipelineWhileLive?.stages.find((row) => row.stageId === "plan" && row.branchKey === branchKey);
+      expect(stage?.status).toBe("running");
+      expect(stage?.workflowInvocationId).not.toBeNull();
+      expect(stage?.endedAt).toBeNull();
+      if (stage?.workflowInvocationId) {
+        expect(localStore.loadRun(stage.workflowInvocationId)?.status).not.toBe("completed");
+        observedStages.set(branchKey, [{ status: stage.status, workflowInvocationId: stage.workflowInvocationId, endedAt: stage.endedAt }]);
+      }
+    }
+
+    for (const pending of planWaits.values()) pending.resolve("completed");
+    localExecutor.settleAll();
+    await runPromise;
+    await flushBackgroundRuns();
+
+    const pipelineSettled = localStore.loadPipeline(pipelineId);
+    for (const branchKey of ["alpha", "beta"] as const) {
+      const stage = pipelineSettled?.stages.find((row) => row.stageId === "plan" && row.branchKey === branchKey);
+      expect(stage?.status).toBe("succeeded");
+      expect(stage?.endedAt).not.toBeNull();
+      const liveSnapshot = observedStages.get(branchKey)?.[0];
+      if (liveSnapshot?.workflowInvocationId) {
+        expect(stage?.workflowInvocationId).toBe(liveSnapshot.workflowInvocationId);
+      }
+    }
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
+  } finally {
+    localExecutor.abortAll();
+    localStore.close();
+  }
+}, 20000);
+
+test("restart recovery adopts an admitted entry run before stage linkage", async () => {
+  const localStore = openStateStore(
+    join(tmpdir(), `jarvis-fan-out-restart-${process.pid}-${Date.now()}-${Math.random()}.db`),
+  );
+  const localExecutor = createFakeWriteLoopExecutor();
+  try {
+    const { repoRoot, configPath, intentBranch, intentWorktree, readyA, readyB } = createFanOutRepo();
+    const context = { cwd: repoRoot, configPath, seed: "split alpha and beta" };
+    let alphaLinkageBlocked = false;
+    const originalUpdateStage = localStore.updateStage.bind(localStore);
+    localStore.updateStage = (args) => {
+      if (
+        !alphaLinkageBlocked &&
+        args.stageId === "plan" &&
+        args.branchKey === "alpha" &&
+        args.patch.workflowInvocationId !== undefined
+      ) {
+        alphaLinkageBlocked = true;
+        throw new Error("forced linkage write failure before restart");
+      }
+      return originalUpdateStage(args);
+    };
+
+    const firstHandlers = createRunControlHandlers({
+      stateStore: localStore,
+      writeLoopExecutor: localExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      pipelineWait: async (entryRunId) => {
+        const run = localStore.loadRun(entryRunId);
+        if (run?.branch?.startsWith("plan/")) return "completed";
+        localStore.setRunSpecPath(entryRunId, "spec/ready-intents");
+        localStore.setRunDownstreamInputs(entryRunId, [readyA, readyB]);
+        return "completed";
+      },
+    });
+
+    const intentRunId = localStore.createRun({
+      project: "demo",
+      branch: intentBranch,
+      worktreePath: intentWorktree,
+      specPath: "spec/ready-intents",
+      status: "completed",
+      specRef: "main",
+      stepId: "intent",
+    });
+    localStore.setRunDownstreamInputs(intentRunId, [readyA, readyB]);
+    const pipelineId = localStore.createPipeline({ definition: FAN_OUT_LINEAR_DEFINITION, context });
+    localStore.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        artifact: { entryRunId: intentRunId, specPath: "spec/ready-intents", downstreamInputs: [readyA, readyB] },
+        workflowInvocationId: intentRunId,
+      },
+    });
+
+    await runPipeline(pipelineId, {
+      store: localStore,
+      context,
+      dispatch: firstHandlers.pipelineDispatch,
+      wait: firstHandlers.pipelineWait,
+      resolveStage: resolveStageWorkflowSteps,
+    });
+    localExecutor.abortAll();
+    await flushBackgroundRuns();
+
+    const admitted = localStore.findAdmittedEntryRunForStage({
+      pipelineId,
+      stageId: "plan",
+      branchKey: "alpha",
+    });
+    expect(admitted?.id).toBeDefined();
+    const alphaBeforeRestart = localStore.loadPipeline(pipelineId)?.stages.find(
+      (stage) => stage.stageId === "plan" && stage.branchKey === "alpha",
+    );
+    expect(alphaBeforeRestart?.status).not.toBe("failed");
+    expect(alphaBeforeRestart?.workflowInvocationId).toBeNull();
+
+    await localStore.reconcilePipelines();
+    const recoveryHandlers = createRunControlHandlers({
+      stateStore: localStore,
+      writeLoopExecutor: localExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      pipelineWait: async (entryRunId) => {
+        const run = localStore.loadRun(entryRunId);
+        if (run?.branch?.startsWith("plan/")) {
+          localStore.setRunSpecPath(entryRunId, `spec/${run.branch.replace("plan/", "")}/plan.md`);
+          return "completed";
+        }
+        return "completed";
+      },
+    });
+    await recoverContinuablePipelines(
+      localStore,
+      {
+        store: localStore,
+        dispatch: recoveryHandlers.pipelineDispatch,
+        wait: recoveryHandlers.pipelineWait,
+        resolveStage: resolveStageWorkflowSteps,
+      },
+      async () => false,
+    );
+    localExecutor.settleAll();
+    await flushBackgroundRuns();
+
+    const alphaAfterRecovery = localStore.loadPipeline(pipelineId)?.stages.find(
+      (stage) => stage.stageId === "plan" && stage.branchKey === "alpha",
+    );
+    expect(alphaAfterRecovery?.workflowInvocationId).toBe(admitted?.id);
+    expect(alphaAfterRecovery?.status).toBe("succeeded");
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (admitted !== null && isLiveEntryRun(store, admitted.id)) {" -> "if (false) {"
+  } finally {
+    localExecutor.abortAll();
+    await flushBackgroundRuns();
+    localStore.close();
+  }
+}, 30000);

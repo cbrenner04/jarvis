@@ -878,15 +878,21 @@ closures over its own private `handleWorkflowStart`/`startWorkflowRun`
 machinery and the mechanism backing the `wait` RPC handler — a standalone
 module cannot reach either directly.
 
-- `PipelineWorkflowDispatch = (steps) => Promise<{ ok: true; entryRunId; invocationId } | { ok: false; code; message }>`.
+- `PipelineWorkflowDispatch = (steps) => Promise<{ ok: true; entryRunId } | { ok: false; code; message }>`.
   A refusal (claimed worktree, insufficient memory, materialization failure,
   routing-read failure, invalid params) records `endedAt`, `status: "failed"`,
   and `failureDetail: { code, message }` immediately — no `startedAt`, no
   `workflowInvocationId`, no retry or queueing.
-- On a successful dispatch, `workflowInvocationId` (set to the returned
-  `entryRunId`) and `startedAt` are written via `StateStore.updateStage`
-  *before* the invocation settles, so a crash mid-stage leaves a resolvable
-  linkage.
+- On a successful dispatch, the entry run records `pipelineStageAdmission`
+  `{ pipelineId, stageId, branchKey }` before stage linkage; then
+  `workflowInvocationId` (the durable **entry-run ID**, not workflow-wide
+  `workflowSnapshot.invocationId` metadata) and `startedAt` are written via
+  `StateStore.updateStage` *before* the invocation settles. Admission metadata
+  is cleared once linkage succeeds.
+- Post-admission linkage-write failure or wait rejection does **not** mark the
+  stage `failed` while the entry run remains live; the stage stays linked or
+  recoverable and settles from the entry run's real terminal outcome on
+  continuation or restart.
 - The dispatcher then awaits settlement through `PipelineWorkflowWait`, not
   the dispatch callback's own promise (which resolves at run creation, before
   the workflow's steps have run). This mirrors the daemon's own `wait` RPC
@@ -906,8 +912,11 @@ module cannot reach either directly.
   the entry run row is present, `failureDetail` is built from
   `composeRunOperatorError` (`run-operator-error.ts`); when it is absent, a
   hand-built `{ reason, retryable, nextAction }` harness-failure shape is used.
-- An unexpected throw or rejection anywhere in dispatch/settlement records the
-  same `failed` row with `{ message }` via a best-effort store write.
+- An unexpected throw or rejection **before** entry-run admission records the
+  same `failed` row with `{ message }` via a best-effort store write. Throws or
+  rejections **after** admission while the entry run is still live preserve the
+  stage as `running` without `endedAt` for adoption on continuation.
+- A `failed` stage row never coexists with a live linked entry run.
 
 Stage status vocabulary (daemon-owned, not interpreted by the state store):
 `pending` (admitted, undispatched), `running` (dispatched, unsettled),
@@ -1010,7 +1019,13 @@ atomically claim one live owner through `StateStore.claimPipelineContinuation`
 (`priorOwnerIdentity` must match the row; first writer wins; restores
 `status = 'active'`), then resume the ordered `runPipeline` loop. Predecessor
 workflow artifacts are read from succeeded stage rows during that walk — the
-same carry-forward path as a same-session loop.
+same carry-forward path as a same-session loop. Stages with a live linked entry
+run (`workflowInvocationId` naming a non-terminal run row) or a pending/
+`interrupted` row whose entry run still carries `pipelineStageAdmission` are
+adopted through `adoptAndSettlePipelineStage` rather than re-dispatched.
+Fan-out siblings each own only their resolved destination `(project, branch)`
+worktree; the completed predecessor worktree is read-only chained input, never
+a successor ownership key (see `pipeline-stage-resolve.ts`).
 
 A losing or duplicate claim is refused with no stage-row mutation and no
 dispatch. Continuation does not activate `awaiting-approval` or `rejected`

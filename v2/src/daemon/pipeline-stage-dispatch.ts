@@ -1,5 +1,11 @@
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import type { RunStatus, StateStore } from "../persistence/state-store.ts";
+import {
+  DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  isTerminalRunStatus,
+  type PipelineStageAdmission,
+  type RunStatus,
+  type StateStore,
+} from "../persistence/state-store.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
 /**
@@ -26,15 +32,47 @@ export type PipelineStageArtifact = {
   prUrl?: string;
 };
 
-/** Best-effort failure write-back for an unexpected throw/rejection anywhere in dispatch/settlement. */
+export type PipelineStageTarget = {
+  pipelineId: string;
+  stageId: string;
+  branchKey?: string;
+};
+
+function stageTargetKey(target: PipelineStageTarget): PipelineStageAdmission {
+  return {
+    pipelineId: target.pipelineId,
+    stageId: target.stageId,
+    branchKey: target.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+  };
+}
+
+function stageStoreTarget(target: PipelineStageTarget): {
+  pipelineId: string;
+  stageId: string;
+  branchKey?: string;
+} {
+  return {
+    pipelineId: target.pipelineId,
+    stageId: target.stageId,
+    ...(target.branchKey !== undefined ? { branchKey: target.branchKey } : {}),
+  };
+}
+
+/** True when the entry run row exists and has not reached a terminal status. */
+export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
+  const run = store.loadRun(entryRunId);
+  return run !== null && !isTerminalRunStatus(run.status);
+}
+
+/** Best-effort failure write-back for an unexpected throw/rejection before entry-run admission. */
 function settleUnexpectedThrow(
   store: StateStore,
-  target: { pipelineId: string; stageId: string; branchKey?: string },
+  target: PipelineStageTarget,
   error: unknown,
 ): void {
   try {
     store.updateStage({
-      ...target,
+      ...stageStoreTarget(target),
       patch: {
         status: "failed",
         endedAt: Date.now(),
@@ -44,6 +82,90 @@ function settleUnexpectedThrow(
   } catch {
     // The store itself is unreachable; nothing further can be recorded.
   }
+}
+
+function writeRunningStageLinkage(store: StateStore, target: PipelineStageTarget, entryRunId: string): void {
+  store.updateStage({
+    ...stageStoreTarget(target),
+    patch: {
+      status: "running",
+      startedAt: Date.now(),
+      workflowInvocationId: entryRunId,
+    },
+  });
+  store.clearPipelineStageAdmission(entryRunId);
+}
+
+/** Record terminal outcome from a linked entry run after admission. */
+export async function settlePipelineStageFromEntryRun(args: {
+  store: StateStore;
+  stageTarget: PipelineStageTarget;
+  entryRunId: string;
+  invocationId?: string;
+  wait: PipelineWorkflowWait;
+}): Promise<void> {
+  const { store, stageTarget, entryRunId, invocationId, wait } = args;
+  const rollupStatus = await wait(entryRunId);
+
+  if (rollupStatus === "completed") {
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun?.specPath === undefined) {
+      store.updateStage({
+        ...stageStoreTarget(stageTarget),
+        patch: {
+          status: "failed",
+          endedAt: Date.now(),
+          failureDetail: {
+            message: `pipeline-stage-dispatch: entry run ${entryRunId} completed without a recorded spec path`,
+          },
+        },
+      });
+      return;
+    }
+    const artifact: PipelineStageArtifact = {
+      entryRunId,
+      ...(invocationId !== undefined ? { invocationId } : {}),
+      specPath: entryRun.specPath,
+      ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
+      ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
+      ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
+    };
+    store.updateStage({
+      ...stageStoreTarget(stageTarget),
+      patch: { status: "succeeded", endedAt: Date.now(), artifact },
+    });
+    return;
+  }
+
+  const entryRun = store.loadRun(entryRunId);
+  const composed = entryRun ? composeRunOperatorError(entryRun) : undefined;
+  const failureDetail = composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
+  store.updateStage({
+    ...stageStoreTarget(stageTarget),
+    patch: { status: "failed", endedAt: Date.now(), failureDetail },
+  });
+}
+
+/** Link a live admitted entry run and settle it without re-dispatching workflow steps. */
+export async function adoptAndSettlePipelineStage(args: {
+  store: StateStore;
+  stageTarget: PipelineStageTarget;
+  entryRunId: string;
+  invocationId?: string;
+  wait: PipelineWorkflowWait;
+}): Promise<void> {
+  const { store, stageTarget, entryRunId, invocationId, wait } = args;
+  if (!isLiveEntryRun(store, entryRunId)) return;
+  const pipeline = store.loadPipeline(stageTarget.pipelineId);
+  const record = pipeline?.stages.find(
+    (stage) =>
+      stage.stageId === stageTarget.stageId &&
+      stage.branchKey === (stageTarget.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY),
+  );
+  if (record?.workflowInvocationId !== entryRunId || record.status !== "running") {
+    writeRunningStageLinkage(store, stageTarget, entryRunId);
+  }
+  await settlePipelineStageFromEntryRun({ store, stageTarget, entryRunId, invocationId, wait });
 }
 
 /** Dispatch one resolved stage's steps, link it before settlement, then record its terminal outcome. */
@@ -58,12 +180,13 @@ export async function dispatchPipelineStage(args: {
 }): Promise<void> {
   const { pipelineId, stageId, branchKey, steps, dispatch, wait, store } = args;
   const stageTarget = { pipelineId, stageId, ...(branchKey !== undefined ? { branchKey } : {}) };
+  let admittedEntryRunId: string | undefined;
 
   try {
     const dispatched = await dispatch(steps);
     if (!dispatched.ok) {
       store.updateStage({
-        ...stageTarget,
+        ...stageStoreTarget(stageTarget),
         patch: {
           status: "failed",
           endedAt: Date.now(),
@@ -73,58 +196,20 @@ export async function dispatchPipelineStage(args: {
       return;
     }
 
-    store.updateStage({
-      ...stageTarget,
-      patch: {
-        status: "running",
-        startedAt: Date.now(),
-        workflowInvocationId: dispatched.entryRunId,
-      },
-    });
-
-    const rollupStatus = await wait(dispatched.entryRunId);
-
-    if (rollupStatus === "completed") {
-      const entryRun = store.loadRun(dispatched.entryRunId);
-      if (entryRun?.specPath === undefined) {
-        store.updateStage({
-          ...stageTarget,
-          patch: {
-            status: "failed",
-            endedAt: Date.now(),
-            failureDetail: {
-              message: `pipeline-stage-dispatch: entry run ${dispatched.entryRunId} completed without a recorded spec path`,
-            },
-          },
-        });
-        return;
-      }
-      const artifact: PipelineStageArtifact = {
-        entryRunId: dispatched.entryRunId,
-        ...(dispatched.invocationId !== undefined ? { invocationId: dispatched.invocationId } : {}),
-        specPath: entryRun.specPath,
-        ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
-        ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
-        ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
-      };
-      store.updateStage({
-        ...stageTarget,
-        patch: { status: "succeeded", endedAt: Date.now(), artifact },
-      });
-      return;
-    }
-
-    // Every non-"completed" settlement (failed/blocked/killed/interrupted/anything else the
-    // daemon's rollup returns) is a stage failure — no status is left to wedge the stage at
-    // `running` while later stages are marked `skipped`.
-    const entryRun = store.loadRun(dispatched.entryRunId);
-    const composed = entryRun ? composeRunOperatorError(entryRun) : undefined;
-    const failureDetail = composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
-    store.updateStage({
-      ...stageTarget,
-      patch: { status: "failed", endedAt: Date.now(), failureDetail },
+    admittedEntryRunId = dispatched.entryRunId;
+    store.setPipelineStageAdmission(dispatched.entryRunId, stageTargetKey(stageTarget));
+    writeRunningStageLinkage(store, stageTarget, dispatched.entryRunId);
+    await settlePipelineStageFromEntryRun({
+      store,
+      stageTarget,
+      entryRunId: dispatched.entryRunId,
+      ...(dispatched.invocationId !== undefined ? { invocationId: dispatched.invocationId } : {}),
+      wait,
     });
   } catch (error) {
+    if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {
+      return;
+    }
     settleUnexpectedThrow(store, stageTarget, error);
   }
 }

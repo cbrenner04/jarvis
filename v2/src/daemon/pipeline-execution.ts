@@ -22,7 +22,9 @@ import {
 } from "../persistence/state-store.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
+  adoptAndSettlePipelineStage,
   dispatchPipelineStage,
+  isLiveEntryRun,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
@@ -1081,6 +1083,13 @@ function finishDispatchedWorkflowStage(args: {
   const settledRecords = settled?.stages ?? [];
   const settledRecord = settled ? findStageRecord(settledRecords, args.stage.stageId, args.branchKey) : undefined;
   if (settledRecord?.status !== "succeeded") {
+    if (
+      settledRecord?.status === "running" &&
+      settledRecord.workflowInvocationId !== null &&
+      isLiveEntryRun(args.store, settledRecord.workflowInvocationId)
+    ) {
+      return "stop";
+    }
     skipRemainingStages(args.store, args.pipelineId, settledRecords, args.index + 1, args.branchKey);
     return "stop";
   }
@@ -1110,6 +1119,40 @@ function intentDownstreamInputsForFanOut(
       ? (intentRecord.artifact as PipelineStageArtifact)
       : undefined;
   return intentArtifact?.downstreamInputs;
+}
+
+function linkedEntryRunId(
+  store: StateStore,
+  pipelineId: string,
+  stageId: string,
+  branchKey: string,
+  record: PipelineStageRecord | undefined,
+): string | undefined {
+  if (record?.workflowInvocationId !== null && record?.workflowInvocationId !== undefined) {
+    if (isLiveEntryRun(store, record.workflowInvocationId)) return record.workflowInvocationId;
+  }
+  return undefined;
+}
+
+async function adoptLiveLinkedPipelineStage(
+  args: AdvanceWorkflowStageArgs,
+  entryRunId: string,
+): Promise<StageStepOutcome> {
+  await adoptAndSettlePipelineStage({
+    store: args.store,
+    stageTarget: { pipelineId: args.pipelineId, stageId: args.stage.stageId, branchKey: args.branchKey },
+    entryRunId,
+    wait: args.wait,
+  });
+  return finishDispatchedWorkflowStage({
+    store: args.store,
+    pipelineId: args.pipelineId,
+    definition: args.definition,
+    stage: args.stage,
+    index: args.index,
+    branchKey: args.branchKey,
+    stageArtifacts: args.stageArtifacts,
+  });
 }
 
 async function advanceFanOutStageResolution(
@@ -1145,12 +1188,29 @@ async function advanceFanOutStageResolution(
     branchIndex: number;
     steps: AnyWorkflowStep[];
   }> = [];
+  const pendingAdoptions: Array<{ targetBranchKey: string; entryRunId: string }> = [];
   for (let branchIndex = 0; branchIndex < admission.branchKeys.length; branchIndex += 1) {
     const targetBranchKey = admission.branchKeys[branchIndex];
     if (targetBranchKey === undefined) continue;
     const targetRecord = findStageRecord(loadedStages, stage.stageId, targetBranchKey);
     if (targetRecord?.status === "succeeded") continue;
-    if (targetRecord?.status === "running") continue;
+    const linkedEntryRun = linkedEntryRunId(store, pipelineId, stage.stageId, targetBranchKey, targetRecord);
+    if (linkedEntryRun !== undefined) {
+      pendingAdoptions.push({ targetBranchKey, entryRunId: linkedEntryRun });
+      continue;
+    }
+    if (targetRecord?.status === "pending") {
+      const admitted = store.findAdmittedEntryRunForStage({
+        pipelineId,
+        stageId: stage.stageId,
+        branchKey: targetBranchKey,
+      });
+      if (admitted !== null && isLiveEntryRun(store, admitted.id)) {
+        pendingAdoptions.push({ targetBranchKey, entryRunId: admitted.id });
+        continue;
+      }
+    }
+    if (targetRecord?.status === "running" || targetRecord?.status === "interrupted") continue;
     if (
       pipeline !== null &&
       targetRecord !== undefined &&
@@ -1163,8 +1223,8 @@ async function advanceFanOutStageResolution(
     pendingDispatches.push({ targetBranchKey, branchIndex, steps });
   }
 
-  await Promise.all(
-    pendingDispatches.map(async ({ targetBranchKey, steps }) => {
+  await Promise.all([
+    ...pendingDispatches.map(async ({ targetBranchKey, steps }) => {
       await dispatchPipelineStage({
         pipelineId,
         stageId: stage.stageId,
@@ -1177,13 +1237,45 @@ async function advanceFanOutStageResolution(
       const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
       const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
       if (settledRecord?.status !== "succeeded") {
+        if (
+          settledRecord?.status === "running" &&
+          settledRecord.workflowInvocationId !== null &&
+          isLiveEntryRun(store, settledRecord.workflowInvocationId)
+        ) {
+          if (targetBranchKey === branchKey) currentBranchFailed = true;
+          return;
+        }
         skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
         if (targetBranchKey === branchKey) currentBranchFailed = true;
       } else {
         carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
       }
     }),
-  );
+    ...pendingAdoptions.map(async ({ targetBranchKey, entryRunId }) => {
+      await adoptAndSettlePipelineStage({
+        store,
+        stageTarget: { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey },
+        entryRunId,
+        wait,
+      });
+      const settledStages = store.loadPipeline(pipelineId)?.stages ?? [];
+      const settledRecord = findStageRecord(settledStages, stage.stageId, targetBranchKey);
+      if (settledRecord?.status !== "succeeded") {
+        if (
+          settledRecord?.status === "running" &&
+          settledRecord.workflowInvocationId !== null &&
+          isLiveEntryRun(store, settledRecord.workflowInvocationId)
+        ) {
+          if (targetBranchKey === branchKey) currentBranchFailed = true;
+          return;
+        }
+        skipRemainingStages(store, pipelineId, settledStages, index + 1, targetBranchKey);
+        if (targetBranchKey === branchKey) currentBranchFailed = true;
+      } else {
+        carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
+      }
+    }),
+  ]);
   return currentBranchFailed ? "stop" : "continue";
 }
 
@@ -1227,8 +1319,25 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         artifact: record.artifact,
       });
     }
-    if (record?.status === "running" || record?.status === "failed") {
+    if (record?.status === "running" || record?.status === "interrupted") {
+      const entryRunId = linkedEntryRunId(store, pipelineId, stage.stageId, branchKey, record);
+      if (entryRunId !== undefined) {
+        return adoptLiveLinkedPipelineStage(args, entryRunId);
+      }
       return "stop";
+    }
+    if (record?.status === "failed") {
+      return "stop";
+    }
+    if (record?.status === "pending") {
+      const admitted = store.findAdmittedEntryRunForStage({
+        pipelineId,
+        stageId: stage.stageId,
+        branchKey,
+      });
+      if (admitted !== null && isLiveEntryRun(store, admitted.id)) {
+        return adoptLiveLinkedPipelineStage(args, admitted.id);
+      }
     }
     if (record?.status === "skipped") {
       return "continue";

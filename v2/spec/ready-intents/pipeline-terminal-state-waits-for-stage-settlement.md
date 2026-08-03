@@ -15,7 +15,7 @@ name: pipeline-terminal-state-waits-for-stage-settlement
 ## Decisions
 
 - Any running workflow stage makes aggregate state `running` even when another branch failed or rejected — rules out terminal failure/rejection precedence while work continues.
-- Any reachable pending or awaiting approval gate keeps the aggregate non-terminal after other branches settle unsuccessfully — rules out masking operator decisions with an early terminal result.
+- A reachable approval gate is a pending or awaiting approval row that is its branch's next unsatisfied non-skipped authored stage after all earlier rows in that branch succeed or are approved; it keeps the aggregate non-terminal after other branches settle unsuccessfully — rules out masking actionable operator decisions with an early terminal result.
 - `pipeline_wait` emits terminal only after every non-skipped branch stage has settled — rules out returning while a sibling invocation or approval decision remains live.
 - Once every non-skipped stage has settled, any failed stage still derives `failed` under the existing rejected-state precedence — rules out turning delayed terminality into eventual success.
 - Retry/backoff and `multiple_failed_stages` resume behavior stay unchanged — rules out coupling observation semantics to recovery policy.
@@ -23,7 +23,7 @@ name: pipeline-terminal-state-waits-for-stage-settlement
 ## Acceptance criteria
 
 - [ ] `pipeline-execution.test.ts` proves failed-plus-running fan-out rows derive `running`; the regression fails against the baseline failure-first ordering.
-- [ ] `daemon-pipeline-observation.test.ts` proves a failed branch plus a reachable undecided sibling gate remains non-terminal and exposes the approval boundary.
+- [ ] `daemon-pipeline-observation.test.ts` proves a failed branch plus an undecided sibling gate that is the branch's next actionable stage remains non-terminal and exposes that approval boundary.
 - [ ] `daemon-pipeline-observation.test.ts` holds `pipeline_wait` open for failed-plus-running rows, then returns terminal `failed` only after the running sibling settles; the regression fails against the baseline.
 - [ ] `pipeline-execution.test.ts` proves all-settled fan-out rows with at least one failure derive `failed`.
 - [ ] Added or changed terminality guards carry `// @mutate` directives on the real source conditions; the named pinning tests turn RED under each mutation and no production inversion hook is added.

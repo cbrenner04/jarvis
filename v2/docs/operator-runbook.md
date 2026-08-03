@@ -488,6 +488,22 @@ bindings" caveat above.
 
 ## Gate trust
 
+**A second hollow mutation checkpoint on a different guard in the same subspec is a premise smell,
+not a proof-form problem (2026-08-03).** A guard against a condition that cannot occur has no
+killable failure state, so repeatedly-unkillable guards mean the spec is defending against a
+non-problem. Do **not** amend the criterion to accommodate the unprovable guard — that is the wrong
+repair, and it lets the next attempt ship inert code that passes its own tests.
+
+Verify the premise instead, which takes minutes: revert the change's core semantics (not the whole
+diff — new tests import new exports and you get a compile error) and re-run its new regressions. If
+they still pass on that revert, the change is inert and the spec needs rescoping, not another run.
+
+Observed on `fan-out-stage-dispatch-preserves-workflow-ownership`: two blocked runs on hollow
+checkpoints, two operator spec amendments treating them as a proof-form problem, a third run, and a
+hand fold-in — all before review disproved the premise by reverting `resolvePlanStage` and watching
+both ownership regressions stay green. Seed: `v2/spec/seeds/plan-review-must-falsify-guard-premises.md`.
+Cleanup: delete this bullet when that seed ships and the plan review falsifies premises itself.
+
 Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
 adjudicated verdict on disk; recovery is re-dispatching the same workflow, not
 `jarvis run resume`. An exhausted `role_timeout` also preserves the completion commit and

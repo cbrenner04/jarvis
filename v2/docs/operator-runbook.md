@@ -562,6 +562,22 @@ hand fold-in — all before review disproved the premise by reverting `resolvePl
 both ownership regressions stay green. Seed: `v2/spec/seeds/plan-review-must-falsify-guard-premises.md`.
 Cleanup: delete this bullet when that seed ships and the plan review falsifies premises itself.
 
+**A `completed` implement row is not proof a run committed anything (2026-08-03).** Run `eabc39a7`
+settled `runStatus: "completed"` with `outcomeKind: "no-work"` and
+`iteration_commit skipReason: "no_file_changes"` — no commit, no push, no PR, no gate. It had
+executed in the pre-existing managed worktree (HEAD three commits behind the resolved `--base`, four
+modified tracked paths on disk) which `resetStaleWorkspace` neither retired nor refused, and it read
+that dirty tree's already-ticked spec copy as truth. Confirm a `completed` implement row by its PR,
+not its status. Seed: `v2/spec/seeds/implement-rerun-completes-over-a-stale-dirty-worktree.md`.
+Cleanup: delete this bullet when that seed ships.
+
+**A settled run row can have a live successor step (2026-08-03).** The review step after the run
+above dispatched in the same millisecond the write step settled and was still live 75+ minutes
+later, working the debris worktree with a stranded `@mutate` (`if (false)`) on disk — a completion
+commit there would have shipped it via `git add -A`. `jarvis run list` does not associate the two.
+After a workflow appears to finish, check for live rows on the *branch* before touching its
+worktree.
+
 Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
 adjudicated verdict on disk; recovery is re-dispatching the same workflow, not
 `jarvis run resume`. An exhausted `role_timeout` also preserves the completion commit and

@@ -1,16 +1,18 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-08-03.
+Authority: operator priorities. Updated 2026-08-03 (late).
 
 ## Goal
 
-Two threads are live. **TUI slice 5** is nearly done: the dock now edits (#2545) and dispatches (#2554); what remains is subspecs 02-04 of an already-planned spec. **Pipelines** are being made trustworthy: stage linkage landed (#2566), two seams remain. Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is still unseeded.
+**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch is written but red (#2577), and the claim seam is still unplanned.
 
 ## Start here next
 
-**`20260803T013930Z-tui-command-dispatch/` subspecs 02-04** — spec is on `main`, 00 and 01 shipped in #2554. Remaining: status-row projection, operator runbook, parity catalog. 03 and 04 are documentation-only subspecs, which is over-split; consider folding them into 02's Documentation updates rather than spending two implement runs on markdown. That finishes slice 5.
+**Fix the regression on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — a draft carrying `20260803T214753Z-fan-out-concurrent-sibling-dispatch/` (both subspecs). `daemon-pipeline-resume.test.ts` — `"resume returns after admission before async continuation runs"` — is red 3/3 on the branch, green on `main`. Revert-bisect isolates it to `pipeline-execution.ts`; suspect the `runAuthoredStages` → `advanceAuthoredStageAtIndex` refactor. Subspec 01 scopes resume out, so this is unintended fallout. Do not merge until it is green; `typecheck` / `check` / `lint:md` already pass and `test:integration:v2` still needs a run.
 
-Then **`ready-intents/fan-out-concurrent-sibling-dispatch`** and **`ready-intents/pipeline-stage-dispatch-claim`**, in that order — the remaining two seams from the fan-out rescope. Both are ready-intents; each needs `jarvis run workflow plan` before an implement run.
+Note before re-running that spec through the harness: the branch is committed and pushed, but an incomplete implement re-run retires the workspace, which would delete the local branch and its two commits. Recover from `origin/20260803T214753Z-fan-out-concurrent-sibling-dispatch` if that happens.
+
+Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until #2577 lands. Needs `jarvis run workflow plan` first.
 
 | Slice | Shipped |
 | --- | --- |
@@ -18,7 +20,7 @@ Then **`ready-intents/fan-out-concurrent-sibling-dispatch`** and **`ready-intent
 | 2 — pipeline tree | #2462, #2463, #2466, #2471, #2473, #2479, #2481, #2485 |
 | 3 — elapsed columns | #2490, #2492 |
 | 4 — detail pane | #2511, #2519, #2521 |
-| 5 — command dock | #2529, #2530, #2531, #2533, #2545 (editor), #2554 (dispatch); subspecs 02-04 open |
+| 5 — command dock | #2529, #2530, #2531, #2533, #2545 (editor), #2554 (dispatch), #2575 (status row) — **complete** |
 | 6 — steering + log | not seeded |
 
 ## The fan-out rescope
@@ -33,6 +35,7 @@ The rescoped seed (#2562) split into three intents (#2563). The first, stage lin
 
 | Seed | Why |
 | --- | --- |
+| `seeds/implement-rerun-completes-over-a-stale-dirty-worktree` | An implement re-run executed in a worktree three commits behind its `--base` with four modified tracked paths, read the previous run's ticks as truth, and settled `completed` having committed nothing. Its successor step then ran 75 min on the debris with a stranded `@mutate` on disk. Root cause unproven — first AC is a reproduction. |
 | `seeds/entry-run-settlement-terminalizes-live-rows` | #2566 guarded the writers but not `applyEntryRunSettlement`, which still writes `failed` + `endedAt` with no liveness re-check. `waitForWorkflowEntryRun` does not await anything for a run with no registered promise, so `wait` can resolve non-`completed` over a live run. Remaining path to `startedAt == endedAt`. Also records one inert guard from #2566. |
 | `seeds/plan-review-must-falsify-guard-premises` | A criterion of the form "rules out X" is only legitimate if X is reachable on `main`, and nothing checks it. Cost three implement runs and two spec amendments on the retired fan-out spec. Puts the check in plan **review**, before implementation. |
 | `seeds/plan-output-fails-lint-md-and-repair-edits-unrelated-source` | Recurred twice in one session: plan drafts finalize without linting their own Markdown, the gate goes red on `lint:md`, and repair answers by rewriting unrelated production files and committing nothing. |
@@ -75,4 +78,6 @@ Use pipelines for **seeds** (they start at the intent stage, which is what a see
 - **A second hollow mutation checkpoint on a different guard is a premise smell, not a proof-form problem.** Amending the criterion is the wrong repair. Revert the change's core semantics and re-run its regressions — if they still pass, the change is inert.
 - **CI does not run `lint:md` on every workflow.** Run it locally before merging any markdown-touching PR, and note that a line beginning `#1234` parses as a heading.
 - `bun test` **does not typecheck.** Hand-finishing: `bun run check` and `bun run typecheck`.
+- **A settled run row can have a live successor step.** `eabc39a7` read `completed` while review step `639c40a6`, dispatched the same millisecond, ran 75 more minutes on a debris worktree. `run list` gives no hint. Check for live rows on the branch, not just the ID you launched.
+- **Backing a file up to `.git/` inside a worktree silently fails** — `.git` there is a *file*, so `cp x .git/backup` errors `Not a directory`. It cost two stranded `@mutate` applications during a hand verification this session. Back up outside the repo, or just `git checkout --` the file.
 - **Do not admin-merge over a red check.** It reddened `main` once (#2417).

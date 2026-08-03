@@ -46,6 +46,13 @@ export type LoopFinishedEvent = {
   readyGateRepairCount?: number;
 };
 
+type LogLoopFinishedEvent =
+  | LoopFinishedEvent
+  | (Omit<LoopFinishedEvent, "loopOutcomeKind"> & {
+      loopOutcomeKind: "completion_commit_failed";
+      completionCommitError?: string;
+    });
+
 export type RuntimeSmokeOutcomeEvent =
   | {
       kind: "runtime_smoke_outcome";
@@ -160,12 +167,11 @@ export type IntentFinalizationEvent = {
   stopReason?: string;
 };
 
-export type LogEvent =
+type LogEventWithoutLoopFinished =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
   | ReadyGateTimeoutEvent
-  | LoopFinishedEvent
   | RuntimeSmokeOutcomeEvent
   | IterationCommitEvent
   | RunExecutionFailedEvent
@@ -180,6 +186,8 @@ export type LogEvent =
   | BlockerTextDetailEvent
   | CoverageAdvisoryEvent
   | IntentFinalizationEvent;
+
+export type LogEvent = LogEventWithoutLoopFinished | LogLoopFinishedEvent;
 
 /** Max chars persisted for operator-facing response excerpts in run logs. */
 export const INVALID_TOKEN_LOG_MAX_CHARS = 500;

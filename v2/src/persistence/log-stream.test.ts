@@ -428,6 +428,71 @@ describe("log-stream", () => {
     });
   });
 
+  it("persists completion_commit_failed error detail exactly", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+    const completionCommitError = "completion commit returned no commit SHA";
+    const event: LogEvent = {
+      kind: "loop_finished",
+      loopOutcomeKind: "completion_commit_failed",
+      iterationsConsumed: 2,
+      resumable: false,
+      completionCommitError,
+    };
+
+    sink.append("run-1", event);
+    sink.close();
+
+    const record = reader.tail("run-1").at(-1);
+    expect(record?.event.kind).toBe("loop_finished");
+    if (record?.event.kind === "loop_finished" && "completionCommitError" in record.event) {
+      expect(record.event.completionCommitError).toBe(completionCommitError);
+    }
+  });
+
+  it("limits completion commit error detail to completion_commit_failed", () => {
+    const event: LogEvent = {
+      kind: "loop_finished",
+      loopOutcomeKind: "completion_commit_failed",
+      iterationsConsumed: 2,
+      resumable: true,
+      completionCommitError: "completion commit returned no commit SHA",
+      publicationFailure: { operation: "git push", message: "remote rejected update" },
+    };
+    expect(event.publicationFailure?.message).toBe("remote rejected update");
+
+    const invalid: LogEvent = {
+      kind: "loop_finished",
+      loopOutcomeKind: "complete",
+      iterationsConsumed: 2,
+      resumable: false,
+      // @ts-expect-error completionCommitError is valid only for completion_commit_failed.
+      completionCommitError: "completion commit returned no commit SHA",
+    };
+    void invalid;
+  });
+
+  it("tails pre-field loop_finished records without completion commit error detail", () => {
+    const record = {
+      runId: "run-1",
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: {
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed",
+        iterationsConsumed: 1,
+        resumable: false,
+      },
+    };
+    writeFileSync(storagePath, `${JSON.stringify(record)}\n`, "utf-8");
+
+    const persisted = openLogReader(storagePath).tail("run-1").at(-1);
+    expect(persisted?.event.kind).toBe("loop_finished");
+    if (persisted?.event.kind === "loop_finished") {
+      expect("completionCommitError" in persisted.event).toBe(false);
+    }
+  });
+
   it("follow waiter observes loop_finished appended by a second sink", async () => {
     const sinkA = openLogSink(storagePath);
     const reader = openLogReader(storagePath, TEST_POLL_MS);

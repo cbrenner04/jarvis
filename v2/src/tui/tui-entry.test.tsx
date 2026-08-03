@@ -11,7 +11,12 @@ import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
-import { monitorLeftPaneTreeRows, monitorSelectableNodeIds, monitorTextLines } from "./tui-monitor-lines.ts";
+import {
+  monitorDockLines,
+  monitorLeftPaneTreeRows,
+  monitorSelectableNodeIds,
+  monitorTextLines,
+} from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
@@ -563,6 +568,30 @@ function createViewHost() {
     killSelected() {
       controls?.killSelected();
     },
+    focusCommand() {
+      controls?.focusCommand();
+    },
+    focusTree() {
+      controls?.focusTree();
+    },
+    insertCommandText(text: string) {
+      controls?.insertCommandText(text);
+    },
+    moveCommandCursorLeft() {
+      controls?.moveCommandCursorLeft();
+    },
+    moveCommandCursorRight() {
+      controls?.moveCommandCursorRight();
+    },
+    deleteCommandBackward() {
+      controls?.deleteCommandBackward();
+    },
+    deleteCommandForward() {
+      controls?.deleteCommandForward();
+    },
+    submitCommand(commandBuffer: string) {
+      controls?.submitCommand(commandBuffer);
+    },
     toggleSelectedWorkflowExpansion() {
       controls?.toggleSelectedWorkflowExpansion();
     },
@@ -573,6 +602,9 @@ function createViewHost() {
     quit() {
       controls?.quit();
       exit.resolve();
+    },
+    quitFromControl() {
+      controls?.quit();
     },
     isClosed() {
       return closed;
@@ -743,6 +775,167 @@ async function flush(): Promise<void> {
 }
 
 describe("runTuiEntry", () => {
+  test("quits through monitor controls without a renderer exit", async () => {
+    const view = createViewHost();
+    const { deps } = entryDeps({}, { viewHost: view.host });
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    view.quitFromControl();
+
+    expect(await pending).toBe(0);
+    expect(view.isClosed()).toBe(true);
+  });
+
+  test("edits command state through monitor controls", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "return Array.from(COMMAND_GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);" -> "return Array.from(value);"
+    // @mutate v2/src/tui/tui-entry.tsx "return Math.min(Math.max(cursor, 0), graphemeCount);" -> "return cursor;"
+    // @mutate v2/src/tui/tui-entry.tsx "if (inserted.length === 0) return;" -> "if (false) return;"
+    // @mutate v2/src/tui/tui-entry.tsx "if (deleteIndex < 0 || deleteIndex >= graphemes.length) return;" -> "if (false) return;"
+    const view = createViewHost();
+    const { deps } = entryDeps({}, { viewHost: view.host });
+    const pending = runTuiEntry(deps);
+    const expectEditor = (focus: "tree" | "command", buffer: string, cursor: number, input: string): void => {
+      const state = view.monitorStates.at(-1);
+      expect(state).toMatchObject({ focus, commandBuffer: buffer, commandCursor: cursor });
+      expect(state).toBeDefined();
+      if (state !== undefined) expect(monitorDockLines(state)[1]).toBe(input);
+    };
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expectEditor("tree", "", 0, "> ▏");
+
+      view.focusCommand();
+      expectEditor("command", "", 0, "> ▏");
+      view.insertCommandText("Ae\u0301B");
+      expectEditor("command", "Ae\u0301B", 3, "> Ae\u0301B▏");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "Ae\u0301B", 2, "> Ae\u0301▏B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "Ae\u0301B", 1, "> A▏e\u0301B");
+      view.insertCommandText("👩‍💻🇺🇳");
+      expectEditor("command", "A👩‍💻🇺🇳e\u0301B", 3, "> A👩‍💻🇺🇳▏e\u0301B");
+      view.insertCommandText("\u0301");
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 3, "> A👩‍💻🇺🇳\u0301▏e\u0301B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 2, "> A👩‍💻▏🇺🇳\u0301e\u0301B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻🇺🇳\u0301e\u0301B", 3, "> A👩‍💻🇺🇳\u0301▏e\u0301B");
+      view.deleteCommandBackward();
+      expectEditor("command", "A👩‍💻e\u0301B", 2, "> A👩‍💻▏e\u0301B");
+      view.deleteCommandForward();
+      expectEditor("command", "A👩‍💻B", 2, "> A👩‍💻▏B");
+
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 1, "> A▏👩‍💻B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+      view.moveCommandCursorLeft();
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+      const beforeSuppressedEdits = view.monitorStates.length;
+      view.deleteCommandBackward();
+      view.insertCommandText("");
+      expect(view.monitorStates).toHaveLength(beforeSuppressedEdits);
+      expectEditor("command", "A👩‍💻B", 0, "> ▏A👩‍💻B");
+
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 1, "> A▏👩‍💻B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 2, "> A👩‍💻▏B");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+      view.moveCommandCursorRight();
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+      const beforeSuppressedDelete = view.monitorStates.length;
+      view.deleteCommandForward();
+      expect(view.monitorStates).toHaveLength(beforeSuppressedDelete);
+      expectEditor("command", "A👩‍💻B", 3, "> A👩‍💻B▏");
+
+      view.focusTree();
+      expectEditor("tree", "A👩‍💻B", 3, "> A👩‍💻B▏");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("retains focused command editor state across refresh", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps } = entryDeps({}, { viewHost: view.host, refreshScheduler: refresh.scheduler });
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("A👩‍💻B");
+      view.moveCommandCursorLeft();
+      const beforeRefresh = view.monitorStates.at(-1);
+      expect(beforeRefresh).toMatchObject({ focus: "command", commandBuffer: "A👩‍💻B", commandCursor: 2 });
+      expect(beforeRefresh).toBeDefined();
+      if (beforeRefresh === undefined) throw new Error("expected command editor state");
+      const dockBeforeRefresh = monitorDockLines(beforeRefresh);
+
+      await flushIntervalTick(refresh);
+
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: "A👩‍💻B",
+        commandCursor: 2,
+      });
+      const afterRefresh = view.monitorStates.at(-1);
+      expect(afterRefresh).toBeDefined();
+      if (afterRefresh !== undefined) expect(monitorDockLines(afterRefresh)).toEqual(dockBeforeRefresh);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("keeps submission handoff inert", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps({ methods: [] }, { viewHost: view.host });
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("kill run-alpha");
+      view.moveCommandCursorLeft();
+      const current = view.monitorStates.at(-1);
+      expect(current).toBeDefined();
+      if (current === undefined) throw new Error("expected command editor state");
+      const beforeSubmission = cloneState(current);
+      const dockBeforeSubmission = monitorDockLines(beforeSubmission);
+      const methodsBeforeSubmission = [...(clientOptions.methods ?? [])];
+      const stateCountBeforeSubmission = view.monitorStates.length;
+
+      view.submitCommand(beforeSubmission.commandBuffer ?? "");
+      await flush();
+
+      expect(clientOptions.methods).toEqual(methodsBeforeSubmission);
+      expect(view.feedbackStates).toEqual([]);
+      expect(view.monitorStates).toHaveLength(stateCountBeforeSubmission);
+      const afterSubmission = view.monitorStates.at(-1);
+      expect(afterSubmission).toEqual(beforeSubmission);
+      expect(afterSubmission).toBeDefined();
+      if (afterSubmission !== undefined) expect(monitorDockLines(afterSubmission)).toEqual(dockBeforeSubmission);
+      expect(afterSubmission).toMatchObject({
+        focus: "command",
+        commandBuffer: "kill run-alpha",
+        commandCursor: 13,
+        lastCommandResult: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
   test("dock session state starts explicit and survives refresh and display updates", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();

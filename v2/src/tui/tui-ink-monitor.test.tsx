@@ -14,7 +14,7 @@ import {
   monitorLeftPaneContentRows,
   openInkMonitor,
 } from "./tui-ink-monitor.tsx";
-import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
+import type { InjectedInkUi, InkUseInput, InkUsePaste } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
 import { monitorDockLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
@@ -264,6 +264,14 @@ function createInkCapture(state: TuiMonitorState) {
 
 function noopControls(): TuiMonitorControls {
   return {
+    focusCommand() {},
+    focusTree() {},
+    insertCommandText() {},
+    moveCommandCursorLeft() {},
+    moveCommandCursorRight() {},
+    deleteCommandBackward() {},
+    deleteCommandForward() {},
+    submitCommand() {},
     selectNode() {},
     selectNextRun() {},
     selectPreviousRun() {},
@@ -283,22 +291,29 @@ function textNode(nodes: TextCapture[], text: string): TextCapture {
 
 function inputHarness() {
   let inputHandler: Parameters<InkUseInput>[0] | undefined;
+  let pasteHandler: Parameters<InkUsePaste>[0] | undefined;
   let instance: Awaited<ReturnType<InkRender>> | undefined;
+  let renderOptions: Parameters<InkRender>[1] | undefined;
   const useInput: InkUseInput = (nextHandler) => {
     inputHandler = nextHandler;
+  };
+  const usePaste: InkUsePaste = (nextHandler) => {
+    pasteHandler = nextHandler;
   };
 
   return {
     async injection(): Promise<InjectedInkUi> {
       const ink = await import("ink");
       return {
-        renderFn: ((element: ReactElement) => {
+        renderFn: ((element: ReactElement, options) => {
+          renderOptions = options;
           instance = ink.render(element, { exitOnCtrlC: false });
           return instance;
         }) as InkRender,
         Text: ({ children, color }) => createElement(ink.Text, color === undefined ? null : { color }, children),
         Box: ({ children, ...props }) => createElement(ink.Box, props, children),
         useInput,
+        usePaste,
       };
     },
     async press(input: string, key: Parameters<Parameters<InkUseInput>[0]>[1] = {}) {
@@ -306,6 +321,15 @@ function inputHarness() {
       inputHandler(input, key);
       if (instance === undefined) throw new Error("expected ink instance");
       await instance.waitUntilRenderFlush();
+    },
+    async paste(text: string) {
+      if (pasteHandler === undefined) throw new Error("expected paste handler");
+      pasteHandler(text);
+      if (instance === undefined) throw new Error("expected ink instance");
+      await instance.waitUntilRenderFlush();
+    },
+    renderOptions() {
+      return renderOptions;
     },
   };
 }
@@ -523,6 +547,189 @@ describe("createMonitorDisplay", () => {
 });
 
 describe("openInkMonitor", () => {
+  test("routes command-focused editor input before tree bindings", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (commandFocused) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (editorSpecialKey) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (key.ctrl && input === \"c\") {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (commandFocused) return;" -> "if (false) return;"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (input === \":\" || input === \"/\") {" -> "if (false) {"
+    const treeCalls: string[] = [];
+    const treeControls = noopControls();
+    treeControls.focusCommand = () => treeCalls.push("focus-command");
+    treeControls.insertCommandText = (text) => treeCalls.push(`insert:${text}`);
+    const treeInput = inputHarness();
+    const treeSession = await openInkMonitor(
+      shellState([], null, { commandBuffer: "kept", commandCursor: 2, focus: "tree" }),
+      treeControls,
+      await treeInput.injection(),
+    );
+
+    await treeInput.press(":");
+    await treeInput.press("/");
+
+    expect(treeCalls).toEqual(["focus-command", "focus-command"]);
+    treeSession.close();
+
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.focusTree = () => calls.push("focus-tree");
+    controls.insertCommandText = (text) => calls.push(`insert:${text}`);
+    controls.selectNextRun = () => calls.push("next");
+    controls.selectPreviousRun = () => calls.push("previous");
+    controls.toggleSelectedWorkflowExpansion = () => calls.push("expand");
+    controls.killSelected = () => calls.push("kill");
+    controls.quit = () => calls.push("quit");
+    const state = shellState([], null, { commandBuffer: "AB", commandCursor: 1, focus: "command" });
+    const before = structuredClone(state);
+    const input = inputHarness();
+    const session = await openInkMonitor(state, controls, await input.injection());
+
+    for (const printable of ["j", "k", "e", "q", ":", "/", "[", "]"]) await input.press(printable);
+    await input.press("", { downArrow: true });
+    await input.press("", { upArrow: true });
+    await input.press("", { escape: true });
+    await input.press("c", { ctrl: true });
+
+    expect(calls).toEqual([
+      "insert:j",
+      "insert:k",
+      "insert:e",
+      "insert:q",
+      "insert::",
+      "insert:/",
+      "insert:[",
+      "insert:]",
+      "focus-tree",
+      "quit",
+    ]);
+    expect(calls).not.toContain("next");
+    expect(calls).not.toContain("previous");
+    expect(calls).not.toContain("expand");
+    expect(calls).not.toContain("kill");
+    expect(state).toEqual(before);
+    session.close();
+  });
+
+  test("submits only focused command input", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (key.return && !key.shift) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (key.return && key.shift) return;" -> "if (false) return;"
+    const submissions: string[] = [];
+    const focusedControls = noopControls();
+    focusedControls.submitCommand = (buffer) => submissions.push(buffer);
+    focusedControls.insertCommandText = (text) => submissions.push(`insert:${text}`);
+    const focusedState = shellState([], null, { commandBuffer: "run status", commandCursor: 3, focus: "command" });
+    const focusedBefore = structuredClone(focusedState);
+    const focusedInput = inputHarness();
+    const focusedSession = await openInkMonitor(focusedState, focusedControls, await focusedInput.injection());
+
+    await focusedInput.press("", { return: true });
+    await focusedInput.press("x", { return: true, shift: true });
+
+    expect(submissions).toEqual(["run status"]);
+    expect(focusedState).toEqual(focusedBefore);
+    focusedSession.close();
+
+    const emptyInput = inputHarness();
+    const emptySession = await openInkMonitor(
+      shellState([], null, { commandBuffer: "", commandCursor: 0, focus: "command" }),
+      focusedControls,
+      await emptyInput.injection(),
+    );
+    await emptyInput.press("", { return: true });
+    expect(submissions).toEqual(["run status", ""]);
+    emptySession.close();
+
+    const treeInput = inputHarness();
+    const treeSession = await openInkMonitor(shellState([], null), focusedControls, await treeInput.injection());
+    await treeInput.press("", { return: true });
+    await treeInput.press("", { return: true, shift: true });
+    expect(submissions).toEqual(["run status", ""]);
+    treeSession.close();
+  });
+
+  test("classifies modified keys and paste before editor insertion", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (key.ctrl || key.meta) return;" -> "if (false) return;"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (inserted.length > 0) controls.insertCommandText(inserted);" -> "if (false) controls.insertCommandText(inserted);"
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (inserted !== \"\") controls.insertCommandText(inserted);" -> "if (false) controls.insertCommandText(inserted);"
+    const calls: string[] = [];
+    let cursor = 2;
+    const controls = noopControls();
+    controls.moveCommandCursorLeft = () => calls.push("left");
+    controls.moveCommandCursorRight = () => calls.push("right");
+    controls.deleteCommandBackward = () => calls.push("backspace");
+    controls.deleteCommandForward = () => calls.push("delete");
+    controls.focusTree = () => calls.push("escape");
+    controls.insertCommandText = (text) => {
+      calls.push(`insert:${text}`);
+      cursor += Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)).length;
+    };
+    controls.selectNextRun = () => calls.push("next");
+    controls.toggleSelectedWorkflowExpansion = () => calls.push("expand");
+    controls.killSelected = () => calls.push("kill");
+    controls.quit = () => calls.push("quit");
+    const input = inputHarness();
+    const session = await openInkMonitor(
+      shellState([], null, { commandBuffer: "AB", commandCursor: cursor, focus: "command" }),
+      controls,
+      await input.injection(),
+    );
+
+    await input.press("x", { leftArrow: true });
+    await input.press("x", { rightArrow: true });
+    await input.press("x", { backspace: true });
+    await input.press("x", { delete: true });
+    await input.press("x", { escape: true });
+    await input.press("x", { upArrow: true });
+    await input.press("x", { downArrow: true });
+    await input.press("Z");
+    const beforeModified = [...calls];
+    await input.press("j", { ctrl: true });
+    await input.press("e", { meta: true });
+    await input.press("x", { ctrl: true, leftArrow: true });
+    await input.press("q", { meta: true, escape: true });
+    expect(calls).toEqual(beforeModified);
+
+    await input.paste("A👩‍💻\r\nB");
+    await input.paste("\r\n");
+
+    expect(calls).toEqual(["left", "right", "backspace", "delete", "escape", "insert:Z", "insert:A👩‍💻B"]);
+    expect(cursor).toBe(6);
+    expect(calls).not.toContain("next");
+    expect(calls).not.toContain("expand");
+    expect(calls).not.toContain("kill");
+    expect(calls).not.toContain("quit");
+    session.close();
+  });
+
+  test("keeps command state unchanged in tree focus", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if ((sessionState.current.focus ?? \"tree\") !== \"command\") return;" -> "if (false) return;"
+    const editorCalls: string[] = [];
+    const controls = noopControls();
+    controls.focusCommand = () => editorCalls.push("focus-command");
+    controls.insertCommandText = (text) => editorCalls.push(`insert:${text}`);
+    controls.moveCommandCursorLeft = () => editorCalls.push("left");
+    controls.moveCommandCursorRight = () => editorCalls.push("right");
+    controls.deleteCommandBackward = () => editorCalls.push("backspace");
+    controls.deleteCommandForward = () => editorCalls.push("delete");
+    controls.quit = () => editorCalls.push("quit");
+    const state = shellState([], null, { commandBuffer: "retained", commandCursor: 4, focus: "tree" });
+    const before = structuredClone(state);
+    const input = inputHarness();
+    const session = await openInkMonitor(state, controls, await input.injection());
+
+    await input.press("x");
+    await input.press("q");
+    await input.press("", { leftArrow: true });
+    await input.press("", { rightArrow: true });
+    await input.press("", { backspace: true });
+    await input.press("", { delete: true });
+    await input.paste("paste\r\ntext");
+
+    expect(editorCalls).toEqual(["quit"]);
+    expect(state).toEqual(before);
+    session.close();
+  });
+
   test("drives quit and kill through the injected input hook", async () => {
     const calls: string[] = [];
     const controls = noopControls();
@@ -536,6 +743,7 @@ describe("openInkMonitor", () => {
     await input.press("k");
 
     expect(calls).toEqual(["quit", "quit", "kill"]);
+    expect(input.renderOptions()).toMatchObject({ exitOnCtrlC: false });
     session.close();
   });
 

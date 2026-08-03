@@ -14,8 +14,6 @@ export type TuiWaitState =
   | { kind: "ready"; runId: string; result: WaitRunCompletionResult }
   | { kind: "error"; runId: string };
 
-export type TuiMonitorFocus = "tree" | "command";
-
 /** Operator-visible monitor snapshot. */
 export type TuiMonitorState = {
   runs: readonly DaemonListRunRow[];
@@ -40,7 +38,7 @@ export type TuiMonitorState = {
   /** Grapheme-cluster cursor offset in {@link commandBuffer}; defaults to zero. */
   commandCursor?: number;
   /** Active monitor surface; defaults to the tree. */
-  focus?: TuiMonitorFocus;
+  focus?: "tree" | "command";
   /** Retained command feedback; defaults to absent. */
   lastCommandResult?: string | null;
   /** Latest recoverable monitor RPC failure; defaults to absent. */
@@ -58,11 +56,19 @@ export type TuiMonitorState = {
 };
 
 /**
- * Injectable selection, steering, and quit controls exposed to the monitor host.
+ * Injectable monitor controls exposed to the host.
  * All `*Selected` methods: no selection → inline `no run selected`; daemon and
  * transport failures surface inline without closing the monitor.
  */
 export type TuiMonitorControls = {
+  focusCommand(): void;
+  focusTree(): void;
+  insertCommandText(text: string): void;
+  moveCommandCursorLeft(): void;
+  moveCommandCursorRight(): void;
+  deleteCommandBackward(): void;
+  deleteCommandForward(): void;
+  submitCommand(commandBuffer: string): void;
   /** Change selection to the given tree or unattributed row when present in the selectable list. */
   selectNode(nodeId: string): void;
   /** Move to the next selectable row in display order. */

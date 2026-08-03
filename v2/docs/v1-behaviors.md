@@ -594,8 +594,11 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   status with invoking profile/socket key, refresh and RPC/result feedback; prompted
   input with a visible cursor; a fixed continuation row; and selection/focus-specific
   hints. Input is sanitized and display-width-windowed across the two input rows.
-  Editing and submission remain unavailable. Sources: `v2/src/tui/tui-monitor-lines.ts`,
-  `v2/src/tui/tui-ink-monitor.tsx`
+  `:` or `/` enters command focus; monitor state retains grapheme-aware buffer and
+  cursor edits. Focused injected input reaches the editor before tree bindings, `Esc`
+  returns focus, and Enter calls an inert submission handoff without dispatching or
+  mutating editor state. Sources: `v2/src/tui/tui-monitor-lines.ts`,
+  `v2/src/tui/tui-ink-monitor.tsx`, `v2/src/tui/tui-entry.tsx`
 - [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
   daemon sockets, connects to each, and aggregates their `list` results into one
   monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);

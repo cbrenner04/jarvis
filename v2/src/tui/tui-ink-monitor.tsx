@@ -336,8 +336,9 @@ export async function openInkMonitor(
   inkRender?: InkRender | InjectedInkUi,
   nowMs?: () => number,
 ): Promise<TuiMonitorSession> {
-  const { renderFn, Text, Box, useInput: inkUseInput } = await loadInkUi(inkRender);
+  const { renderFn, Text, Box, useInput: inkUseInput, usePaste: inkUsePaste } = await loadInkUi(inkRender);
   const useInput: InkUseInput = inkUseInput ?? (() => {});
+  const usePaste = inkUsePaste ?? (() => {});
   const sessionState = { current: mergeMonitorSessionState(initialState, initialState) };
   const clock = nowMs ?? (() => Date.now());
 
@@ -345,8 +346,52 @@ export async function openInkMonitor(
     createMonitorDisplay(state, Text, Box, clock());
 
   const MonitorSessionRoot = (): ReactElement => {
+    usePaste((text) => {
+      if ((sessionState.current.focus ?? "tree") !== "command") return;
+      const inserted = text.replace(/[\r\n]/gu, "");
+      if (inserted.length > 0) controls.insertCommandText(inserted);
+    });
+
     useInput((input, key) => {
-      if (input === "q" || (key.ctrl && input === "c")) {
+      if (key.ctrl && input === "c") {
+        controls.quit();
+        return;
+      }
+      if (key.ctrl || key.meta) return;
+
+      const commandFocused = (sessionState.current.focus ?? "tree") === "command";
+      if (commandFocused) {
+        if (key.return && !key.shift) {
+          controls.submitCommand(sessionState.current.commandBuffer ?? "");
+          return;
+        }
+        if (key.return && key.shift) return;
+        const editorSpecialKey =
+          key.escape ||
+          key.leftArrow ||
+          key.rightArrow ||
+          key.backspace ||
+          key.delete ||
+          key.upArrow ||
+          key.downArrow;
+        if (editorSpecialKey) {
+          if (key.escape) controls.focusTree();
+          else if (key.leftArrow) controls.moveCommandCursorLeft();
+          else if (key.rightArrow) controls.moveCommandCursorRight();
+          else if (key.backspace) controls.deleteCommandBackward();
+          else if (key.delete) controls.deleteCommandForward();
+          return;
+        }
+        const inserted = input.replace(/[\r\n]/gu, "");
+        if (inserted !== "") controls.insertCommandText(inserted);
+      }
+      if (commandFocused) return;
+
+      if (input === ":" || input === "/") {
+        controls.focusCommand();
+        return;
+      }
+      if (input === "q") {
         controls.quit();
         return;
       }
@@ -381,7 +426,7 @@ export async function openInkMonitor(
     return createElement(MonitorDisplay, { state: sessionState.current });
   };
 
-  const instance = renderFn(createElement(MonitorSessionRoot));
+  const instance = renderFn(createElement(MonitorSessionRoot), { exitOnCtrlC: false });
 
   return {
     update(state) {

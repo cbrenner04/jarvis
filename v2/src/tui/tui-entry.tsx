@@ -25,12 +25,21 @@ import type {
 } from "./tui-monitor-types.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
+const COMMAND_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 export { TUI_REFRESH_INTERVAL_MS };
 
 export function tuiRefreshIntervalLabel(intervalMs = TUI_REFRESH_INTERVAL_MS): string {
   if (intervalMs % 1_000 === 0) return `${intervalMs / 1_000}s`;
   return `${intervalMs}ms`;
+}
+
+function commandGraphemes(value: string): string[] {
+  return Array.from(COMMAND_GRAPHEME_SEGMENTER.segment(value), ({ segment }) => segment);
+}
+
+function clampCommandCursor(cursor: number, graphemeCount: number): number {
+  return Math.min(Math.max(cursor, 0), graphemeCount);
 }
 
 function presentFeedback(state: TuiViewState, deps: RunTuiEntryDeps): Promise<void> {
@@ -201,6 +210,39 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       terminalSizeFn,
     );
     syncMonitor();
+  };
+
+  const commandEditor = (): { graphemes: string[]; cursor: number } => {
+    const graphemes = commandGraphemes(currentState.commandBuffer ?? "");
+    return {
+      graphemes,
+      cursor: clampCommandCursor(currentState.commandCursor ?? 0, graphemes.length),
+    };
+  };
+
+  const setCommandEditor = (graphemes: readonly string[], cursor: number): void => {
+    setState({
+      ...currentState,
+      commandBuffer: graphemes.join(""),
+      commandCursor: clampCommandCursor(cursor, graphemes.length),
+    });
+  };
+
+  const insertCommandText = (text: string): void => {
+    const inserted = commandGraphemes(text);
+    if (inserted.length === 0) return;
+    const { graphemes, cursor } = commandEditor();
+    const before = graphemes.slice(0, cursor).join("");
+    const after = graphemes.slice(cursor).join("");
+    setCommandEditor(commandGraphemes(`${before}${text}${after}`), commandGraphemes(`${before}${text}`).length);
+  };
+
+  const deleteCommandGrapheme = (offset: -1 | 0): void => {
+    const { graphemes, cursor } = commandEditor();
+    const deleteIndex = cursor + offset;
+    if (deleteIndex < 0 || deleteIndex >= graphemes.length) return;
+    graphemes.splice(deleteIndex, 1);
+    setCommandEditor(graphemes, cursor + offset);
   };
 
   const startWaitForRun = (runId: string): void => {
@@ -516,6 +558,28 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     session = await openMonitor(
       monitorShellState(currentState, terminalSizeFn),
       {
+        focusCommand() {
+          setState({ ...currentState, focus: "command" });
+        },
+        focusTree() {
+          setState({ ...currentState, focus: "tree" });
+        },
+        insertCommandText,
+        moveCommandCursorLeft() {
+          const { graphemes, cursor } = commandEditor();
+          setCommandEditor(graphemes, cursor - 1);
+        },
+        moveCommandCursorRight() {
+          const { graphemes, cursor } = commandEditor();
+          setCommandEditor(graphemes, cursor + 1);
+        },
+        deleteCommandBackward() {
+          deleteCommandGrapheme(-1);
+        },
+        deleteCommandForward() {
+          deleteCommandGrapheme(0);
+        },
+        submitCommand(_commandBuffer) {},
         selectNode(nodeId) {
           if (!monitorSelectableNodeIds(currentState, nowMsFn()).includes(nodeId)) return;
           if (currentState.selectedNodeId === nodeId) return;

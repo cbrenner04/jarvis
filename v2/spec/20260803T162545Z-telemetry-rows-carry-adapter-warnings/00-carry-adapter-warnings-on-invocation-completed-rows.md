@@ -22,11 +22,11 @@ Adapters return `warnings` on `InvocationOk`, but `createInvocationCompletedReco
 
 ## Acceptance criteria
 
-- [ ] `execute.test.ts` — an ok invocation whose adapter returned warnings emits an `invocation_completed` row whose `warnings` field is present and `toEqual`s those warning strings; fails against the current record builder, which has no `warnings` field.
-- [ ] `execute.test.ts` — an ok invocation with no warnings and each non-ok `exit_kind` (`quota`, `stall`, `error`, `model_config`) emits a row whose `warnings` field is present and `toEqual([])`.
-- [ ] `execute.test.ts` — applying the `// @mutate` directive that omits `warnings` from the emitted row turns the warnings regression RED.
-- [ ] `execute.test.ts` — `appends one invocation_completed row per binding attempt in order` stays green.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run test:shared` pass.
+- [x] `execute.test.ts` — an ok invocation whose adapter returned warnings emits an `invocation_completed` row whose `warnings` field is present and `toEqual`s those warning strings; fails against the current record builder, which has no `warnings` field.
+- [x] `execute.test.ts` — an ok invocation with no warnings and each non-ok `exit_kind` (`quota`, `stall`, `error`, `model_config`) emits a row whose `warnings` field is present and `toEqual([])`.
+- [x] `execute.test.ts` — applying the `// @mutate` directive that omits `warnings` from the emitted row turns the warnings regression RED.
+- [x] `execute.test.ts` — `appends one invocation_completed row per binding attempt in order` stays green.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run test:shared` pass.
 
 ## Documentation updates
 

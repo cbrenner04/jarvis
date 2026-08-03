@@ -359,9 +359,7 @@ describe("shared invocation fallback", () => {
     });
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.warnings).toEqual([
-      "codex usage unavailable: no session JSONL changed after this invocation",
-    ]);
+    expect(rows[0]?.warnings).toEqual(["codex usage unavailable: no session JSONL changed after this invocation"]);
   });
 
   test("non-ok exit kinds and ok without warnings emit empty warnings array", async () => {

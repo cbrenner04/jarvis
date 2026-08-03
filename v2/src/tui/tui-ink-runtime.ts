@@ -12,6 +12,7 @@ type InkUi = {
     overflow?: "hidden" | "visible";
   }) => ReactElement;
   useInput?: InkUseInput;
+  usePaste?: InkUsePaste;
 };
 
 type InkText = (props: { children?: ReactNode; color?: string }) => ReactElement;
@@ -21,8 +22,12 @@ export type InkUseInput = (
     input: string,
     key: {
       ctrl?: boolean;
+      meta?: boolean;
+      shift?: boolean;
       upArrow?: boolean;
       downArrow?: boolean;
+      leftArrow?: boolean;
+      rightArrow?: boolean;
       return?: boolean;
       escape?: boolean;
       backspace?: boolean;
@@ -31,12 +36,15 @@ export type InkUseInput = (
   ) => void,
 ) => void;
 
+export type InkUsePaste = (pasteHandler: (text: string) => void) => void;
+
 /** Injectable renderer and input hook pair for TUI tests. */
 export type InjectedInkUi = {
   renderFn: InkRender;
   Text?: InkText;
   Box?: InkUi["Box"];
   useInput?: InkUseInput;
+  usePaste?: InkUsePaste;
 };
 
 /** Load production ink or inject a test render seam. */
@@ -54,6 +62,7 @@ export async function loadInkUi(inkRender?: InkRender | InjectedInkUi): Promise<
           : (inkRender.Text ?? (({ children }) => createElement(Fragment, null, children))),
       ...(injectedBox === undefined ? {} : { Box: injectedBox }),
       ...(typeof inkRender === "function" ? {} : { useInput: inkRender.useInput }),
+      ...(typeof inkRender === "function" ? {} : { usePaste: inkRender.usePaste }),
     };
   }
 
@@ -65,5 +74,6 @@ export async function loadInkUi(inkRender?: InkRender | InjectedInkUi): Promise<
     // Forward props, not just children: dropping them here silently discards `color`.
     Text: ({ children, ...props }) => createElement(ink.Text, props, children),
     useInput: ink.useInput,
+    usePaste: ink.usePaste,
   };
 }

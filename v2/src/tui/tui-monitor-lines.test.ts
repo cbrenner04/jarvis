@@ -1264,7 +1264,7 @@ describe("monitorDockLines", () => {
       "1 active · workstation@0123456789abcdef · refresh 2s · result: ready",
       "> start▏",
       "",
-      "j/↓ next · ↑ previous · [/] divider · : command · q quit",
+      "j/↓ next · ↑ previous · [/] divider · : command · / command · q quit",
     ]);
     expect(lines).toHaveLength(4);
     expect(lines).not.toEqual(["1 active · refresh 2s", ">", "", ""]);
@@ -1415,8 +1415,8 @@ describe("monitorDockLines", () => {
     expect(lines.slice(1, 3).join("")).toContain("▏");
   });
 
-  test("shows only contextual tree actions or command-focus copy", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if ((state.focus ?? \"tree\") === \"command\") return \"Esc tree · Enter submit · Shift+Enter newline\";" -> "if (false) return \"Esc tree · Enter submit · Shift+Enter newline\";"
+  test("shows contextual command-focus hints without multiline editing", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if ((state.focus ?? \"tree\") === \"command\") return \"Esc tree · Enter submit\";" -> "if (false) return \"Esc tree · Enter submit\";"
     // @mutate v2/src/tui/tui-monitor-lines.ts "snapshot.pipelineId === state.selectedNodeId" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts "monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === state.selectedNodeId)" -> "state.runs.find(() => false)"
@@ -1436,6 +1436,8 @@ describe("monitorDockLines", () => {
     const hints = (selectedNodeId: string | null) => monitorDockLines({ ...base, selectedNodeId })[3];
 
     expect(hints(null)).toContain(": command");
+    expect(hints(null)).toContain("/ command");
+    expect(hints(null)).not.toContain("newline");
     expect(hints(null)).not.toContain("expand/collapse");
     expect(hints(null)).not.toContain("kill");
     expect(hints(PIPELINE_ID)).toContain("e expand/collapse");
@@ -1450,7 +1452,8 @@ describe("monitorDockLines", () => {
     expect(hints("other-node")).not.toContain("kill");
 
     const commandHints = monitorDockLines({ ...base, selectedNodeId: active.runId, focus: "command" })[3];
-    expect(commandHints).toBe("Esc tree · Enter submit · Shift+Enter newline");
+    expect(commandHints).toBe("Esc tree · Enter submit");
+    expect(commandHints).not.toContain("newline");
     expect(commandHints).not.toContain("kill");
     expect(commandHints).not.toContain("expand");
     expect(commandHints).not.toContain(": command");

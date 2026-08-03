@@ -330,7 +330,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 
 | Command | Use |
 | --- | --- |
-| `jarvis tui` | Split-pane run monitor (stacked below 120 cols): left pipeline tree (pipeline → stage → run), unattributed runs, and queue; right pane shows pipeline context and stage roll-up for a pipeline, then the selected durable-stage record for a stage, then selected durable-run workflow/outcome/error/PR/worktree detail for an attributed run; an unattributed run shows only its selected durable-run detail. Retained steering feedback follows selected-run detail. Rows losslessly hard-wrap by display columns—split right-pane width or stacked terminal width, floored at one—with no ellipsis and preserved tones; extended grapheme clusters stay atomic, so a wider grapheme can overflow a narrower row. The 4-line dock supports `[`/`]` divider nudges; **`j`** or ↓/↑ walk tree plus unattributed rows (queue display-only); **`e`** expands/collapses selected pipeline or stage; kill (`k`) on live runs. **`elapsed`** shows pipeline age from `createdAt` through `finishedAtMs` (or live clock), stage age from `startedAt` through `endedAt` (or live clock), and run age from `createdAt` through `finishedAtMs` (collapsed workflow rows use the representative run's timestamps); elapsed freezes only when the recorded end timestamp is present and keeps advancing on the local display tick when status is terminal but the end timestamp is absent |
+| `jarvis tui` | Split-pane run monitor (stacked below 120 cols): left pipeline tree (pipeline → stage → run), unattributed runs, and queue; right pane shows pipeline context and stage roll-up for a pipeline, then the selected durable-stage record for a stage, then selected durable-run workflow/outcome/error/PR/worktree detail for an attributed run; an unattributed run shows only its selected durable-run detail. Retained steering feedback follows selected-run detail. Rows losslessly hard-wrap by display columns—split right-pane width or stacked terminal width, floored at one—with no ellipsis and preserved tones; extended grapheme clusters stay atomic, so a wider grapheme can overflow a narrower row. The 4-line dock supports `[`/`]` divider nudges; **`j`** or ↓/↑ walk tree plus unattributed rows (queue display-only); **`e`** expands/collapses selected pipeline or stage; kill (`k`) on live runs. `:` or `/` focuses command input. **`elapsed`** shows pipeline age from `createdAt` through `finishedAtMs` (or live clock), stage age from `startedAt` through `endedAt` (or live clock), and run age from `createdAt` through `finishedAtMs` (collapsed workflow rows use the representative run's timestamps); elapsed freezes only when the recorded end timestamp is present and keeps advancing on the local display tick when status is terminal but the end timestamp is absent |
 | `jarvis run list` | JSON-ish run rows; `isLive` vs durable `status` |
 | `jarvis run list --since <duration\|timestamp>` | History query past the default fifty-terminal-run window; duration units `d`/`h`/`m`/`s` (e.g. `2d`, `90m`) or absolute Unix ms / ISO 8601 |
 | `jarvis run list --project <name>` | Exact durable `project` match (case-sensitive); bypasses the fifty-terminal-run retention window |
@@ -353,11 +353,16 @@ error takes precedence over the last command result. Discovery, connection, `lis
 `pipeline_list` failures retain last-good rows and snapshots; only a fully successful
 refresh clears the error, and refresh never clears a retained command result. Retained
 rows without a live client cannot be killed or waited on until ownership reconnects.
-Input is sanitized and windowed
-across its two display-width-bounded rows so the cursor stays visible without changing
-the buffer. Tree hints add expansion or kill only when the selection supports them;
-command-focus hints describe return/submit/newline actions. Editing and submission are
-not implemented yet.
+Input is sanitized and windowed across its two display-width-bounded rows so the cursor
+stays visible without changing the buffer. From tree focus, `:` or `/` focuses the
+retained buffer without inserting the shortcut. Printable input inserts at its grapheme
+cursor; Left/Right move it, Backspace/Delete remove whole graphemes, and `Esc` restores
+tree focus without clearing or moving it. Enter calls an inert submission handoff with
+the current buffer; it does not dispatch a command or mutate editor state. Shift+Enter
+is ignored, and pasted CR/LF are removed rather than creating newlines. Ctrl-C always
+quits. Other Ctrl/Meta input is ignored. While command-focused, tree navigation,
+expansion, divider, kill, and `q` bindings are suppressed. Tree hints add expansion or
+kill only when supported; command hints advertise only `Esc` and Enter.
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 

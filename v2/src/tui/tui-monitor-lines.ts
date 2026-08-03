@@ -335,7 +335,7 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
 }
 
 function dockHintLine(state: TuiMonitorState): string {
-  if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit · Shift+Enter newline";
+  if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit";
   const expandable = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath).some(
     (snapshot) =>
       snapshot.pipelineId === state.selectedNodeId ||
@@ -354,6 +354,7 @@ function dockHintLine(state: TuiMonitorState): string {
     "↑ previous",
     "[/] divider",
     ": command",
+    "/ command",
     ...(expandable ? ["e expand/collapse"] : []),
     ...(killable ? ["k kill"] : []),
     "q quit",

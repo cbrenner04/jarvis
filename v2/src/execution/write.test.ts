@@ -343,11 +343,12 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
   });
 
-  test("done token completes once every non-human-only criterion is ticked", async () => {
+  test("done completes when only a wrapped human-only criterion is unchecked", async () => {
+    // @mutate v2/src/execution/write.ts ".filter((criterion) => !criterion.humanOnly && !criterion.checked)" -> ".filter((criterion) => criterion.humanOnly && !criterion.checked)"
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [ ] the harness records a commit\n- [ ] the banner looks right (manual)\n",
+      "- [ ] the harness records a commit\n- [ ] the banner looks right\n      (Manual)\n",
     );
 
     const result = await runWrite({
@@ -360,7 +361,7 @@ describe("write behavior", () => {
           invoke: async () => {
             writeFileSync(
               subspec,
-              "## Acceptance criteria\n\n- [x] the harness records a commit\n- [ ] the banner looks right (manual)\n",
+              "## Acceptance criteria\n\n- [x] the harness records a commit\n- [ ] the banner looks right\n      (Manual)\n",
               "utf8",
             );
             return { kind: "ok", stdout: "done", stderr: "" };

@@ -544,6 +544,10 @@ retired worktree or branch is `implement.recovery_target_missing`. An admitted
 it never resets the workspace or re-enters the write step. No admitted lineage falls through
 to the ordinary `implement.already_complete` preflight.
 
+Each exact human-only marker — `(Manual)`, `visual inspection only`, or `no automated guard` —
+matches as a case-insensitive contiguous substring anywhere in the assembled criterion bullet
+block, including any continuation line.
+
 For CLI launches with `projectRegistry` set, implement admission requires a readable
 `projects.<key>` object (`projects.<key> must be an object` when the matched key has no
 object record) and never reads, validates, or resolves `projects.<key>.pipeline` — absent,

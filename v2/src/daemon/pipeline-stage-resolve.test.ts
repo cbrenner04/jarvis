@@ -15,12 +15,15 @@ import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import type { Pipeline, PipelineStageRecord } from "../persistence/state-store.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import { stageArtifactsForAuthoredWalk } from "./pipeline-execution.ts";
 import {
   type PipelineContext,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,
+  stageArtifactKey,
 } from "./pipeline-stage-resolve.ts";
 
 const QUEUE_WIDGET_SEED_REL = "v2/spec/seeds/queue-widget-refactor.md";
@@ -1041,5 +1044,115 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.error).toContain(`${planSpecDir}/index.md`);
     expect(result.error).toMatch(/index/i);
     expect(result.error).not.toContain("Non-index spec requires --artifact");
+  });
+
+  test("fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order", async () => {
+    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "return getStageArtifact(stageArtifacts, candidate.stageId, lookupBranchKey)" -> "return stageArtifacts.get(candidate.stageId)"
+    // @mutate v2/src/daemon/pipeline-execution.ts "(branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : sharedStageArtifacts) ??" -> "sharedStageArtifacts ??"
+    const alphaWorktree = planFeatureWorktree("pipeline-resolve-fan-out-alpha-", true);
+    const betaWorktree = planFeatureWorktree("pipeline-resolve-fan-out-beta-", true);
+    const alphaPlanIndex = `${planSpecDir}/alpha-index.md`;
+    const betaPlanIndex = `${planSpecDir}/beta-index.md`;
+    writeFileSync(join(alphaWorktree, alphaPlanIndex), "# Alpha\n", "utf8");
+    writeFileSync(join(betaWorktree, betaPlanIndex), "# Beta\n", "utf8");
+
+    const stageArtifacts = new Map<string, PipelineStageArtifact>();
+    stageArtifacts.set(stageArtifactKey("plan", "alpha"), stageArtifact("run-plan-alpha", alphaPlanIndex));
+    stageArtifacts.set(stageArtifactKey("plan", "beta"), stageArtifact("run-plan-beta", betaPlanIndex));
+
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const loadRun: NonNullable<PipelineStageResolveDeps["loadRun"]> = (runId) => {
+      if (runId === "run-plan-alpha") return { worktreePath: alphaWorktree, branch: "plan/alpha" };
+      if (runId === "run-plan-beta") return { worktreePath: betaWorktree, branch: "plan/beta" };
+      return null;
+    };
+
+    const result = await resolveStageWorkflowSteps(definition, 2, baseContext, stageArtifacts, {
+      builders,
+      loadRun,
+      branchKey: "beta",
+      splitPosition: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(seenInput?.cwd).toBe(betaWorktree);
+    expect(seenInput?.specPath).toBe(betaPlanIndex);
+    expect(seenInput?.baseRef).toBe("plan/beta");
+
+    const prefixOnlyMap = new Map<string, PipelineStageArtifact>([
+      [stageArtifactKey("intent", "default"), stageArtifact("run-intent", "spec/ready-intents/beta.md")],
+      [stageArtifactKey("plan", "alpha"), stageArtifact("run-plan-alpha", alphaPlanIndex)],
+    ]);
+    const missingBranchPlan = await resolveStageWorkflowSteps(definition, 2, baseContext, prefixOnlyMap, {
+      builders,
+      loadRun,
+      branchKey: "beta",
+      splitPosition: 0,
+    });
+    expect(missingBranchPlan.ok).toBe(false);
+
+    const pipelineStages: PipelineStageRecord[] = [
+      {
+        id: "row-intent",
+        pipelineId: "pipeline-1",
+        stageId: "intent",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded",
+        workflowInvocationId: "run-intent",
+        startedAt: null,
+        endedAt: null,
+        artifact: stageArtifact("run-intent", "spec/ready-intents/beta.md"),
+        failureDetail: null,
+      },
+      {
+        id: "row-plan-beta",
+        pipelineId: "pipeline-1",
+        stageId: "plan",
+        branchKey: "beta",
+        position: 1,
+        status: "succeeded",
+        workflowInvocationId: "run-plan-beta",
+        startedAt: null,
+        endedAt: null,
+        artifact: stageArtifact("run-plan-beta", betaPlanIndex),
+        failureDetail: null,
+      },
+    ];
+    const pipeline = {
+      id: "pipeline-1",
+      name: "p",
+      createdAt: 0,
+      ownerIdentity: "owner",
+      status: "active",
+      definition,
+      context: baseContext,
+      terminalPublicationFailure: null,
+      terminalPublicationSucceededAt: null,
+      stages: pipelineStages,
+    } as Pipeline & { stages: PipelineStageRecord[] };
+    const suffixMap = stageArtifactsForAuthoredWalk({
+      branchKey: "beta",
+      sharedStageArtifacts: prefixOnlyMap,
+      split: { splitPosition: 0, branchKeys: ["alpha", "beta"] },
+      pipeline,
+      stageIndex: 2,
+    });
+    expect(suffixMap.get(stageArtifactKey("plan", "beta"))?.entryRunId).toBe("run-plan-beta");
   });
 });

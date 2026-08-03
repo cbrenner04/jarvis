@@ -51,7 +51,11 @@ import type {
   PipelineWorkflowDispatch,
   PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
-import type { PipelineStageResolutionResult, PipelineStageResolveDeps } from "./pipeline-stage-resolve.ts";
+import {
+  type PipelineStageResolutionResult,
+  type PipelineStageResolveDeps,
+  stageArtifactKey,
+} from "./pipeline-stage-resolve.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -2453,7 +2457,7 @@ function fanOutResolveStageStub(
   stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
   deps?: PipelineStageResolveDeps,
 ) => Promise<PipelineStageResolutionResult> {
-  return async (definition, stageIndex, _context, stageArtifacts) => {
+  return async (definition, stageIndex, _context, stageArtifacts, deps) => {
     const stage = definition.stages[stageIndex];
     if (stage?.kind === "workflow" && stage.workflow === "plan") {
       return {
@@ -2461,8 +2465,9 @@ function fanOutResolveStageStub(
         results: FAN_OUT_BRANCH_KEYS.map((branchKey) => ({ steps: [fanOutTaggedStep(stageIndex, branchKey)] })),
       };
     }
-    const priorPlan = stageArtifacts.get("plan");
-    const branchKey = typeof priorPlan?.entryRunId === "string" ? priorPlan.entryRunId.split("-")[1] : undefined;
+    const branchKey = deps?.branchKey ?? "default";
+    const priorPlan = stageArtifacts.get(stageArtifactKey("plan", branchKey));
+    void priorPlan;
     return { ok: true, steps: [fanOutTaggedStep(stageIndex, branchKey)] };
   };
 }

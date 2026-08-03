@@ -34,6 +34,7 @@ import {
   type PipelineStageResolutionResult,
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,
+  stageArtifactKey,
 } from "./pipeline-stage-resolve.ts";
 
 export type PipelineDerivedState =
@@ -825,9 +826,24 @@ function buildBranchStageArtifacts(
     if (stage?.kind !== "workflow") continue;
     const recordBranchKey = index <= split.splitPosition ? DEFAULT_PIPELINE_STAGE_BRANCH_KEY : branchKey;
     const record = findStageRecord(pipeline.stages, stage.stageId, recordBranchKey);
-    carryForwardArtifact(artifacts, stage.stageId, record?.artifact);
+    carryForwardArtifact(artifacts, stage.stageId, recordBranchKey, record?.artifact);
   }
   return artifacts;
+}
+
+/** Select the in-memory artifact map for one authored-stage walk iteration. */
+export function stageArtifactsForAuthoredWalk(args: {
+  branchKey: string;
+  sharedStageArtifacts?: Map<string, PipelineStageArtifact>;
+  split: FanOutSplit | null;
+  pipeline: Pipeline & { stages: PipelineStageRecord[] };
+  stageIndex: number;
+}): Map<string, PipelineStageArtifact> {
+  const { branchKey, sharedStageArtifacts, split, pipeline, stageIndex } = args;
+  return (
+    (branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : sharedStageArtifacts) ??
+    (split !== null ? buildBranchStageArtifacts(pipeline, split, branchKey, stageIndex) : new Map())
+  );
 }
 
 /** Aggregate failure detail naming failed or rejected fan-out branch keys. */
@@ -973,6 +989,7 @@ function skipRemainingStages(
 function carryForwardArtifact(
   stageArtifacts: Map<string, PipelineStageArtifact>,
   stageId: string,
+  branchKey: string,
   artifact: unknown,
 ): void {
   if (
@@ -981,7 +998,7 @@ function carryForwardArtifact(
     typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
     typeof (artifact as PipelineStageArtifact).specPath === "string"
   ) {
-    stageArtifacts.set(stageId, artifact as PipelineStageArtifact);
+    stageArtifacts.set(stageArtifactKey(stageId, branchKey), artifact as PipelineStageArtifact);
   }
 }
 
@@ -1060,7 +1077,7 @@ function handleSucceededWorkflowStage(args: {
   stageArtifacts: Map<string, PipelineStageArtifact>;
   artifact: unknown;
 }): StageStepOutcome {
-  carryForwardArtifact(args.stageArtifacts, args.stage.stageId, args.artifact);
+  carryForwardArtifact(args.stageArtifacts, args.stage.stageId, args.branchKey, args.artifact);
   const admission = maybeAdmitFanOutBranches(
     args.store,
     args.pipelineId,
@@ -1268,7 +1285,7 @@ function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: str
   const { pipelineId, stage, index, stageArtifacts, store } = args;
   const settledRecord = findStageRecord(store.loadPipeline(pipelineId)?.stages ?? [], stage.stageId, targetBranchKey);
   if (settledRecord?.status === "succeeded") {
-    carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
+    carryForwardArtifact(stageArtifacts, stage.stageId, targetBranchKey, settledRecord.artifact);
     return false;
   }
   if (settledRecord?.status === "running" && liveLinkedEntryRunId(store, settledRecord) !== undefined) {
@@ -1352,6 +1369,8 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     if (record?.status === "skipped") return "continue";
 
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
+      branchKey,
+      ...(args.split !== null && args.split !== undefined ? { splitPosition: args.split.splitPosition } : {}),
       loadRun: (runId) => {
         const entryRun = store.loadRun(runId);
         return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
@@ -1478,9 +1497,13 @@ async function runAuthoredStages(args: {
       return;
     }
 
-    const stageArtifacts =
-      sharedStageArtifacts ??
-      (split !== null ? buildBranchStageArtifacts(pipeline, split, branchKey, index) : new Map());
+    const stageArtifacts = stageArtifactsForAuthoredWalk({
+      branchKey,
+      ...(sharedStageArtifacts !== undefined ? { sharedStageArtifacts } : {}),
+      split,
+      pipeline,
+      stageIndex: index,
+    });
 
     const outcome =
       stage.kind === "approval"
@@ -1538,6 +1561,7 @@ export async function runPipeline(
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
       for (const branchKey of continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys) {
+        // Suffix branch walks build per-branch artifact maps; sharedStageArtifacts is prefix-only.
         await runAuthoredStages({
           pipelineId,
           deps,
@@ -1545,6 +1569,7 @@ export async function runPipeline(
           branchKey,
           fromIndex: activeSplit.splitPosition + 1,
           toIndex: lastIndex,
+          sharedStageArtifacts: stageArtifacts,
         });
       }
     }

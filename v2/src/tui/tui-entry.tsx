@@ -1,14 +1,14 @@
 import { basename } from "node:path";
-import type { DaemonListResult } from "../daemon/daemon-wire.ts";
-import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
-import { mergeRunLists } from "../daemon/merge-run-lists.ts";
-import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import type {
   PipelineStartAdmissionInput,
   PipelineStartAdmissionResult,
 } from "../commands/pipeline-start-admission.ts";
-import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
+import type { DaemonListResult } from "../daemon/daemon-wire.ts";
+import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
+import { mergeRunLists } from "../daemon/merge-run-lists.ts";
+import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { parseTuiCommand, type TuiCommandError, type TuiCommandParseResult } from "./tui-command-parser.ts";
+import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import {
@@ -20,7 +20,6 @@ import {
   withLeftPaneTreeScrollFollow,
 } from "./tui-monitor-lines.ts";
 import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -30,6 +29,7 @@ import type {
   TuiViewState,
   TuiWaitState,
 } from "./tui-monitor-types.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
 const COMMAND_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -178,11 +178,7 @@ export function expansionCommandSelectionError(
   // Mutation checkpoint: short-circuiting this guard before expansion eligibility must turn explicit-expansion pin RED.
   if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;
 
-  const layout = computeShellLayout(
-    state.terminalColumns ?? 245,
-    state.terminalRows ?? 72,
-    state.dividerOffset ?? 0,
-  );
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
   const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
   if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
@@ -697,9 +693,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           void (async () => {
             try {
               const result = await deps.admitDetachedPipelineStart(startAdmissionInput(parsed));
-              if (
-                !shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)
-              ) {
+              if (!shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)) {
                 return;
               }
               if (result.kind === "admitted") {

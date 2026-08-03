@@ -6,9 +6,9 @@ import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import * as tuiCommandParser from "./tui-command-parser.ts";
 import type { PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
-import * as tuiCommandParser from "./tui-command-parser.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   commandSubmissionBlockedByPendingAdmission,
@@ -923,7 +923,11 @@ describe("runTuiEntry", () => {
     const admissionGate = deferred<PipelineStartAdmissionResult>();
     let admissionCalls = 0;
     const { deps } = entryDeps(
-      { methods: [], listResponses: [{ runs: pipelineTreeListFixture() }], pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }] },
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
       {
         viewHost: view.host,
         nowMs: () => WORKFLOW_FILTER_NOW_MS,
@@ -973,7 +977,7 @@ describe("runTuiEntry", () => {
 
       view.focusCommand();
       view.insertCommandText("start demo --seed-text Ship feature");
-      const textSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      const _textSeedBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
       const textAdmissionGate = deferred<PipelineStartAdmissionResult>();
       let textAdmissionCalls = 0;
       const textView = createViewHost();
@@ -1092,12 +1096,20 @@ describe("runTuiEntry", () => {
     const view = createViewHost();
     let admissionCalls = 0;
     const { deps } = entryDeps(
-      { methods: [], listResponses: [{ runs: pipelineTreeListFixture() }], pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }] },
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
       {
         viewHost: view.host,
         admitDetachedPipelineStart: async () => {
           admissionCalls += 1;
-          return { kind: "pre-admission-failure", failure: "unregistered-project", detail: "unregistered project: missing\n" };
+          return {
+            kind: "pre-admission-failure",
+            failure: "unregistered-project",
+            detail: "unregistered project: missing\n",
+          };
         },
       },
     );
@@ -1295,17 +1307,19 @@ describe("runTuiEntry", () => {
       view.selectNode("run-orphan");
       expectExpansionFailure("unattributed", () => {});
 
-      expect(expansionCommandSelectionError(
-        {
-          runs: pipelineMultiListFixture(),
-          selectedNodeId: "pipe-gone",
-          waitState: { kind: "none" },
-          steeringFeedback: null,
-          pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
-          terminalWindowNowMs: WORKFLOW_FILTER_NOW_MS,
-        },
-        WORKFLOW_FILTER_NOW_MS,
-      )).toBe("stale_non_expandable");
+      expect(
+        expansionCommandSelectionError(
+          {
+            runs: pipelineMultiListFixture(),
+            selectedNodeId: "pipe-gone",
+            waitState: { kind: "none" },
+            steeringFeedback: null,
+            pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
+            terminalWindowNowMs: WORKFLOW_FILTER_NOW_MS,
+          },
+          WORKFLOW_FILTER_NOW_MS,
+        ),
+      ).toBe("stale_non_expandable");
     } finally {
       view.quit();
     }

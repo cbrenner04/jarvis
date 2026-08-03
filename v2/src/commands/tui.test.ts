@@ -1,19 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
-import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
-import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
 import {
+  type CliRepoFixture,
   captureIo,
   cliMain as main,
   makeCliRepoFixture,
   makeIpcClient,
   SESSION_UUID,
   tempPaths,
-  type CliRepoFixture,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
+import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
+import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
+import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
 
 const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
   claude: {
@@ -363,7 +363,11 @@ describe("tui command", () => {
       fx.repoRoot,
     );
     const preAdmission = await controls.admitDetachedPipelineStart({ projectKey: "missing", seedText: "text" });
-    expect(preAdmission).toEqual({ kind: "pre-admission-failure", failure: "unregistered-project", detail: "unregistered project: missing\n" });
+    expect(preAdmission).toEqual({
+      kind: "pre-admission-failure",
+      failure: "unregistered-project",
+      detail: "unregistered project: missing\n",
+    });
 
     await main(["pipeline", "start", "missing", "--seed-text", "text"], captureIo().io, {
       machineConfigPath: missingProjectConfig,

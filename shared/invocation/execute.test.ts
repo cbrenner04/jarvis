@@ -332,6 +332,63 @@ describe("shared invocation fallback", () => {
     log.close();
   });
 
+  test("ok invocation carries adapter warnings on invocation_completed row", async () => {
+    // @mutate shared/invocation/execute.ts "warnings: okResult?.warnings ?? []," -> ""
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "codex-binding",
+          metadata: { agent: "codex", model: "gpt-5" },
+          invoke: async () => ({
+            kind: "ok" as const,
+            stdout: "response",
+            stderr: "",
+            usage_source: "unavailable" as const,
+            warnings: ["codex usage unavailable: no session JSONL changed after this invocation"],
+          }),
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.warnings).toEqual(["codex usage unavailable: no session JSONL changed after this invocation"]);
+  });
+
+  test("non-ok exit kinds and ok without warnings emit empty warnings array", async () => {
+    const cases: { label: string; result: InvocationResult }[] = [
+      { label: "ok-no-warnings", result: { kind: "ok", stdout: "done", stderr: "" } },
+      { label: "quota", result: { kind: "quota", stderr: "quota" } },
+      { label: "stall", result: { kind: "stall", stderr: "silent" } },
+      { label: "error", result: { kind: "error", exitCode: 1, stderr: "hard" } },
+      { label: "model_config", result: { kind: "model_config", stderr: "bad model" } },
+    ];
+
+    for (const { label, result } of cases) {
+      const rows: InvocationCompletedRecord[] = [];
+      await executeWithQuotaFallback({
+        prompt: "p",
+        cwd: "/tmp",
+        bindings: [binding(label, result)],
+        telemetry: telemetryArgs({
+          append(record) {
+            rows.push(record);
+          },
+        }),
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.warnings).toEqual([]);
+    }
+  });
+
   test("ok result with usage and cost records those exact values and sources", async () => {
     const rows: InvocationCompletedRecord[] = [];
     const _result = await executeWithQuotaFallback({

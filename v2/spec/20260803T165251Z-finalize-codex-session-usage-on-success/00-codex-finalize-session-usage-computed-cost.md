@@ -98,9 +98,12 @@ result (`usage_source` / `cost_source` both `"unavailable"`). Read the matched r
   bare `return result;` success path turns the priced-usage pinning test RED.
 - [x] `agents.test.ts` — a `// @mutate` directive removing the cached-input subtraction from the
   mapped `input_tokens` turns the priced-usage pinning test RED.
-- [x] `agents.test.ts` — a `// @mutate` directive inverting the non-null `info` guard turns the
-  all-null-info pinning test RED with `usage_source: "agent"` and zero-token usage (not
-  `unavailable`/`no-usage`), proving the guard blocks spurious agent settlement.
+- [x] `agents.test.ts` — a `// @mutate` directive disabling the `all-info-null` dispatch branch turns
+  the all-null-info pinning test RED on its warning text, proving that branch is load-bearing rather
+  than redundant with the unextractable-usage fallthrough (both settle `unavailable`/`no-usage`, so
+  the warning is the only discriminator). Inverting the non-null `info` guard itself cannot yield
+  agent-settled zero-token usage — `info: null` events map to no usage either way — so the pinning
+  test asserts the exact warning instead.
 - [x] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`,
   `bun run test:integration:v1`, `bun run test:integration:shared`, and
   `bun run test:integration:v2` pass.

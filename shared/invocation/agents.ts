@@ -782,9 +782,7 @@ function readCodexSessionRollout(
   return { kind: "lines", lines, parseWarnings };
 }
 
-function selectLastCodexTokenCountEvent(
-  lines: string[],
-): Record<string, unknown> | "all-info-null" | null {
+function selectLastCodexTokenCountEvent(lines: string[]): Record<string, unknown> | "all-info-null" | null {
   let lastNonNullInfoEvent: Record<string, unknown> | null = null;
   let sawTokenCount = false;
   let sawNonNullInfo = false;
@@ -829,8 +827,7 @@ function mapCodexTokenUsageFromEvent(event: Record<string, unknown>): Usage | nu
   const cachedInput = codexNumberOrNull(totalRec.cached_input_tokens);
   const output = codexNumberOrNull(totalRec.output_tokens);
 
-  const freshInput =
-    input !== null ? (cachedInput !== null ? input : input) : null;
+  const freshInput = input !== null ? (cachedInput !== null ? Math.max(0, input - cachedInput) : input) : null;
 
   return {
     input_tokens: freshInput,

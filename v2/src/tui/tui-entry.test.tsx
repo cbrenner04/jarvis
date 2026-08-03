@@ -20,6 +20,7 @@ import {
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
+  DetachedPipelineStartAdmission,
   RunTuiEntryDeps,
   TuiMonitorControls,
   TuiMonitorSession,
@@ -36,6 +37,11 @@ import {
 } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
+
+const noopDetachedAdmission: DetachedPipelineStartAdmission = async () => ({
+  kind: "admitted",
+  pipelineId: "test-pipeline",
+});
 
 const RUN_ALPHA: DaemonListRunRow = {
   runId: "run-alpha",
@@ -762,6 +768,7 @@ function entryDeps(
     deps: {
       socketPath: "/tmp/test.sock",
       machineProfile: "unknown",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       connectTuiDaemon: async () => fakeClient(clientOptions),
       socketDiscovery: async () => [],
       ...overrides,
@@ -1093,6 +1100,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry({
       socketPath: DAEMON1_SOCKET,
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       socketDiscovery: async () => [DAEMON1_SOCKET, DAEMON2_SOCKET],
       connectTuiDaemon: async (options) => {
@@ -1415,6 +1423,7 @@ describe("runTuiEntry", () => {
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () => {
         attempted = true;
@@ -2371,6 +2380,7 @@ describe("runTuiEntry", () => {
     const unhealthy = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -2381,6 +2391,7 @@ describe("runTuiEntry", () => {
     const unavailableStatus = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       connectTuiDaemon: async () =>
         fakeClient({
@@ -2418,6 +2429,7 @@ describe("runTuiEntry", () => {
     const code = await runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () =>
@@ -2481,6 +2493,7 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry({
       socketPath: "/tmp/test.sock",
       machineProfile: "test",
+      admitDetachedPipelineStart: noopDetachedAdmission,
       viewHost: view.host,
       refreshScheduler: refresh.scheduler,
       connectTuiDaemon: async () => client,

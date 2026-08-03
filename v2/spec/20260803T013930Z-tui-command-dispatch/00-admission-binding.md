@@ -21,9 +21,9 @@ The monitor has no production detached-admission seam, so `submitCommand` cannot
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/tui.test.ts` adds a regression that fails against the baseline and proves `jarvis tui` supplies monitor controls whose detached admission uses `admitPipelineStart` with the same cwd, config, registry, model, pipeline-resolution, auto-start connection, and `pipeline_start` seams as `jarvis pipeline start`, with no `pipeline_wait` and no duplicate pre-admission checks.
-- [ ] `v2/src/commands/tui.test.ts` carries a valid `// @mutate` directive for every added or modified admission-binding guard; inverting each real source condition turns its pin red, and production has no inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/tui.test.ts` adds a regression that fails against the baseline and proves `jarvis tui` supplies monitor controls whose detached admission uses `admitPipelineStart` with the same cwd, config, registry, model, pipeline-resolution, auto-start connection, and `pipeline_start` seams as `jarvis pipeline start`, with no `pipeline_wait` and no duplicate pre-admission checks.
+- [x] `v2/src/commands/tui.test.ts` carries a valid `// @mutate` directive for every added or modified admission-binding guard; inverting each real source condition turns its pin red, and production has no inversion hook.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

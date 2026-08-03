@@ -580,6 +580,9 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           deleteCommandGrapheme(0);
         },
         submitCommand(_commandBuffer) {},
+        admitDetachedPipelineStart(input) {
+          return deps.admitDetachedPipelineStart(input);
+        },
         selectNode(nodeId) {
           if (!monitorSelectableNodeIds(currentState, nowMsFn()).includes(nodeId)) return;
           if (currentState.selectedNodeId === nodeId) return;

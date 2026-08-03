@@ -1,5 +1,87 @@
-import { describe, expect, test } from "bun:test";
-import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
+import { runTuiEntry as productionRunTuiEntry } from "../tui/tui-entry.tsx";
+import type { TuiDaemonClient } from "../tui/tui-daemon-client.ts";
+import type { DetachedPipelineStartAdmission, TuiMonitorControls } from "../tui/tui-monitor-types.ts";
+import {
+  captureIo,
+  cliMain as main,
+  makeCliRepoFixture,
+  makeIpcClient,
+  SESSION_UUID,
+  tempPaths,
+  type CliRepoFixture,
+  writeMachineConfig,
+} from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
+
+const ALL_REVIEW_ROLES_CONFIG: AgentModelConfig = {
+  claude: {
+    critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] },
+    actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] },
+    adversary: { rungs: [{ adapterModel: "adversary", priceKey: "adversary" }] },
+    advocate: { rungs: [{ adapterModel: "advocate", priceKey: "advocate" }] },
+    adjudicator: { rungs: [{ adapterModel: "adjudicator", priceKey: "adjudicator" }] },
+    implement: { rungs: [{ adapterModel: "implement", priceKey: "implement" }] },
+    plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] },
+    shrink: { rungs: [{ adapterModel: "shrink", priceKey: "shrink" }] },
+  },
+};
+
+let fx: CliRepoFixture;
+
+beforeAll(() => {
+  fx = makeCliRepoFixture();
+});
+
+afterAll(() => {
+  fx.cleanup();
+});
+
+function pipelineMachineConfig(projectKey: string, pipeline: unknown, root: string): string {
+  return writeMachineConfig({
+    machineProfile: "home",
+    agents: ["claude"],
+    projects: { [projectKey]: { root, pipeline } },
+  });
+}
+
+function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
+  return sent.filter((frame) => (frame as { method?: string }).method === method);
+}
+
+function healthyTuiDaemonClient(): TuiDaemonClient {
+  return {
+    async health() {
+      return { ok: true };
+    },
+    async status() {
+      return { state: "running" };
+    },
+    async list() {
+      return { runs: [] };
+    },
+    async pipelineList() {
+      return { pipelines: [] };
+    },
+    async start() {
+      throw new Error("unexpected start");
+    },
+    async wait() {
+      throw new Error("unexpected wait");
+    },
+    async pause() {
+      return { ok: true };
+    },
+    async resume() {
+      return { ok: true };
+    },
+    async kill() {
+      return { ok: true };
+    },
+    close() {},
+  };
+}
 
 describe("tui command", () => {
   test("jarvis tui dispatches to runTuiEntry with the production socket path", async () => {
@@ -176,5 +258,127 @@ describe("tui command", () => {
     });
 
     expect(code).toBe(0);
+  });
+
+  test("jarvis tui supplies monitor controls whose detached admission uses pipeline start seams", async () => {
+    // @mutate v2/src/commands/tui.ts "admitDetachedPipelineStart: detachedPipelineStartAdmission(deps)," -> "admitDetachedPipelineStart: async () => ({ kind: \"admitted\", pipelineId: \"bypass\" }),"
+    // @mutate v2/src/tui/tui-entry.tsx "return deps.admitDetachedPipelineStart(input);" -> "return Promise.resolve({ kind: \"admitted\", pipelineId: \"bypass\" });"
+    const paths = tempPaths();
+    const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
+    const registry = { demo: { root: fx.repoRoot } };
+    const tuiSent: unknown[] = [];
+    const pipelineSent: unknown[] = [];
+    let entryAdmission: DetachedPipelineStartAdmission | undefined;
+    let monitorControls: TuiMonitorControls | undefined;
+    let resolveOpened: () => void = () => {};
+    const opened = new Promise<void>((resolve) => {
+      resolveOpened = resolve;
+    });
+
+    const sharedDeps = {
+      machineConfigPath: configPath,
+      socketPath: paths.socketPath,
+      cwd: () => fx.repoRoot,
+      readProjectRegistry: () => registry,
+      loadAgentModelConfig: () => ALL_REVIEW_ROLES_CONFIG,
+      connectIpcClient: async () =>
+        makeIpcClient([{ kind: "response", id: "pipe-admit", result: { pipelineId: "pipe-tui" } }], {
+          sent: tuiSent,
+        }),
+    };
+
+    const tuiPending = main(["tui"], captureIo().io, {
+      ...sharedDeps,
+      runTuiEntry: (entryDeps) => {
+        entryAdmission = entryDeps.admitDetachedPipelineStart;
+        return productionRunTuiEntry({
+          ...entryDeps,
+          viewHost: {
+            show() {},
+            async openMonitor(_state, controls) {
+              monitorControls = controls;
+              resolveOpened();
+              return {
+                update() {},
+                waitUntilExit: () => new Promise(() => {}),
+                close() {},
+              };
+            },
+          },
+          connectTuiDaemon: async () => healthyTuiDaemonClient(),
+        });
+      },
+    });
+
+    await opened;
+    expect(entryAdmission).toBeDefined();
+    expect(monitorControls).toBeDefined();
+    if (entryAdmission === undefined || monitorControls === undefined) throw new Error("missing admission binding");
+    const controls = monitorControls;
+
+    const tuiResult = await withFixedUuid("pipe-admit", () =>
+      controls.admitDetachedPipelineStart({ projectKey: "demo", seedText: "Ship feature" }),
+    );
+    expect(tuiResult).toEqual({ kind: "admitted", pipelineId: "pipe-tui" });
+    expect(ipcFramesWithMethod(tuiSent, "pipeline_start")).toHaveLength(1);
+    expect(ipcFramesWithMethod(tuiSent, "pipeline_wait")).toHaveLength(0);
+    expect(ipcFramesWithMethod(tuiSent, "pipeline_start")[0]).toMatchObject({
+      params: {
+        context: {
+          cwd: fx.repoRoot,
+          seed: "Ship feature",
+          configPath,
+          projectRegistry: registry,
+        },
+      },
+    });
+
+    const pipelineCode = await withFixedUuid([SESSION_UUID, "pipe-admit"], () =>
+      main(["pipeline", "start", "demo", "--seed-text", "Ship feature", "--detach"], captureIo().io, {
+        ...sharedDeps,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: "pipe-admit", result: { pipelineId: "pipe-cli" } }], {
+            sent: pipelineSent,
+          }),
+      }),
+    );
+    expect(pipelineCode).toBe(0);
+    expect(ipcFramesWithMethod(pipelineSent, "pipeline_start")).toHaveLength(1);
+    expect(ipcFramesWithMethod(pipelineSent, "pipeline_wait")).toHaveLength(0);
+    expect(ipcFramesWithMethod(pipelineSent, "pipeline_start")[0]).toMatchObject({
+      params: {
+        context: {
+          cwd: fx.repoRoot,
+          seed: "Ship feature",
+          configPath,
+          projectRegistry: registry,
+        },
+      },
+    });
+
+    let preAdmissionContacted = false;
+    const missingProjectConfig = pipelineMachineConfig(
+      "demo",
+      { name: "fast", terminalAction: "leave-draft" },
+      fx.repoRoot,
+    );
+    const preAdmission = await controls.admitDetachedPipelineStart({ projectKey: "missing", seedText: "text" });
+    expect(preAdmission).toEqual({ kind: "pre-admission-failure", failure: "unregistered-project", detail: "unregistered project: missing\n" });
+
+    await main(["pipeline", "start", "missing", "--seed-text", "text"], captureIo().io, {
+      machineConfigPath: missingProjectConfig,
+      socketPath: paths.socketPath,
+      cwd: () => fx.repoRoot,
+      readProjectRegistry: () => registry,
+      loadAgentModelConfig: () => ALL_REVIEW_ROLES_CONFIG,
+      connectIpcClient: async () => {
+        preAdmissionContacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+    expect(preAdmissionContacted).toBe(false);
+
+    controls.quit();
+    expect(await tuiPending).toBe(0);
   });
 });

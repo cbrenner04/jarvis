@@ -2479,6 +2479,52 @@ function stageRecord(
   return stages.find((stage) => stage.stageId === stageId && stage.branchKey === branchKey);
 }
 
+function setupFanOutAlphaLiveLinked(
+  store: StateStore,
+  alphaPatch: Record<string, unknown> = { status: "running", workflowInvocationId: "run-alpha-running" },
+): void {
+  const intentArtifact: PipelineStageArtifact = {
+    entryRunId: "run-intent",
+    specPath: "ready-intents",
+    downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+  };
+  store.updateStage({
+    pipelineId: PIPELINE_ID,
+    stageId: "intent",
+    patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+  });
+  for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+    store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+    store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+  }
+  for (const stageId of ["plan", "implement"] as const) {
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped" },
+    });
+  }
+  store.updateStage({
+    pipelineId: PIPELINE_ID,
+    stageId: "plan",
+    branchKey: "alpha",
+    patch: alphaPatch,
+  });
+}
+
+const FAN_OUT_ALPHA_RUNNING_RUNS = {
+  "run-intent": {
+    specPath: "ready-intents",
+    downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+    worktreePath: "/intent",
+    branch: "intent/split",
+  },
+  "run-alpha-running": { specPath: "spec/alpha/plan.md", status: "in-progress" as const },
+  "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+  "run-beta-2-4": { specPath: "spec/beta/implement.md" },
+};
+
 function fanOutPipelineDeps(
   store: StateStore,
   dispatchLog: Array<{ stageId: string; branchKey: string }>,
@@ -2740,6 +2786,94 @@ describe("pipeline branch fan-out execution", () => {
     expect(alphaArtifact?.specPath).not.toBe(betaArtifact?.specPath);
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("live-linked running stage row is not terminalized while its entry run is still live", async () => {
+    const alphaStartedAt = 1_700_000_000_000;
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store, {
+      status: "running",
+      workflowInvocationId: "run-alpha-running",
+      startedAt: alphaStartedAt,
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => {
+        if (entryRunId === "run-alpha-running") return alphaWait.promise;
+        return "completed";
+      },
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    const alpha = stageRecord(stages(), "plan", "alpha");
+    expect(alpha?.status).toBe("running");
+    expect(alpha?.workflowInvocationId).toBe("run-alpha-running");
+    expect(alpha?.startedAt).toBe(alphaStartedAt);
+    expect(alpha?.endedAt).toBeNull();
+    expect(alpha?.failureDetail).toBeNull();
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (entryRunId != null && isLiveEntryRun(store, entryRunId)) return entryRunId;" -> "if (false) return entryRunId;"
+
+    alphaWait.resolve("completed");
+    await donePromise;
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+  });
+
+  test("re-entry skips already-running fan-out branch rows without re-dispatch", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = fanOutPipelineDeps(store, dispatchLog);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "alpha")).toEqual([]);
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
+      { stageId: "plan", branchKey: "beta" },
+    ]);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+  });
+
+  test("fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => {
+        if (entryRunId === "run-alpha-running") return alphaWait.promise;
+        return "completed";
+      },
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    const alphaBeforeSettle = stageRecord(stages(), "plan", "alpha");
+    expect(alphaBeforeSettle?.status).toBe("running");
+    expect(alphaBeforeSettle?.workflowInvocationId).toBe("run-alpha-running");
+    expect(alphaBeforeSettle?.endedAt).toBeNull();
+
+    alphaWait.resolve("completed");
+    await donePromise;
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+
+    const { store: refusedStore, stages: refusedStages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      "run-beta-1-1": { specPath: "spec/beta/plan.md" },
+      "run-beta-2-2": { specPath: "spec/beta/implement.md" },
+    });
+    const refusedDispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    await runPipeline(PIPELINE_ID, {
+      ...fanOutPipelineDeps(refusedStore, refusedDispatchLog, { failBranchIndex: 0, failAtStageIndex: 1 }),
+      context: baseContext,
+    });
+    const refusedAlpha = stageRecord(refusedStages(), "plan", "alpha");
+    expect(refusedAlpha?.status).toBe("failed");
+    expect(refusedAlpha?.workflowInvocationId).toBeNull();
   });
 
   test("duplicate downstreamInputs branchKey fails admission", async () => {

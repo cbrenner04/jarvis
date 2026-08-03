@@ -883,10 +883,13 @@ module cannot reach either directly.
   routing-read failure, invalid params) records `endedAt`, `status: "failed"`,
   and `failureDetail: { code, message }` immediately — no `startedAt`, no
   `workflowInvocationId`, no retry or queueing.
-- On a successful dispatch, `workflowInvocationId` (set to the returned
-  `entryRunId`) and `startedAt` are written via `StateStore.updateStage`
-  *before* the invocation settles, so a crash mid-stage leaves a resolvable
-  linkage.
+- On a successful dispatch, `workflowInvocationId` is set to the admitted entry
+  run id (the returned `entryRunId`, not the workflow snapshot `invocationId`
+  or a superseded run id). `startedAt` and `status: "running"` are written via
+  `StateStore.updateStage` *before* settlement, so a crash mid-stage leaves a
+  resolvable linkage. The stage row stays `running` with that linkage until the
+  entry run settles — no terminal patch (`failed`, `succeeded`, or `endedAt`)
+  is written while the linked entry run is still live.
 - The dispatcher then awaits settlement through `PipelineWorkflowWait`, not
   the dispatch callback's own promise (which resolves at run creation, before
   the workflow's steps have run). This mirrors the daemon's own `wait` RPC
@@ -903,11 +906,16 @@ module cannot reach either directly.
   `paused`, or anything else the wait primitive returns) records `status:
   "failed"`, `endedAt`, and a `failureDetail` — never an artifact reference and
   never a stage left at `running` while later stages are marked `skipped`. When
-  the entry run row is present, `failureDetail` is built from
-  `composeRunOperatorError` (`run-operator-error.ts`); when it is absent, a
-  hand-built `{ reason, retryable, nextAction }` harness-failure shape is used.
-- An unexpected throw or rejection anywhere in dispatch/settlement records the
-  same `failed` row with `{ message }` via a best-effort store write.
+  the entry run row is present, `failureDetail` mirrors the full
+  `composeRunOperatorError` result (`reason`, `retryable`, `nextAction`, and
+  optional detail fields) from the settled entry run with its terminal log
+  context (`findTerminalLogRecord` on the entry run's log tail loaded by the
+  daemon's `logReader`); when the entry run row is absent, a hand-built
+  `{ reason, retryable, nextAction }` harness-failure shape is used.
+- Pre-admission throws (before `entryRunId` is linked) record `failed` with
+  `{ message }` via a best-effort store write. Post-admission throws or
+  rejections while the admitted entry run is still live preserve the `running`
+  linkage and defer settlement — no immediate `failed` row.
 
 Stage status vocabulary (daemon-owned, not interpreted by the state store):
 `pending` (admitted, undispatched), `running` (dispatched, unsettled),

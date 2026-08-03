@@ -92,9 +92,23 @@ Tool split that emerged: pipelines for **seeds**, standalone workflows for anyth
 
 Six adversarial reviews ran; **every one found something real**, including two `DO NOT MERGE` verdicts on work I had called green.
 
+## Cost
+
+| | |
+| --- | --- |
+| Operator (claude-opus-5) | **$145.58** |
+| API time | 2:20:25 |
+| Wall time | 20:53:56 |
+| Tokens | 180.9k in / 542.7k out, 233.1m cache read, 1.7m cache write |
+| Cost per 1k tokens | $0.20 |
+| Agent spend (measurable) | $16.26 |
+| Observed total | $161.84 |
+
+Six work units completed of eight driven — $24.26 and 120.6k tokens per completed unit.
+
 ## Agents
 
-Codex led as requested until it hit its usage limit at 01:50Z ("try again at Aug 8th"), then cursor with claude behind it. 106 invocations: codex 58, cursor 43, claude 5. Measurable agent spend **$16.26** (cursor $10.04, claude $6.21) — codex's 58 are unmeasurable, which is exactly the gap #2561 closes going forward.
+Codex led as requested until it hit its usage limit at 01:50Z ("try again at Aug 8th"), then cursor with claude behind it. 106 invocations: codex 58, cursor 43, claude 5. Measurable agent spend **$16.26** (cursor $10.04, claude $6.21) — codex's 58 are unmeasurable, which is exactly the gap #2561 closes going forward. Next codex-led session will have a real cost column for the first time.
 
 ## Open at close
 

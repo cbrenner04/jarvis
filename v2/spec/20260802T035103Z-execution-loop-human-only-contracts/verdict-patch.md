@@ -1,0 +1,3 @@
+- Ensure the implement preflight regression’s entire linked tree contains exactly one unchecked item: the six-space wrapped `(Manual)` criterion. All other linked subspec criteria must be checked. This is required by the acceptance criterion and isolates block-aware human-only classification.
+
+- Align the completed subspec’s documentation statements with current durable docs. Remove stale claims that injected guidance and `v1/docs/run-loop.md` still use trailing-marker semantics or await reconciliation; record that the prerequisite sibling already reconciled them. This keeps the spec’s architectural record accurate without additional durable-doc changes.

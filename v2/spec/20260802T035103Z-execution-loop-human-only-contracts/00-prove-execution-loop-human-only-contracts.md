@@ -37,24 +37,24 @@
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` — `rejects an already-complete linked tree with only a
+- [x] `implement-workflow-steps.test.ts` — `rejects an already-complete linked tree with only a
       wrapped human-only criterion unchecked` uses `(Manual)` on a six-space continuation line as
       the only unchecked item and returns `implement.already_complete`; it fails with the pre-fix
       parser and passes with block-aware classification.
-- [ ] `write.test.ts` — `done completes when only a wrapped human-only criterion is unchecked` uses
+- [x] `write.test.ts` — `done completes when only a wrapped human-only criterion is unchecked` uses
       the same wrapped shape and returns `complete`, not `contract_miss`; it fails with the pre-fix
       parser and passes with block-aware classification.
-- [ ] `implement-workflow-steps.test.ts` — Mutation checkpoint: its regression carries an `@mutate`
+- [x] `implement-workflow-steps.test.ts` — Mutation checkpoint: its regression carries an `@mutate`
       directive that inverts the `implement.already_complete` production `humanOnly` filter and turns
       the named test red; production guards and production test hooks remain unchanged.
-- [ ] `write.test.ts` — Mutation checkpoint: its regression carries an `@mutate` directive that
+- [x] `write.test.ts` — Mutation checkpoint: its regression carries an `@mutate` directive that
       inverts the `spec.criteria-ticked` production `humanOnly` filter and turns the named test red;
       production guards and production test hooks remain unchanged.
-- [ ] `v2/docs/workflow-runner.md` documents that each exact human-only marker is a
+- [x] `v2/docs/workflow-runner.md` documents that each exact human-only marker is a
       case-insensitive contiguous substring matched anywhere in an assembled criterion bullet block.
-- [ ] `v2/docs/operator-runbook.md` removes the obsolete wrapped-`(Manual)` known issue and
+- [x] `v2/docs/operator-runbook.md` removes the obsolete wrapped-`(Manual)` known issue and
       workaround.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -25,7 +25,9 @@ Then **`ready-intents/fan-out-concurrent-sibling-dispatch`** and **`ready-intent
 
 The original spec (`fan-out-stage-dispatch-preserves-workflow-ownership`) was retired by #2562 after adversarial review disproved its premise: destination worktrees were **already** distinct from the predecessor on `main`, so its ownership guard enforced nothing and its headline change was inert. Three implement attempts went into it — two blocked on hollow mutation checkpoints, the third produced a red gate and dead code. PR #2555 remains open as a DO-NOT-MERGE record.
 
-The rescoped seed (#2562) split into three intents (#2563). The first, stage linkage, shipped in #2566 in a single pass with every guard proven reachable. Read `v2/spec/seeds/fan-out-stage-linkage-and-dispatch.md`'s **Non-problems** section before touching this area — it names the disproven predicates so they are not re-derived.
+The rescoped seed (#2562) split into three intents (#2563). The first, stage linkage, shipped in #2566 in a single pass with every guard proven reachable.
+
+**Non-problems — do not re-derive these.** The seed carrying them was consumed by its intent split, so they are recorded here instead. Destination worktrees were already distinct from the predecessor: reverting `resolvePlanStage` to baseline semantics leaves both ownership regressions green, because plan destinations are `plan/${ready.name}`, derived per downstream ready-intent, on `main` too. `destinationDistinctFromPredecessor` asserts an invariant that already held and has no production call site; `selectChainedStageCwd` and `PriorArtifactContext.cwd` became dead code. Adding `chainedInputRoot` to plan resolution changed the ready-intent **read path**, not ownership — keep that part, drop the ownership framing. Full evidence: #2562's seed diff and #2555's body.
 
 ## Open seeds, newest first
 
@@ -46,10 +48,11 @@ The rescoped seed (#2562) split into three intents (#2563). The first, stage lin
 
 | Seed / intent | Status | Notes |
 | --- | --- | --- |
-| `seeds/codex-usage-is-never-recorded` | **Shipped** #2559 + #2561 | Kept only as history; delete on next cleanup. |
 | `seeds/iteration-timeout-discards-completed-subspecs` | Open, and it bit twice this session | Cost two salvages. Workaround: split large subspecs at plan time. |
 | `seeds/out-of-scope-gate-classification-strands-caused-failures` | Open | Run-caused test failures classified out of scope (#2313). |
-| `seeds/surface-the-completion-commit-error-instead-of-swallowing-it` | Partially shipped | #2549 landed the durable log field; `emit`, `project`, and `render` ready-intents remain from the #2546 split. |
+| `ready-intents/emit-completion-commit-errors-from-execution-loops` | Ready | Second link of the completion-commit chain; #2549 shipped the first. Copy the returned `completionCommitError` onto every terminal `loop_finished` event. |
+| `ready-intents/project-completion-commit-errors-on-run-results` | Ready | Third link — project the durable message onto `list` / `wait` as `error.completionCommitError`. Needs `emit` first. |
+| `ready-intents/render-completion-commit-errors-in-run-cli` | Ready | Fourth link — surface it in `run wait` JSON and a `run list` column. Needs `project` first. |
 | `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Three of four v2 review prompts tell reviewers the payload is "not a unified diff" while sending one. |
 | `ready-intents/pipeline-terminal-state-waits-for-stage-settlement.md` | Ready | A failed branch makes the pipeline read terminal while a sibling is still running. Observed live. |
 

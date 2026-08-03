@@ -8,9 +8,16 @@ result (`usage_source` / `cost_source` both `"unavailable"`). Read the matched r
 
 - On `resolved.sessionFile !== null`, read that rollout and take the **last** `token_count` event with
   non-null `info` — rules out leaving the resolved file unused and rules out v1 max-total selection.
-- Map `info.total_token_usage` to telemetry usage via fresh-input subtraction
-  (`input_tokens - cached_input_tokens`, `output_tokens`, `cached_input_tokens` as
-  `cache_read_input_tokens`) — rules out double-counting cached input in the usage record.
+  Codex `total_token_usage` is cumulative per session; the terminal non-null event is the session
+  total, whereas v1 max-total can pick an earlier spike when totals decrease mid-rollout.
+- Map `info.total_token_usage` mirroring v1 `extractTokenUsage`: per-field `numberOrNull`;
+  `Math.max(0, input - cached)` for billable `input_tokens`; `cache_read_input_tokens` from
+  `cached_input_tokens`; `cache_creation_input_tokens: null`; non-object `total_token_usage` →
+  unextractable (no usage object) — rules out naked subtraction on missing fields, `cached > input`,
+  and negative cost.
+- When the mapper yields a usage object whose fields are all `null`, settle `usage_source: "agent"` and
+  `cost_source: "no-usage"` via `computeCost` (cursor precedent) — distinct from the all-`info: null`
+  branch.
 - Thread `priceKey` from `createResolvedAgentBinding` into `runCodexBinding` / finalize — rules out
   hard-coding or inferring catalog keys inside the adapter.
 - Pass usage with fresh `input_tokens` into `computeCost`; `reasoning_output_tokens` is not mapped or
@@ -22,10 +29,18 @@ result (`usage_source` / `cost_source` both `"unavailable"`). Read the matched r
   `cost_usd: null` / `cost_source: "no-price"` rather than failing the invocation — rules out catalog
   problems aborting an otherwise-successful codex run.
 - Matched rollout with only `info: null` `token_count` events → `usage_source: "unavailable"`,
-  `cost_source: "no-usage"` — rules out zero-token usage for rate-limited turns.
-- Unreadable or malformed matched rollout → `usage_source: "unavailable"`, `cost_source: "no-usage"`,
-  with a warning, without throwing — rules out parse failure killing an otherwise successful
+  `cost_source: "no-usage"`, plus a warning — rules out zero-token usage for rate-limited turns and
+  indistinguishability from a correlation miss in telemetry.
+- Matched rollout with a selected non-null `info` event whose usage is unextractable (mapper returns
+  `null`, e.g. non-object `total_token_usage`) → `usage_source: "unavailable"`, `cost_source:
+  "no-usage"`, with a warning, without throwing — rules out bad shape on an otherwise-successful
   invocation.
+- Degrade-without-throw applies only to **file read + JSONL line parse**; mapping and shape handling
+  follow the explicit branches above (not a broad try/catch that would swallow guard-inversion
+  failures into the same `unavailable`/`no-usage` outcome as all-`info: null`).
+- Priced success path spreads `...result` from `runAgent` and overlays usage/cost fields (preserves
+  `stdout`, `stderr`, and any existing `warnings`) — unlike cursor, which rebuilds `InvocationOk` from
+  parsed stdout.
 - Unmatched session path unchanged (`no-usage`, existing resolver warnings) — rules out changing
   today's correlation-miss behavior.
 - Computed `cost_usd` is published-rate list price, not billed spend — rules out presenting harness
@@ -41,43 +56,53 @@ result (`usage_source` / `cost_source` both `"unavailable"`). Read the matched r
   replace the bare `return result;` success path; keep non-`ok` passthrough and the unmatched-session
   branch untouched.
 - Add `agents.test.ts` coverage with injectable `codexSessionsDir` + `randomUUID`: correlated rollout
-  fixtures for priced usage (`gpt-5.6-sol`, 35380 / 11008 cached / 282 → `0.135824`), all-null-info,
-  multiple `token_count` events (last wins), unknown `priceKey`, and malformed JSONL. Write each
-  fixture from a wrapper around the injected `spawn` so the file changes *after* the pre-invocation
-  snapshot; carry the injected marker in a `user_message` `event_msg` and omit `cwd` events (or match
-  the invoke `cwd`) so the resolver matches.
+  fixtures for priced usage (`gpt-5.6-sol`, 35380 / 11008 cached / 282), all-null-info (assert
+  warning), multiple `token_count` events with a **decreasing** final non-null total plus a trailing
+  `info: null` event (last-wins, not max-total), unknown `priceKey`, and partially parseable rollout
+  with non-null `info` but non-object `total_token_usage`. Write each fixture from a wrapper around
+  the injected `spawn` so the file changes *after* the pre-invocation snapshot; carry the injected
+  marker in a `user_message` `event_msg` and omit `cwd` events (or match the invoke `cwd`) so the
+  resolver matches.
+- Drive `executeWithQuotaFallback` in the priced-usage test and assert `rows[0]` carries usage/cost
+  (mirror cursor priced-usage telemetry assertion).
 - Add the three `@mutate` directives (finalize call, cached-input subtraction, non-null `info` guard)
   on their pinning tests.
 - Update `v2/docs/shared-invocation.md`, `v2/docs/operator-runbook.md` § Reading telemetry, and
   `v2/docs/v1-behaviors.md` (note last-event selection vs v1 max-total).
-- Run `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`, and
+- Run `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`,
+  `bun run test:integration:v1`, `bun run test:integration:shared`, and
   `bun run test:integration:v2`.
 
 ## Acceptance criteria
 
 - [ ] `agents.test.ts` — matched rollout with non-null `token_count` `info` settles `ok` with
   `usage_source: "agent"`, mapped `usage` (`input_tokens: 24372`, `output_tokens: 282`,
-  `cache_read_input_tokens: 11008`), `cost_source: "computed"`, and `cost_usd` matching
-  `data/prices.json` for raw `total_token_usage` 35380 input / 11008 cached / 282 output on
-  `gpt-5.6-sol` (`0.135824`); fails against the bare `return result` success path.
+  `cache_read_input_tokens: 11008`), `cost_source: "computed"`, and `cost_usd` within tolerance of
+  `computeCost` against `data/prices.json` for raw `total_token_usage` 35380 input / 11008 cached /
+  282 output on `gpt-5.6-sol` (document expected ≈`0.135824`; catalog-coupled, use `toBeCloseTo` not
+  exact equality); `executeWithQuotaFallback` telemetry `rows[0]` matches the same usage/cost fields;
+  fails against the bare `return result` success path.
 - [ ] `agents.test.ts` — matched rollout whose `token_count` events all carry `info: null` settles
-  `usage_source: "unavailable"` and `cost_source: "no-usage"` without throwing.
-- [ ] `agents.test.ts` — rollout with multiple `token_count` events uses the last non-null `info`
-  event.
+  `usage_source: "unavailable"`, `cost_source: "no-usage"`, and a warning, without throwing.
+- [ ] `agents.test.ts` — rollout with multiple `token_count` events including a decreasing final
+  non-null total and a trailing `info: null` event uses the last non-null `info` event (not v1
+  max-total).
 - [ ] `agents.test.ts` — priced usage with unknown `priceKey` keeps `cost_usd: null` and
   `cost_source: "no-price"`.
-- [ ] `agents.test.ts` — unreadable or malformed matched rollout settles `usage_source: "unavailable"`
-  and `cost_source: "no-usage"` with a warning, without throwing.
+- [ ] `agents.test.ts` — matched rollout with non-null `info` but unextractable usage shape (e.g.
+  non-object `total_token_usage` on the selected event) settles `usage_source: "unavailable"` and
+  `cost_source: "no-usage"` with a warning, without throwing.
 - [ ] `agents.test.ts` — `codex session usage unavailable remains ok with warning metadata` stays
   green.
 - [ ] `agents.test.ts` — a `// @mutate` directive on the matched-session finalize call restoring the
   bare `return result;` success path turns the priced-usage pinning test RED.
 - [ ] `agents.test.ts` — a `// @mutate` directive removing the cached-input subtraction from the
   mapped `input_tokens` turns the priced-usage pinning test RED.
-- [ ] `agents.test.ts` — a `// @mutate` directive inverting the non-null `info` guard (so `info: null`
-  events are accepted as usage) turns the all-null-info pinning test RED, proving the guard suppresses
-  a zero-token `usage_source: "agent"` settlement.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`, and
+- [ ] `agents.test.ts` — a `// @mutate` directive inverting the non-null `info` guard turns the
+  all-null-info pinning test RED with `usage_source: "agent"` and zero-token usage (not
+  `unavailable`/`no-usage`), proving the guard blocks spurious agent settlement.
+- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, `bun run test:v2`,
+  `bun run test:integration:v1`, `bun run test:integration:shared`, and
   `bun run test:integration:v2` pass.
 
 ## Documentation updates

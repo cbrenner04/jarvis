@@ -348,8 +348,10 @@ The dock always occupies four physical rows: status, cursor-bearing input, input
 continuation (kept even when empty), and contextual hints. Status counts distinct
 retained pipelines as active when any retained observation is non-terminal, including
 contradictory terminal/non-terminal observations for one pipeline ID. It also shows the
-invoking `profile@socket-digest`, refresh label, and retained feedback; the latest RPC
-error takes precedence over the last command result. Discovery, connection, `list`, and
+invoking `profile@socket-digest`, refresh label, and both retained feedback channels at
+once — `· error: <rpc-error>` first, then `· result: <command-result>`, in that fixed
+order after the prefix. Neither hides the other, and at narrow widths the composed line
+truncates from the right, keeping the active/profile/refresh prefix. Discovery, connection, `list`, and
 `pipeline_list` failures retain last-good rows and snapshots; only a fully successful
 refresh clears the error, and refresh never clears a retained command result. Retained
 rows without a live client cannot be killed or waited on until ownership reconnects.
@@ -357,12 +359,65 @@ Input is sanitized and windowed across its two display-width-bounded rows so the
 stays visible without changing the buffer. From tree focus, `:` or `/` focuses the
 retained buffer without inserting the shortcut. Printable input inserts at its grapheme
 cursor; Left/Right move it, Backspace/Delete remove whole graphemes, and `Esc` restores
-tree focus without clearing or moving it. Enter calls an inert submission handoff with
-the current buffer; it does not dispatch a command or mutate editor state. Shift+Enter
+tree focus without clearing or moving it. Enter parses and dispatches the buffer (see
+[Dock commands](#dock-commands)). Shift+Enter
 is ignored, and pasted CR/LF are removed rather than creating newlines. Ctrl-C always
 quits. Other Ctrl/Meta input is ignored. While command-focused, tree navigation,
 expansion, divider, kill, and `q` bindings are suppressed. Tree hints add expansion or
 kill only when supported; command hints advertise only `Esc` and Enter.
+
+#### Dock commands
+
+Three verbs. Enter parses the buffer exactly once and switches on the result.
+
+| Command | Form | Effect |
+| --- | --- | --- |
+| `start` | `start <project> --seed <path>` or `start <project> --seed-text "<text>"` | Detached `pipeline_start` through the same admission seams as `jarvis pipeline start` |
+| `expand` | `expand` (no arguments) | Adds the selected pipeline or stage to the expanded set |
+| `collapse` | `collapse` (no arguments) | Removes the selected pipeline or stage from the expanded set |
+
+`expand` and `collapse` are **explicit, not toggles** — unlike the `e` key, which
+toggles. A command that matches the current state succeeds and changes nothing, so
+`expand` twice is safe. Both are local state edits; neither contacts the daemon.
+Argument-bearing `expand foo` is rejected as `unexpected_arguments`.
+
+**`start` is detached.** The TUI issues one `pipeline_start` and no `pipeline_wait`, so
+it never attaches to completion — admitted means admitted, not finished. Track progress
+in the tree, or with `jarvis pipeline list` / `jarvis pipeline wait`. At most one
+admission is in flight; a second Enter while pending is ignored and issues no second
+parse or admission. Buffer edits and tree navigation stay available while it is pending,
+and a settlement that arrives after you have typed or navigated does not clobber the
+newer state.
+
+**Outcomes.** An admitted `start` reports the pipeline id in `result:`, clears the buffer
+and cursor, and restores tree focus. Everything else — parse errors, pre-admission
+failures, and daemon refusals — **retains command focus, buffer, and cursor** so the
+input is repairable, and reports its named code; a daemon refusal preserves the daemon's
+`detail` verbatim.
+
+**Expansion feedback codes** (nothing changes when one fires):
+
+| Code | Meaning |
+| --- | --- |
+| `no_selection` | No selectable row is selected |
+| `run_leaf` | The selected row is a nested run leaf |
+| `unattributed` | The selected row is an unattributed run |
+| `stale_non_expandable` | The selected id is absent from the current expandable tree |
+
+**CLI fallbacks.** Steering verbs are recognized but not implemented in the dock; each
+reports `recognized_unavailable` naming its exact CLI equivalent:
+
+| Typed | Use instead |
+| --- | --- |
+| `approve` / `reject` | `jarvis pipeline approve` / `jarvis pipeline reject` |
+| `resume` | `jarvis pipeline resume` |
+| `kill` / `pause` | `jarvis run kill` / `jarvis run pause` |
+| `log` | `jarvis tui log <run-id>` |
+
+Any other verb reports `unknown_verb`. Malformed `start` input reports the specific
+code — `missing_project`, `missing_seed_choice`, `missing_seed_value`, `both_seed_flags`,
+`duplicate_seed_flag`, `unknown_option`, `extra_positional` — and unbalanced quoting
+reports `unterminated_quote`.
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 

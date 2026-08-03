@@ -648,3 +648,27 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   viewport scrolls to keep the selected tree row visible. Sources:
   `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`,
   `v2/src/tui/tui-monitor-pipeline-tree.ts`
+- [v2 additive] TUI command dock dispatch: a submitted `start <project> --seed
+  <path>` or `--seed-text <text>` reaches `admitPipelineStart` on the same
+  pre-admission seams as `jarvis pipeline start`, detached — one `pipeline_start`
+  with no `pipeline_wait`, so the TUI never attaches to completion. At most one
+  admission is in flight; a second Enter while pending neither reparses nor
+  re-admits. An admitted settlement reports the pipeline id, clears the buffer and
+  cursor, and restores tree focus; parse errors, pre-admission failures, and daemon
+  refusals retain command focus, buffer, and cursor and report their named code,
+  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis pipeline
+  approve|reject|resume`, `jarvis run kill|pause`, `jarvis tui log`). Sources:
+  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
+  `v2/src/daemon/pipeline-start-admission.ts`
+- [v2 additive] TUI local `expand` / `collapse` commands: unlike the **`e`** key,
+  the dock verbs are explicit, not toggles — `expand` adds and `collapse` removes
+  the selected pipeline or stage id from `expandedPipelineNodeIds`, and a command
+  that matches the current state succeeds unchanged. Both are local state edits
+  with no daemon RPC. Ineligible selections report a stable code and change
+  nothing: `no_selection`, `run_leaf`, `unattributed`, `stale_non_expandable`.
+  Sources: `v2/src/tui/tui-entry.tsx`
+- [v2 additive] TUI dock status row projects both retained feedback channels at
+  once: `· error: <lastRpcError>` then `· result: <lastCommandResult>`, appended in
+  that fixed order after the `<active> active · <profile>@<digest> · refresh
+  <interval>` prefix. A successful refresh clears only the RPC suffix and never the
+  retained command result. Source: `v2/src/tui/tui-monitor-lines.ts`

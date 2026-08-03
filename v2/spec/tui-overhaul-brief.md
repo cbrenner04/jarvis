@@ -173,7 +173,7 @@ Commands are entered in the **command dock** (bottom 4 lines). Grammar mirrors C
 | `resume`                        | `resume`                           | `pipeline_resume` on selected pipeline                      |
 | `kill` / `pause` / `resume-run` | `kill`                             | `run` RPC on selected nested run                            |
 | `log`                           | `log`                              | `jarvis tui log <run-id>` for selected run                  |
-| `expand` / `collapse`           | `expand`                           | Toggle selected pipeline/stage node                         |
+| `expand` / `collapse`           | `expand`                           | Explicitly add/remove selected pipeline/stage node          |
 
 Keybindings remain for frequent actions (`j`/`k`, `e`, `a`/`r` on gates, etc.). Command dock and keys share one dispatch layer.
 
@@ -196,7 +196,7 @@ TUI (after slices 1-4): left tree pane / right detail pane / fixed 4-line dock, 
 
 Slice 5 has landed six pieces: a pure typed command parser (`tui-command-parser.ts`, #2529), a reusable `pipeline_start` admission API the CLI now goes through too (`pipeline-start-admission.ts`, #2530), the four dock rows as a pure function over monitor state (`monitorDockLines`, #2531), the painted dock plus its session state (#2533), command focus and grapheme-cursor editing driven through the injected input hook (#2545), and dispatch — a submitted `start` reaches `admitPipelineStart` on the same seams as `jarvis pipeline start`, detached, plus `expand`/`collapse` and parse-error feedback (#2554).
 
-Still missing: subspecs 02-04 of `20260803T013930Z-tui-command-dispatch/` — status-row projection, operator runbook, parity catalog. 03 and 04 are documentation-only subspecs, which is over-split; folding them into 02's Documentation updates would save two implement runs. There is no steering — approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no FIFO or labelling polish.
+Slice 5 is complete: subspec 02 shipped the status-row projection that carries RPC and command feedback together, along with the operator-runbook and parity documentation folded into it (#2573 retired the two documentation-only subspecs). Still missing: there is no steering — approve/reject/resume, run pause/kill, and log follow are all still CLI-only. The unattributed segment renders but has no FIFO or labelling polish.
 
 One doc claim to correct when slice 6 touches the dock: `operator-runbook.md` says "Shift+Enter is ignored", but outside the kitty keyboard protocol terminals send a bare `\r`, so Shift+Enter submits. Harmless while submission was inert; wrong now that dispatch has landed.
 

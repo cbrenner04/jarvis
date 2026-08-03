@@ -27,4 +27,3 @@ The monitor has a dock buffer but no durable editor-state contract for focused e
 ## Documentation updates
 
 - None; routing documentation follows the observable input behavior in 01.
-

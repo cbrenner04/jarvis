@@ -53,8 +53,21 @@ Bindings:
   `ok | quota | model_config | error` before fallback continues.
   Resolved `codex` bindings spawn `codex exec --color never --sandbox
   workspace-write -c approval_policy="on-request" --model <adapterModel>`,
-  pipe the marker-augmented prompt on stdin, correlate Codex session usage
-  best-effort, and settle into `ok | quota | model_config | error` before
+  pipe the marker-augmented prompt on stdin, correlate changed
+  `~/.codex/sessions/*.jsonl` files to this invocation, and on a unique match
+  read the rollout's last `token_count` event with non-null `info`. Mapped usage
+  settles `usage_source: "agent"`; when the binding's `priceKey` is priced,
+  `cost_source: "computed"` and `cost_usd` is list-price from `computeCost`
+  (published rates, not subscription billed spend); when the key is unpriced or
+  `loadPrices()` fails, `cost_source: "no-price"`. When `usage` is present but
+  all token fields are null, finalize keeps `usage_source: "agent"` and settles
+  `cost_source: "no-usage"`. When correlation misses, multiple files match, or
+  every matched `token_count` carries `info: null`, `usage_source:
+  "unavailable"`, `cost_usd: null`, `cost_source: "no-usage"`, with resolver or
+  finalize warnings as appropriate. When a selected non-null `info` event has an
+  unextractable usage shape, same `unavailable`/`no-usage` outcome with a
+  warning. Selection uses the terminal non-null `token_count` event (not v1
+  max-total). It settles into `ok | quota | model_config | error` before
   fallback continues. Resolved `cursor` bindings spawn `cursor agent -p
   --output-format stream-json --stream-partial-output --model <resolved-cli-model>
   --force --workspace <cwd> <prompt>`, ignore stdin, parse the stream-json

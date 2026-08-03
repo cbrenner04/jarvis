@@ -22,8 +22,13 @@ source. This is the observability rail the codex usage fix needs to stay diagnos
 
 ## Acceptance criteria
 
-- [ ] A telemetry row emitted for an ok invocation whose adapter returned warnings carries those warning strings; the regression fails against the current record builder, which has no such field.
-- [ ] An ok invocation with no warnings, and a quota/stall/error invocation, each emit an empty warnings array.
+- [ ] `execute.test.ts` — an ok invocation whose adapter returned warnings emits an
+  `invocation_completed` row carrying those warning strings; fails against the current record builder,
+  which has no `warnings` field.
+- [ ] `execute.test.ts` — an ok invocation with no warnings and a quota/stall/error invocation each
+  emit an empty `warnings` array.
+- [ ] `execute.test.ts` — a `// @mutate` directive omitting `warnings` from the emitted row turns the
+  warnings regression RED.
 
 ## Documentation updates
 

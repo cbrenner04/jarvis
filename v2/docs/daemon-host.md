@@ -992,19 +992,24 @@ for every authored stage after the splitting stage. `branchKey` is the ready-int
 file basename without `.md`. Pre-admitted `default` rows for those downstream
 stages are reconciled to `skipped` so they never dispatch. The first chained
 workflow stage after the split resolves fan-out (`{ ok: true; results }`) and
-dispatches each result to its matching `branchKey`; later workflow stages on a
-branch resolve from branch-local preceding artifacts only. `skipRemainingStages`
-applies within one `branchKey` — one branch failure does not skip sibling
-branches. `pipeline_approve` / `pipeline_reject` accept optional `branchKey`
-and refuse with `branch_key_required` when multiple branch rows exist and it is
-omitted. `derivePipelineState` aggregates across fan-out branches; terminal
-`succeeded` requires every branch to succeed. `derivePipelineFailureDetail` names
-failed or rejected `branchKey`s when aggregate state is non-`succeeded` at
-derivation time. `pipeline_list` and `pipeline_wait` project `branchKey` on
-every durable stage row and name `awaiting-approval` boundaries with the
-blocking gate's `branchKey`. Multi-branch terminal publication when every
-implement branch succeeds is unchanged / deferred. Slug:
-`pipeline-intent-split-fan-out-execution`.
+dispatches each result to its matching `branchKey` concurrently; later workflow
+stages on a branch resolve from branch-local preceding artifacts only. Sibling
+suffix walks in `runPipeline` and admitted-branch dispatch in
+`advanceFanOutBranches` run concurrently (`Promise.all`) so one branch's
+`wait` does not block peer dispatch. In-memory stage-artifact resolution is
+branch-scoped by composite key `(stageId, branchKey)`; suffix walks build
+per-branch artifact maps from durable rows while the shared prefix map carries
+only pre-split stages. `skipRemainingStages` applies within one `branchKey` —
+one branch failure does not skip sibling branches. `pipeline_approve` /
+`pipeline_reject` accept optional `branchKey` and refuse with
+`branch_key_required` when multiple branch rows exist and it is omitted.
+`derivePipelineState` aggregates across fan-out branches; terminal `succeeded`
+requires every branch to succeed. `derivePipelineFailureDetail` names failed or
+rejected `branchKey`s when aggregate state is non-`succeeded` at derivation
+time. `pipeline_list` and `pipeline_wait` project `branchKey` on every durable
+stage row and name `awaiting-approval` boundaries with the blocking gate's
+`branchKey`. Multi-branch terminal publication when every implement branch
+succeeds is unchanged / deferred. Slug: `pipeline-intent-split-fan-out-execution`.
 
 ### Restart-safe pipeline continuation
 

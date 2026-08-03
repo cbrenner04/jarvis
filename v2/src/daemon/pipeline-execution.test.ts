@@ -2555,6 +2555,17 @@ function fanOutPipelineDeps(
   } as StateStore;
 
   let branchRunCounter = 0;
+  const entryRunOrdinals = new Map<string, number>();
+  const fanOutEntryRunOrdinal = (branchKey: string, stageIndex: number): number => {
+    const key = `${branchKey}:${stageIndex}`;
+    const cached = entryRunOrdinals.get(key);
+    if (cached !== undefined) return cached;
+    const branchIndex = FAN_OUT_BRANCH_KEYS.indexOf(branchKey);
+    const ordinal =
+      branchIndex >= 0 ? (stageIndex - 1) * FAN_OUT_BRANCH_KEYS.length + branchIndex + 1 : ++branchRunCounter;
+    entryRunOrdinals.set(key, ordinal);
+    return ordinal;
+  };
   const dispatch: PipelineWorkflowDispatch = async (steps) => {
     const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
     const branchKey = step.branchKey ?? "default";
@@ -2568,11 +2579,12 @@ function fanOutPipelineDeps(
     if (shouldFail) {
       return { ok: false, code: "worktree_claimed", message: "claimed" };
     }
-    branchRunCounter += 1;
+    const runOrdinal = fanOutEntryRunOrdinal(branchKey, step.stageIndex);
+    branchRunCounter = Math.max(branchRunCounter, runOrdinal);
     return {
       ok: true,
-      entryRunId: `run-${branchKey}-${step.stageIndex}-${branchRunCounter}`,
-      invocationId: `inv-${branchRunCounter}`,
+      entryRunId: `run-${branchKey}-${step.stageIndex}-${runOrdinal}`,
+      invocationId: `inv-${runOrdinal}`,
     };
   };
 
@@ -2620,8 +2632,8 @@ describe("pipeline branch fan-out execution", () => {
   test("approve-intent continuation dispatches only the approved branchKey", async () => {
     const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-2-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-3-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-2-4": { specPath: "spec/beta/plan.md" },
+      "run-beta-3-6": { specPath: "spec/beta/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog);
@@ -2647,10 +2659,10 @@ describe("pipeline branch fan-out execution", () => {
   test("approving both fan-out branches dispatches each successor on its own branchKey", async () => {
     const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-2-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-3-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-2-4": { specPath: "spec/beta/plan.md" },
+      "run-beta-3-6": { specPath: "spec/beta/implement.md" },
       "run-alpha-2-3": { specPath: "spec/alpha/plan.md" },
-      "run-alpha-3-4": { specPath: "spec/alpha/implement.md" },
+      "run-alpha-3-5": { specPath: "spec/alpha/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog);
@@ -2683,10 +2695,10 @@ describe("pipeline branch fan-out execution", () => {
   test("pipeline approve and reject stay isolated per branchKey", async () => {
     const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-alpha-2-1": { specPath: "spec/alpha/plan.md" },
-      "run-beta-2-2": { specPath: "spec/beta/plan.md" },
-      "run-alpha-3-2": { specPath: "spec/alpha/implement.md" },
-      "run-beta-3-4": { specPath: "spec/beta/implement.md" },
+      "run-alpha-2-3": { specPath: "spec/alpha/plan.md" },
+      "run-beta-2-4": { specPath: "spec/beta/plan.md" },
+      "run-alpha-3-5": { specPath: "spec/alpha/implement.md" },
+      "run-beta-3-6": { specPath: "spec/beta/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog);
@@ -2722,8 +2734,8 @@ describe("pipeline branch fan-out execution", () => {
   test("mixed branch failure and success names the failed branchKey while the sibling still reaches terminal success", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-1-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-2-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog, { failBranchIndex: 0, failAtStageIndex: 1 });
@@ -2746,8 +2758,8 @@ describe("pipeline branch fan-out execution", () => {
   test("mixed branch rejection and success names the rejected branchKey without aborting the sibling", async () => {
     const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-2-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-3-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-2-4": { specPath: "spec/beta/plan.md" },
+      "run-beta-3-6": { specPath: "spec/beta/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog);
@@ -2769,6 +2781,80 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("pending");
     expect(derivePipelineState(pipeline) === "succeeded").toBe(false);
+  });
+
+  test("linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "const outcomes = await Promise.all(fanOutBranchDispatchTasks);" -> "const outcomes = []; for (const task of fanOutBranchDispatchTasks) { outcomes.push(await task); }"
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md", status: "in-progress" as const },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": { specPath: "spec/alpha/implement.md" },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaPlanWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => {
+        if (entryRunId.startsWith("run-alpha-1-")) return alphaPlanWait.promise;
+        return "completed";
+      },
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    const alpha = stageRecord(stages(), "plan", "alpha");
+    const beta = stageRecord(stages(), "plan", "beta");
+    expect(alpha?.status).toBe("running");
+    expect(
+      beta?.status === "running" || dispatchLog.some((entry) => entry.stageId === "plan" && entry.branchKey === "beta"),
+    ).toBe(true);
+    for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+      const row = stageRecord(stages(), "plan", branchKey);
+      if (row?.status === "failed") {
+        expect((row.failureDetail as { code?: string } | null)?.code).not.toBe("worktree_claimed");
+      }
+      if (row?.status === "running" && row.workflowInvocationId !== null) {
+        expect(store.loadRun(row.workflowInvocationId)?.status).toBe("in-progress");
+      }
+    }
+
+    alphaPlanWait.resolve("completed");
+    await donePromise;
+  });
+
+  test("linear fan-out sibling suffix stages dispatch concurrently", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "await Promise.all(suffixBranchWalkTasks);" -> "for (const task of suffixBranchWalkTasks) { await task; }"
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      "run-alpha-1-1": { specPath: "spec/alpha/plan.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-alpha-2-3": { specPath: "spec/alpha/implement.md", status: "in-progress" as const },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaImplementWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => {
+        if (entryRunId.startsWith("run-alpha-2-")) return alphaImplementWait.promise;
+        return "completed";
+      },
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    const alpha = stageRecord(stages(), "implement", "alpha");
+    const beta = stageRecord(stages(), "implement", "beta");
+    expect(alpha?.status).toBe("running");
+    expect(
+      beta?.status === "running" ||
+        dispatchLog.some((entry) => entry.stageId === "implement" && entry.branchKey === "beta"),
+    ).toBe(true);
+
+    alphaImplementWait.resolve("completed");
+    await donePromise;
   });
 
   test("branch plan artifacts coexist and resolve independently per branchKey", async () => {
@@ -2868,8 +2954,8 @@ describe("pipeline branch fan-out execution", () => {
 
     const { store: refusedStore, stages: refusedStages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-1-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-2-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
     });
     const refusedDispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     await runPipeline(PIPELINE_ID, {
@@ -2902,8 +2988,8 @@ describe("pipeline branch fan-out execution", () => {
   test("reopens a failed fan-out branch without malformed_continuation from reconciled default rows", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
-      "run-beta-1-1": { specPath: "spec/beta/plan.md" },
-      "run-beta-2-2": { specPath: "spec/beta/implement.md" },
+      "run-beta-1-2": { specPath: "spec/beta/plan.md" },
+      "run-beta-2-4": { specPath: "spec/beta/implement.md" },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
     const deps = fanOutPipelineDeps(store, dispatchLog, { failBranchIndex: 0, failAtStageIndex: 1 });

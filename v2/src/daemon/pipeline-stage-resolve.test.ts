@@ -14,10 +14,10 @@ import {
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
-import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { Pipeline, PipelineStageRecord } from "../persistence/state-store.ts";
-import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { stageArtifactsForAuthoredWalk } from "./pipeline-execution.ts";
+import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   type PipelineContext,
   type PipelineStageResolveDeps,

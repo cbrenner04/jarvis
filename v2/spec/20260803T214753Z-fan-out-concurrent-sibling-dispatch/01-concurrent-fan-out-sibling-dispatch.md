@@ -35,10 +35,10 @@ Primary: `v2/src/daemon/pipeline-execution.ts` (`runPipeline` suffix walk, `adva
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` (deferred `wait` on one branch, `flushBackgroundRuns` before settle, sibling plan `running` first) fails against serial `advanceFanOutBranches`; linked `// @mutate` on concurrent branch dispatch makes the regression fail.
-- [ ] `pipeline-execution.test.ts` — `"linear fan-out sibling suffix stages dispatch concurrently"` fails against serial suffix `runAuthoredStages`; linked `// @mutate` on concurrent suffix dispatch makes the regression fail.
-- [ ] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the concurrent dispatch path (fake doubles in execution tests; real SQL store in approval tests).
-- [ ] `pipeline-execution.test.ts` — `"live-linked running stage row is not terminalized while its entry run is still live"` and `"fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles"` stay green.
+- [x] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` (deferred `wait` on one branch, `flushBackgroundRuns` before settle, sibling plan `running` first) fails against serial `advanceFanOutBranches`; linked `// @mutate` on concurrent branch dispatch makes the regression fail.
+- [x] `pipeline-execution.test.ts` — `"linear fan-out sibling suffix stages dispatch concurrently"` fails against serial suffix `runAuthoredStages`; linked `// @mutate` on concurrent suffix dispatch makes the regression fail.
+- [x] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the concurrent dispatch path (fake doubles in execution tests; real SQL store in approval tests).
+- [x] `pipeline-execution.test.ts` — `"live-linked running stage row is not terminalized while its entry run is still live"` and `"fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles"` stay green.
 - [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates

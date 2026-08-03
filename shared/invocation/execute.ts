@@ -95,6 +95,7 @@ export type InvocationCompletedRecord = {
   usage_source: "agent" | "estimated" | "unavailable";
   cost_usd: number | null;
   cost_source: "agent" | "computed" | "estimated" | "no-price" | "no-usage" | "unavailable";
+  warnings: string[];
   exit_kind: InvocationResult["kind"];
   exit_reason: string | null;
 };
@@ -287,6 +288,7 @@ function createInvocationCompletedRecord<T extends InvocationResult>(args: {
     usage_source: okResult?.usage_source ?? "unavailable",
     cost_usd: okResult?.cost_usd ?? null,
     cost_source: okResult?.cost_source ?? "unavailable",
+    warnings: okResult?.warnings ?? [],
     exit_kind: args.result.kind,
     exit_reason:
       args.result.kind === "ok"

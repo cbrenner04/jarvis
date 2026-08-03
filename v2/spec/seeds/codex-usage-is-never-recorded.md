@@ -2,55 +2,111 @@
 name: codex-usage-is-never-recorded
 ---
 
-# Codex invocations record no usage, so a codex-led session has no agent cost
+# Codex usage discovery succeeds and is then thrown away, so a codex-led session has no agent cost
 
 ## Problem
 
-Every codex row in `~/.jarvis/telemetry.jsonl` carries `cost_source: "unavailable"`,
-`usage_source: "unavailable"`, and `cost_usd: null`. On 2026-08-02, 99 of 100 invocations were
-codex, so the session's agent-cost column is empty — the one cursor row (`cost_source: "computed"`,
-$0.18) is the entire measurable spend.
+`runCodexBinding` (`shared/invocation/agents.ts`) resolves the codex session rollout for an
+invocation, then does nothing with it:
 
-This is the same defect cursor had before #2431 (parse usage), #2433 (record it on telemetry),
-and #2446 (compute list-price cost from `data/prices.json`). Those three shipped because
-per-invocation cost is what the session report's cost table is built from. With codex as the
-default lead agent, that table is now blank again.
+```ts
+const resolved = resolveCodexSessionUsage({ sessionsDir, beforeSnapshot, invocationMarker, cwd });
+if (resolved.sessionFile === null) {
+  return { ...result, usage_source: "unavailable", cost_usd: null, cost_source: "no-usage", warnings: resolved.warnings };
+}
+return result; // session file found — never opened, never parsed, never costed
+```
 
-Unlike cursor — subscription-billed, so list price is informational — codex is metered, which makes
-the missing number an *actual* unbilled-spend figure the operator cannot see.
+Only the **failure** branch is implemented. On success the untouched `result` keeps `runAgent`'s
+defaults (`usage_source: "unavailable"`, `cost_source: "unavailable"`), so every codex row reports no
+usage and no cost. Codex is metered, so this is unbilled spend the operator cannot see.
+
+This is **not** a discovery or matching bug, and **not** a missing price entry. Do not rewrite
+`resolveCodexSessionUsage`, `snapshotCodexSessionFiles`, or `listChangedCodexSessionFiles`.
+
+## Evidence
+
+Session of 2026-08-02/03: 58 codex invocations, 45 with `exit_kind: "ok"`. **All 45 recorded
+`usage_source: "unavailable"` and `cost_source: "unavailable"`.**
+
+That pair is the proof. The not-found branch writes `cost_source: "no-usage"`; the runAgent default is
+`"unavailable"`. Every ok row shows `"unavailable"`, so `resolveCodexSessionUsage` returned a session
+file every time and the success path discarded it.
+
+Confirmed against a real rollout (`~/.codex/sessions/2026/08/02/rollout-...-019fc5a3-3ae8-....jsonl`,
+codex-cli 0.145.0): it contains the `jarvis-codex-invocation` marker, a matching worktree `cwd`, and a
+`token_count` event — all three match conditions hold.
+
+Usage lives at `payload.info` on a `token_count` event:
+
+```json
+{"total_token_usage": {"input_tokens": 35380, "cached_input_tokens": 11008,
+  "cache_write_input_tokens": 0, "output_tokens": 282,
+  "reasoning_output_tokens": 62, "total_tokens": 35662},
+ "last_token_usage": {}, "model_context_window": 258400}
+```
+
+`total_tokens (35662) == input_tokens (35380) + output_tokens (282)`, so **`input_tokens` already
+includes `cached_input_tokens`** — subtract before applying the input rate or cached tokens are
+billed twice.
+
+`gpt-5.6-sol` and `gpt-5.6-terra` are both already priced in `data/prices.json` (with
+`cache_read_per_mtok`, no `cache_write_per_mtok`).
+
+**`info` can be `null`.** A rate-limited turn emits `token_count` carrying only `rate_limits`
+(observed once codex hit its usage limit at 01:50Z). `sessionContentHasTokenCountEvent` passing
+therefore does not guarantee usage exists.
+
+Separately: the telemetry row schema has **no `warnings` field**, so every
+`codex usage unavailable: ...` warning the adapter produces is dropped. That is why this survived
+several sessions unnoticed.
 
 ## Decisions
 
-- Parse codex's reported token usage in the shared invocation adapter and stamp it on the telemetry
-  row, mirroring the cursor path (`shared/invocation/`) — rules out a codex-specific telemetry
-  shape.
-- Compute `cost_usd` from `data/prices.json` for the resolved codex model, recording
-  `cost_source: "computed"` when usage and a priced key settle, and the existing `no-price` /
-  `no-usage` markers otherwise — rules out silently emitting `unavailable` for a metered agent.
-- If codex reports billed cost directly, prefer it over the computed list price and record the
-  distinction in `cost_source` — rules out reporting list price as invoiced spend.
-- Out of scope: the price table's codex entries if they are absent (add them, but do not rework
-  pricing), and any change to the cursor or claude paths.
+- Implement the success path: read the matched rollout, take the **last** `token_count` event whose
+  `info` is non-null, and stamp `usage` from `info.total_token_usage` with `usage_source: "agent"` —
+  rules out leaving the resolved session file unused. Session-cumulative `total_token_usage` is the
+  correct attribution because the invocation marker is unique per invocation, so a matched session is
+  that invocation.
+- Compute `cost_usd` from `data/prices.json` as
+  `(input_tokens - cached_input_tokens) x input_rate + cached_input_tokens x cache_read_rate +
+  output_tokens x output_rate`, recording `cost_source: "computed"` — rules out double-billing cached
+  input. `reasoning_output_tokens` is a subset of `output_tokens`; do not add it separately.
+- A matched session whose `token_count` events all carry `info: null` records
+  `usage_source: "unavailable"` and `cost_source: "no-usage"` — rules out reporting zero tokens as
+  real usage for a rate-limited turn.
+- A model absent from `data/prices.json` keeps the existing `no-price` marker — rules out a wrong
+  number.
+- Carry adapter `warnings` onto the telemetry row so a future regression in this path is visible
+  without reading source — rules out repeating this silent failure.
+- Out of scope: session discovery and matching (they work), the cursor and claude paths, and any
+  rework of the pricing table beyond reading it.
 
 ## Acceptance criteria
 
-- [ ] A codex invocation whose output reports usage records non-null `usage` with
-      `usage_source: "agent"` on its telemetry row; a test fails against the current adapter.
-- [ ] That row carries `cost_usd` computed from `data/prices.json` with `cost_source: "computed"`,
-      matching the cursor computation for equivalent token counts.
-- [ ] A codex invocation with no parseable usage still records `usage_source: "unavailable"` and a
-      null `cost_usd`, without throwing.
-- [ ] A model absent from `data/prices.json` records the existing `no-price` marker rather than a
-      wrong number.
-- [ ] Mutation checkpoint: dropping the codex usage parse turns the usage test RED, via a
-      `// @mutate` directive in the pinning file.
+- [ ] A codex invocation whose matched rollout carries a `token_count` event with non-null `info`
+      records `usage` from `total_token_usage` with `usage_source: "agent"`; the regression fails
+      against the current adapter, which returns `result` unchanged.
+- [ ] That row carries `cost_usd` computed with cached input subtracted from billable input, and
+      `cost_source: "computed"`. A fixture with the observed numbers (35380 input / 11008 cached /
+      282 output on `gpt-5.6-sol`) asserts the exact dollar figure.
+- [ ] A matched rollout whose `token_count` events all have `info: null` records
+      `usage_source: "unavailable"` and `cost_source: "no-usage"` without throwing.
+- [ ] A rollout with several `token_count` events uses the last one with non-null `info`.
+- [ ] A resolved model absent from `data/prices.json` records `no-price` and a null `cost_usd`.
+- [ ] The unmatched-session path still records `no-usage` exactly as it does today.
+- [ ] Adapter `warnings` appear on the emitted telemetry row.
+- [ ] Mutation checkpoint: a `// @mutate` directive that restores the bare `return result;` success
+      path turns the usage regression RED.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Reading telemetry — codex rows now carry usage and cost.
+- `v2/docs/operator-runbook.md` § Reading telemetry — codex rows carry usage and computed cost, and
+  what `no-usage` vs `no-price` vs `unavailable` each mean.
 
 ## Prerequisites
 
 - The cursor usage/cost path shipped in #2431, #2433, #2446 (`shared/invocation/`, `data/prices.json`)
-- Codex adapter output format (`shared/invocation/agents.ts`)
+- `resolveCodexSessionUsage` and its match conditions in `shared/invocation/agents.ts` (working; do
+  not rewrite)

@@ -274,7 +274,7 @@ describe("dispatchPipelineStage", () => {
       nextAction: "resume",
       retryable: true,
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "composeRunOperatorError(entryRun, terminalRecord)" -> "composeRunOperatorError(entryRun)"
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "composeRunOperatorError(entryRun, terminalRecord, logRecords)" -> "composeRunOperatorError(entryRun)"
   });
 
   test("a completed rollup without a recorded spec path records failed, not succeeded with an empty artifact", async () => {

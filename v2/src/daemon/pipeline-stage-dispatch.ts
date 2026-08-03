@@ -94,7 +94,7 @@ function failureDetailForEntryRun(
   const entryRun = store.loadRun(entryRunId);
   const logRecords = loadLogRecords?.(entryRunId) ?? [];
   const terminalRecord = findTerminalLogRecord(logRecords);
-  const composed = entryRun ? composeRunOperatorError(entryRun, terminalRecord) : undefined;
+  const composed = entryRun ? composeRunOperatorError(entryRun, terminalRecord, logRecords) : undefined;
   return composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
 }
 

@@ -916,7 +916,7 @@ describe("runTuiEntry", () => {
     // @mutate v2/src/tui/tui-entry.tsx "const parsed = parseTuiCommand(commandBuffer);" -> "parseTuiCommand(commandBuffer); const parsed = parseTuiCommand(commandBuffer);"
     // @mutate v2/src/tui/tui-entry.tsx "if (commandSubmissionBlockedByPendingAdmission(admissionPending)) return;" -> "if (false) return;"
     // @mutate v2/src/tui/tui-entry.tsx "return monitorOpen && submissionEditorGeneration === currentEditorGeneration;" -> "return false;"
-    // @mutate v2/src/tui/tui-entry.tsx "focus: \"tree\"," -> "focus: \"tree\", selectedNodeId: null,"
+    // @mutate v2/src/tui/tui-entry.tsx "lastCommandResult: result.pipelineId," -> "lastCommandResult: result.pipelineId, selectedNodeId: null,"
     // @mutate v2/src/tui/tui-entry.tsx "if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;" -> "if (false) return null;"
     const parseSpy = spyOn(tuiCommandParser, "parseTuiCommand");
     const view = createViewHost();

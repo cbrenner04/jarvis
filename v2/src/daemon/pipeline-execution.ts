@@ -57,6 +57,9 @@ export function isPipelineTerminal(state: PipelineDerivedState): boolean {
   return TERMINAL_PIPELINE_STATES.has(state);
 }
 
+/** Default bound on a losing branch's wait for a peer's fan-out claim (`advanceFanOutStageResolution`). */
+const DEFAULT_PEER_CLAIM_TIMEOUT_MS = 600_000;
+
 export type PipelineExecutionDeps = {
   store: StateStore;
   dispatch: PipelineWorkflowDispatch;
@@ -65,6 +68,8 @@ export type PipelineExecutionDeps = {
   resolveStage?: typeof resolveStageWorkflowSteps;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
+  /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
+  peerClaimTimeoutMs?: number;
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -1006,6 +1011,57 @@ function maybeAdmitFanOutBranches(
 
 type StageStepOutcome = "continue" | "stop";
 
+/**
+ * Scoped to a single `runPipeline` call — never durable, never shared across separate
+ * continuations. Two kinds of entry share this one map, distinguished by key shape:
+ *  - stage-admission claims, keyed by bare `stageId`: whichever concurrently-running sibling
+ *    branch first reaches a shared fan-out stage's resolution claims it and admits + dispatches
+ *    every branch; every other branch racing to the same stage awaits the claim instead of
+ *    re-admitting or re-dispatching.
+ *  - row-settlement claims, keyed by `stageArtifactKey(stageId, branchKey)`: whichever caller
+ *    first adopts a `running` row's live linked entry run claims it, so a branch's own walk and
+ *    a peer's fan-out dispatch loop can never both call `wait()` and write a terminal patch for
+ *    the same row.
+ * In both cases the check-and-set is synchronous (no `await` between `get` and `set`), so exactly
+ * one caller wins regardless of scheduling order.
+ */
+type PipelineDispatchClaims = Map<string, Promise<void>>;
+
+/** An in-flight peer's claim to await, or a fresh claim this caller now owns and must release. */
+type DispatchClaim = { existing: Promise<void> } | { release: () => void };
+
+/** First-caller-wins claim acquisition: synchronous check-and-set, so exactly one caller gets `release`. */
+function acquireDispatchClaim(claims: PipelineDispatchClaims, claimKey: string): DispatchClaim {
+  const existingClaim = claims.get(claimKey);
+  if (existingClaim !== undefined) return { existing: existingClaim };
+  let releaseClaim!: () => void;
+  claims.set(
+    claimKey,
+    new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    }),
+  );
+  return { release: releaseClaim };
+}
+
+/** Run `perform` under the first-caller-wins claim for `claimKey`; later callers await it instead of repeating the work. */
+async function withDispatchClaim(
+  claims: PipelineDispatchClaims,
+  claimKey: string,
+  perform: () => Promise<void>,
+): Promise<void> {
+  const claim = acquireDispatchClaim(claims, claimKey);
+  if ("existing" in claim) {
+    await claim.existing;
+    return;
+  }
+  try {
+    await perform();
+  } finally {
+    claim.release();
+  }
+}
+
 type AdvanceWorkflowStageArgs = {
   pipelineId: string;
   definition: PipelineDefinition;
@@ -1019,6 +1075,8 @@ type AdvanceWorkflowStageArgs = {
   dispatch: PipelineWorkflowDispatch;
   wait: PipelineWorkflowWait;
   resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
+  dispatchClaims: PipelineDispatchClaims;
+  peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
 };
 
@@ -1132,7 +1190,8 @@ function intentDownstreamInputsForFanOut(
   return intentArtifact?.downstreamInputs;
 }
 
-async function advanceFanOutStageResolution(
+/** Admit and dispatch every sibling branch for a shared fan-out stage resolution. Runs once per stage per pipeline invocation — the caller holds the claim for `stage.stageId`. */
+async function performFanOutStageResolution(
   args: AdvanceWorkflowStageArgs,
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
   stageRecords: readonly PipelineStageRecord[],
@@ -1168,6 +1227,93 @@ async function advanceFanOutStageResolution(
   return currentBranchFailed ? "stop" : "continue";
 }
 
+/**
+ * Race a peer's in-flight claim against a real timer, never a busy-wait: the timer keeps the
+ * event loop free to service other timers and I/O while suspended, and a peer that never
+ * releases its claim rejects with a named timeout error instead of hanging forever.
+ */
+async function awaitBoundedPeerClaim(claim: Promise<void>, claimKey: string, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      claim,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `pipeline-stage-resolve: timed out after ${timeoutMs}ms waiting for a peer branch to settle fan-out stage "${claimKey}"`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Settle a losing branch's own row once its bounded wait on a peer's claim expires. A peer that
+ * already dispatched and settled this row (the common case — the claimant dispatches every
+ * admitted branch, this row included) is carried forward as a normal success; only a row the
+ * peer never touched settles the named timeout failure.
+ */
+function settlePeerClaimTimeout(args: AdvanceWorkflowStageArgs, message: string): StageStepOutcome {
+  const { store, pipelineId, definition, stage, index, branchKey, stageArtifacts } = args;
+  const settled = store.loadPipeline(pipelineId);
+  const settledRecords = settled?.stages ?? [];
+  const settledRecord = settled ? findStageRecord(settledRecords, stage.stageId, branchKey) : undefined;
+  if (settledRecord?.status === "succeeded") {
+    return handleSucceededWorkflowStage({
+      store,
+      pipelineId,
+      definition,
+      stage,
+      index,
+      branchKey,
+      stageRecords: settledRecords,
+      stageArtifacts,
+      artifact: settledRecord.artifact,
+    });
+  }
+  return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, settledRecords, index + 1, message);
+}
+
+/**
+ * Every sibling branch's own suffix walk resolves the same shared fan-out stage (the fan-out
+ * decision lives on the intent artifact, not the calling branchKey) — so concurrently-dispatched
+ * siblings all reach here for the same `stage.stageId`. The first caller claims it via a
+ * synchronous check-and-set on `dispatchClaims` (no `await` between the two, so exactly one
+ * caller wins regardless of scheduling) and performs admission + dispatch for every branch. Any
+ * later caller awaits that claim — a real `await` on the claimant's own promise, never a
+ * busy-wait, and bounded by `peerClaimTimeoutMs` — then re-reads its own row to decide
+ * continue/stop; it never re-admits or re-dispatches.
+ */
+async function advanceFanOutStageResolution(
+  args: AdvanceWorkflowStageArgs,
+  resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
+  stageRecords: readonly PipelineStageRecord[],
+): Promise<StageStepOutcome> {
+  const { pipelineId, definition, stage, index, branchKey, store, stageArtifacts, dispatchClaims, peerClaimTimeoutMs } =
+    args;
+  const claimKey = stage.stageId;
+  const claim = acquireDispatchClaim(dispatchClaims, claimKey);
+  if ("existing" in claim) {
+    try {
+      await awaitBoundedPeerClaim(claim.existing, claimKey, peerClaimTimeoutMs);
+    } catch (error) {
+      return settlePeerClaimTimeout(args, error instanceof Error ? error.message : String(error));
+    }
+    return finishDispatchedWorkflowStage({ store, pipelineId, definition, stage, index, branchKey, stageArtifacts });
+  }
+
+  try {
+    return await performFanOutStageResolution(args, resolution, stageRecords);
+  } finally {
+    claim.release();
+  }
+}
+
 /** Walk every admitted fan-out branch; report whether the caller's own branch failed. */
 async function advanceFanOutBranches(
   args: AdvanceWorkflowStageArgs,
@@ -1180,12 +1326,9 @@ async function advanceFanOutBranches(
   },
 ): Promise<boolean> {
   const { stage, branchKey } = args;
-  let currentBranchFailed = false;
-  for (let branchIndex = 0; branchIndex < opts.branchKeys.length; branchIndex += 1) {
-    const targetBranchKey = opts.branchKeys[branchIndex];
-    if (targetBranchKey === undefined) continue;
+  const branchDispatchTasks = opts.branchKeys.map((targetBranchKey, branchIndex) => async (): Promise<boolean> => {
     const targetRecord = findStageRecord(opts.loadedStages, stage.stageId, targetBranchKey);
-    if (targetRecord?.status === "succeeded") continue;
+    if (targetRecord?.status === "succeeded") return false;
     const acted = await runFanOutBranchAction(args, {
       targetBranchKey,
       targetRecord,
@@ -1193,10 +1336,11 @@ async function advanceFanOutBranches(
       splitPosition: opts.splitPosition,
       steps: opts.results[branchIndex]?.steps,
     });
-    if (acted === "skip") continue;
-    if (settleFanOutBranch(args, targetBranchKey) && targetBranchKey === branchKey) currentBranchFailed = true;
-  }
-  return currentBranchFailed;
+    if (acted === "skip") return false;
+    return settleFanOutBranch(args, targetBranchKey) && targetBranchKey === branchKey;
+  });
+  const branchOutcomes = await runConcurrently(branchDispatchTasks);
+  return branchOutcomes.some(Boolean);
 }
 
 /**
@@ -1214,19 +1358,21 @@ async function runFanOutBranchAction(
     steps: AnyWorkflowStep[] | undefined;
   },
 ): Promise<"acted" | "skip"> {
-  const { pipelineId, stage, split, store, dispatch, wait, loadLogRecords } = args;
+  const { pipelineId, stage, split, store, dispatch, wait, loadLogRecords, dispatchClaims } = args;
   const { targetBranchKey, targetRecord, pipeline, steps } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
 
   const linkedEntryRun = liveLinkedEntryRunId(store, targetRecord);
   if (linkedEntryRun !== undefined) {
-    await adoptAndSettlePipelineStage({
-      store,
-      stageTarget,
-      entryRunId: linkedEntryRun,
-      wait,
-      ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-    });
+    await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
+      adoptAndSettlePipelineStage({
+        store,
+        stageTarget,
+        entryRunId: linkedEntryRun,
+        wait,
+        ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+      }),
+    );
     return "acted";
   }
   if (targetRecord?.status === "running") return "acted";
@@ -1268,26 +1414,32 @@ function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: str
   return true;
 }
 
-/**
- * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
- * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
- * instance for the same pipeline, though the daemon only ever starts one per `pipeline_start`
- * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
- * to every later stage and stops the loop; no dispatch reaches them.
- */
 /** Adopt a `running` stage's live linked entry run and settle it without re-dispatching steps. */
 async function adoptRunningWorkflowStage(
   args: AdvanceWorkflowStageArgs,
   entryRunId: string,
 ): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, branchKey, stageArtifacts, store, wait, loadLogRecords } = args;
-  await adoptAndSettlePipelineStage({
+  const {
+    pipelineId,
+    definition,
+    stage,
+    index,
+    branchKey,
+    stageArtifacts,
     store,
-    stageTarget: { pipelineId, stageId: stage.stageId, branchKey },
-    entryRunId,
     wait,
-    ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-  });
+    loadLogRecords,
+    dispatchClaims,
+  } = args;
+  await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, branchKey), () =>
+    adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId, stageId: stage.stageId, branchKey },
+      entryRunId,
+      wait,
+      ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+    }),
+  );
   return finishDispatchedWorkflowStage({
     store,
     pipelineId,
@@ -1299,6 +1451,13 @@ async function adoptRunningWorkflowStage(
   });
 }
 
+/**
+ * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
+ * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
+ * instance for the same pipeline, though the daemon only ever starts one per `pipeline_start`
+ * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
+ * to every later stage and stops the loop; no dispatch reaches them.
+ */
 async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<StageStepOutcome> {
   const {
     pipelineId,
@@ -1443,6 +1602,25 @@ function failStrandedPipelineStage(
   }
 }
 
+/**
+ * Run lazy dispatch thunks concurrently, returning each settled value in call order. Every
+ * task completes before this resolves — a rejection from one does not stop or detach the
+ * others — and rejections are aggregated into one thrown error rather than surfacing only the
+ * first, so a sibling branch's failure can never leave another branch's walk running past
+ * settlement.
+ */
+async function runConcurrently<T>(tasks: ReadonlyArray<() => Promise<T>>): Promise<T[]> {
+  const settled = await Promise.allSettled(tasks.map((task) => task()));
+  const rejections = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
+  if (rejections.length > 0) {
+    throw new AggregateError(
+      rejections.map((entry) => entry.reason as unknown),
+      `${rejections.length} of ${tasks.length} concurrent dispatch task(s) failed`,
+    );
+  }
+  return settled.map((entry) => (entry as PromiseFulfilledResult<T>).value);
+}
+
 async function runAuthoredStages(args: {
   pipelineId: string;
   deps: PipelineExecutionDeps;
@@ -1450,11 +1628,13 @@ async function runAuthoredStages(args: {
   branchKey: string;
   fromIndex: number;
   toIndex: number;
+  dispatchClaims: PipelineDispatchClaims;
   sharedStageArtifacts?: Map<string, PipelineStageArtifact>;
 }): Promise<void> {
-  const { pipelineId, deps, split, branchKey, fromIndex, toIndex, sharedStageArtifacts } = args;
+  const { pipelineId, deps, split, branchKey, fromIndex, toIndex, dispatchClaims, sharedStageArtifacts } = args;
   const { store, dispatch, wait, context } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const peerClaimTimeoutMs = deps.peerClaimTimeoutMs ?? DEFAULT_PEER_CLAIM_TIMEOUT_MS;
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
   const definition = pipeline.definition;
@@ -1491,6 +1671,8 @@ async function runAuthoredStages(args: {
             dispatch,
             wait,
             resolveStage,
+            dispatchClaims,
+            peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
           });
     if (outcome === "stop") return;
@@ -1515,6 +1697,7 @@ export async function runPipeline(
 
   const definition = pipeline.definition;
   const stageArtifacts = new Map<string, PipelineStageArtifact>();
+  const dispatchClaims: PipelineDispatchClaims = new Map();
 
   try {
     const initialSplit = findFanOutSplit(pipeline);
@@ -1525,21 +1708,26 @@ export async function runPipeline(
       branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
       fromIndex: 0,
       toIndex: initialSplit?.splitPosition ?? definition.stages.length - 1,
+      dispatchClaims,
       sharedStageArtifacts: stageArtifacts,
     });
     const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
-      for (const branchKey of continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys) {
-        await runAuthoredStages({
-          pipelineId,
-          deps,
-          split: activeSplit,
-          branchKey,
-          fromIndex: activeSplit.splitPosition + 1,
-          toIndex: lastIndex,
-        });
-      }
+      const suffixBranchKeys = continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys;
+      const suffixDispatchTasks = suffixBranchKeys.map(
+        (branchKey) => () =>
+          runAuthoredStages({
+            pipelineId,
+            deps,
+            split: activeSplit,
+            branchKey,
+            fromIndex: activeSplit.splitPosition + 1,
+            toIndex: lastIndex,
+            dispatchClaims,
+          }),
+      );
+      await runConcurrently(suffixDispatchTasks);
     }
 
     await settlePipelineTerminalPublication(pipelineId, deps);

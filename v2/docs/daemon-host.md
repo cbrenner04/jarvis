@@ -993,7 +993,10 @@ file basename without `.md`. Pre-admitted `default` rows for those downstream
 stages are reconciled to `skipped` so they never dispatch. The first chained
 workflow stage after the split resolves fan-out (`{ ok: true; results }`) and
 dispatches each result to its matching `branchKey`; later workflow stages on a
-branch resolve from branch-local preceding artifacts only. `skipRemainingStages`
+branch resolve from branch-local preceding artifacts only. In-memory stage
+artifact resolution (the `Map<string, PipelineStageArtifact>` threaded through
+one pipeline invocation) is scoped by `(stageId, branchKey)` — one branch's
+artifact never leaks into a sibling's resolution. `skipRemainingStages`
 applies within one `branchKey` — one branch failure does not skip sibling
 branches. `pipeline_approve` / `pipeline_reject` accept optional `branchKey`
 and refuse with `branch_key_required` when multiple branch rows exist and it is
@@ -1005,6 +1008,30 @@ every durable stage row and name `awaiting-approval` boundaries with the
 blocking gate's `branchKey`. Multi-branch terminal publication when every
 implement branch succeeds is unchanged / deferred. Slug:
 `pipeline-intent-split-fan-out-execution`.
+
+Sibling branches dispatch **concurrently**, not serially. Two seams
+(`runPipeline`'s suffix walk across `activeSplit.branchKeys`, and
+`advanceFanOutBranches`'s admission-time dispatch of every branch admitted
+by a shared fan-out stage resolution) build one lazy dispatch thunk per
+branch and run them together — a slow or deferred branch's entry-run wait
+never blocks a sibling's dispatch. Because every branch's own suffix walk
+independently resolves the *same* shared fan-out stage (the fan-out decision
+lives on the intent artifact, not on which `branchKey` is walking), a
+per-pipeline-invocation claim map (`pipelineId`-scoped, never durable) makes
+exactly one concurrently-racing branch admit and dispatch every sibling for
+that `stageId`; every other branch awaits that claim — a real `await`, never
+a busy-wait — instead of re-admitting or re-dispatching. That wait is bounded
+by `peerClaimTimeoutMs` (10 minutes by default): if the claiming branch never
+releases it, the losing branch's own row settles a named
+`pipeline-stage-resolve: timed out ...` failure instead of hanging, unless the
+claiming branch already dispatched and settled it, in which case the losing
+branch simply carries the settled row forward. The same claim
+mechanism guards adoption of an already-`running` live-linked row so a
+branch's own walk and a peer's fan-out dispatch loop can never both call
+`wait()` and write a terminal patch for the same row. Concurrent dispatch
+tasks are aggregated with `Promise.allSettled`, not `Promise.all`: a
+sibling's failure never leaves another sibling's walk running past
+settlement.
 
 ### Restart-safe pipeline continuation
 

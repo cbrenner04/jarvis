@@ -2528,6 +2528,22 @@ const FAN_OUT_ALPHA_RUNNING_RUNS = {
   "run-beta-2-4": { specPath: "spec/beta/implement.md" },
 };
 
+/** Wrap `store.updateStage` to record every dispatch (a write to `status: "running"`) into `dispatchLog`. */
+function instrumentDispatchLog(
+  store: StateStore,
+  dispatchLog: Array<{ stageId: string; branchKey: string }>,
+): StateStore {
+  return {
+    ...store,
+    updateStage: (args: { stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
+      if (args.patch.status === "running") {
+        dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
+      }
+      return store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
+    },
+  } as StateStore;
+}
+
 function fanOutPipelineDeps(
   store: StateStore,
   dispatchLog: Array<{ stageId: string; branchKey: string }>,
@@ -2537,20 +2553,7 @@ function fanOutPipelineDeps(
     wait?: PipelineWorkflowWait;
   } = {},
 ) {
-  const instrumentedStore = {
-    ...store,
-    updateStage: (args: {
-      pipelineId: string;
-      stageId: string;
-      branchKey?: string;
-      patch: Record<string, unknown>;
-    }) => {
-      if (args.patch.status === "running") {
-        dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
-      }
-      return store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
-    },
-  } as StateStore;
+  const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
 
   let branchRunCounter = 0;
   const dispatch: PipelineWorkflowDispatch = async (steps) => {
@@ -2583,6 +2586,28 @@ function fanOutPipelineDeps(
       ...(options.failAtStageIndex !== undefined ? { failAtStageIndex: options.failAtStageIndex } : {}),
     }),
   };
+}
+
+/**
+ * Synthesizes a run record for any dynamically-dispatched `run-<branch>-<stageIndex>-<counter>`
+ * entry run so concurrent dispatch ordering never has to predict the exact counter value a
+ * fixture's `runs` map would otherwise need to pre-populate.
+ */
+function withSyntheticPlanRunRecords(store: StateStore): StateStore {
+  return {
+    ...store,
+    loadRun: (runId: string) => {
+      const existing = store.loadRun(runId);
+      if (existing) return existing;
+      const match = /^run-(alpha|beta)-(\d+)-\d+$/.exec(runId);
+      if (!match) return null;
+      const [, branchKey, stageIndexRaw] = match;
+      const stageName = stageIndexRaw === "1" ? "plan" : "implement";
+      return { id: runId, attempts: [], specPath: `spec/${branchKey}/${stageName}.md` } as unknown as ReturnType<
+        StateStore["loadRun"]
+      >;
+    },
+  } as StateStore;
 }
 
 describe("pipeline branch fan-out execution", () => {
@@ -2957,5 +2982,221 @@ describe("pipeline branch fan-out execution", () => {
     expect(derivePipelineState(pipeline)).toBe("failed");
     expect(pipeline.terminalPublicationFailure?.failure.message).toContain("multi-branch terminal publication");
     expect(pipeline.terminalPublicationSucceededAt).toBeNull();
+  });
+
+  test("linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive", async () => {
+    const { store: rawStore, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const store = withSyntheticPlanRunRecords(rawStore);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaPlanWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => (entryRunId.startsWith("run-alpha-1-") ? alphaPlanWait.promise : "completed"),
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    // The alpha branch's plan dispatch is stuck awaiting its deferred entry-run wait; the beta
+    // sibling's own plan dispatch must not be blocked behind it.
+    expect(dispatchLog.some((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toBe(true);
+    const alpha = stageRecord(stages(), "plan", "alpha");
+    expect(alpha?.status).toBe("running");
+    expect(alpha?.failureDetail).toBeNull();
+    expect((alpha?.failureDetail as { code?: string } | null)?.code).not.toBe("worktree_claimed");
+    const beta = stageRecord(stages(), "plan", "beta");
+    expect(beta?.status).not.toBe("failed");
+    expect((beta?.failureDetail as { code?: string } | null)?.code).not.toBe("worktree_claimed");
+    // @mutate v2/src/daemon/pipeline-execution.ts "const branchOutcomes = await runConcurrently(branchDispatchTasks);" -> "const branchOutcomes = []; for (const task of branchDispatchTasks) branchOutcomes.push(await task());"
+
+    alphaPlanWait.resolve("completed");
+    await donePromise;
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("linear fan-out sibling suffix stages dispatch concurrently", async () => {
+    const { store: rawStore, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const store = withSyntheticPlanRunRecords(rawStore);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaImplementWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => (entryRunId.startsWith("run-alpha-2-") ? alphaImplementWait.promise : "completed"),
+    });
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+    const alphaImplement = stageRecord(stages(), "implement", "alpha");
+    expect(alphaImplement?.status).toBe("running");
+    // Alpha's implement dispatch is stuck awaiting its deferred entry-run wait; the beta
+    // sibling's own suffix walk must not be blocked behind it.
+    expect(dispatchLog.some((entry) => entry.stageId === "implement" && entry.branchKey === "beta")).toBe(true);
+    // @mutate v2/src/daemon/pipeline-execution.ts "await runConcurrently(suffixDispatchTasks);" -> "for (const task of suffixDispatchTasks) await task();"
+
+    alphaImplementWait.resolve("completed");
+    await donePromise;
+
+    expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  function setupFanOutAlphaPlanStatus(store: StateStore, status: "succeeded" | "failed" | "skipped"): void {
+    const alphaPlanPatch: Record<string, unknown> =
+      status === "succeeded"
+        ? {
+            status: "succeeded",
+            endedAt: Date.now(),
+            artifact: { entryRunId: "run-alpha-preexisting", specPath: "spec/alpha/plan.md" },
+          }
+        : status === "failed"
+          ? { status: "failed", endedAt: Date.now(), failureDetail: { message: "prior failure" } }
+          : { status: "skipped" };
+    setupFanOutAlphaLiveLinked(store, alphaPlanPatch);
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "alpha",
+      patch: { status: "skipped" },
+    });
+  }
+
+  test.each([
+    "succeeded",
+    "failed",
+    "skipped",
+  ] as const)("a still-pending peer is dispatched when the dispatching branch's own fan-out row is already %s", async (alphaStatus) => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    setupFanOutAlphaPlanStatus(store, alphaStatus);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = fanOutPipelineDeps(store, dispatchLog);
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(dispatchLog.some((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toBe(true);
+    expect(stageRecord(stages(), "plan", "beta")?.status).not.toBe("pending");
+  });
+
+  test("exactly one terminal write settles a peer row whose entry run is live at dispatch time", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const alphaWait = deferred<RunStatus>();
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => (entryRunId === "run-alpha-running" ? alphaWait.promise : "completed"),
+    });
+    let terminalWritesForAlphaPlan = 0;
+    const countingStore = {
+      ...deps.store,
+      updateStage: (args: { stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
+        if (
+          args.stageId === "plan" &&
+          (args.branchKey ?? "default") === "alpha" &&
+          (args.patch.status === "succeeded" || args.patch.status === "failed")
+        ) {
+          terminalWritesForAlphaPlan += 1;
+        }
+        return deps.store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
+      },
+    } as StateStore;
+
+    const donePromise = runPipeline(PIPELINE_ID, { ...deps, store: countingStore, context: baseContext });
+    await flushBackgroundRuns();
+    alphaWait.resolve("completed");
+    await donePromise;
+
+    expect(terminalWritesForAlphaPlan).toBe(1);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+  });
+
+  test("two sibling branch failures both surface and no stage row is written once the pipeline walk settles", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
+      if (step.stageIndex === 0) return { ok: true, entryRunId: "run-intent", invocationId: "inv-intent" };
+      return { ok: false, code: "worktree_claimed", message: `claimed for ${step.branchKey}` };
+    };
+    const deps: PipelineExecutionDeps = {
+      store: instrumentedStore,
+      dispatch,
+      wait: async () => "completed" as const,
+      resolveStage: fanOutResolveStageStub(),
+      context: baseContext,
+    };
+
+    await runPipeline(PIPELINE_ID, deps);
+    await flushBackgroundRuns();
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    expect(derivePipelineFailureDetail(pipeline)?.branchKeys.slice().sort()).toEqual(["alpha", "beta"]);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("failed");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+
+    const snapshotAfterDone = JSON.stringify(stages());
+    await flushBackgroundRuns(3);
+    expect(JSON.stringify(stages())).toBe(snapshotAfterDone);
+  });
+
+  test("a losing branch's wait on a peer's fan-out claim yields to the macrotask queue and is bounded, settling a named failure when the peer never advances", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const baseDeps = fanOutPipelineDeps(store, dispatchLog);
+    const deps: PipelineExecutionDeps = {
+      ...baseDeps,
+      context: baseContext,
+      peerClaimTimeoutMs: 20,
+      dispatch: async (steps) => {
+        const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
+        if (step.stageIndex === 1 && step.branchKey === "beta") {
+          // Beta's own dispatch never resolves. Alpha always wins the claim race (first in
+          // branch-key order) and never finishes dispatching every admitted branch, so its
+          // claim never releases — beta's own suffix walk must not wait on it forever.
+          return new Promise<never>(() => {});
+        }
+        return baseDeps.dispatch(steps);
+      },
+    };
+
+    let macrotaskFired = false;
+    setTimeout(() => {
+      macrotaskFired = true;
+    }, 0);
+    let macrotaskFiredWhilePeerStillPending = false;
+
+    void runPipeline(PIPELINE_ID, deps);
+
+    const deadline = Date.now() + 2000;
+    while (stageRecord(stages(), "plan", "beta")?.status !== "failed" && Date.now() < deadline) {
+      // The 0ms timer armed above fires while alpha's claim is still outstanding — proof the
+      // cross-branch wait yields to the macrotask queue rather than busy-spinning the event loop.
+      if (macrotaskFired) macrotaskFiredWhilePeerStillPending = true;
+      await flushBackgroundRuns();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(macrotaskFiredWhilePeerStillPending).toBe(true);
+    const beta = stageRecord(stages(), "plan", "beta");
+    expect(beta?.status).toBe("failed");
+    expect((beta?.failureDetail as { message?: string } | null)?.message).toContain("timed out");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
   });
 });

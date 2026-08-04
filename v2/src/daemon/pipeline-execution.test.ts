@@ -2528,6 +2528,22 @@ const FAN_OUT_ALPHA_RUNNING_RUNS = {
   "run-beta-2-4": { specPath: "spec/beta/implement.md" },
 };
 
+/** Wrap `store.updateStage` to record every dispatch (a write to `status: "running"`) into `dispatchLog`. */
+function instrumentDispatchLog(
+  store: StateStore,
+  dispatchLog: Array<{ stageId: string; branchKey: string }>,
+): StateStore {
+  return {
+    ...store,
+    updateStage: (args: { stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
+      if (args.patch.status === "running") {
+        dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
+      }
+      return store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
+    },
+  } as StateStore;
+}
+
 function fanOutPipelineDeps(
   store: StateStore,
   dispatchLog: Array<{ stageId: string; branchKey: string }>,
@@ -2537,20 +2553,7 @@ function fanOutPipelineDeps(
     wait?: PipelineWorkflowWait;
   } = {},
 ) {
-  const instrumentedStore = {
-    ...store,
-    updateStage: (args: {
-      pipelineId: string;
-      stageId: string;
-      branchKey?: string;
-      patch: Record<string, unknown>;
-    }) => {
-      if (args.patch.status === "running") {
-        dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
-      }
-      return store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
-    },
-  } as StateStore;
+  const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
 
   let branchRunCounter = 0;
   const dispatch: PipelineWorkflowDispatch = async (steps) => {
@@ -3122,15 +3125,7 @@ describe("pipeline branch fan-out execution", () => {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
     });
     const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
-    const instrumentedStore = {
-      ...store,
-      updateStage: (args: { stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
-        if (args.patch.status === "running") {
-          dispatchLog.push({ stageId: args.stageId, branchKey: args.branchKey ?? "default" });
-        }
-        return store.updateStage(args as Parameters<StateStore["updateStage"]>[0]);
-      },
-    } as StateStore;
+    const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
     const dispatch: PipelineWorkflowDispatch = async (steps) => {
       const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
       if (step.stageIndex === 0) return { ok: true, entryRunId: "run-intent", invocationId: "inv-intent" };

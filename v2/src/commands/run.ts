@@ -34,6 +34,7 @@ function formatListRunRow(run: DaemonListRunRow): string {
     e?.survivingMutationSourceLine === undefined ? "-" : String(e.survivingMutationSourceLine),
     run.prNumber !== undefined ? String(run.prNumber) : "-",
     run.prUrl ?? "-",
+    e?.completionCommitError === undefined ? "-" : JSON.stringify(e.completionCommitError),
   ];
   return `${columns.join("\t")}\n`;
 }

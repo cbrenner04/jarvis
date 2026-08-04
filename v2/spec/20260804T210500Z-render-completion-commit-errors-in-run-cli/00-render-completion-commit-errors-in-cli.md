@@ -27,12 +27,12 @@ field — operators cannot read the generic completion-commit message from CLI o
 
 ## Acceptance criteria
 
-- [ ] `run.test.ts` regression drives `run wait` with a `completion_commit_failed` daemon result carrying `error.completionCommitError` and asserts minified stdout includes that field under `error`; fails against baseline CLI formatting.
-- [ ] `run.test.ts` regression drives `run list` with `error.completionCommitError` present and pins the trailing column to `JSON.stringify(message)` appended after `prUrl` without shifting earlier column indices; fails against baseline CLI formatting.
-- [ ] `run.test.ts` regression drives `run list` with `error.completionCommitError` absent and asserts the trailing column renders `-`; fails against baseline CLI formatting.
-- [ ] `run.test.ts` regression drives `run list` with a `completionCommitError` containing tab and newline characters and asserts one physical stdout row with the message confined to the trailing column; fails against baseline CLI formatting.
-- [ ] `run.test.ts` links a `// @mutate` directive in each pinning test above to every added or modified guard's real source condition in `v2/src/commands/run.ts` or `v2/src/cli/run-completion.ts`; each mutation turns its test red with no production inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `run.test.ts` regression drives `run wait` with a `completion_commit_failed` daemon result carrying `error.completionCommitError` and asserts minified stdout includes that field under `error`; fails against baseline CLI formatting.
+- [x] `run.test.ts` regression drives `run list` with `error.completionCommitError` present and pins the trailing column to `JSON.stringify(message)` appended after `prUrl` without shifting earlier column indices; fails against baseline CLI formatting.
+- [x] `run.test.ts` regression drives `run list` with `error.completionCommitError` absent and asserts the trailing column renders `-`; fails against baseline CLI formatting.
+- [x] `run.test.ts` regression drives `run list` with a `completionCommitError` containing tab and newline characters and asserts one physical stdout row with the message confined to the trailing column; fails against baseline CLI formatting.
+- [x] `run.test.ts` links a `// @mutate` directive in each pinning test above to every added or modified guard's real source condition in `v2/src/commands/run.ts` or `v2/src/cli/run-completion.ts`; each mutation turns its test red with no production inversion hook.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

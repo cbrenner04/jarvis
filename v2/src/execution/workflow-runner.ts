@@ -954,12 +954,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
             const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
             if (namedPaths.length > 0) {
+              const uncommittedChangesMessage = `Uncommitted changes: ${namedPaths.join(", ")}`;
               store.setRunStatus(lastResult.runId, "failed");
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: "completion_commit_failed",
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: true,
+                completionCommitError: uncommittedChangesMessage,
               });
               traceCompletionPublication(
                 args.logSink,
@@ -1058,16 +1060,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 publication.failure.kind === "ready_gate_failed" ||
                 publication.failure.kind === "ready_gate_out_of_scope";
               const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
-              args.logSink?.append(lastResult.runId, {
-                kind: "loop_finished",
-                loopOutcomeKind: publication.failure.kind,
+              const publicationLoopFinishedBase = {
+                kind: "loop_finished" as const,
                 iterationsConsumed: totalIterationsConsumed,
                 resumable: !isFlipFailure,
                 ...survivingMutationLogFields(publication.failure.error),
                 ...gateOutOfScopeFields,
                 ...exhaustedRedTerminalLogFields(publication.readyGateOrigin),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
-              });
+              };
+              if (publication.failure.kind === "completion_commit_failed") {
+                const publicationCommitErrorMessage = publication.failure.error?.message ?? "completion commit failed";
+                args.logSink?.append(lastResult.runId, {
+                  ...publicationLoopFinishedBase,
+                  loopOutcomeKind: "completion_commit_failed",
+                  completionCommitError: publicationCommitErrorMessage,
+                });
+              } else {
+                args.logSink?.append(lastResult.runId, {
+                  ...publicationLoopFinishedBase,
+                  loopOutcomeKind: publication.failure.kind,
+                });
+              }
               // The row was marked `in-progress` for the finalization tail, so both branches must
               // restore a terminal status. A flip failure keeps its documented `completed` status;
               // leaving `in-progress` strands it non-live and hangs `run wait`.
@@ -1115,12 +1129,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          const completionCommitErrorMessage = message;
           store.setRunStatus(lastResult.runId, "failed");
           args.logSink?.append(lastResult.runId, {
             kind: "loop_finished",
             loopOutcomeKind: "completion_commit_failed",
             iterationsConsumed: totalIterationsConsumed,
             resumable: true,
+            completionCommitError: completionCommitErrorMessage,
           });
           traceCompletionPublication(
             args.logSink,
@@ -2485,7 +2501,16 @@ function settleIntentResumeFailure(
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
   });
-  deps.logSink?.append(context.runId, { kind: "loop_finished", loopOutcomeKind, iterationsConsumed, resumable: true });
+  const intentResumeCommitErrorMessage = message;
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind,
+    iterationsConsumed,
+    resumable: true,
+    ...(loopOutcomeKind === "completion_commit_failed"
+      ? { completionCommitError: intentResumeCommitErrorMessage }
+      : {}),
+  });
   traceCompletionPublication(
     deps.logSink,
     context.runId,
@@ -2526,6 +2551,30 @@ function inertResumeWriteLoopInput(
 }
 
 /** Commit the landed `durableDir` and run the shared commit/push/PR publication tail. */
+/** Settle a resume failure when the intent-resume committer produced no commit but left named uncommitted paths. */
+async function settleIntentResumeUncommittedFailure(
+  published: Awaited<ReturnType<CompletionCommitter>>,
+  context: IntentFinalizationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  deps: IntentFinalizationResumeDeps,
+): Promise<IntentFinalizationResumeOutcome | undefined> {
+  if (published.commitSha !== undefined) return undefined;
+  const uncommitted = await getUncommittedPaths(context.worktreePath);
+  const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
+  const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
+  if (namedPaths.length === 0) return undefined;
+  return settleIntentResumeFailure(
+    store,
+    context,
+    attemptId,
+    "completion_commit_failed",
+    0,
+    `Uncommitted changes: ${namedPaths.join(", ")}`,
+    deps,
+  );
+}
+
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -2549,22 +2598,8 @@ async function runIntentResumeCommitAndPublish(
     const message = error instanceof Error ? error.message : String(error);
     return settleIntentResumeFailure(store, context, attemptId, "completion_commit_failed", 0, message, deps);
   }
-  if (published.commitSha === undefined) {
-    const uncommitted = await getUncommittedPaths(context.worktreePath);
-    const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
-    const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
-    if (namedPaths.length > 0) {
-      return settleIntentResumeFailure(
-        store,
-        context,
-        attemptId,
-        "completion_commit_failed",
-        0,
-        `Uncommitted changes: ${namedPaths.join(", ")}`,
-        deps,
-      );
-    }
-  }
+  const uncommittedFailure = await settleIntentResumeUncommittedFailure(published, context, store, attemptId, deps);
+  if (uncommittedFailure !== undefined) return uncommittedFailure;
 
   const bodySummary = deriveIntentRunBodySummary({
     creationTitle: context.creationTitleHint,
@@ -2603,6 +2638,7 @@ async function runIntentResumeCommitAndPublish(
       outcomeKind: isFlip ? "done" : "invocation_failure",
       ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
     });
+    const intentResumePublicationCommitError = message;
     deps.logSink?.append(context.runId, {
       kind: "loop_finished",
       loopOutcomeKind: failure.kind,
@@ -2611,6 +2647,9 @@ async function runIntentResumeCommitAndPublish(
       ...survivingMutationLogFields(failure.error),
       ...readyGateOutOfScopeLogFields(failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+      ...(failure.kind === "completion_commit_failed"
+        ? { completionCommitError: intentResumePublicationCommitError }
+        : {}),
     });
     traceCompletionPublication(
       deps.logSink,
@@ -2894,6 +2933,7 @@ function settleReviewMutationResumeFailure(
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
   });
+  const reviewMutationResumeCommitErrorMessage = message;
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind,
@@ -2902,6 +2942,9 @@ function settleReviewMutationResumeFailure(
     // "this tail can always be retried" — e.g. `invocation_failure` (no completion agent, thrown
     // error) is never in the admitted set, so it must not claim resumable either.
     resumable: REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind),
+    ...(loopOutcomeKind === "completion_commit_failed"
+      ? { completionCommitError: reviewMutationResumeCommitErrorMessage }
+      : {}),
   });
   return { ok: false, message };
 }
@@ -3290,6 +3333,7 @@ async function settleFailedReviewMutationPublication(
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   const exhaustedFields = reviewMutationExhaustedTerminalFields(store, context.runId, publication.readyGateOrigin);
+  const reviewMutationPublicationCommitError = message;
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind: failure.kind,
@@ -3302,6 +3346,9 @@ async function settleFailedReviewMutationPublication(
     ...readyGateOutOfScopeLogFields(failure.error),
     ...exhaustedFields,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    ...(failure.kind === "completion_commit_failed"
+      ? { completionCommitError: reviewMutationPublicationCommitError }
+      : {}),
   });
   return { ok: false, message };
 }

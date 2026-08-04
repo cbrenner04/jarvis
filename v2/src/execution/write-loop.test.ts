@@ -20,6 +20,7 @@ import { simulatedBindings } from "../testing/bindings.ts";
 import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
+import { createCompletionPublisher } from "./completion-publisher.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
@@ -2247,6 +2248,7 @@ export function isLoadSensitive(file: string): boolean {
         gateFailurePath?: string;
         promptPlaceholders?: WriteLoopInput["promptPlaceholders"];
         intentSeed?: WriteLoopInput["intentSeed"];
+        logSink?: LogSink;
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -2295,6 +2297,7 @@ export function isLoadSensitive(file: string): boolean {
           ...(args.landing !== undefined ? { landing: args.landing } : {}),
           ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
           ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
+          ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
         });
         return { result, gateCalls, invocations, publishCalls };
       }
@@ -2415,6 +2418,7 @@ export function isLoadSensitive(file: string): boolean {
         // Mutation checkpoint: remove `!allowedPaths.has(normalized)` rejection in
         // `findFirstRepairFenceViolation`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
         const branchName = "repair-fence-outside";
         const { baseRef } = initRepairFenceWorktree(jarvisRoot, branchName);
 
@@ -2424,12 +2428,21 @@ export function isLoadSensitive(file: string): boolean {
           branchName,
           baseRef,
           repairEdit: touchUntouchedRepairEdit,
+          logSink,
         });
 
         expect(fenced.result.kind).toBe("completion_commit_failed");
         expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
         expect(fenced.publishCalls).toBe(2);
         expect(fenced.gateCalls).toBe(2);
+        // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+        // `completionCommitError` the write loop returns, not merely permit it in the schema.
+        // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
+        expect(logSink.getEventsForRun(fenced.result.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          completionCommitError: fenced.result.completionCommitError,
+        });
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {
@@ -3275,10 +3288,51 @@ export function isLoadSensitive(file: string): boolean {
       expect(result.kind).toBe("completion_commit_failed");
       expect(result.resumable).toBe(true);
       expect(result.completionCommitError).toContain("PR evidence");
+      // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+      // `completionCommitError` the write loop returns, not merely permit it in the schema.
+      // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "completion_commit_failed",
         resumable: true,
+        completionCommitError: result.completionCommitError,
+      });
+    });
+
+    test("logs completionCommitError and publicationFailure for a real normalized publication push failure", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const failingGit = async (_cwd: string, args: readonly string[]) => {
+        if (args[0] === "push") throw new Error("failed to push some refs to origin");
+        return "";
+      };
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: createCompletionPublisher({
+          git: failingGit,
+          gh: async () => "",
+          delay: async () => {},
+        }),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(result.completionCommitError).toContain("failed to push some refs");
+      expect(result.publicationFailure).toMatchObject({ operation: "push" });
+
+      // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+      // `completionCommitError` and `publicationFailure` the write loop returns.
+      // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
+      const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(loopFinished.at(-1)).toMatchObject({
+        loopOutcomeKind: "completion_commit_failed",
+        completionCommitError: result.completionCommitError,
+        publicationFailure: result.publicationFailure,
       });
     });
 

@@ -868,7 +868,13 @@ it names every outstanding path in `completion_commit_failed`'s
 files still under the write step's `.jarvis-intent-stage/` — the latter
 catches the case where the committer no-ops while the working tree isn't a
 readable Git repo (so `git status` alone reports nothing), which is exactly
-the shape that let a populated stage settle `done` in production.
+the shape that let a populated stage settle `done` in production. Every
+workflow-completion `completion_commit_failed` append — primary post-review
+tail (no-`commitSha` dirty check, `publishWithReadyRepair` publication
+failure, committer throw) and intent/review-mutation resume settlement —
+copies the caller-observable failure text onto the terminal `loop_finished`
+record: `completionCommitError` from workflow results, `message` from resume
+outcomes (`{ ok: false, message }`).
 
 Each ordinary review step receives a fresh synthesized run ID and invokes
 `onStepRunCreated` before role execution. Reviewed-intent review instead records

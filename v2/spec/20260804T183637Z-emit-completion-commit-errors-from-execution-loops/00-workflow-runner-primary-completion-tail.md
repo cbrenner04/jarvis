@@ -27,9 +27,9 @@
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` — committer-throw and no-commit-SHA dirty failures in the primary post-review completion tail log the same `completionCommitError` returned by the workflow; each pinning test's `// @mutate` directive on its corresponding new append field makes its regression fail against baseline.
-- [ ] `workflow-runner.test.ts` — a publication `completion_commit_failed` terminal `loop_finished` record, driven by a real normalized publication failure, carries `completionCommitError`; its `// @mutate` directive on the publication-failure append field makes its regression fail against baseline.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `workflow-runner.test.ts` — committer-throw and no-commit-SHA dirty failures in the primary post-review completion tail log the same `completionCommitError` returned by the workflow; each pinning test's `// @mutate` directive on its corresponding new append field makes its regression fail against baseline.
+- [x] `workflow-runner.test.ts` — a publication `completion_commit_failed` terminal `loop_finished` record, driven by a real normalized publication failure, carries `completionCommitError`; its `// @mutate` directive on the publication-failure append field makes its regression fail against baseline.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

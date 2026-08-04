@@ -2569,11 +2569,13 @@ function completionCommitFailed(
 ): WriteLoopResult {
   store.setRunStatus(result.runId, "completed");
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
+  const completionCommitErrorMessage = error?.message ?? "completion commit failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: result.iterationsConsumed,
     resumable: true,
+    completionCommitError: completionCommitErrorMessage,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),

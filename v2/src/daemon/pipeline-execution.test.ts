@@ -133,6 +133,9 @@ function fakeStore(
   const currentIdentity = options.currentIdentity ?? CURRENT_OWNER;
   let terminalPublicationFailure = options.terminalPublicationFailure ?? null;
   let terminalPublicationSucceededAt = options.terminalPublicationSucceededAt ?? null;
+  const admissionRows = new Map<string, string>();
+  const admissionKey = (args: { pipelineId: string; stageId: string; branchKey?: string }) =>
+    `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
 
   const store = {
     loadPipeline: (id: string) =>
@@ -303,6 +306,30 @@ function fakeStore(
         return;
       }
       terminalPublicationSucceededAt = Date.now();
+    },
+    claimPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
+      const key = admissionKey(args);
+      const existing = admissionRows.get(key);
+      if (existing === undefined) {
+        admissionRows.set(key, currentIdentity);
+        return { kind: "applied" as const };
+      }
+      return { kind: "refused" as const, reason: "claim_lost" as const };
+    },
+    releasePipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
+      const key = admissionKey(args);
+      const existing = admissionRows.get(key);
+      if (existing === undefined) return { kind: "applied" as const };
+      if (existing !== currentIdentity) {
+        return { kind: "refused" as const, reason: "stale_holder" as const };
+      }
+      admissionRows.delete(key);
+      return { kind: "applied" as const };
+    },
+    loadPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
+      const holder = admissionRows.get(admissionKey(args));
+      if (holder === undefined) return { kind: "absent" as const };
+      return { kind: "present" as const, holderIdentity: holder };
     },
   } as unknown as StateStore;
 
@@ -707,6 +734,62 @@ describe("continuePipeline", () => {
     expect(second).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "claim_refused" });
     expect(dispatchOrder).toEqual([2]);
     expect(stages().map((s) => ({ stageId: s.stageId, status: s.status }))).toEqual(beforeSecond);
+  });
+
+  test("two concurrent continuations dispatch a given stage row exactly once", async () => {
+    const singleStageDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const { store: baseStore, stages } = fakeStore(
+      singleStageDefinition,
+      { "run-0": { specPath: "spec/s1.md", status: "in-progress" } },
+      { context: persistedContext, ownerIdentity: CURRENT_OWNER },
+    );
+
+    let dispatchCount = 0;
+    const dispatchEntered = deferred<void>();
+    const dispatchRelease = deferred<void>();
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCount += 1;
+      dispatchEntered.resolve();
+      await dispatchRelease.promise;
+      return { ok: true, entryRunId: "run-0", invocationId: "inv-0" };
+    };
+
+    const waitEntered = deferred<void>();
+    const waitDeferred = deferred<RunStatus>();
+    const wait: PipelineWorkflowWait = async () => {
+      waitEntered.resolve();
+      return waitDeferred.promise;
+    };
+
+    const deps = { store: baseStore, dispatch, wait, resolveStage: resolveStageStub() };
+    const first = continuePipeline(PIPELINE_ID, deps);
+    await dispatchEntered.promise;
+
+    const second = continuePipeline(PIPELINE_ID, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(dispatchCount).toBe(1);
+
+    dispatchRelease.resolve();
+    await waitEntered.promise;
+
+    const s1MidFlight = stages().find((stage) => stage.stageId === "s1");
+    expect(s1MidFlight?.status).toBe("running");
+    expect(s1MidFlight?.workflowInvocationId).toBe("run-0");
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (claim.kind === \"refused\") {" -> "if (false) {"
+
+    waitDeferred.resolve("completed");
+    await Promise.all([first, second]);
+
+    const s1 = stages().find((stage) => stage.stageId === "s1");
+    expect(s1?.status).toBe("succeeded");
+    expect(s1?.failureDetail).toBeNull();
+    expect(s1?.workflowInvocationId).toBe("run-0");
+    expect(s1?.artifact).toMatchObject({ entryRunId: "run-0", invocationId: "inv-0", specPath: "spec/s1.md" });
   });
 
   test("refuses continuation when persisted context is absent and dispatches nothing", async () => {

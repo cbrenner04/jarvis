@@ -3,6 +3,7 @@ import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isTerminalRunStatus,
+  type PipelineStageRecord,
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
@@ -47,6 +48,16 @@ export type PipelineStageTarget = {
 export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
   const run = store.loadRun(entryRunId);
   return run !== null && !isTerminalRunStatus(run.status);
+}
+
+/** True when a post-dispatch stage row is still in flight and must not be terminalized. */
+export function shouldStopForInFlightStageRow(store: StateStore, record: PipelineStageRecord | undefined): boolean {
+  if (record?.status === "pending") return true;
+  if (record?.status === "running") {
+    const entryRunId = record.workflowInvocationId;
+    if (entryRunId != null && isLiveEntryRun(store, entryRunId)) return true;
+  }
+  return false;
 }
 
 /** Best-effort failure write-back for an unexpected throw/rejection before entry-run admission. */
@@ -210,7 +221,30 @@ export async function dispatchPipelineStage(args: {
 }): Promise<void> {
   const { pipelineId, stageId, branchKey, steps, dispatch, wait, store, loadLogRecords } = args;
   const stageTarget = { pipelineId, stageId, ...(branchKey !== undefined ? { branchKey } : {}) };
+  const resolvedBranchKey = branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
   let admittedEntryRunId: string | undefined;
+
+  const claim = store.claimPipelineStageAdmission({
+    pipelineId,
+    stageId,
+    branchKey: resolvedBranchKey,
+  });
+  if (claim.kind === "refused") {
+    const pipeline = store.loadPipeline(pipelineId);
+    const record = pipeline?.stages.find((stage) => stage.stageId === stageId && stage.branchKey === resolvedBranchKey);
+    const linkedEntryRunId = record?.workflowInvocationId;
+    if (record?.status === "running" && linkedEntryRunId != null && isLiveEntryRun(store, linkedEntryRunId)) {
+      await adoptAndSettlePipelineStage({
+        store,
+        stageTarget,
+        entryRunId: linkedEntryRunId,
+        wait,
+        ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+      });
+    }
+    // @mutate pipeline-execution.test.ts "two concurrent continuations dispatch a given stage row exactly once"
+    return;
+  }
 
   try {
     const dispatched = await dispatch(steps);
@@ -242,5 +276,7 @@ export async function dispatchPipelineStage(args: {
       return;
     }
     settleUnexpectedThrow(store, stageTarget, error);
+  } finally {
+    store.releasePipelineStageAdmission({ pipelineId, stageId, branchKey: resolvedBranchKey });
   }
 }

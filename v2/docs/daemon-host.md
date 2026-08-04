@@ -917,6 +917,25 @@ module cannot reach either directly.
   rejections while the admitted entry run is still live preserve the `running`
   linkage and defer settlement — no immediate `failed` row.
 
+**Durable `pipeline_stage_admission` (cross-continuation):** before the
+`dispatch(steps)` callback, `dispatchPipelineStage` atomically claims one
+durable `pipeline_stage_admission` row keyed by `(pipelineId, stageId,
+branchKey)` through `StateStore.claimPipelineStageAdmission`. The claim is held
+until partition completion — entry-run settlement or the existing live-entry
+early-exit paths — and released through `releasePipelineStageAdmission` with
+matching holder identity; release never runs when `dispatch(steps)` returns
+while `wait()` is still outstanding. A refused claim re-reads the stage row:
+when it is `running` with a live `workflowInvocationId`, the caller adopts and
+settles through `adoptAndSettlePipelineStage` instead of re-dispatching;
+otherwise it returns without dispatch and without writing `failed`. This layer
+coordinates overlapping `continuePipeline` callers for the same stage row.
+Distinct from in-memory `dispatchClaims` in `pipeline-execution.ts`, which
+coordinate fan-out sibling dispatch within one `runPipeline` invocation only.
+After daemon restart, a held `pipeline_stage_admission` row may remain when
+the owning entry run did not settle and release did not run; clear the row or
+wait for settlement/release before expecting another dispatch for that stage
+partition.
+
 Stage status vocabulary (daemon-owned, not interpreted by the state store):
 `pending` (admitted, undispatched), `running` (dispatched, unsettled),
 `succeeded`, `failed`, `skipped` (never dispatched because an earlier stage
@@ -1017,7 +1036,9 @@ branch and run them together — a slow or deferred branch's entry-run wait
 never blocks a sibling's dispatch. Because every branch's own suffix walk
 independently resolves the *same* shared fan-out stage (the fan-out decision
 lives on the intent artifact, not on which `branchKey` is walking), a
-per-pipeline-invocation claim map (`pipelineId`-scoped, never durable) makes
+per-pipeline-invocation in-memory `dispatchClaims` map (`pipelineId`-scoped,
+never durable; distinct from durable `pipeline_stage_admission` in
+`dispatchPipelineStage`) makes
 exactly one concurrently-racing branch admit and dispatch every sibling for
 that `stageId`; every other branch awaits that claim — a real `await`, never
 a busy-wait — instead of re-admitting or re-dispatching. That wait is bounded

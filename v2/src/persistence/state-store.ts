@@ -215,6 +215,12 @@ export type PipelineReopenOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
 
+export type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
+
+export type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
+
+export type PipelineStageAdmissionReleaseOutcome = { kind: "applied" } | { kind: "refused"; reason: "stale_holder" };
+
 /** True when the authored stage at `stageId` is `kind: "approval"`. */
 export function isApprovalAuthoredStage(stageId: string, definition: PipelineDefinition): boolean {
   const authored = definition.stages.find((stage) => stage.stageId === stageId);
@@ -480,6 +486,24 @@ export interface StateStore {
     priorOwnerIdentity: string | null;
   }): PipelineContinuationOutcome;
 
+  claimPipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionClaimOutcome;
+
+  releasePipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionReleaseOutcome;
+
+  loadPipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionLoadOutcome;
+
   /**
    * Atomically reopen one failed continuation row and its contiguous skipped suffix
    * in place as `pending`, clearing only prior-attempt lifecycle payloads. Returns
@@ -723,6 +747,18 @@ const SCHEMA_MIGRATIONS = [
   {
     id: "021-run-downstream-inputs",
     up: "ALTER TABLE runs ADD COLUMN downstream_inputs TEXT",
+  },
+  {
+    id: "022-pipeline-stage-admission",
+    up: `
+      CREATE TABLE pipeline_stage_admission (
+        pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+        stage_id TEXT NOT NULL,
+        branch_key TEXT NOT NULL,
+        holder_identity TEXT NOT NULL,
+        PRIMARY KEY (pipeline_id, stage_id, branch_key)
+      );
+    `,
   },
 ] as const;
 
@@ -1260,6 +1296,68 @@ class StateStoreImpl implements StateStore {
       return { kind: "refused", pipelineId: args.pipelineId, reason: "claim_lost" };
     }
     return { kind: "applied", pipelineId: args.pipelineId };
+  }
+
+  claimPipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionClaimOutcome {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO pipeline_stage_admission (pipeline_id, stage_id, branch_key, holder_identity)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(args.pipelineId, args.stageId, branchKey, this.currentIdentity);
+      return { kind: "applied" };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "SQLITE_CONSTRAINT_PRIMARYKEY") {
+        throw error;
+      }
+      return { kind: "refused", reason: "claim_lost" };
+    }
+  }
+
+  releasePipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionReleaseOutcome {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    const holder = this.pipelineStageAdmissionHolder(args.pipelineId, args.stageId, branchKey);
+    if (holder === null) return { kind: "applied" };
+    if (holder !== this.currentIdentity) return { kind: "refused", reason: "stale_holder" };
+    this.db
+      .prepare(
+        `DELETE FROM pipeline_stage_admission
+         WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ? AND holder_identity = ?`,
+      )
+      .run(args.pipelineId, args.stageId, branchKey, this.currentIdentity);
+    return { kind: "applied" };
+  }
+
+  loadPipelineStageAdmission(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): PipelineStageAdmissionLoadOutcome {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    const holder = this.pipelineStageAdmissionHolder(args.pipelineId, args.stageId, branchKey);
+    if (holder === null) return { kind: "absent" };
+    return { kind: "present", holderIdentity: holder };
+  }
+
+  private pipelineStageAdmissionHolder(pipelineId: string, stageId: string, branchKey: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT holder_identity AS holderIdentity
+         FROM pipeline_stage_admission
+         WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
+      )
+      .get(pipelineId, stageId, branchKey) as { holderIdentity: string } | undefined;
+    return row?.holderIdentity ?? null;
   }
 
   reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome {

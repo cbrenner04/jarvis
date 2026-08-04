@@ -6,11 +6,11 @@ import { loadPromptRegistry } from "./registry.ts";
 import { renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "./review-profile.ts";
 
-export const PATCH_REVIEW_CRITIC_PROMPT_ID = "patch.prompt.review.critic" as const;
+export const PATCH_REVIEW_CRITIC_PROMPT_ID = "implement.prompt.review.critic" as const;
 export const PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS = {
-  adversary: "patch.prompt.review.adversary",
-  advocate: "patch.prompt.review.advocate",
-  adjudicator: "patch.prompt.review.adjudicator",
+  adversary: "implement.prompt.review.adversary",
+  advocate: "implement.prompt.review.advocate",
+  adjudicator: "implement.prompt.review.adjudicator",
 } as const;
 export type ReviewDebateRenderRole = keyof typeof PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS;
 export type ReviewDebateRenderContext = {

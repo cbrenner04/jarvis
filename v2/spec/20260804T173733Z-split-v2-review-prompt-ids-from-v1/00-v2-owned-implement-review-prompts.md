@@ -34,14 +34,14 @@ v2 implement review already supplies merge-base unified diff as `BRANCH_DIFF`
 
 ## Acceptance criteria
 
-- [ ] v2 implement review renders `implement.prompt.review.{critic,adversary,advocate,adjudicator}`; v1 patch review still renders `patch.prompt.review.{adversary,advocate,adjudicator}` via `v1/src/modes/patch/prompt.ts`.
-- [ ] `shared/prompts/review-implement.test.ts` renders critic, adversary, advocate, and adjudicator and asserts each contains merge-base unified-diff prose with no `not a unified diff`; fails against pre-split code on debate roles.
-- [ ] `shared/prompts/review-prompt-divergence.test.ts` loads `patch.prompt.review.adversary` and `implement.prompt.review.adversary` registry bodies and asserts branch-diff section prose diverges (summary-only vs merge-base unified diff); fails against pre-split code when v2 still pointed at patch id.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green (v1 rendered review prompts byte-identical to before).
-- [ ] `shared/prompts/registry.test.ts` fails when any `implement.prompt.review.{critic,adversary,advocate,adjudicator}` id is missing from the loaded registry.
-- [ ] `shared/prompts/review-implement.test.ts` fails when `PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS.adversary` is reverted to `patch.prompt.review.adversary` (`@mutate` on the adversary id constant).
-- [ ] `shared/prompts/review-profile.test.ts` fails when `implementReviewProfile` `critic` id is reverted to `patch.prompt.review.critic` (`@mutate` on the profile critic id pin).
-- [ ] `v2/docs/workflow-runner.md` and `v2/docs/write-behavior.md` no longer describe `patch.prompt.review.*` as the active v2 implement-review id set.
+- [x] v2 implement review renders `implement.prompt.review.{critic,adversary,advocate,adjudicator}`; v1 patch review still renders `patch.prompt.review.{adversary,advocate,adjudicator}` via `v1/src/modes/patch/prompt.ts`.
+- [x] `shared/prompts/review-implement.test.ts` renders critic, adversary, advocate, and adjudicator and asserts each contains merge-base unified-diff prose with no `not a unified diff`; fails against pre-split code on debate roles.
+- [x] `shared/prompts/review-prompt-divergence.test.ts` loads `patch.prompt.review.adversary` and `implement.prompt.review.adversary` registry bodies and asserts branch-diff section prose diverges (summary-only vs merge-base unified diff); fails against pre-split code when v2 still pointed at patch id.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green (v1 rendered review prompts byte-identical to before).
+- [x] `shared/prompts/registry.test.ts` fails when any `implement.prompt.review.{critic,adversary,advocate,adjudicator}` id is missing from the loaded registry.
+- [x] `shared/prompts/review-implement.test.ts` fails when `PATCH_REVIEW_DEBATE_ROLE_PROMPT_IDS.adversary` is reverted to `patch.prompt.review.adversary` (`@mutate` on the adversary id constant).
+- [x] `shared/prompts/review-profile.test.ts` fails when `implementReviewProfile` `critic` id is reverted to `patch.prompt.review.critic` (`@mutate` on the profile critic id pin).
+- [x] `v2/docs/workflow-runner.md` and `v2/docs/write-behavior.md` no longer describe `patch.prompt.review.*` as the active v2 implement-review id set.
 
 ## Documentation updates
 

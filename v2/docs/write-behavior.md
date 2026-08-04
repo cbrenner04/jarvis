@@ -1083,8 +1083,9 @@ invocation with named diagnostics: `implement.malformed_link`,
 **Implement debate review (on by default):** Omitted `--review-passes` (or project
 `implement.reviewPasses` absent) appends one `review-debate` step after terminal
 shrink; pass `--review-passes 0` (or set project `implement.reviewPasses: 0`) to
-skip review. The step runs in the implement worktree, renders `patch.prompt.review.*`
-per cycle, writes `verdict-patch.md` beside the executed index (overwritten each
+skip review. The step runs in the implement worktree, renders `implement.prompt.review.*`
+(v2's own ids, distinct from v1's `patch.prompt.review.*`) per cycle, writes
+`verdict-patch.md` beside the executed index (overwritten each
 cycle), and commits actuator edits through the same completion committer as
 implement write edits. Empty or already-complete indexes, and any non-`complete`
 implement or shrink outcome, skip the review without hard-fail.

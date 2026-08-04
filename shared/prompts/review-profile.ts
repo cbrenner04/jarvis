@@ -70,12 +70,12 @@ export const planReviewProfile = profile({
 export const implementReviewProfile = profile({
   domain: "implement",
   promptIds: {
-    critic: "patch.prompt.review.critic",
+    critic: "implement.prompt.review.critic",
     actuator: "patch.prompt.review-actuator",
     debate: {
-      adversary: "patch.prompt.review.adversary",
-      advocate: "patch.prompt.review.advocate",
-      adjudicator: "patch.prompt.review.adjudicator",
+      adversary: "implement.prompt.review.adversary",
+      advocate: "implement.prompt.review.advocate",
+      adjudicator: "implement.prompt.review.adjudicator",
     },
   },
   verdict: { source: "adjudicator", empty: "stop", persist: "stdout" },

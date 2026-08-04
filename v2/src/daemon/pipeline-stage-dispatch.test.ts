@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import type { Run, RunStatus, StateStore, PipelineStageRecord } from "../persistence/state-store.ts";
+import type { PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
-  shouldStopForInFlightStageRow,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  shouldStopForInFlightStageRow,
 } from "./pipeline-stage-dispatch.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";

@@ -25,10 +25,10 @@ import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
   isLiveEntryRun,
-  shouldStopForInFlightStageRow,
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  shouldStopForInFlightStageRow,
   stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
 import {

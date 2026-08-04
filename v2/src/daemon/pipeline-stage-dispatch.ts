@@ -51,10 +51,7 @@ export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
 }
 
 /** True when a post-dispatch stage row is still in flight and must not be terminalized. */
-export function shouldStopForInFlightStageRow(
-  store: StateStore,
-  record: PipelineStageRecord | undefined,
-): boolean {
+export function shouldStopForInFlightStageRow(store: StateStore, record: PipelineStageRecord | undefined): boolean {
   if (record?.status === "pending") return true;
   if (record?.status === "running") {
     const entryRunId = record.workflowInvocationId;

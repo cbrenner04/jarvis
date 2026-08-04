@@ -68,7 +68,11 @@ async function runSoloList(runs: Record<string, unknown>[]) {
     code,
     stdout,
     row: () => stdout.trimEnd().split("\t"),
-    rows: () => stdout.trimEnd().split("\n").map((line) => line.split("\t")),
+    rows: () =>
+      stdout
+        .trimEnd()
+        .split("\n")
+        .map((line) => line.split("\t")),
   };
 }
 

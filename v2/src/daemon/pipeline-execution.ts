@@ -1027,17 +1027,13 @@ type StageStepOutcome = "continue" | "stop";
  */
 type PipelineDispatchClaims = Map<string, Promise<void>>;
 
-/** Run `perform` under the first-caller-wins claim for `claimKey`; later callers await it instead of repeating the work. */
-async function withDispatchClaim(
-  claims: PipelineDispatchClaims,
-  claimKey: string,
-  perform: () => Promise<void>,
-): Promise<void> {
+/** An in-flight peer's claim to await, or a fresh claim this caller now owns and must release. */
+type DispatchClaim = { existing: Promise<void> } | { release: () => void };
+
+/** First-caller-wins claim acquisition: synchronous check-and-set, so exactly one caller gets `release`. */
+function acquireDispatchClaim(claims: PipelineDispatchClaims, claimKey: string): DispatchClaim {
   const existingClaim = claims.get(claimKey);
-  if (existingClaim !== undefined) {
-    await existingClaim;
-    return;
-  }
+  if (existingClaim !== undefined) return { existing: existingClaim };
   let releaseClaim!: () => void;
   claims.set(
     claimKey,
@@ -1045,10 +1041,24 @@ async function withDispatchClaim(
       releaseClaim = resolve;
     }),
   );
+  return { release: releaseClaim };
+}
+
+/** Run `perform` under the first-caller-wins claim for `claimKey`; later callers await it instead of repeating the work. */
+async function withDispatchClaim(
+  claims: PipelineDispatchClaims,
+  claimKey: string,
+  perform: () => Promise<void>,
+): Promise<void> {
+  const claim = acquireDispatchClaim(claims, claimKey);
+  if ("existing" in claim) {
+    await claim.existing;
+    return;
+  }
   try {
     await perform();
   } finally {
-    releaseClaim();
+    claim.release();
   }
 }
 
@@ -1287,21 +1297,21 @@ async function advanceFanOutStageResolution(
   const { pipelineId, definition, stage, index, branchKey, store, stageArtifacts, dispatchClaims, peerClaimTimeoutMs } =
     args;
   const claimKey = stage.stageId;
-  const existingClaim = dispatchClaims.get(claimKey);
-  if (existingClaim !== undefined) {
+  const claim = acquireDispatchClaim(dispatchClaims, claimKey);
+  if ("existing" in claim) {
     try {
-      await awaitBoundedPeerClaim(existingClaim, claimKey, peerClaimTimeoutMs);
+      await awaitBoundedPeerClaim(claim.existing, claimKey, peerClaimTimeoutMs);
     } catch (error) {
       return settlePeerClaimTimeout(args, error instanceof Error ? error.message : String(error));
     }
     return finishDispatchedWorkflowStage({ store, pipelineId, definition, stage, index, branchKey, stageArtifacts });
   }
 
-  let outcome: StageStepOutcome = "stop";
-  await withDispatchClaim(dispatchClaims, claimKey, async () => {
-    outcome = await performFanOutStageResolution(args, resolution, stageRecords);
-  });
-  return outcome;
+  try {
+    return await performFanOutStageResolution(args, resolution, stageRecords);
+  } finally {
+    claim.release();
+  }
 }
 
 /** Walk every admitted fan-out branch; report whether the caller's own branch failed. */

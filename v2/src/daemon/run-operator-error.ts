@@ -191,7 +191,9 @@ function mapFromLoopFinished(
       return {
         ...op(event.loopOutcomeKind, "resume", true),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
-        ...("completionCommitError" in event && typeof event.completionCommitError === "string" ? { completionCommitError: event.completionCommitError } : {}),
+        ...("completionCommitError" in event && typeof event.completionCommitError === "string"
+          ? { completionCommitError: event.completionCommitError }
+          : {}),
       };
     case "iteration_commit_failed":
       return {

@@ -35,12 +35,18 @@ Primary: `v2/src/daemon/pipeline-stage-resolve.ts`, `v2/src/daemon/pipeline-exec
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` — `"fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order"` fails when lookup collapses to `stageId` only; linked `// @mutate` on `findPrecedingWorkflowArtifact` branch-scoped lookup makes the regression fail against baseline.
-- [ ] `pipeline-stage-resolve.test.ts` — `"fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order"` fails when suffix `runAuthoredStages` reuses `sharedStageArtifacts`; linked `// @mutate` on the suffix shared-map guard makes that inversion fail.
-- [ ] `pipeline-stage-resolve.test.ts` — `"plan stage resolves through real preset builders when ready-intent exists only on intent worktree"` and `"implement stage resolves through real preset builders when plan spec exists only on plan worktree branch"` stay green (chainedInputRoot / ready-intent read path unchanged).
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun test v2/src/daemon/pipeline-stage-resolve.test.ts` exits zero.
+- [x] `pipeline-stage-resolve.test.ts` — `"fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order"` fails when lookup collapses to `stageId` only; linked `// @mutate` on `findPrecedingWorkflowArtifact` branch-scoped lookup makes the regression fail against baseline.
+- [x] `pipeline-stage-resolve.test.ts` — `"fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order"` fails when suffix `runAuthoredStages` reuses `sharedStageArtifacts`; linked `// @mutate` on the suffix shared-map guard makes that inversion fail.
+- [x] `pipeline-stage-resolve.test.ts` — `"plan stage resolves through real preset builders when ready-intent exists only on intent worktree"` and `"implement stage resolves through real preset builders when plan spec exists only on plan worktree branch"` stay green (chainedInputRoot / ready-intent read path unchanged).
+- [x] `bun run typecheck` exits zero.
+- [x] `bun test v2/src/daemon/pipeline-stage-resolve.test.ts` exits zero.
 
 ## Documentation updates
 
 - None — operator-facing in-memory artifact scoping and concurrent dispatch land in subspec 01 `daemon-host.md` / `v1-behaviors.md` updates.
+
+## Blocker
+
+Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
+- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin
+- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

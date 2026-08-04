@@ -23,7 +23,11 @@ import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../executi
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { jarvisHome } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
-import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import {
+  type PipelineStageArtifact,
+  stageArtifactKey,
+} from "./pipeline-stage-dispatch.ts";
+import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 
 export type { PipelineContext };
 
@@ -50,6 +54,8 @@ export function singleStageResolutionSteps(
 export type PipelineStageResolveDeps = {
   builders?: typeof WORKFLOW_PRESET_BUILDERS;
   loadRun?: (runId: string) => { worktreePath: string; branch: string } | null;
+  branchKey?: string;
+  splitPosition?: number;
 };
 
 /** review posture -> preset name, for the two presets that consume a prior stage's artifact or the seed. */
@@ -71,16 +77,34 @@ function unmappedResult(stage: PipelineStage & { kind: "workflow" }): { ok: fals
   };
 }
 
+function artifactBranchKeyForStageIndex(
+  stageIndex: number,
+  activeBranchKey: string,
+  splitPosition: number | undefined,
+): string {
+  if (splitPosition === undefined || stageIndex <= splitPosition) {
+    return DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  }
+  return activeBranchKey;
+}
+
 /** Walk back from `stageIndex`, skipping approval stages, to the nearest preceding workflow stage's artifact. */
 function findPrecedingWorkflowArtifact(
   stages: readonly PipelineStage[],
   stageIndex: number,
   stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+  activeBranchKey: string,
+  splitPosition: number | undefined,
 ): PipelineStageArtifact | undefined {
   for (let index = stageIndex - 1; index >= 0; index -= 1) {
     const candidate = stages[index];
     if (candidate?.kind === "workflow") {
-      return stageArtifacts.get(candidate.stageId);
+      // @mutate: `return stageArtifacts.get(candidate.stageId)` — stageId-only lookup turns fan-out implement resolution regression RED.
+      const key = stageArtifactKey(
+        candidate.stageId,
+        artifactBranchKeyForStageIndex(index, activeBranchKey, splitPosition),
+      );
+      return stageArtifacts.get(key);
     }
   }
   return undefined;
@@ -524,7 +548,14 @@ export async function resolveStageWorkflowSteps(
     return { ok: false, error: `pipeline-stage-resolve: stage at index ${stageIndex} is not a workflow stage` };
   }
   const builders = deps.builders ?? WORKFLOW_PRESET_BUILDERS;
-  const priorArtifact = findPrecedingWorkflowArtifact(definition.stages, stageIndex, stageArtifacts);
+  const branchKey = deps.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  const priorArtifact = findPrecedingWorkflowArtifact(
+    definition.stages,
+    stageIndex,
+    stageArtifacts,
+    branchKey,
+    deps.splitPosition,
+  );
 
   if (stage.workflow === "implement") {
     return resolveImplementWorkflowStage(definition, stage, context, priorArtifact, deps, builders);

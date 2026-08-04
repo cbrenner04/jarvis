@@ -1217,12 +1217,10 @@ async function performFanOutStageResolution(
   return currentBranchFailed ? "stop" : "continue";
 }
 
-class PeerClaimTimeoutError extends Error {}
-
 /**
  * Race a peer's in-flight claim against a real timer, never a busy-wait: the timer keeps the
  * event loop free to service other timers and I/O while suspended, and a peer that never
- * releases its claim surfaces a named `PeerClaimTimeoutError` instead of hanging forever.
+ * releases its claim rejects with a named timeout error instead of hanging forever.
  */
 async function awaitBoundedPeerClaim(claim: Promise<void>, claimKey: string, timeoutMs: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1232,7 +1230,7 @@ async function awaitBoundedPeerClaim(claim: Promise<void>, claimKey: string, tim
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           reject(
-            new PeerClaimTimeoutError(
+            new Error(
               `pipeline-stage-resolve: timed out after ${timeoutMs}ms waiting for a peer branch to settle fan-out stage "${claimKey}"`,
             ),
           );

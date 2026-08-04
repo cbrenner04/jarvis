@@ -49,9 +49,3 @@ v2 implement review already supplies merge-base unified diff as `BRANCH_DIFF`
 - `v2/docs/write-behavior.md` — same id-set correction as workflow-runner.
 - `v2/docs/v1-behaviors.md` — prompt-id split; v1 `patch.prompt.review.*` frozen (summary-only debate prose); `patch.prompt.review.critic` frozen and unwired; partial split (`review-actuator` stays patch); shared `PATCH_REVIEW_*` names deferred.
 - `v1/docs/prompt-governance.md` (optional) — record unwired `patch.prompt.review.critic` and frozen patch-family debate prose.
-
-## Blocker
-
-Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
-- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin
-- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

@@ -43,6 +43,7 @@ describe("ReviewPromptProfile", () => {
       advocate: "implement.prompt.review.advocate",
       adjudicator: "implement.prompt.review.adjudicator",
     });
+    // @mutate shared/prompts/review-profile.ts "critic: \"implement.prompt.review.critic\"," -> "critic: \"patch.prompt.review.critic\","
     expect(implementReviewProfile.promptIds.critic).toBe("implement.prompt.review.critic");
     expect(intentReviewProfile.promptIds.debate).toEqual({
       adversary: "intent.prompt.review.adversary",

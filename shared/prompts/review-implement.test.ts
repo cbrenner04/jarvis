@@ -52,6 +52,7 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
     const runner = realAsyncSubprocessRunner;
     const critic = await renderPatchReviewCriticPrompt(context, runner);
     const debate = await renderReviewDebateCyclePrompts(context, {}, runner);
+    // @mutate shared/prompts/review-implement.ts "adversary: \"implement.prompt.review.adversary\"," -> "adversary: \"patch.prompt.review.adversary\","
     const payloads = [critic, debate.adversary, debate.advocate, debate.adjudicator].map(extractBranchDiff);
     for (const branchDiff of payloads) {
       expect(branchDiff).toContain("Changed paths:");

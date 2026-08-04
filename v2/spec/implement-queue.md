@@ -4,11 +4,11 @@ Authority: operator priorities. Updated 2026-08-03 (late).
 
 ## Goal
 
-**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch is written but deadlocks intermittently (#2577, draft), and the claim seam stays blocked behind it.
+**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch was written but livelocks and is closed unmerged (#2577, branch retained), and the claim seam stays blocked behind it.
 
 ## Start here next
 
-**Fix `awaitFanOutPeerRow` on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — draft, do not merge. Root cause of the 1-in-3 e2e hang is found and confirmed by two independent investigations:
+**Fix `awaitFanOutPeerRow`, then re-implement `20260803T214753Z-fan-out-concurrent-sibling-dispatch`.** [#2577](https://github.com/cbrenner04/jarvis/pull/2577) was **closed unmerged**; its branch `20260803T214753Z-fan-out-concurrent-sibling-dispatch` is retained on origin, same treatment as #2555. The spec is still on `main` with subspec 00 ticked and 01 unticked. Root cause of its 1-in-3 e2e hang is found and confirmed by two independent investigations:
 
 ```ts
 for (;;) { …; if (record?.status !== "pending") return "stop"; await Promise.resolve(); }
@@ -16,7 +16,7 @@ for (;;) { …; if (record?.status !== "pending") return "stop"; await Promise.r
 
 `await Promise.resolve()` yields to **microtasks only**, so the queue never drains and timers/IO never run — 5M iterations in 114 ms with a `setTimeout(…, 0)` that never fires. Every non-leader fan-out branch parks here. New on this branch; `main` has no leader concept.
 
-A macrotask yield alone makes the e2e file 8/8 green and was **deliberately not committed** — it cures the CPU burn but not the wait. Two deterministic deadlocks remain where the leader never dispatches the peer: leader row already `succeeded` (carries artifact forward, moves on), or `failed`/`skipped` (`advanceAuthoredStageAtIndex` returns `branch-terminal`). Both are on the daemon-restart recovery path (`recoverContinuablePipelines` → `continuePipeline` with no `continuationBranchKey`). With the yield those become silently pending pipelines under a green suite.
+A macrotask yield alone makes the e2e file 8/8 green and was **deliberately not committed** to the retained branch — it cures the CPU burn but not the wait. Two deterministic deadlocks remain where the leader never dispatches the peer: leader row already `succeeded` (carries artifact forward, moves on), or `failed`/`skipped` (`advanceAuthoredStageAtIndex` returns `branch-terminal`). Both are on the daemon-restart recovery path (`recoverContinuablePipelines` → `continuePipeline` with no `continuationBranchKey`). With the yield those become silently pending pipelines under a green suite.
 
 Real fix: a promise the leader resolves when it writes the peer's linkage — or macrotask yield **plus** bounded deadline **plus** peer self-dispatch when the leader's row is terminal. That also unblocks subspec 01's two inert pins: the serialized `@mutate` form deadlocks *because of this bug*, so fixing it makes those pins fail honestly. The Blocker's "fixtures need bounded waits to fail fast" note has cause and effect backwards — do not do that; it would hide a real product hang.
 
@@ -24,9 +24,11 @@ Two more to handle in the same pass: **double settlement** of each peer row (pee
 
 Consider a spec amendment first: `advanceFanOutBranches` / `awaitFanOutPeerRow` / `advanceFanOutPendingPeersAtStage` add ~140 lines of coordination subspec 01 never specifies, and three places can now dispatch a peer branch.
 
+**Salvage from the retained branch rather than rebasing it.** Two pieces are known good: subspec 00's branch-scoped `(stageId, branchKey)` artifacts (both mutation pins verified to kill), and commit `d402961c0`, which latches the `daemon-pipeline-resume.test.ts` binding double — that double silently drops a `settle()` landing before the binding is invoked, and the latch is worth cherry-picking on its own regardless of the fan-out work. Do **not** carry forward `awaitFanOutPeerRow` or the leader/peer coordination around it.
+
 Then **subspec 01's two mutation pins**, which are inert today: the task arrays are built eagerly with `.map()`, so serializing the awaits changes nothing and the suite stays at 73 pass / 0 fail. Making them real needs lazy thunks so the concurrency lives in the awaiting line. Do that *after* `awaitFanOutPeerRow` — with the spin still in place the serialized form hangs instead of failing, which is what made the first attempt look like a fixture problem. The `## Blocker` on the branch still carries that superseded reading; the corrected one is above.
 
-Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until #2577 lands. Needs `jarvis run workflow plan` first.
+Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until that spec lands. Needs `jarvis run workflow plan` first.
 
 | Slice | Shipped |
 | --- | --- |

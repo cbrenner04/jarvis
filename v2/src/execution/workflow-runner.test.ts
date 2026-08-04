@@ -28,6 +28,7 @@ import {
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
 } from "../daemon/daemon.ts";
+import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
@@ -6820,7 +6821,7 @@ describe("executeWorkflow review dispatch", () => {
         definition,
         1,
         { cwd: workspace, seed: "seed" },
-        new Map([["intent", { entryRunId: result.runId, specPath: entryRun?.specPath ?? "" }]]),
+        new Map([[stageArtifactKey("intent"), { entryRunId: result.runId, specPath: entryRun?.specPath ?? "" }]]),
         {
           loadRun: (runId) => (runId === result.runId ? { worktreePath: workspace, branch: "intent/test" } : null),
           builders: {

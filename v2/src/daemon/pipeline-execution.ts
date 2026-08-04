@@ -21,13 +21,14 @@ import {
   type PipelineStageRecord,
   type StateStore,
 } from "../persistence/state-store.ts";
-import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
   isLiveEntryRun,
+  type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
@@ -825,7 +826,7 @@ function buildBranchStageArtifacts(
     if (stage?.kind !== "workflow") continue;
     const recordBranchKey = index <= split.splitPosition ? DEFAULT_PIPELINE_STAGE_BRANCH_KEY : branchKey;
     const record = findStageRecord(pipeline.stages, stage.stageId, recordBranchKey);
-    carryForwardArtifact(artifacts, stage.stageId, record?.artifact);
+    carryForwardArtifact(artifacts, stage.stageId, recordBranchKey, record?.artifact);
   }
   return artifacts;
 }
@@ -973,6 +974,7 @@ function skipRemainingStages(
 function carryForwardArtifact(
   stageArtifacts: Map<string, PipelineStageArtifact>,
   stageId: string,
+  branchKey: string,
   artifact: unknown,
 ): void {
   if (
@@ -981,7 +983,7 @@ function carryForwardArtifact(
     typeof (artifact as PipelineStageArtifact).entryRunId === "string" &&
     typeof (artifact as PipelineStageArtifact).specPath === "string"
   ) {
-    stageArtifacts.set(stageId, artifact as PipelineStageArtifact);
+    stageArtifacts.set(stageArtifactKey(stageId, branchKey), artifact as PipelineStageArtifact);
   }
 }
 
@@ -1060,7 +1062,7 @@ function handleSucceededWorkflowStage(args: {
   stageArtifacts: Map<string, PipelineStageArtifact>;
   artifact: unknown;
 }): StageStepOutcome {
-  carryForwardArtifact(args.stageArtifacts, args.stage.stageId, args.artifact);
+  carryForwardArtifact(args.stageArtifacts, args.stage.stageId, args.branchKey, args.artifact);
   const admission = maybeAdmitFanOutBranches(
     args.store,
     args.pipelineId,
@@ -1135,19 +1137,7 @@ async function advanceFanOutStageResolution(
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
   stageRecords: readonly PipelineStageRecord[],
 ): Promise<StageStepOutcome> {
-  const {
-    pipelineId,
-    definition,
-    stage,
-    index,
-    branchKey,
-    split,
-    stageArtifacts,
-    store,
-    dispatch,
-    wait,
-    loadLogRecords,
-  } = args;
+  const { pipelineId, definition, stage, index, branchKey, split, store } = args;
   const splitPosition = split?.splitPosition ?? index - 1;
   const downstreamInputs = intentDownstreamInputsForFanOut(definition, splitPosition, stageRecords);
   if (downstreamInputs === undefined || downstreamInputs.length < 2) {
@@ -1268,7 +1258,7 @@ function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: str
   const { pipelineId, stage, index, stageArtifacts, store } = args;
   const settledRecord = findStageRecord(store.loadPipeline(pipelineId)?.stages ?? [], stage.stageId, targetBranchKey);
   if (settledRecord?.status === "succeeded") {
-    carryForwardArtifact(stageArtifacts, stage.stageId, settledRecord.artifact);
+    carryForwardArtifact(stageArtifacts, stage.stageId, targetBranchKey, settledRecord.artifact);
     return false;
   }
   if (settledRecord?.status === "running" && liveLinkedEntryRunId(store, settledRecord) !== undefined) {
@@ -1316,6 +1306,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     stage,
     index,
     branchKey,
+    split,
     context,
     stageArtifacts,
     store,
@@ -1356,6 +1347,8 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         const entryRun = store.loadRun(runId);
         return entryRun === null ? null : { worktreePath: entryRun.worktreePath, branch: entryRun.branch };
       },
+      branchKey,
+      ...(split !== null ? { splitPosition: split.splitPosition } : {}),
     });
     if (!resolution.ok) {
       return failWorkflowStageAt(

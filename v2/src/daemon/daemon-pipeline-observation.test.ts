@@ -22,6 +22,7 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import { createRunControlHandlers } from "./daemon.ts";
 import { derivePipelineState, isPipelineTerminal, type PipelineDerivedState } from "./pipeline-execution.ts";
 import {
+  bindPipelineWaitObserver,
   derivePipelineBoundary,
   PIPELINE_WAIT_ABORTED,
   type PipelineSnapshot,
@@ -789,7 +790,7 @@ function fanOutObservationPipeline(
   };
 }
 
-test("two-branch pipeline_list projection includes branchKey per durable row", async () => {
+function admitFanOutObservationPipeline(): string {
   const pipelineId = stateStore.createPipeline({ definition: FAN_OUT_OBS_DEFINITION });
   stateStore.updateStage({
     pipelineId,
@@ -811,6 +812,11 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
   for (const stageId of ["gate", "plan", "implement"]) {
     stateStore.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
   }
+  return pipelineId;
+}
+
+test("two-branch pipeline_list projection includes branchKey per durable row", async () => {
+  const pipelineId = admitFanOutObservationPipeline();
   stateStore.updateStage({ pipelineId, stageId: "gate", branchKey: "alpha", patch: { status: "awaiting" } });
   stateStore.updateStage({ pipelineId, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
   stateStore.updateStage({ pipelineId, stageId: "plan", branchKey: "beta", patch: { status: "running" } });
@@ -940,4 +946,68 @@ test("two-branch derivePipelineBoundary names awaiting branchKey while sibling b
     branchKey: "alpha",
   });
   expect(derivePipelineState(pipeline)).toBe("running");
+});
+
+test("failed branch plus undecided sibling gate remains non-terminal and exposes approval boundary", () => {
+  const pipeline = fanOutObservationPipeline({
+    "plan/alpha": { status: "failed", endedAt: 1 },
+    "gate/beta": { status: "awaiting" },
+    "plan/beta": { status: "succeeded", endedAt: 2 },
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyActionableAwaiting) return \"awaiting-approval\";" -> "if (false) return \"awaiting-approval\";"
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) break;" -> "if (false) break;"
+  // @mutate v2/src/daemon/pipeline-observation.ts "if (split !== null && fanOutBranchSuffixTerminallySettled(pipeline, split, record.branchKey)) continue;" -> "if (false) continue;"
+  expect(isPipelineTerminal(derivePipelineState(pipeline))).toBe(false);
+  expect(derivePipelineBoundary(pipeline)).toEqual({
+    kind: "awaiting-approval",
+    stageId: "gate",
+    branchKey: "beta",
+  });
+});
+
+test("pipeline_wait holds open for failed-plus-running fan-out rows then returns terminal failed after sibling settles", async () => {
+  const observer = new PipelineWaitObserver();
+  const pipelineId = admitFanOutObservationPipeline();
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "gate",
+    branchKey: "beta",
+    patch: { status: "approved" },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    branchKey: "alpha",
+    patch: { status: "failed", endedAt: 1 },
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    branchKey: "beta",
+    patch: { status: "running", workflowInvocationId: "run-beta-plan" },
+  });
+
+  const observedStore = bindPipelineWaitObserver(stateStore, observer);
+  const controller = new AbortController();
+  const waitPromise = waitForPipelineBoundary(observedStore, pipelineId, controller.signal, observer, 50);
+
+  let settled = false;
+  void waitPromise.then(() => {
+    settled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(settled).toBe(false);
+  expect(derivePipelineState(stateStore.loadPipeline(pipelineId)!)).toBe("running");
+
+  observedStore.updateStage({
+    pipelineId,
+    stageId: "plan",
+    branchKey: "beta",
+    patch: { status: "failed", endedAt: 2 },
+  });
+
+  const boundary = await waitPromise;
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
+  expect(boundary).toEqual({ kind: "terminal", state: "failed" });
 });

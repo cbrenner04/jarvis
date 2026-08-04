@@ -2693,6 +2693,128 @@ function withSyntheticPlanRunRecords(store: StateStore): StateStore {
   } as StateStore;
 }
 
+function fanOutSuffixRowSeedPipeline(
+  definition: PipelineDefinition,
+  rowStatuses: Record<string, Partial<PipelineStageRecord>>,
+): Pipeline & { stages: PipelineStageRecord[] } {
+  const stages: PipelineStageRecord[] = [
+    {
+      id: "r-intent",
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: "inv-intent",
+      startedAt: null,
+      endedAt: null,
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      },
+      failureDetail: null,
+    },
+  ];
+
+  for (const [stageId, position] of definition.stages
+    .map((stage, index) => [stage.stageId, index] as const)
+    .filter(([, index]) => index > 0)) {
+    for (const branchKey of ["default", ...FAN_OUT_BRANCH_KEYS] as const) {
+      const patch =
+        branchKey === "default" ? { status: "skipped" as const } : (rowStatuses[`${stageId}/${branchKey}`] ?? {});
+      stages.push({
+        id: `r-${stageId}-${branchKey}`,
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey,
+        position,
+        status: patch.status ?? "pending",
+        workflowInvocationId: patch.workflowInvocationId ?? null,
+        startedAt: patch.startedAt ?? null,
+        endedAt: patch.endedAt ?? null,
+        artifact: patch.artifact ?? null,
+        failureDetail: patch.failureDetail ?? null,
+      });
+    }
+  }
+
+  return {
+    id: PIPELINE_ID,
+    name: definition.name,
+    createdAt: 0,
+    ownerIdentity: null,
+    status: "active",
+    definition,
+    context: null,
+    terminalPublicationFailure: null,
+    terminalPublicationSucceededAt: null,
+    stages,
+  };
+}
+
+describe("derivePipelineState fan-out suffix settlement-first", () => {
+  test("failed-plus-running fan-out rows derive running", () => {
+    const pipeline = fanOutSuffixRowSeedPipeline(FAN_OUT_LINEAR_DEFINITION, {
+      "plan/alpha": { status: "failed", endedAt: 1 },
+      "plan/beta": { status: "running", workflowInvocationId: "run-beta-plan" },
+    });
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyFailed) return \"failed\";" -> "if (aggregation.anyFailed) return \"failed\"; if (false) return \"running\";"
+    expect(derivePipelineState(pipeline)).toBe("running");
+  });
+
+  test("rejected-plus-running fan-out rows derive running", () => {
+    const pipeline = fanOutSuffixRowSeedPipeline(FAN_OUT_PIPELINE_DEFINITION, {
+      "gate/alpha": { status: "rejected", endedAt: 1 },
+      "gate/beta": { status: "approved" },
+      "plan/beta": { status: "running", workflowInvocationId: "run-beta-plan" },
+    });
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRejected) return \"rejected\";" -> "if (aggregation.anyRejected) return \"rejected\"; if (false) return \"running\";"
+    expect(derivePipelineState(pipeline)).toBe("running");
+  });
+
+  test("all-settled fan-out rows with at least one failure derive failed", () => {
+    const pipeline = fanOutSuffixRowSeedPipeline(FAN_OUT_LINEAR_DEFINITION, {
+      "plan/alpha": { status: "failed", endedAt: 1 },
+      "plan/beta": { status: "succeeded", endedAt: 2 },
+      "implement/alpha": { status: "skipped" },
+      "implement/beta": { status: "succeeded", endedAt: 3 },
+    });
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyFailed) return \"failed\";" -> "if (false) return \"failed\";"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"pending\") {" -> "if (false && record.status === \"pending\") {"
+    expect(derivePipelineState(pipeline)).toBe("failed");
+  });
+
+  test("failed branch with earlier reachable pending derives failed once siblings settle", () => {
+    const pipeline = fanOutSuffixRowSeedPipeline(FAN_OUT_LINEAR_DEFINITION, {
+      "plan/alpha": {},
+      "implement/alpha": { status: "failed", endedAt: 1 },
+      "plan/beta": { status: "succeeded", endedAt: 2 },
+      "implement/beta": { status: "succeeded", endedAt: 3 },
+    });
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (!(anyRejected || anyFailed)) {" -> "if (false) {"
+    expect(derivePipelineState(pipeline)).toBe("failed");
+  });
+
+  test("failed branch plus sibling with approved gate and pending workflow derives pending", () => {
+    const pipeline = fanOutSuffixRowSeedPipeline(FAN_OUT_PIPELINE_DEFINITION, {
+      "plan/alpha": { status: "failed", endedAt: 1 },
+      "gate/beta": { status: "approved" },
+      "plan/beta": {},
+    });
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyActionablePending) return \"pending\";" -> "if (false) return \"pending\";"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"pending\") {" -> "if (false && record.status === \"pending\") {"
+    expect(derivePipelineState(pipeline)).toBe("pending");
+  });
+});
+
 describe("pipeline branch fan-out execution", () => {
   test("after fan-out admission, default rows do not dispatch plan or implement while per-branch rows exist", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {

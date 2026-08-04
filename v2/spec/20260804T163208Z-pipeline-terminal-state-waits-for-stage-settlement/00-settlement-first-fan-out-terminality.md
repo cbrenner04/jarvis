@@ -35,18 +35,18 @@ Out of scope: fan-out dispatch/claim, entry-run linkage, retry/backoff, `multipl
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` proves failed-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
-- [ ] `pipeline-execution.test.ts` proves rejected-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
-- [ ] `daemon-pipeline-observation.test.ts` proves a failed branch plus an undecided sibling gate that is the branch's next actionable stage remains non-terminal and exposes that approval boundary; the regression fails against baseline.
-- [ ] `daemon-pipeline-observation.test.ts` holds `pipeline_wait` open for failed-plus-running rows, then returns terminal `failed` only after the running sibling settles; the regression fails against baseline.
-- [ ] `pipeline-execution.test.ts` proves all-settled fan-out rows with at least one failure derive `failed`; the regression fails against baseline if running/awaiting precedence is applied after full settlement.
-- [ ] Each new or moved suffix guard condition (including actionable-pending logic) carries a `// @mutate` directive on the real production condition it guards; the named pinning tests turn RED under each mutation and no production inversion hook is added.
-- [ ] `pipeline-execution.test.ts` — `"mixed branch failure and success names the failed branchKey while the sibling still reaches terminal success"` stays green.
-- [ ] `pipeline-execution.test.ts` — `"mixed branch rejection and success names the rejected branchKey without aborting the sibling"` stays green.
-- [ ] `pipeline-execution.test.ts` — `"returns reopen refusal for ineligible failed shapes without stage dispatch"` (`multiple_failed_stages`) stays green.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` exits zero.
-- [ ] `bun run test:integration:v2` exits zero.
+- [x] `pipeline-execution.test.ts` proves failed-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
+- [x] `pipeline-execution.test.ts` proves rejected-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
+- [x] `daemon-pipeline-observation.test.ts` proves a failed branch plus an undecided sibling gate that is the branch's next actionable stage remains non-terminal and exposes that approval boundary; the regression fails against baseline.
+- [x] `daemon-pipeline-observation.test.ts` holds `pipeline_wait` open for failed-plus-running rows, then returns terminal `failed` only after the running sibling settles; the regression fails against baseline.
+- [x] `pipeline-execution.test.ts` proves all-settled fan-out rows with at least one failure derive `failed`; the regression fails against baseline if running/awaiting precedence is applied after full settlement.
+- [x] Each new or moved suffix guard condition (including actionable-pending logic) carries a `// @mutate` directive on the real production condition it guards; the named pinning tests turn RED under each mutation and no production inversion hook is added.
+- [x] `pipeline-execution.test.ts` — `"mixed branch failure and success names the failed branchKey while the sibling still reaches terminal success"` stays green.
+- [x] `pipeline-execution.test.ts` — `"mixed branch rejection and success names the rejected branchKey without aborting the sibling"` stays green.
+- [x] `pipeline-execution.test.ts` — `"returns reopen refusal for ineligible failed shapes without stage dispatch"` (`multiple_failed_stages`) stays green.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` exits zero.
+- [x] `bun run test:integration:v2` exits zero.
 
 ## Documentation updates
 

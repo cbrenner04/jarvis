@@ -7,6 +7,7 @@ import {
   analyzeFailedPipelineReopenShape,
   approvalBoundaryAllowsStatus,
   approvalDecisionAllowsStatus,
+  CURRENT_OWNER_IDENTITY,
   isApprovalAuthoredStage,
   isOwnerAlive,
   type OwnerLivenessProbe,
@@ -1570,7 +1571,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(18);
+      expect(migrationCount.total).toBe(19);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -2507,5 +2508,107 @@ describe("terminal publication commits", () => {
     const afterSuccess = loadPipelineOrThrow(store, freshId);
     expect(afterSuccess.terminalPublicationFailure).toBeNull();
     expect(afterSuccess.terminalPublicationSucceededAt).not.toBeNull();
+  });
+
+  test("pipeline_stage_admission claim, load, release, and duplicate claim refusal for the current holder", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("admission") });
+    const stageId = "plan";
+    expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "absent" });
+    expect(store.claimPipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "applied" });
+    expect(store.claimPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+      kind: "refused",
+      reason: "claim_lost",
+    });
+    expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+      kind: "present",
+      holderIdentity: CURRENT_OWNER_IDENTITY,
+    });
+    expect(store.releasePipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "applied" });
+    expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "absent" });
+    expect(store.releasePipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "applied" });
+  });
+
+  test("pipeline_stage_admission release refuses stale holders and branch keys stay distinct", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("admission-stale") });
+    const stageId = "plan";
+    const holderA = "owner-a:1";
+    const holderB = "owner-b:2";
+    const storeA = openStateStore(TEST_DB_PATH, { currentIdentity: holderA });
+    const storeB = openStateStore(TEST_DB_PATH, { currentIdentity: holderB });
+    try {
+      expect(storeA.claimPipelineStageAdmission({ pipelineId, stageId })).toEqual({ kind: "applied" });
+      expect(storeB.releasePipelineStageAdmission({ pipelineId, stageId })).toEqual({
+        kind: "refused",
+        reason: "stale_holder",
+      });
+      expect(storeA.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+        kind: "present",
+        holderIdentity: holderA,
+      });
+
+      const branchRecordId = store.createPipelineStageBranch({ pipelineId, stageId, branchKey: "branch-a" });
+      expect(storeA.claimPipelineStageAdmission({ pipelineId, stageId, branchKey: "branch-a" })).toEqual({
+        kind: "applied",
+      });
+      expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+        kind: "present",
+        holderIdentity: holderA,
+      });
+      expect(store.loadPipelineStageAdmission({ pipelineId, stageId, branchKey: "branch-a" })).toEqual({
+        kind: "present",
+        holderIdentity: holderA,
+      });
+      expect(branchRecordId).toBeTruthy();
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
+  });
+
+  test("two store handles claiming one pipeline stage admit exactly once and refuse duplicates", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("admission-claim") });
+    const stageId = "plan";
+    const holderA = "owner-a:1";
+    const holderB = "owner-b:2";
+    const storeA = openStateStore(TEST_DB_PATH, { currentIdentity: holderA });
+    const storeB = openStateStore(TEST_DB_PATH, { currentIdentity: holderB });
+    try {
+      const first = storeA.claimPipelineStageAdmission({ pipelineId, stageId });
+      const second = storeB.claimPipelineStageAdmission({ pipelineId, stageId });
+      const outcomes = [first, second];
+      // Mutation checkpoint: removing the first-writer INSERT guard must turn this RED.
+      expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
+      const refused = outcomes.find((outcome) => outcome.kind === "refused");
+      expect(refused).toEqual({ kind: "refused", reason: "claim_lost" });
+      expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+        kind: "present",
+        holderIdentity: holderA,
+      });
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
+  });
+
+  test("two store handles with the same holder identity refuse duplicate stage admission claims", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("admission-same-holder") });
+    const stageId = "plan";
+    const holder = "owner-a:1";
+    const storeA = openStateStore(TEST_DB_PATH, { currentIdentity: holder });
+    const storeB = openStateStore(TEST_DB_PATH, { currentIdentity: holder });
+    try {
+      const first = storeA.claimPipelineStageAdmission({ pipelineId, stageId });
+      const second = storeB.claimPipelineStageAdmission({ pipelineId, stageId });
+      expect(first).toEqual({ kind: "applied" });
+      expect(second).toEqual({ kind: "refused", reason: "claim_lost" });
+      expect(store.loadPipelineStageAdmission({ pipelineId, stageId })).toEqual({
+        kind: "present",
+        holderIdentity: holder,
+      });
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
   });
 });

@@ -25,6 +25,7 @@ import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
   isLiveEntryRun,
+  shouldStopForInFlightStageRow,
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
@@ -1156,7 +1157,7 @@ function finishDispatchedWorkflowStage(args: {
   const settledRecords = settled?.stages ?? [];
   const settledRecord = settled ? findStageRecord(settledRecords, args.stage.stageId, args.branchKey) : undefined;
   if (settledRecord?.status !== "succeeded") {
-    if (settledRecord?.status === "running" && liveLinkedEntryRunId(args.store, settledRecord) !== undefined) {
+    if (shouldStopForInFlightStageRow(args.store, settledRecord)) {
       return "stop";
     }
     skipRemainingStages(args.store, args.pipelineId, settledRecords, args.index + 1, args.branchKey);

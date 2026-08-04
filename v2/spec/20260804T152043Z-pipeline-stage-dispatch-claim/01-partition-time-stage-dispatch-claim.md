@@ -38,10 +38,10 @@ Primary: `v2/src/daemon/pipeline-execution.ts`, `v2/src/daemon/pipeline-stage-di
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `"two concurrent continuations dispatch a given stage row exactly once"` fails against baseline; the loser neither dispatches nor writes `failed` while the winner's entry run is live; linked `// @mutate` on the refused-claim early-return in `dispatchPipelineStage` makes the regression fail.
-- [ ] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the dispatch path (fake doubles in execution tests; real SQL store in approval tests).
-- [ ] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` and `"live-linked running stage row is not terminalized while its entry run is still live"` stay green.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `pipeline-execution.test.ts` — `"two concurrent continuations dispatch a given stage row exactly once"` fails against baseline; the loser neither dispatches nor writes `failed` while the winner's entry run is live; linked `// @mutate` on the refused-claim early-return in `dispatchPipelineStage` makes the regression fail.
+- [x] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the dispatch path (fake doubles in execution tests; real SQL store in approval tests).
+- [x] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` and `"live-linked running stage row is not terminalized while its entry run is still live"` stay green.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

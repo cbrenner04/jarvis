@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import type { Run, RunStatus, StateStore } from "../persistence/state-store.ts";
+import type { Run, RunStatus, StateStore, PipelineStageRecord } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
+  shouldStopForInFlightStageRow,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
 } from "./pipeline-stage-dispatch.ts";
@@ -27,6 +28,8 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
   patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }>;
 } {
   const patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }> = [];
+  const admissionRows = new Map<string, string>();
+  const currentIdentity = "test-holder";
   const store = {
     updateStage: (args: { pipelineId: string; stageId: string; patch: Record<string, unknown> }) => {
       patches.push(args);
@@ -36,8 +39,30 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       return run ? ({ id: runId, attempts: [], ...run } as unknown as Run & { attempts: [] }) : null;
     },
     loadPipeline: () => null,
+    claimPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
+      const key = `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
+      if (admissionRows.has(key)) return { kind: "refused" as const, reason: "claim_lost" as const };
+      admissionRows.set(key, currentIdentity);
+      return { kind: "applied" as const };
+    },
+    releasePipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
+      const key = `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
+      if (!admissionRows.has(key)) return { kind: "applied" as const };
+      admissionRows.delete(key);
+      return { kind: "applied" as const };
+    },
+    loadPipelineStageAdmission: () => ({ kind: "absent" as const }),
   } as unknown as StateStore;
   return { store, patches };
+}
+
+function stageRecord(overrides: Partial<PipelineStageRecord> = {}): PipelineStageRecord {
+  return {
+    stageId: "s1",
+    branchKey: "default",
+    status: "pending",
+    ...overrides,
+  } as PipelineStageRecord;
 }
 
 function loopFinished(
@@ -52,6 +77,93 @@ function loopFinished(
     event: { kind: "loop_finished", loopOutcomeKind, iterationsConsumed: 1, resumable: false, ...extra },
   };
 }
+
+describe("shouldStopForInFlightStageRow", () => {
+  test.each([
+    ["pending", stageRecord({ status: "pending" }), true],
+    ["running with live link", stageRecord({ status: "running", workflowInvocationId: "entry-live" }), true],
+    ["running without link", stageRecord({ status: "running" }), false],
+    ["running with dead link", stageRecord({ status: "running", workflowInvocationId: "entry-dead" }), false],
+    ["failed", stageRecord({ status: "failed" }), false],
+    ["succeeded", stageRecord({ status: "succeeded" }), false],
+    ["undefined", undefined, false],
+  ] as const)("%s", (_label, record, expected) => {
+    const { store } = fakeStore({
+      "entry-live": { status: "in-progress" },
+      "entry-dead": { status: "completed" },
+    });
+    expect(shouldStopForInFlightStageRow(store, record)).toBe(expected);
+  });
+});
+
+describe("dispatchPipelineStage refused claim", () => {
+  test("returns early without dispatch or release when the stage row is still pending", async () => {
+    let dispatchCalled = false;
+    let releaseCount = 0;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "entry-1" };
+    };
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store, patches } = fakeStore();
+    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+    store.loadPipeline = () =>
+      ({
+        stages: [stageRecord({ status: "pending" })],
+      }) as ReturnType<StateStore["loadPipeline"]>;
+    store.releasePipelineStageAdmission = () => {
+      releaseCount += 1;
+      return { kind: "applied" };
+    };
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(dispatchCalled).toBe(false);
+    expect(releaseCount).toBe(0);
+    expect(patches).toHaveLength(0);
+  });
+
+  test("adopts and settles when the stage row is running with a live entry run", async () => {
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "entry-adopt" };
+    };
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store, patches } = fakeStore({
+      "entry-adopt": { specPath: "spec/adopt.md", status: "in-progress" },
+    });
+    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+    store.loadPipeline = () =>
+      ({
+        stages: [stageRecord({ status: "running", workflowInvocationId: "entry-adopt" })],
+      }) as ReturnType<StateStore["loadPipeline"]>;
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(dispatchCalled).toBe(false);
+    expect(patches.some((p) => p.patch.status === "succeeded")).toBe(true);
+  });
+
+  test("releases admission after the winner partition completes", async () => {
+    let releaseCount = 0;
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId: "entry-winner",
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const { store } = fakeStore({ "entry-winner": { specPath: "spec/winner.md" } });
+    const originalRelease = store.releasePipelineStageAdmission.bind(store);
+    store.releasePipelineStageAdmission = (args) => {
+      releaseCount += 1;
+      return originalRelease(args);
+    };
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(releaseCount).toBe(1);
+  });
+});
 
 describe("dispatchPipelineStage", () => {
   test("records workflowInvocationId before the wait primitive resolves", async () => {

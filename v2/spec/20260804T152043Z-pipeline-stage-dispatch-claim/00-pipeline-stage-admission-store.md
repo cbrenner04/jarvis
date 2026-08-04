@@ -33,10 +33,10 @@ Primary: `v2/src/persistence/state-store.ts`. In-scope: `state-store.test.ts`, e
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts` — exercises all three `pipeline_stage_admission` methods against real SQL, including the no-row load case; new tests fail against baseline before implementation; removing the schema or any method makes the regression fail.
-- [ ] `state-store.test.ts` — concurrent claim attempts on the same `(pipelineId, stageId, branchKey)` via separate store instances (`storeA`/`storeB`) apply exactly once; inverting the first-writer guard makes the regression fail.
-- [ ] `v2/docs/state-store.md` — documents durable `pipeline_stage_admission` claim/release/load semantics (absent vs refused) and names the distinction from in-memory `dispatchClaims`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run lint:md` exit zero.
+- [x] `state-store.test.ts` — exercises all three `pipeline_stage_admission` methods against real SQL, including the no-row load case; new tests fail against baseline before implementation; removing the schema or any method makes the regression fail.
+- [x] `state-store.test.ts` — concurrent claim attempts on the same `(pipelineId, stageId, branchKey)` via separate store instances (`storeA`/`storeB`) apply exactly once; inverting the first-writer guard makes the regression fail.
+- [x] `v2/docs/state-store.md` — documents durable `pipeline_stage_admission` claim/release/load semantics (absent vs refused) and names the distinction from in-memory `dispatchClaims`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run lint:md` exit zero.
 
 ## Documentation updates
 

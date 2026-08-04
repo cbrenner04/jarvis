@@ -8,7 +8,7 @@ Authority: operator priorities. Updated 2026-08-03 (late).
 
 ## Start here next
 
-**Fix `awaitFanOutPeerRow`, then re-implement `20260803T214753Z-fan-out-concurrent-sibling-dispatch`.** [#2577](https://github.com/cbrenner04/jarvis/pull/2577) was **closed unmerged**; its branch `20260803T214753Z-fan-out-concurrent-sibling-dispatch` is retained on origin, same treatment as #2555. The spec is still on `main` with subspec 00 ticked and 01 unticked. Root cause of its 1-in-3 e2e hang is found and confirmed by two independent investigations:
+**Run `20260803T214753Z-fan-out-concurrent-sibling-dispatch` — the spec is amended and ready.** Subspec 01 now carries the six Decisions and seven acceptance criteria derived from the failed first attempt (no busy-wait, total peer-dispatch responsibility across every dispatcher row state, bounded waits, one settler per row, aggregated sibling failures, an invertible concurrency seam, and an 8-consecutive-run requirement on the e2e file), plus a **Prior art** section naming what not to rebuild. Launch it with `jarvis run workflow implement` rather than hand-implementing. [#2577](https://github.com/cbrenner04/jarvis/pull/2577) was **closed unmerged**; its branch `20260803T214753Z-fan-out-concurrent-sibling-dispatch` is retained on origin, same treatment as #2555. The spec is still on `main` with subspec 00 ticked and 01 unticked. Root cause of its 1-in-3 e2e hang is found and confirmed by two independent investigations:
 
 ```ts
 for (;;) { …; if (record?.status !== "pending") return "stop"; await Promise.resolve(); }
@@ -22,11 +22,9 @@ Real fix: a promise the leader resolves when it writes the peer's linkage — or
 
 Two more to handle in the same pass: **double settlement** of each peer row (peer's own walk and the leader's `dispatchPipelineStage` both await the same `wait(entryRunId)` and write the same terminal patch — fixtures miss it because their seeded runs are already terminal), and **`Promise.all` losing sibling errors** (second rejection unhandled; a rejecting suffix walk lets `runPipeline` settle publication while a sibling keeps writing rows detached).
 
-Consider a spec amendment first: `advanceFanOutBranches` / `awaitFanOutPeerRow` / `advanceFanOutPendingPeersAtStage` add ~140 lines of coordination subspec 01 never specifies, and three places can now dispatch a peer branch.
-
 **Salvage from the retained branch rather than rebasing it.** Two pieces are known good: subspec 00's branch-scoped `(stageId, branchKey)` artifacts (both mutation pins verified to kill), and commit `d402961c0`, which latches the `daemon-pipeline-resume.test.ts` binding double — that double silently drops a `settle()` landing before the binding is invoked, and the latch is worth cherry-picking on its own regardless of the fan-out work. Do **not** carry forward `awaitFanOutPeerRow` or the leader/peer coordination around it.
 
-Then **subspec 01's two mutation pins**, which are inert today: the task arrays are built eagerly with `.map()`, so serializing the awaits changes nothing and the suite stays at 73 pass / 0 fail. Making them real needs lazy thunks so the concurrency lives in the awaiting line. Do that *after* `awaitFanOutPeerRow` — with the spin still in place the serialized form hangs instead of failing, which is what made the first attempt look like a fixture problem. The `## Blocker` on the branch still carries that superseded reading; the corrected one is above.
+The inert-pin problem is now a spec Decision rather than a note: the first attempt's directives did nothing because `.map()` starts every promise before the awaiting line, so the amended subspec requires lazy thunks and requires each directive to make the suite **fail, not hang**.
 
 Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until that spec lands. Needs `jarvis run workflow plan` first.
 

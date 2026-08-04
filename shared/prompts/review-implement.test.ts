@@ -65,12 +65,16 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
     );
     expect(mainBaseDiff).toContain("develop-only.txt");
     expect(mainBaseDiff).not.toEqual(payloads[0]);
-    expect(critic).toContain("merge-base branch diff");
-    expect(critic).not.toContain("not a unified diff");
-    // Pin the provenance sentence: the critic must be told where the diff comes from, so a
-    // reviewer knows the payload is base-relative rather than a working-tree diff.
-    expect(critic).toContain("git merge-base <base> HEAD");
-    expect(critic).toContain("git diff <mergeBase> HEAD");
+    // Critic and all three debate roles render implement.prompt.review.* prompts, each carrying
+    // the merge-base unified-diff section — no role should fall back to patch's summary-only wording.
+    for (const rendered of [critic, debate.adversary, debate.advocate, debate.adjudicator]) {
+      expect(rendered).toContain("merge-base branch diff");
+      expect(rendered).not.toContain("not a unified diff");
+      // Pin the provenance sentence: each role must be told where the diff comes from, so a
+      // reviewer knows the payload is base-relative rather than a working-tree diff.
+      expect(rendered).toContain("git merge-base <base> HEAD");
+      expect(rendered).toContain("git diff <mergeBase> HEAD");
+    }
     expect(new Set(payloads).size).toBe(1);
   });
 });

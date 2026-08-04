@@ -39,10 +39,11 @@ describe("ReviewPromptProfile", () => {
       expect(profile.boundaries.debate).toEqual({ critic: "read-only", actuator: "write" });
     }
     expect(implementReviewProfile.promptIds.debate).toEqual({
-      adversary: "patch.prompt.review.adversary",
-      advocate: "patch.prompt.review.advocate",
-      adjudicator: "patch.prompt.review.adjudicator",
+      adversary: "implement.prompt.review.adversary",
+      advocate: "implement.prompt.review.advocate",
+      adjudicator: "implement.prompt.review.adjudicator",
     });
+    expect(implementReviewProfile.promptIds.critic).toBe("implement.prompt.review.critic");
     expect(intentReviewProfile.promptIds.debate).toEqual({
       adversary: "intent.prompt.review.adversary",
       advocate: "intent.prompt.review.advocate",

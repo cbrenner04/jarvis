@@ -31,8 +31,9 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `patch.rules` (`prompts/patch/rules.md`)
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
 - `patch.prompt.review` (`prompts/patch/review.md`) — legacy patch review step prompt for a writing agent; registered but unwired (subtractive critique-and-refactor contract)
-- `patch.prompt.review.critic` (`prompts/patch/review-critic.md`) — read-only light patch review critic; emits an actionable verdict or empty output when the branch needs no changes; layered with standard patch globals (`global.documentation -> global.naming -> global.terse`)
-- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator
+- `patch.prompt.review.critic` (`prompts/patch/review-critic.md`) — read-only light patch review critic; emits an actionable verdict or empty output when the branch needs no changes; layered with standard patch globals (`global.documentation -> global.naming -> global.terse`); registered but unwired — v2 implement review renders `implement.prompt.review.critic` instead
+- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; frozen for v1 (maintenance-only engine) with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff)
+- `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — v2-owned implement review critic and debate roles, split from the `patch.prompt.review.*` family so each engine renders its own artifacts; same placeholder contract as their patch counterparts, but `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself), never summary-only
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)

@@ -32,6 +32,10 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("plan.prompt.review-actuator");
     expect(ids).toContain("intent.prompt.split");
     expect(ids).toContain("write.execute");
+    expect(ids).toContain("implement.prompt.review.critic");
+    expect(ids).toContain("implement.prompt.review.adversary");
+    expect(ids).toContain("implement.prompt.review.advocate");
+    expect(ids).toContain("implement.prompt.review.adjudicator");
   });
 
   test("missing required metadata is a load-time error", () => {

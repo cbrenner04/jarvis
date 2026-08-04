@@ -245,7 +245,7 @@ describe("buildImplementWorkflowSteps", () => {
       passNumber: 1,
       totalPasses: 1,
     });
-    expect(review.prompts?.adversary).toBe("patch.prompt.review.adversary");
+    expect(review.prompts?.adversary).toBe("implement.prompt.review.adversary");
   });
 
   test("stamps resolved reviewBehavior on the implement write step", async () => {
@@ -293,7 +293,7 @@ describe("buildImplementWorkflowSteps", () => {
       passNumber: 1,
       totalPasses: 2,
     });
-    expect(review.prompts?.adversary).toBe("patch.prompt.review.adversary");
+    expect(review.prompts?.adversary).toBe("implement.prompt.review.adversary");
   });
 
   test("positive reviewPasses with light reviewBehavior appends one review step", async () => {
@@ -321,7 +321,7 @@ describe("buildImplementWorkflowSteps", () => {
       passNumber: 1,
       totalPasses: 2,
     });
-    expect(review.prompt).toBe("patch.prompt.review.critic");
+    expect(review.prompt).toBe("implement.prompt.review.critic");
   });
 
   test("rejects invalid reviewPasses at build time", async () => {

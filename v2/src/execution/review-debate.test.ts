@@ -310,7 +310,7 @@ test("stamps pass metadata onto serializable object profile contexts", async () 
     ...input,
     profile: {
       domain: "implement",
-      promptIds: { critic: "patch.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
+      promptIds: { critic: "implement.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
       render: {
         critic: () => "inspect",
         actuator: () => "apply",

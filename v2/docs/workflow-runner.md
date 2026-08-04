@@ -599,7 +599,10 @@ step (`SPEC_PATH`, `REPO_GUIDANCE` from the worktree root, active subspec from
 implement write step. The debate step runs in the implement worktree, writes
 `verdict-patch.md` beside the executed `specPath` (overwritten each cycle), and
  carries the implement review profile so `executeWorkflow` renders
-`patch.prompt.review.*` per cycle at execution. Runtime order is implement write
+`implement.prompt.review.*` per cycle at execution — v2's own ids, distinct
+from v1's `patch.prompt.review.*` (`implementReviewProfile`'s actuator id
+remains `patch.prompt.review-actuator`, unchanged; it is a pinned label, not a
+registered prompt). Runtime order is implement write
 → terminal shrink (when routing completed work) → optional debate review. The
 appended review is skipped — without hard-fail — when implement did not route
 through a terminal linked subspec, including empty or already-complete indexes,
@@ -642,8 +645,9 @@ separate orders, not one order applied to all four roles. Before dispatch,
 via the same two-axis resolution `write` steps use, then passes the four
 per-role binding sets to `executeReviewDebate`.
 
-**Patch review prompt rendering:** `shared/prompts/review-implement.ts` renders critic and
-debate roles (`patch.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator`) with the
+**Implement review prompt rendering:** `shared/prompts/review-implement.ts` renders critic and
+debate roles (`implement.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator`,
+under `prompts/implement/`) with the
 executed spec tree, merge-base `BRANCH_DIFF` (stat, changed paths, unified diff), pass number,
 and `REVIEW_PASS_CONTEXT`. Within a cycle, the
 adversary's stdout is injected as `ADVERSARY_FINDINGS` for the advocate, and

@@ -21,6 +21,10 @@ patch/review-adjudicator.md
 patch/review-critic.md
 patch/rules.md
 patch/shrink.md
+implement/review-adversary.md
+implement/review-advocate.md
+implement/review-adjudicator.md
+implement/review-critic.md
 write/execute.md
 write/principles.md
 write/token-reprompt.md

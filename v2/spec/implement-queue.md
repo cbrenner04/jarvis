@@ -8,9 +8,23 @@ Authority: operator priorities. Updated 2026-08-03 (late).
 
 ## Start here next
 
-**Deadlock on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — draft, do not merge. `pipeline-end-to-end.sandbox-unrunnable.test.ts` hangs about **1 run in 3** on the branch and never on `main` (4/4 green, ~2s); CI killed it at the 3-minute budget. Concurrent sibling dispatch can deadlock a real end-to-end pipeline. Suspects: two walks contending on the same `(stageId, branchKey)` row, or a branch awaiting a peer entry run that never dispatches. Fix this before anything else on the branch — an intermittent hang strands production runs. Note the intermittency defeats a single hand-gate: run the file 5+ times.
+**Fix `awaitFanOutPeerRow` on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — draft, do not merge. Root cause of the 1-in-3 e2e hang is found and confirmed by two independent investigations:
 
-Then **`20260803T214753Z-fan-out-concurrent-sibling-dispatch/` subspec 01** — 01 is unticked with a `## Blocker`. Its two concurrency `@mutate` directives are **inert**: the task arrays are built eagerly with `.map()`, so awaiting them serially changes nothing and the suite stays at 73 pass / 0 fail. Making them real needs lazy thunks *plus* bounded waits in the fan-out fixtures — with lazy thunks alone the serialized form deadlocks instead of failing, and mutation verification has no timeout, so a hanging directive would stall a write step indefinitely. Read the Blocker before starting; the prototype and its failure mode are recorded there.
+```ts
+for (;;) { …; if (record?.status !== "pending") return "stop"; await Promise.resolve(); }
+```
+
+`await Promise.resolve()` yields to **microtasks only**, so the queue never drains and timers/IO never run — 5M iterations in 114 ms with a `setTimeout(…, 0)` that never fires. Every non-leader fan-out branch parks here. New on this branch; `main` has no leader concept.
+
+A macrotask yield alone makes the e2e file 8/8 green and was **deliberately not committed** — it cures the CPU burn but not the wait. Two deterministic deadlocks remain where the leader never dispatches the peer: leader row already `succeeded` (carries artifact forward, moves on), or `failed`/`skipped` (`advanceAuthoredStageAtIndex` returns `branch-terminal`). Both are on the daemon-restart recovery path (`recoverContinuablePipelines` → `continuePipeline` with no `continuationBranchKey`). With the yield those become silently pending pipelines under a green suite.
+
+Real fix: a promise the leader resolves when it writes the peer's linkage — or macrotask yield **plus** bounded deadline **plus** peer self-dispatch when the leader's row is terminal. That also unblocks subspec 01's two inert pins: the serialized `@mutate` form deadlocks *because of this bug*, so fixing it makes those pins fail honestly. The Blocker's "fixtures need bounded waits to fail fast" note has cause and effect backwards — do not do that; it would hide a real product hang.
+
+Two more to handle in the same pass: **double settlement** of each peer row (peer's own walk and the leader's `dispatchPipelineStage` both await the same `wait(entryRunId)` and write the same terminal patch — fixtures miss it because their seeded runs are already terminal), and **`Promise.all` losing sibling errors** (second rejection unhandled; a rejecting suffix walk lets `runPipeline` settle publication while a sibling keeps writing rows detached).
+
+Consider a spec amendment first: `advanceFanOutBranches` / `awaitFanOutPeerRow` / `advanceFanOutPendingPeersAtStage` add ~140 lines of coordination subspec 01 never specifies, and three places can now dispatch a peer branch.
+
+Then **subspec 01's two mutation pins** — inert today (`.map()` starts every promise eagerly, so serializing the awaits changes nothing). They become provable once `awaitFanOutPeerRow` is fixed. Its two concurrency `@mutate` directives are **inert**: the task arrays are built eagerly with `.map()`, so awaiting them serially changes nothing and the suite stays at 73 pass / 0 fail. Making them real needs lazy thunks *plus* bounded waits in the fan-out fixtures — with lazy thunks alone the serialized form deadlocks instead of failing, and mutation verification has no timeout, so a hanging directive would stall a write step indefinitely. Read the Blocker before starting; the prototype and its failure mode are recorded there.
 
 Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until #2577 lands. Needs `jarvis run workflow plan` first.
 

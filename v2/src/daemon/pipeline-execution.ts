@@ -57,6 +57,9 @@ export function isPipelineTerminal(state: PipelineDerivedState): boolean {
   return TERMINAL_PIPELINE_STATES.has(state);
 }
 
+/** Default bound on a losing branch's wait for a peer's fan-out claim (`advanceFanOutStageResolution`). */
+const DEFAULT_PEER_CLAIM_TIMEOUT_MS = 600_000;
+
 export type PipelineExecutionDeps = {
   store: StateStore;
   dispatch: PipelineWorkflowDispatch;
@@ -65,6 +68,8 @@ export type PipelineExecutionDeps = {
   resolveStage?: typeof resolveStageWorkflowSteps;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
+  /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
+  peerClaimTimeoutMs?: number;
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -1061,6 +1066,7 @@ type AdvanceWorkflowStageArgs = {
   wait: PipelineWorkflowWait;
   resolveStage: NonNullable<PipelineExecutionDeps["resolveStage"]>;
   dispatchClaims: PipelineDispatchClaims;
+  peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
 };
 
@@ -1211,6 +1217,60 @@ async function performFanOutStageResolution(
   return currentBranchFailed ? "stop" : "continue";
 }
 
+class PeerClaimTimeoutError extends Error {}
+
+/**
+ * Race a peer's in-flight claim against a real timer, never a busy-wait: the timer keeps the
+ * event loop free to service other timers and I/O while suspended, and a peer that never
+ * releases its claim surfaces a named `PeerClaimTimeoutError` instead of hanging forever.
+ */
+async function awaitBoundedPeerClaim(claim: Promise<void>, claimKey: string, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      claim,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new PeerClaimTimeoutError(
+              `pipeline-stage-resolve: timed out after ${timeoutMs}ms waiting for a peer branch to settle fan-out stage "${claimKey}"`,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Settle a losing branch's own row once its bounded wait on a peer's claim expires. A peer that
+ * already dispatched and settled this row (the common case — the claimant dispatches every
+ * admitted branch, this row included) is carried forward as a normal success; only a row the
+ * peer never touched settles the named timeout failure.
+ */
+function settlePeerClaimTimeout(args: AdvanceWorkflowStageArgs, message: string): StageStepOutcome {
+  const { store, pipelineId, definition, stage, index, branchKey, stageArtifacts } = args;
+  const settled = store.loadPipeline(pipelineId);
+  const settledRecords = settled?.stages ?? [];
+  const settledRecord = settled ? findStageRecord(settledRecords, stage.stageId, branchKey) : undefined;
+  if (settledRecord?.status === "succeeded") {
+    return handleSucceededWorkflowStage({
+      store,
+      pipelineId,
+      definition,
+      stage,
+      index,
+      branchKey,
+      stageRecords: settledRecords,
+      stageArtifacts,
+      artifact: settledRecord.artifact,
+    });
+  }
+  return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, settledRecords, index + 1, message);
+}
+
 /**
  * Every sibling branch's own suffix walk resolves the same shared fan-out stage (the fan-out
  * decision lives on the intent artifact, not the calling branchKey) — so concurrently-dispatched
@@ -1218,18 +1278,24 @@ async function performFanOutStageResolution(
  * synchronous check-and-set on `dispatchClaims` (no `await` between the two, so exactly one
  * caller wins regardless of scheduling) and performs admission + dispatch for every branch. Any
  * later caller awaits that claim — a real `await` on the claimant's own promise, never a
- * busy-wait — then re-reads its own row to decide continue/stop; it never re-admits or re-dispatches.
+ * busy-wait, and bounded by `peerClaimTimeoutMs` — then re-reads its own row to decide
+ * continue/stop; it never re-admits or re-dispatches.
  */
 async function advanceFanOutStageResolution(
   args: AdvanceWorkflowStageArgs,
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
   stageRecords: readonly PipelineStageRecord[],
 ): Promise<StageStepOutcome> {
-  const { pipelineId, definition, stage, index, branchKey, store, stageArtifacts, dispatchClaims } = args;
+  const { pipelineId, definition, stage, index, branchKey, store, stageArtifacts, dispatchClaims, peerClaimTimeoutMs } =
+    args;
   const claimKey = stage.stageId;
   const existingClaim = dispatchClaims.get(claimKey);
   if (existingClaim !== undefined) {
-    await existingClaim;
+    try {
+      await awaitBoundedPeerClaim(existingClaim, claimKey, peerClaimTimeoutMs);
+    } catch (error) {
+      return settlePeerClaimTimeout(args, error instanceof Error ? error.message : String(error));
+    }
     return finishDispatchedWorkflowStage({ store, pipelineId, definition, stage, index, branchKey, stageArtifacts });
   }
 
@@ -1567,6 +1633,7 @@ async function runAuthoredStages(args: {
   const { pipelineId, deps, split, branchKey, fromIndex, toIndex, dispatchClaims, sharedStageArtifacts } = args;
   const { store, dispatch, wait, context } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
+  const peerClaimTimeoutMs = deps.peerClaimTimeoutMs ?? DEFAULT_PEER_CLAIM_TIMEOUT_MS;
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
   const definition = pipeline.definition;
@@ -1604,6 +1671,7 @@ async function runAuthoredStages(args: {
             wait,
             resolveStage,
             dispatchClaims,
+            peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
           });
     if (outcome === "stop") return;

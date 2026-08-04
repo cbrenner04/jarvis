@@ -1020,7 +1020,12 @@ lives on the intent artifact, not on which `branchKey` is walking), a
 per-pipeline-invocation claim map (`pipelineId`-scoped, never durable) makes
 exactly one concurrently-racing branch admit and dispatch every sibling for
 that `stageId`; every other branch awaits that claim — a real `await`, never
-a busy-wait — instead of re-admitting or re-dispatching. The same claim
+a busy-wait — instead of re-admitting or re-dispatching. That wait is bounded
+by `peerClaimTimeoutMs` (10 minutes by default): if the claiming branch never
+releases it, the losing branch's own row settles a named
+`pipeline-stage-resolve: timed out ...` failure instead of hanging, unless the
+claiming branch already dispatched and settled it, in which case the losing
+branch simply carries the settled row forward. The same claim
 mechanism guards adoption of an already-`running` live-linked row so a
 branch's own walk and a peer's fan-out dispatch loop can never both call
 `wait()` and write a terminal patch for the same row. Concurrent dispatch

@@ -3179,4 +3179,50 @@ describe("pipeline branch fan-out execution", () => {
     await flushBackgroundRuns(3);
     expect(JSON.stringify(stages())).toBe(snapshotAfterDone);
   });
+
+  test("a losing branch's wait on a peer's fan-out claim yields to the macrotask queue and is bounded, settling a named failure when the peer never advances", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const baseDeps = fanOutPipelineDeps(store, dispatchLog);
+    const deps: PipelineExecutionDeps = {
+      ...baseDeps,
+      context: baseContext,
+      peerClaimTimeoutMs: 20,
+      dispatch: async (steps) => {
+        const step = steps[0] as unknown as { stageIndex: number; branchKey?: string };
+        if (step.stageIndex === 1 && step.branchKey === "beta") {
+          // Beta's own dispatch never resolves. Alpha always wins the claim race (first in
+          // branch-key order) and never finishes dispatching every admitted branch, so its
+          // claim never releases — beta's own suffix walk must not wait on it forever.
+          return new Promise<never>(() => {});
+        }
+        return baseDeps.dispatch(steps);
+      },
+    };
+
+    let macrotaskFired = false;
+    setTimeout(() => {
+      macrotaskFired = true;
+    }, 0);
+    let macrotaskFiredWhilePeerStillPending = false;
+
+    void runPipeline(PIPELINE_ID, deps);
+
+    const deadline = Date.now() + 2000;
+    while (stageRecord(stages(), "plan", "beta")?.status !== "failed" && Date.now() < deadline) {
+      // The 0ms timer armed above fires while alpha's claim is still outstanding — proof the
+      // cross-branch wait yields to the macrotask queue rather than busy-spinning the event loop.
+      if (macrotaskFired) macrotaskFiredWhilePeerStillPending = true;
+      await flushBackgroundRuns();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(macrotaskFiredWhilePeerStillPending).toBe(true);
+    const beta = stageRecord(stages(), "plan", "beta");
+    expect(beta?.status).toBe("failed");
+    expect((beta?.failureDetail as { message?: string } | null)?.message).toContain("timed out");
+    expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
+  });
 });

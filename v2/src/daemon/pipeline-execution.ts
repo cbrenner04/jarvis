@@ -1799,16 +1799,21 @@ type FanOutSuffixAggregation = Omit<FanOutBranchSuffixAggregation, "branchComple
   allBranchesComplete: boolean;
 };
 
-function aggregateFanOutBranchSuffix(
+type FanOutBranchSuffixTallies = {
+  anyRejected: boolean;
+  anyFailed: boolean;
+  anyRunning: boolean;
+  branchComplete: boolean;
+};
+
+function tallyFanOutBranchSuffixStatuses(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   branchKey: string,
-): FanOutBranchSuffixAggregation {
+): FanOutBranchSuffixTallies {
   let anyRejected = false;
   let anyFailed = false;
   let anyRunning = false;
-  let anyActionableAwaiting = false;
-  let anyActionablePending = false;
   let branchComplete = true;
 
   for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
@@ -1824,24 +1829,50 @@ function aggregateFanOutBranchSuffix(
     if (!isAuthoredStageSatisfied(stage, record)) branchComplete = false;
   }
 
+  return { anyRejected, anyFailed, anyRunning, branchComplete };
+}
+
+/** First reachable unsatisfied suffix stage: is it an actionable awaiting gate or an actionable pending stage? */
+function scanFirstActionableFanOutSuffixStage(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): { anyActionableAwaiting: boolean; anyActionablePending: boolean } {
+  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
+    if (record.status === "skipped") continue;
+    if (isAuthoredStageSatisfied(stage, record)) continue;
+    // @mutate pipeline-execution.test.ts "failed-plus-running fan-out rows derive running"
+    if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) break;
+    if (stage.kind === "approval" && (record.status === "awaiting" || record.status === "pending")) {
+      return { anyActionableAwaiting: true, anyActionablePending: false };
+    }
+    // @mutate pipeline-execution.test.ts "all-settled fan-out rows with at least one failure derive failed"
+    if (record.status === "pending") {
+      return { anyActionableAwaiting: false, anyActionablePending: true };
+    }
+    break;
+  }
+  return { anyActionableAwaiting: false, anyActionablePending: false };
+}
+
+function aggregateFanOutBranchSuffix(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  split: FanOutSplit,
+  branchKey: string,
+): FanOutBranchSuffixAggregation {
+  const { anyRejected, anyFailed, anyRunning, branchComplete } = tallyFanOutBranchSuffixStatuses(
+    pipeline,
+    split,
+    branchKey,
+  );
+  let anyActionableAwaiting = false;
+  let anyActionablePending = false;
+
   // @mutate pipeline-execution.test.ts "failed branch with earlier reachable pending derives failed once siblings settle"
   if (!(anyRejected || anyFailed)) {
-    for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
-      if (record.status === "skipped") continue;
-      if (isAuthoredStageSatisfied(stage, record)) continue;
-      // @mutate pipeline-execution.test.ts "failed-plus-running fan-out rows derive running"
-      if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) break;
-      if (stage.kind === "approval" && (record.status === "awaiting" || record.status === "pending")) {
-        anyActionableAwaiting = true;
-        break;
-      }
-      // @mutate pipeline-execution.test.ts "all-settled fan-out rows with at least one failure derive failed"
-      if (record.status === "pending") {
-        anyActionablePending = true;
-        break;
-      }
-      break;
-    }
+    const actionable = scanFirstActionableFanOutSuffixStage(pipeline, split, branchKey);
+    anyActionableAwaiting = actionable.anyActionableAwaiting;
+    anyActionablePending = actionable.anyActionablePending;
   }
 
   return {

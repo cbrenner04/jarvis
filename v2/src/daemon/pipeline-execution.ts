@@ -1414,13 +1414,6 @@ function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: str
   return true;
 }
 
-/**
- * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
- * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
- * instance for the same pipeline, though the daemon only ever starts one per `pipeline_start`
- * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
- * to every later stage and stops the loop; no dispatch reaches them.
- */
 /** Adopt a `running` stage's live linked entry run and settle it without re-dispatching steps. */
 async function adoptRunningWorkflowStage(
   args: AdvanceWorkflowStageArgs,
@@ -1458,6 +1451,13 @@ async function adoptRunningWorkflowStage(
   });
 }
 
+/**
+ * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
+ * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
+ * instance for the same pipeline, though the daemon only ever starts one per `pipeline_start`
+ * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
+ * to every later stage and stops the loop; no dispatch reaches them.
+ */
 async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<StageStepOutcome> {
   const {
     pipelineId,

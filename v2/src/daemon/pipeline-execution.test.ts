@@ -3047,27 +3047,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   function setupFanOutAlphaPlanStatus(store: StateStore, status: "succeeded" | "failed" | "skipped"): void {
-    const intentArtifact: PipelineStageArtifact = {
-      entryRunId: "run-intent",
-      specPath: "ready-intents",
-      downstreamInputs: [...FAN_OUT_DOWNSTREAM],
-    };
-    store.updateStage({
-      pipelineId: PIPELINE_ID,
-      stageId: "intent",
-      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
-    });
-    for (const branchKey of FAN_OUT_BRANCH_KEYS) {
-      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
-      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
-    }
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: "default", patch: { status: "skipped" } });
-    store.updateStage({
-      pipelineId: PIPELINE_ID,
-      stageId: "implement",
-      branchKey: "default",
-      patch: { status: "skipped" },
-    });
     const alphaPlanPatch: Record<string, unknown> =
       status === "succeeded"
         ? {
@@ -3078,7 +3057,7 @@ describe("pipeline branch fan-out execution", () => {
         : status === "failed"
           ? { status: "failed", endedAt: Date.now(), failureDetail: { message: "prior failure" } }
           : { status: "skipped" };
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: "alpha", patch: alphaPlanPatch });
+    setupFanOutAlphaLiveLinked(store, alphaPlanPatch);
     store.updateStage({
       pipelineId: PIPELINE_ID,
       stageId: "implement",

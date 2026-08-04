@@ -25,6 +25,8 @@ afterAll(() => {
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000010";
 const OPERATOR_SESSION_ID = "00000000-0000-4000-8000-000000000002";
 const SOLO_LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
+const SOLO_LIST_ROW_REQUEST_ID = "00000000-0000-4000-8000-000000000011";
+const COMPLETION_COMMIT_ERROR_MSG = "failed to push some refs to 'origin/feature'";
 
 function soloDaemonListRow(runId: string) {
   return { runId, project: "demo", branch: "main", status: "completed", isLive: true };
@@ -51,6 +53,23 @@ function waitResponse(result: unknown): unknown {
 
 function waitError(code: string, message: string): unknown {
   return { kind: "error", id: WAIT_REQUEST_ID, code, message };
+}
+
+async function runSoloList(runs: Record<string, unknown>[]) {
+  const cap = captureIo();
+  const code = await withFixedUuid(SOLO_LIST_ROW_REQUEST_ID, () =>
+    main(["run", "list"], cap.io, {
+      connectIpcClient: async () =>
+        makeIpcClient([{ kind: "response", id: SOLO_LIST_ROW_REQUEST_ID, result: { runs } }]),
+    }),
+  );
+  const stdout = cap.read().stdout;
+  return {
+    code,
+    stdout,
+    row: () => stdout.trimEnd().split("\t"),
+    rows: () => stdout.trimEnd().split("\n").map((line) => line.split("\t")),
+  };
 }
 
 async function runWait(
@@ -900,52 +919,117 @@ describe("run list multi-daemon", () => {
 
 describe("run control", () => {
   test("run list renders surviving-mutation columns independently and omits them when absent", async () => {
-    const cap = captureIo();
-    const requestId = "00000000-0000-4000-8000-000000000011";
-    const code = await withFixedUuid(requestId, () =>
-      main(["run", "list"], cap.io, {
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "response",
-              id: requestId,
-              result: {
-                runs: [
-                  {
-                    runId: "mutation",
-                    project: "demo",
-                    branch: "main",
-                    status: "failed",
-                    isLive: false,
-                    error: {
-                      reason: "surviving_mutation_failed",
-                      retryable: true,
-                      nextAction: "resume",
-                      survivingMutation: "operator-flip",
-                      survivingMutationSourceFile: "src/guard.ts",
-                      survivingMutationSourceLine: 17,
-                    },
-                  },
-                  { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
-                ],
-              },
-            },
-          ]),
-      }),
-    );
+    const { code, rows } = await runSoloList([
+      {
+        runId: "mutation",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: {
+          reason: "surviving_mutation_failed",
+          retryable: true,
+          nextAction: "resume",
+          survivingMutation: "operator-flip",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        },
+      },
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
 
     expect(code).toBe(0);
-    const [mutation, plain] = cap
-      .read()
-      .stdout.trimEnd()
-      .split("\n")
-      .map((row) => row.split("\t"));
+    const [mutation, plain] = rows();
     expect(mutation?.[10]).toBe("operator-flip");
     expect(mutation?.[11]).toBe("src/guard.ts");
     expect(mutation?.[12]).toBe("17");
     expect(plain?.[10]).toBe("-");
     expect(plain?.[11]).toBe("-");
     expect(plain?.[12]).toBe("-");
+  });
+
+  test("run list renders completionCommitError in trailing column after prUrl", async () => {
+    const { code, row } = await runSoloList([
+      {
+        runId: "shrink",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        prNumber: 42,
+        prUrl: "https://github.com/demo/pull/42",
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError: COMPLETION_COMMIT_ERROR_MSG,
+        },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[13]).toBe("42");
+    expect(row()[14]).toBe("https://github.com/demo/pull/42");
+    expect(row()[15]).toBe(JSON.stringify(COMPLETION_COMMIT_ERROR_MSG));
+    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "\"-\","
+  });
+
+  test("run list renders trailing completionCommitError column as - when absent", async () => {
+    const { code, row } = await runSoloList([
+      { runId: "plain", project: "demo", branch: "main", status: "completed", isLive: false },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[15]).toBe("-");
+    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "JSON.stringify(e?.completionCommitError ?? \"-\"),"
+  });
+
+  test("run list confines tab and newline completionCommitError to trailing column", async () => {
+    const completionCommitError = "line1\nline2\tcol";
+    const { code, stdout, row } = await runSoloList([
+      {
+        runId: "shrink",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError,
+        },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(row()[15]).toBe(JSON.stringify(completionCommitError));
+    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "e?.completionCommitError ?? \"-\","
+  });
+
+  test("run wait passes through error.completionCommitError for completion_commit_failed", async () => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-shrink", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "completion_commit_failed",
+        resumable: true,
+        error: {
+          reason: "completion_commit_failed",
+          retryable: true,
+          nextAction: "resume",
+          completionCommitError: COMPLETION_COMMIT_ERROR_MSG,
+        },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { completionCommitError?: string };
+    };
+    expect(parsed.error?.completionCommitError).toBe(COMPLETION_COMMIT_ERROR_MSG);
+    // @mutate v2/src/cli/run-completion.ts "if (result.error !== undefined) payload.error = result.error;" -> ""
   });
 
   test("run wait missing run ID prints run-control usage and exits 1", async () => {

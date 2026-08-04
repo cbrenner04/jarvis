@@ -6,4 +6,4 @@ Daemon `list` / `wait` already project `error.completionCommitError`; the CLI st
 omits it from `jarvis run list` rows and has no regression on `jarvis run wait`
 stdout.
 
-- [ ] [00 - Render completion-commit errors in CLI](./00-render-completion-commit-errors-in-cli.md)
+- [x] [00 - Render completion-commit errors in CLI](./00-render-completion-commit-errors-in-cli.md)

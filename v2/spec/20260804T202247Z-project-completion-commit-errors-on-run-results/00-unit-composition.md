@@ -39,17 +39,17 @@ rows but omits their `completionCommitError` text.
 
 ## Acceptance criteria
 
-- [ ] `run-operator-error.test.ts` adds a regression where
+- [x] `run-operator-error.test.ts` adds a regression where
       `composeRunOperatorError` maps the terminal `loop_finished.completionCommitError`
       string onto `error.completionCommitError` without re-normalization while
       retaining `publicationFailure`; fails against baseline.
-- [ ] `run-operator-error.test.ts` adds a regression where
+- [x] `run-operator-error.test.ts` adds a regression where
       `composeRunOperatorError` omits `error.completionCommitError` when the
       terminal `loop_finished` row has no such field; fails against baseline.
-- [ ] `run-operator-error.test.ts` links a `// @mutate` directive in the
+- [x] `run-operator-error.test.ts` links a `// @mutate` directive in the
       pinning coexistence test to the real `completionCommitError` projection
       guard in `run-operator-error.ts`; inverting it turns the test red with no
       production inversion hook.
-- [ ] `run-operator-error.test.ts` `"composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished"` stays green (`iteration_commit_failed` composition unchanged).
+- [x] `run-operator-error.test.ts` `"composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished"` stays green (`iteration_commit_failed` composition unchanged).
 
 ## Documentation updates

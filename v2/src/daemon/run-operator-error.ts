@@ -53,6 +53,7 @@ export type RunOperatorError = {
   retryable: boolean;
   nextAction: RunOperatorNextAction;
   publicationFailure?: PublicationFailure;
+  completionCommitError?: string;
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
@@ -188,12 +189,15 @@ function mapFromLoopFinished(
       return op("landing_failed", "resume", true);
     case "completion_commit_failed":
       return {
-        ...op("completion_commit_failed", "resume", true),
+        ...op(event.loopOutcomeKind, "resume", true),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+        ...("completionCommitError" in event && typeof event.completionCommitError === "string"
+          ? { completionCommitError: event.completionCommitError }
+          : {}),
       };
     case "iteration_commit_failed":
       return {
-        ...op("iteration_commit_failed", "resume", true),
+        ...op(event.loopOutcomeKind, "resume", true),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     case "ready_gate_failed":

@@ -37,19 +37,19 @@ whose terminal `loop_finished` row carries it.
 
 ## Acceptance criteria
 
-- [ ] `daemon-wait-run-completion.test.ts` extends the hidden-shrink
+- [x] `daemon-wait-run-completion.test.ts` extends the hidden-shrink
       `completion_commit_failed` fixture so `list` and `wait` on the owning
       `implement~shrink` run id expose `error.completionCommitError` as the
       terminal `loop_finished.completionCommitError` string without
       re-normalization; fails against baseline.
-- [ ] The same fixture asserts both `error.completionCommitError` and
+- [x] The same fixture asserts both `error.completionCommitError` and
       `error.publicationFailure` on the owning sibling for `list` and `wait`
       when both fields are present in the terminal row; fails against baseline.
-- [ ] `daemon-wait-run-completion.test.ts` links a `// @mutate` directive in
+- [x] `daemon-wait-run-completion.test.ts` links a `// @mutate` directive in
       the pinning test to the same `completionCommitError` projection guard in
       `run-operator-error.ts`; inverting it turns the test red with no
       production inversion hook.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2`
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2`
       pass.
 
 ## Documentation updates

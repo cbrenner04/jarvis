@@ -18,28 +18,31 @@ Out of scope: fan-out dispatch/claim, entry-run linkage, retry/backoff, `multipl
 
 ## Decisions
 
-- Fan-out suffix aggregation evaluates `running` before `failed`/`rejected` — rules out failure-first precedence while a sibling workflow stage is live.
+- Fan-out suffix aggregation defers terminal `failed`/`rejected` only while **actionable** sibling work remains: live `running`, or unsatisfied non-skipped stages whose branch predecessors are satisfied (reachable-gate rule) — rules out failure-first precedence while actionable work continues and rules out dead-branch `pending` rows on terminally failed/rejected branches beating post-settlement `rejected`.
+- Terminally failed/rejected branches count as settled for deferral even when branch completion flags remain false — rules out naive `anyPending` deferral regressing mixed-branch rejection after the rejected branch settles.
 - Reachable undecided approval gate (`pending`/`awaiting` row that is the branch's next unsatisfied non-skipped authored stage after satisfied predecessors) keeps aggregate `awaiting-approval` after other branches settle unsuccessfully — rules out masking actionable gates with early terminal failure.
-- `pipeline_wait` returns terminal only when `derivePipelineState` is terminal; `pending`/`running` with no approval boundary keep the wait open — rules out returning while a sibling invocation or gate decision remains live.
+- `pipeline_wait` returns terminal only when `derivePipelineState` is terminal; actionable `pending`/`running` with no approval boundary keep the wait open — rules out returning while a sibling invocation or gate decision remains live.
 - After every non-skipped branch stage has settled, preserve existing rejected-before-failed terminal precedence — rules out delayed terminality becoming eventual success.
 - Linear `derivePipelineState` walk unchanged — rules out widening scope beyond fan-out suffix aggregation.
 - Retry/backoff and `multiple_failed_stages` resume behavior unchanged — rules out coupling observation semantics to recovery policy.
 
 ## Task checklist
 
-- Reorder `deriveFanOutSuffixState` to settlement-first precedence: live `running`, then reachable `awaiting-approval`/`pending`, then terminal `rejected`/`failed` only when no unsettled sibling work remains.
-- Add fan-out row-seed regressions in `pipeline-execution.test.ts` and live `pipeline_wait` regressions in `daemon-pipeline-observation.test.ts`.
-- Place `// @mutate` on each changed suffix guard; link pinning tests that go RED when the guard is inverted.
-- Update `v2/docs/daemon-host.md`, `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md`.
+- Refactor `deriveFanOutSuffixState` to settlement-first precedence on actionable signals: live `running`, then reachable `awaiting-approval`/`pending` (unsatisfied non-skipped stages with satisfied branch predecessors), then terminal `rejected`/`failed` only when no actionable sibling work remains; treat terminally failed/rejected branches as settled for deferral.
+- Add fan-out row-seed regressions in `pipeline-execution.test.ts` (failed-plus-running and rejected-plus-running) and live `pipeline_wait` regressions in `daemon-pipeline-observation.test.ts`.
+- Place `// @mutate` on each new or moved suffix guard condition (including actionable-pending logic), not only reordered `anyRejected`/`anyFailed`/`anyRunning` returns; link pinning tests that go RED when each real production condition is inverted.
+- Update `v2/docs/daemon-host.md` (reconcile the sentence that terminal states take precedence over approval boundaries), `v2/docs/operator-runbook.md`, and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
 
 - [ ] `pipeline-execution.test.ts` proves failed-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
+- [ ] `pipeline-execution.test.ts` proves rejected-plus-running fan-out rows derive `running`; the regression fails against baseline failure-first ordering.
 - [ ] `daemon-pipeline-observation.test.ts` proves a failed branch plus an undecided sibling gate that is the branch's next actionable stage remains non-terminal and exposes that approval boundary; the regression fails against baseline.
 - [ ] `daemon-pipeline-observation.test.ts` holds `pipeline_wait` open for failed-plus-running rows, then returns terminal `failed` only after the running sibling settles; the regression fails against baseline.
 - [ ] `pipeline-execution.test.ts` proves all-settled fan-out rows with at least one failure derive `failed`; the regression fails against baseline if running/awaiting precedence is applied after full settlement.
-- [ ] Added or changed terminality guards carry `// @mutate` directives on the real source conditions; the named pinning tests turn RED under each mutation and no production inversion hook is added.
+- [ ] Each new or moved suffix guard condition (including actionable-pending logic) carries a `// @mutate` directive on the real production condition it guards; the named pinning tests turn RED under each mutation and no production inversion hook is added.
 - [ ] `pipeline-execution.test.ts` — `"mixed branch failure and success names the failed branchKey while the sibling still reaches terminal success"` stays green.
+- [ ] `pipeline-execution.test.ts` — `"mixed branch rejection and success names the rejected branchKey without aborting the sibling"` stays green.
 - [ ] `pipeline-execution.test.ts` — `"returns reopen refusal for ineligible failed shapes without stage dispatch"` (`multiple_failed_stages`) stays green.
 - [ ] `bun run typecheck` exits zero.
 - [ ] `bun run test:v2` exits zero.
@@ -47,6 +50,6 @@ Out of scope: fan-out dispatch/claim, entry-run linkage, retry/backoff, `multipl
 
 ## Documentation updates
 
-- `v2/docs/daemon-host.md` — fan-out `derivePipelineState` suffix precedence and `pipeline_wait` boundary rules: unsettled sibling work or reachable gates defer terminal derivation; full settlement restores rejected/failed precedence.
+- `v2/docs/daemon-host.md` — reconcile the sentence that terminal states take precedence over approval boundaries; document settlement-first fan-out suffix precedence and `pipeline_wait` boundary rules: aggregate state and `pipeline_wait` stay non-terminal while actionable sibling work or reachable gates remain; terminal `failed`/`rejected` only after full branch settlement restores rejected-before-failed precedence.
 - `v2/docs/operator-runbook.md` — `pipeline wait` may stay non-terminal until sibling branch workflows settle or name an `awaiting-approval` gate; terminal `failed`/`rejected` after all branches settle.
 - `v2/docs/v1-behaviors.md` — record changed v2 fan-out pipeline terminal-derivation behavior.

@@ -1297,18 +1297,11 @@ async function advanceFanOutStageResolution(
     return finishDispatchedWorkflowStage({ store, pipelineId, definition, stage, index, branchKey, stageArtifacts });
   }
 
-  let releaseClaim!: () => void;
-  dispatchClaims.set(
-    claimKey,
-    new Promise<void>((resolve) => {
-      releaseClaim = resolve;
-    }),
-  );
-  try {
-    return await performFanOutStageResolution(args, resolution, stageRecords);
-  } finally {
-    releaseClaim();
-  }
+  let outcome: StageStepOutcome = "stop";
+  await withDispatchClaim(dispatchClaims, claimKey, async () => {
+    outcome = await performFanOutStageResolution(args, resolution, stageRecords);
+  });
+  return outcome;
 }
 
 /** Walk every admitted fan-out branch; report whether the caller's own branch failed. */

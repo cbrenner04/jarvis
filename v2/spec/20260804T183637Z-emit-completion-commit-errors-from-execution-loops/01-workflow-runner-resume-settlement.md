@@ -28,9 +28,9 @@
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner.test.ts` — an intent-resume committer-throw or no-commit-SHA dirty failure logs the same `completionCommitError` as the resume outcome's `message`; its `// @mutate` directive on the `settleIntentResumeFailure` append field makes its regression fail against baseline.
-- [ ] `workflow-runner.test.ts` — a review-mutation-resume ready-gate repair fence failure logs the same `completionCommitError` as the resume outcome's `message`; its `// @mutate` directive on the `settleReviewMutationResumeFailure` append field makes its regression fail against baseline.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `workflow-runner.test.ts` — an intent-resume committer-throw or no-commit-SHA dirty failure logs the same `completionCommitError` as the resume outcome's `message`; its `// @mutate` directive on the `settleIntentResumeFailure` append field makes its regression fail against baseline.
+- [x] `workflow-runner.test.ts` — a review-mutation-resume ready-gate repair fence failure logs the same `completionCommitError` as the resume outcome's `message`; its `// @mutate` directive on the `settleReviewMutationResumeFailure` append field makes its regression fail against baseline.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

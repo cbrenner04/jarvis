@@ -27,9 +27,9 @@
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` — completion-publication and repair-path failures log the same `completionCommitError` returned by the write loop; each pinning test's `// @mutate` directive on the `completionCommitFailed` append field makes its regression fail against baseline.
-- [ ] `write-loop.test.ts` — a publication `completion_commit_failed` terminal `loop_finished` record, driven by a real normalized publication failure, retains both `completionCommitError` and `publicationFailure`; its `// @mutate` directive on the `completionCommitFailed` append field makes its regression fail against baseline.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop.test.ts` — completion-publication and repair-path failures log the same `completionCommitError` returned by the write loop; each pinning test's `// @mutate` directive on the `completionCommitFailed` append field makes its regression fail against baseline.
+- [x] `write-loop.test.ts` — a publication `completion_commit_failed` terminal `loop_finished` record, driven by a real normalized publication failure, retains both `completionCommitError` and `publicationFailure`; its `// @mutate` directive on the `completionCommitFailed` append field makes its regression fail against baseline.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

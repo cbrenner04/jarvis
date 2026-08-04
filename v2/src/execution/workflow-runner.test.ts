@@ -40,6 +40,7 @@ import {
   withStateStore,
 } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
+import { createCompletionPublisher } from "./completion-publisher.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-output.ts";
@@ -2666,6 +2667,40 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("logs completionCommitError for a real normalized publication push failure", async () => {
+    const step = createStep({
+      stepId: "publication-push-failure",
+      role: "implement",
+      branchName: "publication-push-failure",
+    });
+    const logSink = new TestLogSink();
+    const failingGit = async (_cwd: string, args: readonly string[]) => {
+      if (args[0] === "push") throw new Error("failed to push some refs to origin");
+      return "";
+    };
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: createCompletionPublisher({ git: failingGit }),
+      });
+
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(result.completionCommitError).toContain("failed to push some refs");
+
+      // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+      // `completionCommitError` the workflow result returns, not merely permit it in the schema.
+      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: publicationCommitErrorMessage," -> ""
+      const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(loopFinished.at(-1)).toMatchObject({
+        loopOutcomeKind: "completion_commit_failed",
+        completionCommitError: result.completionCommitError,
+      });
+    });
+  });
+
   function createGateScopeWorkflowStep(
     home: { jarvisRoot: string },
     branchName: string,
@@ -3140,12 +3175,14 @@ describe("executeWorkflow completion publication", () => {
       worktree: { ...baseStep.worktree, git: false, localPath: workspace },
     };
 
+    const logSink = new TestLogSink();
     await withStateStore(async (store) => {
       // The committer reports no new commit but leaves a stray staged file behind — the same
       // shape as a commit that silently no-ops while `.jarvis-intent-stage/` is still populated.
       const result = await executeWorkflow({
         steps: [step],
         stateStore: store,
+        logSink,
         completionCommitter: async () => {
           mkdirSync(stagingDir, { recursive: true });
           writeFileSync(join(stagingDir, "leftover.md"), "leftover\n", "utf8");
@@ -3157,6 +3194,15 @@ describe("executeWorkflow completion publication", () => {
       expect(result.completionCommitError).toContain("leftover.md");
       expect(store.loadRun(result.runId)?.status).toBe("failed");
       expect(store.loadRun(result.runId)?.status).not.toBe("completed");
+
+      // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+      // `completionCommitError` the workflow result returns, not merely permit it in the schema.
+      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: uncommittedChangesMessage," -> ""
+      const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(loopFinished.at(-1)).toMatchObject({
+        loopOutcomeKind: "completion_commit_failed",
+        completionCommitError: result.completionCommitError,
+      });
     });
 
     expect(readFileSync(join(durableDir, "alpha.md"), "utf8")).toContain("# Alpha");
@@ -4115,6 +4161,7 @@ describe("executeWorkflow review-debate dispatch", () => {
       worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
     };
     const reviewStep = debateIntentStep(workspace, "intent-tail-failure");
+    const logSink = new TestLogSink();
 
     await withStateStore(async (store) => {
       // All debate roles return "ok" and the review step's own landing succeeds (promotion is
@@ -4123,6 +4170,7 @@ describe("executeWorkflow review-debate dispatch", () => {
       const result = await executeWorkflow({
         steps: [writeStep, reviewStep],
         stateStore: store,
+        logSink,
         completionCommitter: async () => {
           throw new Error("commit tail exploded");
         },
@@ -4131,6 +4179,15 @@ describe("executeWorkflow review-debate dispatch", () => {
       expect(result.kind).not.toBe("invocation_failure");
       expect(result.kind).toBe("completion_commit_failed");
       expect(store.loadRun(result.runId)?.status).toBe("failed");
+
+      // Mutation checkpoint: the terminal `loop_finished` record must carry the same
+      // `completionCommitError` the workflow result returns, not merely permit it in the schema.
+      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: completionCommitErrorMessage," -> ""
+      const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
+      expect(loopFinished.at(-1)).toMatchObject({
+        loopOutcomeKind: "completion_commit_failed",
+        completionCommitError: result.completionCommitError,
+      });
     });
 
     expect(readFileSync(join(durableDir, "example.md"), "utf8")).toContain("# Example");
@@ -5578,6 +5635,44 @@ describe("executeWorkflow review dispatch", () => {
     writeFileSync(join(stage, "existing.md"), "---\nname: existing\n---\n\n## Prerequisites\n", "utf8");
   }
 
+  function seedFailedIntentReviewResumeRun(
+    store: ReturnType<typeof openStateStore>,
+    workspace: string,
+    options: { branch: string; invocationId: string; intentAgents?: readonly string[] },
+  ): string {
+    const base = {
+      project: "demo",
+      specRef: "main",
+      worktreePath: workspace,
+      branch: options.branch,
+      workflowSnapshot: {
+        invocationId: options.invocationId,
+        creationTitle: `intent: ${options.branch}`,
+        steps: [
+          {
+            stepId: "intent",
+            role: "plan",
+            durable: true,
+            expectedArtifactPath: ".jarvis-intent-stage",
+            agents: options.intentAgents ?? ["claude"],
+          },
+          { stepId: "review", role: "", durable: true, behavior: "review" as const },
+        ],
+      },
+    };
+    store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+    const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+    store.setRunStatus(reviewRunId, "failed");
+    const attemptId = store.recordAttemptStart(reviewRunId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+    });
+    return reviewRunId;
+  }
+
   function reviewedIntentStep(workspace: string, overrides: Partial<ReviewWorkflowStep> = {}): ReviewWorkflowStep {
     return {
       behavior: "review",
@@ -6584,31 +6679,11 @@ describe("executeWorkflow review dispatch", () => {
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
 
     await withStateStore(async (store) => {
-      const base = {
-        project: "demo",
-        specRef: "main",
-        worktreePath: workspace,
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
         branch: "intent/no-agent",
-        workflowSnapshot: {
-          invocationId: "intent-no-agent",
-          creationTitle: "intent: no-agent",
-          steps: [
-            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
-            { stepId: "review", role: "", durable: true, behavior: "review" as const },
-          ],
-        },
-      };
-      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
-      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
-      store.setRunStatus(reviewRunId, "failed");
-      const attemptId = store.recordAttemptStart(reviewRunId);
-      store.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+        invocationId: "intent-no-agent",
+        intentAgents: [],
       });
-
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
       const outcome = await resumePopulatedIntentPublication(run, store);
@@ -6618,6 +6693,91 @@ describe("executeWorkflow review dispatch", () => {
       expect(settled?.status).toBe("failed");
       expect(settled?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("completion agent");
     });
+  });
+
+  test("intent-resume committer-throw failure logs the same completionCommitError as the resume outcome", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-commit-throw-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(
+      join(workspace, ".jarvis-intent-stage", "example.md"),
+      "---\nname: example\n---\n\n## Prerequisites\n",
+      "utf8",
+    );
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/commit-throw",
+        invocationId: "intent-commit-throw",
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const logSink = new TestLogSink();
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        logSink,
+        completionCommitter: async () => {
+          throw new Error("commit exploded");
+        },
+      });
+
+      expect(outcome).toMatchObject({ ok: false, message: "commit exploded" });
+      const terminal = logSink.getEventsForRun(reviewRunId).find((event) => event.kind === "loop_finished");
+      expect(terminal).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed",
+        completionCommitError: "commit exploded",
+      });
+      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: intentResumeCommitErrorMessage" -> ""
+    });
+  });
+
+  test("intent-resume publication push failure logs the same completionCommitError as the resume outcome", async () => {
+    const workspace = initGitWorkspace("intent-finalize-resume-pub-fail-");
+    writeFileSync(join(workspace, "README"), "base\n", "utf8");
+    execFileSync("git", ["add", "README"], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+    execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(
+      join(workspace, ".jarvis-intent-stage", "example.md"),
+      "---\nname: example\n---\n\n## Prerequisites\n",
+      "utf8",
+    );
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    try {
+      await withStateStore(async (store) => {
+        const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+          branch: "intent/pub-fail",
+          invocationId: "intent-pub-fail",
+        });
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const logSink = new TestLogSink();
+        const failingGit = async (_cwd: string, args: readonly string[]) => {
+          if (args[0] === "push") throw new Error("failed to push some refs to origin");
+          return "";
+        };
+        const outcome = await resumePopulatedIntentPublication(run, store, {
+          logSink,
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: createCompletionPublisher({ git: failingGit }),
+          readyFinalizer: async () => {},
+        });
+
+        expect(outcome).toMatchObject({ ok: false });
+        expect(outcome.ok === false ? outcome.message : "").toContain("failed to push");
+        const terminal = logSink.getEventsForRun(reviewRunId).find((event) => event.kind === "loop_finished");
+        expect(terminal).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          completionCommitError: outcome.ok === false ? outcome.message : undefined,
+        });
+        // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: intentResumePublicationCommitError" -> ""
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   test("review-last light intent completion records file handoff on the step-0 entry run", async () => {
@@ -7386,7 +7546,87 @@ describe("executeWorkflow review dispatch", () => {
             kind: "loop_finished",
             loopOutcomeKind: "completion_commit_failed",
             resumable: true,
+            completionCommitError: outcome.ok === false ? outcome.message : undefined,
           });
+          // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: reviewMutationResumeCommitErrorMessage" -> ""
+        });
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+      }
+    });
+
+    test("review-mutation-resume publication push failure logs the same completionCommitError as the resume outcome", async () => {
+      const workspace = initGitWorkspace("review-mutation-resume-pub-fail-");
+      const logsPath = join(workspace, "resume.jsonl");
+      try {
+        writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+        execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+        execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+        const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+        execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+
+        await withStateStore(async (store) => {
+          const snapshot = reviewMutationWorkflowSnapshot("review-mutation-pub-fail", "implement: pub-fail");
+          const base = {
+            project: "demo",
+            specRef: baseRef,
+            worktreePath: workspace,
+            branch: "review-mutation/pub-fail",
+            specPath: "spec.md",
+            workflowSnapshot: snapshot,
+          };
+          const writeRunId = store.createRun({ ...base, stepId: "implement" });
+          store.setRunStatus(writeRunId, "completed");
+          const writeAttemptId = store.recordAttemptStart(writeRunId);
+          store.commitCompletionBoundary({
+            attemptId: writeAttemptId,
+            runStatus: "completed",
+            outcomeKind: "done",
+            completionAgent: "codex",
+          });
+
+          const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+          const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+          store.commitCompletionBoundary({
+            attemptId: reviewAttemptId,
+            runStatus: "failed",
+            outcomeKind: "invocation_failure",
+            invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+          });
+          const seedSink = openLogSink(logsPath);
+          seedSink.append(reviewRunId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "surviving_mutation_failed",
+            iterationsConsumed: 0,
+            resumable: true,
+          });
+          seedSink.close();
+
+          const run = store.loadRun(reviewRunId);
+          if (!run) throw new Error("expected review run");
+          const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+          const logSink = openLogSink(logsPath);
+          const failingGit = async (_cwd: string, args: readonly string[]) => {
+            if (args[0] === "push") throw new Error("failed to push some refs to origin");
+            return "";
+          };
+          const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+            logSink,
+            completionCommitter: createCompletionCommitter(),
+            completionPublisher: createCompletionPublisher({ git: failingGit }),
+            readyFinalizer: async () => {},
+          });
+          logSink.close();
+
+          expect(outcome).toMatchObject({ ok: false });
+          expect(outcome.ok === false ? outcome.message : "").toContain("failed to push");
+          const settledTerminal = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+          expect(settledTerminal?.event).toMatchObject({
+            kind: "loop_finished",
+            loopOutcomeKind: "completion_commit_failed",
+            completionCommitError: outcome.ok === false ? outcome.message : undefined,
+          });
+          // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: reviewMutationPublicationCommitError" -> ""
         });
       } finally {
         rmSync(workspace, { recursive: true, force: true });

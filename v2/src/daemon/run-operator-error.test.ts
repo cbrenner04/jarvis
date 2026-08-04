@@ -432,6 +432,46 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable finalization over 
   ).toEqual(err("agent_blocked", "inspect_spec"));
 });
 
+test("composeRunOperatorError projects completionCommitError from completion_commit_failed loop_finished", () => {
+  const completionCommitError = "failed to push some refs to 'origin/feature'";
+  const publicationFailure = {
+    operation: "push",
+    message: "remote rejected",
+    exitCode: 1,
+    stderrTail: "error: failed to push some refs",
+  } as const;
+  const base = { reason: "completion_commit_failed", retryable: true, nextAction: "resume" } as const;
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("completion_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
+    ),
+  ).toEqual({ ...base, completionCommitError, publicationFailure });
+  // @mutate v2/src/daemon/run-operator-error.ts "...(\"completionCommitError\" in event && typeof event.completionCommitError === \"string\" ? { completionCommitError: event.completionCommitError } : {})," -> ""
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("completion_commit_failed", { resumable: true, publicationFailure }),
+    ),
+  ).toEqual({ ...base, publicationFailure });
+});
+
+test("composeRunOperatorError omits completionCommitError for iteration_commit_failed even when terminal row carries it", () => {
+  const completionCommitError = "synthetic completion commit message";
+  const publicationFailure = {
+    operation: "push",
+    message: "remote rejected",
+    exitCode: 1,
+    stderrTail: "error: failed to push some refs",
+  } as const;
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("iteration_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
+    ),
+  ).toEqual({ reason: "iteration_commit_failed", retryable: true, nextAction: "resume", publicationFailure });
+});
+
 test("composeRunOperatorError maps ready gate, surviving mutation, and flip failures from loop_finished", () => {
   const survivingMutation = {
     survivingMutation: "flip === to !==",

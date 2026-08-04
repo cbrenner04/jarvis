@@ -351,12 +351,14 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     workflowSnapshot,
   });
   finishLoop(entryRunId, "completed", 1);
+  const completionCommitError = "failed to push some refs to 'origin/failed-shrink'";
   stateStore.setRunStatus(shrinkRunId, "failed");
   logSink.append(shrinkRunId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
     iterationsConsumed: 2,
     resumable: true,
+    completionCommitError,
     publicationFailure: {
       operation: "push",
       message: "remote rejected",
@@ -366,22 +368,26 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     },
   });
 
+  const expectedShrinkError = {
+    reason: "completion_commit_failed",
+    nextAction: "resume",
+    completionCommitError,
+    publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
+  };
+  // @mutate v2/src/daemon/run-operator-error.ts "...(\"completionCommitError\" in event && typeof event.completionCommitError === \"string\" ? { completionCommitError: event.completionCommitError } : {})," -> ""
+
   const list = await expectResponse(await listDirect());
   const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;
   expect(rows.find((row) => row.runId === entryRunId)?.status).toBe("failed");
   expect(rows.find((row) => row.runId === shrinkRunId)).toMatchObject({
     status: "failed",
-    error: {
-      reason: "completion_commit_failed",
-      nextAction: "resume",
-      publicationFailure: { operation: "push", exitCode: 7 },
-    },
+    error: expectedShrinkError,
   });
   expect(await expectResponse(await waitDirect("failed-shrink", shrinkRunId))).toMatchObject({
     runStatus: "failed",
     loopOutcomeKind: "completion_commit_failed",
     resumable: true,
-    error: { reason: "completion_commit_failed", nextAction: "resume", publicationFailure: { stderrTail: "err" } },
+    error: expectedShrinkError,
   });
 });
 

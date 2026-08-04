@@ -1019,8 +1019,13 @@ artifact never leaks into a sibling's resolution. `skipRemainingStages`
 applies within one `branchKey` — one branch failure does not skip sibling
 branches. `pipeline_approve` / `pipeline_reject` accept optional `branchKey`
 and refuse with `branch_key_required` when multiple branch rows exist and it is
-omitted. `derivePipelineState` aggregates across fan-out branches; terminal
-`succeeded` requires every branch to succeed. `derivePipelineFailureDetail` names
+omitted. `derivePipelineState` aggregates fan-out branches settlement-first: live
+`running` siblings and reachable undecided gates or actionable `pending` successors
+keep aggregate state non-terminal while another branch has settled
+`failed`/`rejected`; terminally failed/rejected branches count as settled (dead-branch
+`pending` rows do not block terminality). After every branch stage settles,
+`rejected` still precedes `failed` before `succeeded`. Terminal `succeeded`
+requires every branch to succeed. `derivePipelineFailureDetail` names
 failed or rejected `branchKey`s when aggregate state is non-`succeeded` at
 derivation time. `pipeline_list` and `pipeline_wait` project `branchKey` on
 every durable stage row and name `awaiting-approval` boundaries with the
@@ -1256,7 +1261,10 @@ stage is `running`. Otherwise a live wait keeps observing through workflow-stage
 transitions until the first durable terminal or `awaiting-approval` boundary.
 Boundary derivation walks durable stage rows in `loadPipeline` order for the
 first unsatisfied approval row after satisfied predecessors within that row's
-branch suffix. Terminal states still take precedence over approval boundaries.
+branch suffix. On fan-out pipelines, terminal `failed`/`rejected` boundaries apply
+only after no actionable sibling work remains; until then a reachable
+`awaiting-approval` boundary may surface even when another branch settled
+unsuccessfully.
 
 Observation substrate: re-read durable pipeline/stage rows after each
 in-process `updateStage` (via an in-daemon observer) and on bounded polling

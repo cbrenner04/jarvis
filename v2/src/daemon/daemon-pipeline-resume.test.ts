@@ -32,7 +32,10 @@ function controllableBindingFactory(): {
   factory: NonNullable<WriteWorkflowStep["createBinding"]>;
   settle: () => void;
 } {
+  // Latched: settle() before the binding is invoked must still release it, or the double
+  // silently drops the signal and the stage hangs at `wait` forever.
   let settleFn: (() => void) | undefined;
+  let settleRequested = false;
   const factory = createBindingFactory(
     ({ cwd }) =>
       new Promise<InvocationResult>((resolve) => {
@@ -40,9 +43,16 @@ function controllableBindingFactory(): {
           writeFileSync(join(cwd, "proof.txt"), "done\n", "utf8");
           resolve({ kind: "ok", stdout: "done", stderr: "" } as const);
         };
+        if (settleRequested) settleFn();
       }),
   );
-  return { factory, settle: () => settleFn?.() };
+  return {
+    factory,
+    settle: () => {
+      settleRequested = true;
+      settleFn?.();
+    },
+  };
 }
 
 async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {

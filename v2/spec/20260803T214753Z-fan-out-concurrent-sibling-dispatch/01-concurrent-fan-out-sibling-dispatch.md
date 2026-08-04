@@ -61,16 +61,16 @@ that is a valid and preferable answer.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` (deferred `wait` on one branch, `flushBackgroundRuns` before settle, sibling plan `running` first) fails against serial `advanceFanOutBranches`; linked `// @mutate` on concurrent branch dispatch makes the regression fail. Applying that directive by hand must make the suite **fail**, not hang.
-- [ ] `pipeline-execution.test.ts` — `"linear fan-out sibling suffix stages dispatch concurrently"` fails against serial suffix `runAuthoredStages`; linked `// @mutate` on concurrent suffix dispatch makes the regression fail. Applying that directive by hand must make the suite **fail**, not hang.
-- [ ] `pipeline-execution.test.ts` proves a still-`pending` peer is dispatched (or settles a named failure) when the dispatching branch's fan-out row is already `succeeded`, and again when it is `failed` and when it is `skipped`; each case fails against a dispatcher that returns without dispatching the peer.
+- [x] `pipeline-execution.test.ts` — `"linear fan-out sibling plan stages reach running concurrently without worktree_claimed false positive"` (deferred `wait` on one branch, `flushBackgroundRuns` before settle, sibling plan `running` first) fails against serial `advanceFanOutBranches`; linked `// @mutate` on concurrent branch dispatch makes the regression fail. Applying that directive by hand must make the suite **fail**, not hang.
+- [x] `pipeline-execution.test.ts` — `"linear fan-out sibling suffix stages dispatch concurrently"` fails against serial suffix `runAuthoredStages`; linked `// @mutate` on concurrent suffix dispatch makes the regression fail. Applying that directive by hand must make the suite **fail**, not hang.
+- [x] `pipeline-execution.test.ts` proves a still-`pending` peer is dispatched (or settles a named failure) when the dispatching branch's fan-out row is already `succeeded`, and again when it is `failed` and when it is `skipped`; each case fails against a dispatcher that returns without dispatching the peer.
 - [ ] `pipeline-execution.test.ts` proves a cross-branch wait yields to the macrotask queue — a `setTimeout(…, 0)` armed before the wait fires while a peer is still pending — and that the wait is bounded, settling a named failure rather than hanging when the peer never advances.
-- [ ] `pipeline-execution.test.ts` proves exactly one terminal `updateStage` write per peer `(stageId, branchKey)` row when its entry run is **live** at dispatch time (not seeded terminal, which lets `isLiveEntryRun` mask a second settler).
-- [ ] `pipeline-execution.test.ts` proves two sibling walks failing in the same pipeline both surface their failures, and that no stage row is written after `settlePipelineTerminalPublication` has settled the pipeline.
-- [ ] `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts` passes **8 consecutive runs** of the whole file; a single green run does not satisfy this criterion.
-- [ ] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the concurrent dispatch path (fake doubles in execution tests; real SQL store in approval tests).
-- [ ] `pipeline-execution.test.ts` — `"live-linked running stage row is not terminalized while its entry run is still live"` and `"fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles"` stay green.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `pipeline-execution.test.ts` proves exactly one terminal `updateStage` write per peer `(stageId, branchKey)` row when its entry run is **live** at dispatch time (not seeded terminal, which lets `isLiveEntryRun` mask a second settler).
+- [x] `pipeline-execution.test.ts` proves two sibling walks failing in the same pipeline both surface their failures, and that no stage row is written after `settlePipelineTerminalPublication` has settled the pipeline.
+- [x] `v2/src/daemon/pipeline-end-to-end.sandbox-unrunnable.test.ts` passes **8 consecutive runs** of the whole file; a single green run does not satisfy this criterion.
+- [x] `pipeline-execution.test.ts` and `daemon-pipeline-approval.test.ts` complete without `StateStore` method gaps on the concurrent dispatch path (fake doubles in execution tests; real SQL store in approval tests).
+- [x] `pipeline-execution.test.ts` — `"live-linked running stage row is not terminalized while its entry run is still live"` and `"fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles"` stay green.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

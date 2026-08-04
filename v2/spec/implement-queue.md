@@ -4,13 +4,13 @@ Authority: operator priorities. Updated 2026-08-03 (late).
 
 ## Goal
 
-**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch is written but red (#2577), and the claim seam is still unplanned.
+**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch is written but deadlocks intermittently (#2577, draft), and the claim seam stays blocked behind it.
 
 ## Start here next
 
-**Fix the regression on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — a draft carrying `20260803T214753Z-fan-out-concurrent-sibling-dispatch/` (both subspecs). `daemon-pipeline-resume.test.ts` — `"resume returns after admission before async continuation runs"` — is red 3/3 on the branch, green on `main`. Revert-bisect isolates it to `pipeline-execution.ts`; suspect the `runAuthoredStages` → `advanceAuthoredStageAtIndex` refactor. Subspec 01 scopes resume out, so this is unintended fallout. Do not merge until it is green; `typecheck` / `check` / `lint:md` already pass and `test:integration:v2` still needs a run.
+**Deadlock on [#2577](https://github.com/cbrenner04/jarvis/pull/2577)** — draft, do not merge. `pipeline-end-to-end.sandbox-unrunnable.test.ts` hangs about **1 run in 3** on the branch and never on `main` (4/4 green, ~2s); CI killed it at the 3-minute budget. Concurrent sibling dispatch can deadlock a real end-to-end pipeline. Suspects: two walks contending on the same `(stageId, branchKey)` row, or a branch awaiting a peer entry run that never dispatches. Fix this before anything else on the branch — an intermittent hang strands production runs. Note the intermittency defeats a single hand-gate: run the file 5+ times.
 
-Note before re-running that spec through the harness: the branch is committed and pushed, but an incomplete implement re-run retires the workspace, which would delete the local branch and its two commits. Recover from `origin/20260803T214753Z-fan-out-concurrent-sibling-dispatch` if that happens.
+Then **`20260803T214753Z-fan-out-concurrent-sibling-dispatch/` subspec 01** — 01 is unticked with a `## Blocker`. Its two concurrency `@mutate` directives are **inert**: the task arrays are built eagerly with `.map()`, so awaiting them serially changes nothing and the suite stays at 73 pass / 0 fail. Making them real needs lazy thunks *plus* bounded waits in the fan-out fixtures — with lazy thunks alone the serialized form deadlocks instead of failing, and mutation verification has no timeout, so a hanging directive would stall a write step indefinitely. Read the Blocker before starting; the prototype and its failure mode are recorded there.
 
 Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until #2577 lands. Needs `jarvis run workflow plan` first.
 
@@ -80,4 +80,5 @@ Use pipelines for **seeds** (they start at the intent stage, which is what a see
 - `bun test` **does not typecheck.** Hand-finishing: `bun run check` and `bun run typecheck`.
 - **A settled run row can have a live successor step.** `eabc39a7` read `completed` while review step `639c40a6`, dispatched the same millisecond, ran 75 more minutes on a debris worktree. `run list` gives no hint. Check for live rows on the branch, not just the ID you launched.
 - **Backing a file up to `.git/` inside a worktree silently fails** — `.git` there is a *file*, so `cp x .git/backup` errors `Not a directory`. It cost two stranded `@mutate` applications during a hand verification this session. Back up outside the repo, or just `git checkout --` the file.
+- **One green run of a concurrency test proves nothing.** #2577's `pipeline-end-to-end` file hangs 1 in 3; the hand-gate passed, CI killed it. Run the affected file 5+ times before calling a concurrency change green.
 - **Do not admin-merge over a red check.** It reddened `main` once (#2417).

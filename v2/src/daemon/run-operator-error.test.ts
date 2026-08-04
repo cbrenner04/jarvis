@@ -447,7 +447,7 @@ test("composeRunOperatorError projects completionCommitError from completion_com
       loopFinished("completion_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
     ),
   ).toEqual({ ...base, completionCommitError, publicationFailure });
-  // @mutate v2/src/daemon/run-operator-error.ts "...(\"completionCommitError\" in event && typeof event.completionCommitError === \"string\" ? { completionCommitError: event.completionCommitError } : {})," -> ""
+  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
   expect(
     composeRunOperatorError(
       runWith("failed"),

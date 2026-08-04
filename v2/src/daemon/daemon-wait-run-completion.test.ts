@@ -374,7 +374,7 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     completionCommitError,
     publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
   };
-  // @mutate v2/src/daemon/run-operator-error.ts "...(\"completionCommitError\" in event && typeof event.completionCommitError === \"string\" ? { completionCommitError: event.completionCommitError } : {})," -> ""
+  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
 
   const list = await expectResponse(await listDirect());
   const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;

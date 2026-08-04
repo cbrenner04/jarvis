@@ -23,11 +23,8 @@ import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../executi
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { jarvisHome } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
-import {
-  type PipelineStageArtifact,
-  stageArtifactKey,
-} from "./pipeline-stage-dispatch.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
+import { type PipelineStageArtifact, stageArtifactKey } from "./pipeline-stage-dispatch.ts";
 
 export type { PipelineContext };
 
@@ -99,7 +96,6 @@ function findPrecedingWorkflowArtifact(
   for (let index = stageIndex - 1; index >= 0; index -= 1) {
     const candidate = stages[index];
     if (candidate?.kind === "workflow") {
-      // @mutate: `return stageArtifacts.get(candidate.stageId)` — stageId-only lookup turns fan-out implement resolution regression RED.
       const key = stageArtifactKey(
         candidate.stageId,
         artifactBranchKeyForStageIndex(index, activeBranchKey, splitPosition),

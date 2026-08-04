@@ -560,7 +560,9 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
       ],
     };
-    const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents/feature.md")]]);
+    const stageArtifacts = new Map([
+      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents/feature.md")],
+    ]);
 
     const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, {
       builders: WORKFLOW_PRESET_BUILDERS,
@@ -946,8 +948,8 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(fanOutDefinition, 2, baseContext, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
-  // @mutate v2/src/daemon/pipeline-stage-resolve.ts findPrecedingWorkflowArtifact stageId-only lookup
-  // @mutate v2/src/daemon/pipeline-execution.ts suffix runAuthoredStages sharedStageArtifacts: stageArtifacts
+    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "return stageArtifacts.get(key);" -> "return stageArtifacts.get(candidate.stageId);"
+    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "if (splitPosition === undefined || stageIndex <= splitPosition) {" -> "if (true) {"
     expect(seenInput?.specPath).toBe(betaPlanIndex);
     expect(seenInput?.baseRef).toBe("plan/beta");
     expect(seenInput?.cwd).toBe(betaPlanWorktree);

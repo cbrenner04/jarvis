@@ -33,10 +33,7 @@ export type PipelineStageArtifact = {
 };
 
 /** Composite key for in-memory stage artifact maps: prefix stages use `default`, suffix stages use the branch key. */
-export function stageArtifactKey(
-  stageId: string,
-  branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
-): string {
+export function stageArtifactKey(stageId: string, branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY): string {
   return `${stageId}:${branchKey}`;
 }
 

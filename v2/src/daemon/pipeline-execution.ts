@@ -22,15 +22,13 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
-  type PipelineStageArtifact,
-  stageArtifactKey,
-} from "./pipeline-stage-dispatch.ts";
-import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
   isLiveEntryRun,
+  type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
@@ -1139,19 +1137,7 @@ async function advanceFanOutStageResolution(
   resolution: Extract<PipelineStageResolutionResult, { ok: true }> & { results: Array<{ steps: AnyWorkflowStep[] }> },
   stageRecords: readonly PipelineStageRecord[],
 ): Promise<StageStepOutcome> {
-  const {
-    pipelineId,
-    definition,
-    stage,
-    index,
-    branchKey,
-    split,
-    stageArtifacts,
-    store,
-    dispatch,
-    wait,
-    loadLogRecords,
-  } = args;
+  const { pipelineId, definition, stage, index, branchKey, split, store } = args;
   const splitPosition = split?.splitPosition ?? index - 1;
   const downstreamInputs = intentDownstreamInputsForFanOut(definition, splitPosition, stageRecords);
   if (downstreamInputs === undefined || downstreamInputs.length < 2) {
@@ -1545,7 +1531,6 @@ export async function runPipeline(
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;
       for (const branchKey of continuationBranchKey !== undefined ? [continuationBranchKey] : activeSplit.branchKeys) {
-        // @mutate: pass `sharedStageArtifacts: stageArtifacts` here — suffix shared map turns fan-out implement resolution regression RED.
         await runAuthoredStages({
           pipelineId,
           deps,

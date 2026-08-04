@@ -1070,8 +1070,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
               if (publication.failure.kind === "completion_commit_failed") {
-                const publicationCommitErrorMessage =
-                  publication.failure.error?.message ?? "completion commit failed";
+                const publicationCommitErrorMessage = publication.failure.error?.message ?? "completion commit failed";
                 args.logSink?.append(lastResult.runId, {
                   ...publicationLoopFinishedBase,
                   loopOutcomeKind: "completion_commit_failed",
@@ -2552,6 +2551,30 @@ function inertResumeWriteLoopInput(
 }
 
 /** Commit the landed `durableDir` and run the shared commit/push/PR publication tail. */
+/** Settle a resume failure when the intent-resume committer produced no commit but left named uncommitted paths. */
+async function settleIntentResumeUncommittedFailure(
+  published: Awaited<ReturnType<CompletionCommitter>>,
+  context: IntentFinalizationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  deps: IntentFinalizationResumeDeps,
+): Promise<IntentFinalizationResumeOutcome | undefined> {
+  if (published.commitSha !== undefined) return undefined;
+  const uncommitted = await getUncommittedPaths(context.worktreePath);
+  const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
+  const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
+  if (namedPaths.length === 0) return undefined;
+  return settleIntentResumeFailure(
+    store,
+    context,
+    attemptId,
+    "completion_commit_failed",
+    0,
+    `Uncommitted changes: ${namedPaths.join(", ")}`,
+    deps,
+  );
+}
+
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -2575,22 +2598,8 @@ async function runIntentResumeCommitAndPublish(
     const message = error instanceof Error ? error.message : String(error);
     return settleIntentResumeFailure(store, context, attemptId, "completion_commit_failed", 0, message, deps);
   }
-  if (published.commitSha === undefined) {
-    const uncommitted = await getUncommittedPaths(context.worktreePath);
-    const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
-    const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
-    if (namedPaths.length > 0) {
-      return settleIntentResumeFailure(
-        store,
-        context,
-        attemptId,
-        "completion_commit_failed",
-        0,
-        `Uncommitted changes: ${namedPaths.join(", ")}`,
-        deps,
-      );
-    }
-  }
+  const uncommittedFailure = await settleIntentResumeUncommittedFailure(published, context, store, attemptId, deps);
+  if (uncommittedFailure !== undefined) return uncommittedFailure;
 
   const bodySummary = deriveIntentRunBodySummary({
     creationTitle: context.creationTitleHint,

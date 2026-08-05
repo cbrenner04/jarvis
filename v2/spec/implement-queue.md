@@ -1,98 +1,77 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-08-03 (late).
+Authority: operator priorities. Updated 2026-08-04.
 
 ## Goal
 
-**TUI slice 5 is done** (#2575). Slice 6 (steering + log) from [tui-overhaul-brief.md](tui-overhaul-brief.md) is unseeded and is the next TUI move. **Pipelines** are the other live thread: stage linkage landed (#2566), concurrent sibling dispatch was written but livelocks and is closed unmerged (#2577, branch retained), and the claim seam stays blocked behind it.
+**The Ready queue is empty.** The pipeline-trustworthiness thread is fully landed, and the
+completion-commit-error chain (emit → project → render) is complete. The two remaining threads are
+both *new* investment, not burn-down: **TUI slice 6** (steering + log — unseeded) and the **open
+seeds** below (defects that need `intent` → `plan` before they can be implemented).
 
 ## Start here next
 
-**Run `20260803T214753Z-fan-out-concurrent-sibling-dispatch` — the spec is amended and ready.** Subspec 01 now carries the six Decisions and seven acceptance criteria derived from the failed first attempt (no busy-wait, total peer-dispatch responsibility across every dispatcher row state, bounded waits, one settler per row, aggregated sibling failures, an invertible concurrency seam, and an 8-consecutive-run requirement on the e2e file), plus a **Prior art** section naming what not to rebuild. Launch it with `jarvis run workflow implement` rather than hand-implementing. [#2577](https://github.com/cbrenner04/jarvis/pull/2577) was **closed unmerged**; its branch `20260803T214753Z-fan-out-concurrent-sibling-dispatch` is retained on origin, same treatment as #2555. The spec is still on `main` with subspec 00 ticked and 01 unticked. Root cause of its 1-in-3 e2e hang is found and confirmed by two independent investigations:
+Pick one:
 
-```ts
-for (;;) { …; if (record?.status !== "pending") return "stop"; await Promise.resolve(); }
-```
+- **TUI slice 6 (steering + log)** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — the last TUI
+  slice, still unseeded. Fold in `seeds/tui-waitstate-is-polled-but-no-longer-rendered`. Needs a seed
+  → `intent` → `plan` first.
+- **Highest-value open seed:** `seeds/unparseable-mutation-directives-pass-the-gate` — a
+  `target_absent` / unparseable `@mutate` directive is stderr-only and does not fail the gate
+  (`write.ts` checks only `report.hollow`, ignores `unparseable`). It let dud pins tick green on
+  #2591 and #2597 this session and a 40% cost over-bill earlier. Fixing it closes the whole
+  hollow/dud-pin class.
 
-`await Promise.resolve()` yields to **microtasks only**, so the queue never drains and timers/IO never run — 5M iterations in 114 ms with a `setTimeout(…, 0)` that never fires. Every non-leader fan-out branch parks here. New on this branch; `main` has no leader concept.
+## Landed this session (2026-08-04)
 
-A macrotask yield alone makes the e2e file 8/8 green and was **deliberately not committed** to the retained branch — it cures the CPU burn but not the wait. Two deterministic deadlocks remain where the leader never dispatches the peer: leader row already `succeeded` (carries artifact forward, moves on), or `failed`/`skipped` (`advanceAuthoredStageAtIndex` returns `branch-terminal`). Both are on the daemon-restart recovery path (`recoverContinuablePipelines` → `continuePipeline` with no `continuationBranchKey`). With the yield those become silently pending pipelines under a green suite.
-
-Real fix: a promise the leader resolves when it writes the peer's linkage — or macrotask yield **plus** bounded deadline **plus** peer self-dispatch when the leader's row is terminal. That also unblocks subspec 01's two inert pins: the serialized `@mutate` form deadlocks *because of this bug*, so fixing it makes those pins fail honestly. The Blocker's "fixtures need bounded waits to fail fast" note has cause and effect backwards — do not do that; it would hide a real product hang.
-
-Two more to handle in the same pass: **double settlement** of each peer row (peer's own walk and the leader's `dispatchPipelineStage` both await the same `wait(entryRunId)` and write the same terminal patch — fixtures miss it because their seeded runs are already terminal), and **`Promise.all` losing sibling errors** (second rejection unhandled; a rejecting suffix walk lets `runPipeline` settle publication while a sibling keeps writing rows detached).
-
-**Salvage from the retained branch rather than rebasing it.** Two pieces are known good: subspec 00's branch-scoped `(stageId, branchKey)` artifacts (both mutation pins verified to kill), and commit `d402961c0`, which latches the `daemon-pipeline-resume.test.ts` binding double — that double silently drops a `settle()` landing before the binding is invoked, and the latch is worth cherry-picking on its own regardless of the fan-out work. Do **not** carry forward `awaitFanOutPeerRow` or the leader/peer coordination around it.
-
-The inert-pin problem is now a spec Decision rather than a note: the first attempt's directives did nothing because `.map()` starts every promise before the awaiting line, so the amended subspec requires lazy thunks and requires each directive to make the suite **fail, not hang**.
-
-Then **`ready-intents/pipeline-stage-dispatch-claim`** — its Prerequisites name the concurrent-dispatch and branch-scoped `stageArtifacts` interfaces, so it stays blocked until that spec lands. Needs `jarvis run workflow plan` first.
-
-| Slice | Shipped |
+| Thread | PRs |
 | --- | --- |
-| 1 — shell layout | #2453, #2456 |
-| 2 — pipeline tree | #2462, #2463, #2466, #2471, #2473, #2479, #2481, #2485 |
-| 3 — elapsed columns | #2490, #2492 |
-| 4 — detail pane | #2511, #2519, #2521 |
-| 5 — command dock | #2529, #2530, #2531, #2533, #2545 (editor), #2554 (dispatch), #2575 (status row) — **complete** |
-| 6 — steering + log | not seeded |
+| Fan-out: branch-scoped artifacts + concurrent sibling dispatch | #2584, #2585, #2586 |
+| Harness-defect seeds (successor-stall, index-router) | #2587 |
+| Durable pipeline stage dispatch claim (store + partition-time) | #2588, #2589 |
+| Settlement-first fan-out terminality | #2590, #2591 |
+| Split v2 review prompt ids from v1 | #2592, #2593 |
+| Completion-commit-error chain: emit → project → render | #2594–#2599 |
 
-## The fan-out rescope
-
-The original spec (`fan-out-stage-dispatch-preserves-workflow-ownership`) was retired by #2562 after adversarial review disproved its premise: destination worktrees were **already** distinct from the predecessor on `main`, so its ownership guard enforced nothing and its headline change was inert. Three implement attempts went into it — two blocked on hollow mutation checkpoints, the third produced a red gate and dead code. PR #2555 was closed unmerged; its branch `fan-out-destination-ownership` is retained, since the concurrent-dispatch `Promise.all` work and the `stageArtifacts` branch-keying defect are both referenced by the two remaining intents.
-
-The rescoped seed (#2562) split into three intents (#2563). The first, stage linkage, shipped in #2566 in a single pass with every guard proven reachable.
-
-**Non-problems — do not re-derive these.** The seed carrying them was consumed by its intent split, so they are recorded here instead. Destination worktrees were already distinct from the predecessor: reverting `resolvePlanStage` to baseline semantics leaves both ownership regressions green, because plan destinations are `plan/${ready.name}`, derived per downstream ready-intent, on `main` too. `destinationDistinctFromPredecessor` asserts an invariant that already held and has no production call site; `selectChainedStageCwd` and `PriorArtifactContext.cwd` became dead code. Adding `chainedInputRoot` to plan resolution changed the ready-intent **read path**, not ownership — keep that part, drop the ownership framing. Full evidence: #2562's seed diff and #2555's body.
+| TUI slice | Shipped |
+| --- | --- |
+| 1–5 | complete (see prior queue history) |
+| 6 — steering + log | **not seeded** |
 
 ## Open seeds, newest first
 
 | Seed | Why |
 | --- | --- |
-| `seeds/implement-rerun-completes-over-a-stale-dirty-worktree` | An implement re-run executed in a worktree three commits behind its `--base` with four modified tracked paths, read the previous run's ticks as truth, and settled `completed` having committed nothing. Its successor step then ran 75 min on the debris with a stranded `@mutate` on disk. Root cause unproven — first AC is a reproduction. |
-| `seeds/entry-run-settlement-terminalizes-live-rows` | #2566 guarded the writers but not `applyEntryRunSettlement`, which still writes `failed` + `endedAt` with no liveness re-check. `waitForWorkflowEntryRun` does not await anything for a run with no registered promise, so `wait` can resolve non-`completed` over a live run. Remaining path to `startedAt == endedAt`. Also records one inert guard from #2566. |
-| `seeds/plan-review-must-falsify-guard-premises` | A criterion of the form "rules out X" is only legitimate if X is reachable on `main`, and nothing checks it. Cost three implement runs and two spec amendments on the retired fan-out spec. Puts the check in plan **review**, before implementation. |
-| `seeds/plan-output-fails-lint-md-and-repair-edits-unrelated-source` | Recurred twice in one session: plan drafts finalize without linting their own Markdown, the gate goes red on `lint:md`, and repair answers by rewriting unrelated production files and committing nothing. |
-| `seeds/pipeline-implement-stage-breaks-when-its-plan-pr-merges` | The implement stage bases its PR on the plan stage's branch, so merging the pipeline's own green plan PR kills it with `Base ref must be a branch`. Also downgrades the diagnostic to `harness_failure`/`stop` over a run that is `resumable`. |
-| `seeds/unparseable-mutation-directives-pass-the-gate` | An unresolvable `@mutate` directive is stderr-only and does not fail the gate. **Hit four times in one session (2026-08-03)**, including one that let a 40% cost over-bill tick green. Highest-value open seed. |
-| `seeds/mutation-verification-outlives-its-run` | An `iteration_timeout` stranded three applied `@mutate` directives in production source. **Recurred 2026-08-03** — a settled run's worktree still held `if (false)` in `wrapMonitorRows`, and it was copied forward into a hand salvage before being caught by diffing. |
-| `seeds/gate-autofix-can-turn-a-green-tree-red` | `bun run fix` rewrites `findIndex` → `indexOf` on a possibly-`undefined` needle. Cannot self-repair, since every repair entry re-runs autofix. |
+| `seeds/implement-review-publication-successor-stalls-indefinitely` | Review/shrink/publication successor steps hang after `iteration_started` with no watchdog, holding the branch claim; recovery only via `jarvis run kill`. Hit `c6bf9b42`, `503f2683` on 2026-08-04. |
+| `seeds/implement-router-reselects-fully-ticked-subspec-by-index-checkbox` | Router routes by index checkbox not criteria, so a hand-finished subspec no-ops the next run (`328c3cc6`; worked around by #2585). |
+| `seeds/implement-rerun-completes-over-a-stale-dirty-worktree` | Implement re-run executed in a stale dirty worktree, read old ticks as truth, settled `completed` having committed nothing. Root cause unproven — first AC is a reproduction. |
+| `seeds/entry-run-settlement-terminalizes-live-rows` | `applyEntryRunSettlement` writes `failed` + `endedAt` with no liveness re-check; remaining path to `startedAt == endedAt`. |
+| `seeds/plan-review-must-falsify-guard-premises` | A "rules out X" criterion is only legitimate if X is reachable on `main`; nothing checks it. Cost three implement runs on the retired fan-out spec. |
+| `seeds/plan-output-fails-lint-md-and-repair-edits-unrelated-source` | Plan drafts finalize without linting their own Markdown; repair rewrites unrelated source and commits nothing. |
+| `seeds/pipeline-implement-stage-breaks-when-its-plan-pr-merges` | Implement stage bases its PR on the plan branch, so merging the pipeline's own plan PR kills it with `Base ref must be a branch`. |
+| `seeds/unparseable-mutation-directives-pass-the-gate` | An unresolvable / `target_absent` `@mutate` directive is stderr-only and does not fail the gate. **Recurred on #2591 and #2597 this session.** Highest-value open seed. |
+| `seeds/mutation-verification-outlives-its-run` | An `iteration_timeout` stranded applied `@mutate` directives in production source. |
+| `seeds/gate-autofix-can-turn-a-green-tree-red` | `bun run fix` rewrites `findIndex` → `indexOf` on a possibly-`undefined` needle; cannot self-repair. |
 | `seeds/mutation-selector-fires-on-prose-mentions-of-the-marker` | Selects on a bare `@mutate` substring, so a spec discussing the marker in prose fails its own gate. |
-| `seeds/tui-waitstate-is-polled-but-no-longer-rendered` | Slice 4 left `waitState` with no reader while the `wait` RPC still fires per selection change. Fold into slice 6 planning. |
-| `seeds/intent-landing-contract-rejects-wrapped-bullets` | Still open. Blocked two intent runs on 2026-08-01. |
-
-## Defer unless you hit them in session
-
-| Seed / intent | Status | Notes |
-| --- | --- | --- |
-| `seeds/iteration-timeout-discards-completed-subspecs` | Open; bit twice on 2026-08-03 and again on 2026-08-04 | Cost two salvages. Workaround: split large subspecs at plan time. |
-| `seeds/out-of-scope-gate-classification-strands-caused-failures` | Open | Run-caused test failures classified out of scope (#2313). |
-| `ready-intents/emit-completion-commit-errors-from-execution-loops` | Ready | Second link of the completion-commit chain; #2549 shipped the first. Copy the returned `completionCommitError` onto every terminal `loop_finished` event. |
-| `ready-intents/project-completion-commit-errors-on-run-results` | Ready | Third link — project the durable message onto `list` / `wait` as `error.completionCommitError`. Needs `emit` first. |
-| `ready-intents/render-completion-commit-errors-in-run-cli` | Ready | Fourth link — surface it in `run wait` JSON and a `run list` column. Needs `project` first. |
-| `ready-intents/split-v2-review-prompt-ids-from-v1.md` | Ready | Three of four v2 review prompts tell reviewers the payload is "not a unified diff" while sending one. |
-| `ready-intents/pipeline-terminal-state-waits-for-stage-settlement.md` | Ready | A failed branch makes the pipeline read terminal while a sibling is still running. Observed live. |
+| `seeds/tui-waitstate-is-polled-but-no-longer-rendered` | Slice 4 left `waitState` with no reader while the `wait` RPC still fires. Fold into slice 6. |
+| `seeds/intent-landing-contract-rejects-wrapped-bullets` | Blocked two intent runs on 2026-08-01. |
+| `seeds/iteration-timeout-discards-completed-subspecs` | Bit repeatedly; workaround: split large subspecs at plan time. |
+| `seeds/out-of-scope-gate-classification-strands-caused-failures` | Run-caused test failures classified out of scope (#2313). |
 
 ## Rule
 
-The TUI brief and pipeline trustworthiness are the two active threads. Nothing else is open.
-
-## Configured pipeline
-
-Dogfooded 2026-08-03 on a real seed and it produced #2546/#2547/#2549 — but the run surfaced three defects and did not reach its terminal action. Until `seeds/pipeline-implement-stage-breaks-when-its-plan-pr-merges` ships, **do not merge a pipeline's intermediate PRs while it is still running** — the implement stage bases its PR on the plan branch, and merging that branch deletes the base ref. Fan-out gates still need approving one at a time, and `pipeline wait` returns instantly on un-approved sibling gates, so it cannot track the branch you approved; poll `pipeline list` instead.
-
-Use pipelines for **seeds** (they start at the intent stage, which is what a seed needs) and standalone workflows for artifacts already past that point — feeding a ready-intent to `pipeline start` re-splits work that is already split.
+TUI slice 6 and the open seeds are the two active threads; both are new investment. Nothing is in the
+Ready queue.
 
 ## Carried operator notes
 
-- **Verify by exit code, never by output text.** Two wrong "green" calls came from reading `tail -1` of `bun run check` and from summing reported pass/fail lines — a test file that hangs and never reports contributes nothing to the count, so `test:v2` exited 1 while the tally read "2611 pass / 0 fail".
-- **After any mutate/restore cycle, diff the tree before committing.** A verification cycle left mutated text in place on #2561 and it got committed; the real fix was never on the PR until review caught it.
-- **A run that dies before finalization has verified nothing.** Four runs in one session ticked every criterion — including criteria naming `bun run check` — while their gate was red or never ran. Every salvage needs the full gate re-run by hand.
-- **Review every implement diff with a subagent before merging.** Every review across the last four sessions found something real, including `DO NOT MERGE` verdicts on work the operator had already called green.
-- **A second hollow mutation checkpoint on a different guard is a premise smell, not a proof-form problem.** Amending the criterion is the wrong repair. Revert the change's core semantics and re-run its regressions — if they still pass, the change is inert.
-- **CI does not run `lint:md` on every workflow.** Run it locally before merging any markdown-touching PR, and note that a line beginning `#1234` parses as a heading.
-- `bun test` **does not typecheck.** Hand-finishing: `bun run check` and `bun run typecheck`.
-- **A settled run row can have a live successor step.** `eabc39a7` read `completed` while review step `639c40a6`, dispatched the same millisecond, ran 75 more minutes on a debris worktree. `run list` gives no hint. Check for live rows on the branch, not just the ID you launched.
-- **Backing a file up to `.git/` inside a worktree silently fails** — `.git` there is a *file*, so `cp x .git/backup` errors `Not a directory`. It cost two stranded `@mutate` applications during a hand verification. Back up outside the repo, or just `git checkout --` the file.
-- **One green run of a concurrency test proves nothing.** #2577's `pipeline-end-to-end` file hangs 1 in 3; the hand-gate passed, CI killed it. Run the affected file 5+ times before calling a concurrency change green.
-- **Do not admin-merge over a red check.** It reddened `main` once (#2417).
+- **Verify by exit code, never by output text.** A hung test file contributes nothing to the tally, so a `2611 pass / 0 fail` summary can sit over a slice that exited 1.
+- **After any mutate/restore cycle, diff the tree before committing.** And commit a hand-fix *before* running mutation verification — the verifier's `git checkout -- <file>` restore silently wipes uncommitted edits (bit twice this session: `resolve.ts`, `pipeline-execution.ts`).
+- **A `completed`/`no-work` implement row can have committed nothing** (`328c3cc6`, `eabc39a7`). Confirm by PR, not status.
+- **A settled write step spawns successor steps that can stall or fail late.** After a workflow "finishes", check for live rows on the *branch* and for a draft PR from a `completion_commit_failed` tail — not just the run id you launched.
+- **Agent-written functions recurrently trip the cognitive-complexity gate** (`aggregateFanOutBranchSuffix` #2591, `runIntentResumeCommitAndPublish` #2595) → `completion_commit_failed` + red CI. Not autofixable and repair can't fix it; hand-extract a helper, preserving guard-condition text so `@mutate` directives still resolve.
+- **cursor idle-times-out on some specs** (two `idle_output_timeout` on the prompt-split spec, real work on disk then 90s silence). Non-retryable; switch to claude-first and re-run with `--reset-despite-dirty`.
+- **Review every implement diff with a subagent before merging.** Every review this session found something real — inert/dud `@mutate` pins on otherwise-correct code (#2591, #2597), a mislocated criterion (#2586). Production was usually right; the pins were the defect.
+- **CI does not run `lint:md`.** Run it locally before merging any markdown-touching PR.
+- **Plan finalization rejects multi-surface acceptance-criteria bullets.** The render plan blocked twice on one; hand-author the spec (split the AC into atomic bullets) rather than re-running.
+- **`jarvis run kill` and `jarvis cleanup` are classifier-gated** in auto mode; hand them to the operator's own shell when blocked.

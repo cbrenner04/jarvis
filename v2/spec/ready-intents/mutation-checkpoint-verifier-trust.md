@@ -18,12 +18,12 @@ The fix touches one module-boundary surface (execution loop), so splitting does 
 
 ## Decisions
 
-- Select on a directive-shaped occurrence (`DIRECTIVE_PATTERN`), not bare `@mutate` — rules out prose mentions selecting a criterion.
+- Select on `Mutation checkpoint:` or a directive-shaped `@mutate` occurrence (`DIRECTIVE_PATTERN`), not bare `@mutate` prose — rules out prose mentions selecting a criterion without narrowing phrase-only selection.
 - Drop the all-directives-in-file fallback in `linkDirectivesToCriterion` — rules out inherited claims.
 - Restrict unparseable reporting to comment-leading `@mutate` lines — rules out string literals flooding the operator report.
 - `unparseable`/unresolved entries fail the completion gate like `hollow`, naming criterion, raw reference, and reason — rules out silently-unverified ticked checkpoints; lands with or after the three fixes above.
 - Resolve pinning-test references as repo-relative path first, basename search only when no path separator; ambiguous basename is a named failure — rules out guessing and rules out authors unable to disambiguate.
-- Wire scoped verification to the run `AbortSignal` and give it its own timeout — rules out verification outliving the loop that started it.
+- Wire scoped verification to the run `AbortSignal` with a per-directive timeout of min(remaining write-iteration wall, `SUPPORTED_HEALTHY_FILE_BUDGET_MS` / 180s) — rules out verification outliving the loop that started it; no separate operator override.
 - Restore from a snapshot taken before the first mutation on abort and on throw — rules out relying on the mutation loop reaching its own restore step.
 - Before completion commit, refuse when replacement text is present and original absent, reading staged/committed content — rules out `git add -A` shipping stranded mutations and rules out working-copy-only comparison.
 - Out of scope: directive syntax, phrase-only selection path, keystone directives (`plan-review-must-falsify-guard-premises`).
@@ -48,8 +48,9 @@ The fix touches one module-boundary surface (execution loop), so splitting does 
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Gate trust — selection requires a directive-shaped occurrence; unparseable now blocks; replace `SIGKILL`-only stranded-mutation caveat (any abnormal settle can strand one; completion boundary now refuses it).
-- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — reference pinning test by repo-relative path when basename is not unique; prose mentions of the marker are safe.
+- `v2/docs/operator-runbook.md` § Gate trust — phrase marker unchanged; bare `@mutate` prose no longer selects; directive-shaped `@mutate` still selects; unparseable now blocks; scoped verification abort/timeout; replace `SIGKILL`-only stranded-mutation caveat (any abnormal settle can strand one; completion boundary now refuses it).
+- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — phrase or directive-shaped `@mutate` selection unchanged; reference pinning test by repo-relative path when basename is not unique; bare `@mutate` prose mentions are safe.
+- `v2/docs/v1-behaviors.md` — amend the implement-write mutation-checkpoint bullet: selection narrows to phrase or directive-shaped `@mutate` (not bare prose); unparseable/unresolved block; path-qualified pinning; scoped verification abort/timeout and stranded-mutation refusal at completion boundary.
 
 ## Prerequisites
 

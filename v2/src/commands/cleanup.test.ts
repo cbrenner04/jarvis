@@ -3210,7 +3210,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const reason = genericRefusalReason(result);
     expect(reason).toContain(subspecRel);
     expect(reason).toContain(dirtyRel);
-    expect(reason.indexOf("acceptance criteria ticked")).toBeLessThan(reason.indexOf("worktree has uncommitted changes"));
+    expect(reason.indexOf("acceptance criteria ticked")).toBeLessThan(
+      reason.indexOf("worktree has uncommitted changes"),
+    );
     expect(teardownCalls).toEqual([]);
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);

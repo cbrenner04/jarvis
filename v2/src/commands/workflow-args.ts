@@ -149,7 +149,13 @@ export function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflow
 }
 
 export type PlanWorkflowCliInput =
-  | ({ ok: true; readyIntent: string; targetDir?: string; resetDespiteDirty?: boolean; resetDespiteLandedCriteria?: boolean } & ReviewCliInput)
+  | ({
+      ok: true;
+      readyIntent: string;
+      targetDir?: string;
+      resetDespiteDirty?: boolean;
+      resetDespiteLandedCriteria?: boolean;
+    } & ReviewCliInput)
   | { ok: false };
 
 export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {

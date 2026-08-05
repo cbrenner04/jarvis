@@ -1,6 +1,5 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   getBaseBranch,
   getCurrentBranchAsync,
@@ -8,6 +7,7 @@ import {
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -1482,7 +1482,9 @@ async function collectLandedCriteriaDrift(specTree: LandedCriteriaSpecTree): Pro
     const worktreeContent = readFileSync(worktreeAbsPath, "utf8");
     const baseContent = await readGitFileAtRef(projectRoot, baseRef, relPath, runner);
     if (baseContent === undefined) {
-      if (parseSpec(worktreeContent).acceptanceCriteria.some((criterion) => !criterion.humanOnly && criterion.checked)) {
+      if (
+        parseSpec(worktreeContent).acceptanceCriteria.some((criterion) => !criterion.humanOnly && criterion.checked)
+      ) {
         drifted.push(relPath);
       }
       continue;
@@ -1583,6 +1585,7 @@ export type ResetStaleWorkspaceOptions = {
   specPath?: string;
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the ordered preflight gate sequence (descendant → preserve-landed-criteria → dirty → retirement) is one boundary
 export async function resetStaleWorkspace(
   project: string,
   branch: string,

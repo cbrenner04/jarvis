@@ -29,7 +29,12 @@ import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
-import { createStaleResetDaemonClient, type DestroyedArtifacts, resetStaleWorkspace, type ResetStaleWorkspaceOptions } from "./cleanup.ts";
+import {
+  createStaleResetDaemonClient,
+  type DestroyedArtifacts,
+  type ResetStaleWorkspaceOptions,
+  resetStaleWorkspace,
+} from "./cleanup.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -279,8 +284,7 @@ async function maybeResetStaleWorkspace(
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
   const skipDirtyWorktreeGate = "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
-  const skipLandedCriteriaGate =
-    "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
+  const skipLandedCriteriaGate = "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {

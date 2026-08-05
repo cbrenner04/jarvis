@@ -2873,7 +2873,7 @@ describe("implement preflight stale workspace reset", () => {
   });
 
   test("run workflow implement refuses re-run when worktree HEAD is not a descendant of base", async () => {
-    // @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef)" -> "true"
+    // @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)" -> "true"
     const worktreePath = await materializeStaleWorktree();
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
     writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");

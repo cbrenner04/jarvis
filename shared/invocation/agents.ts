@@ -592,6 +592,7 @@ async function runClaudeBinding(args: {
         "--output-format",
         "stream-json",
         "--verbose",
+        "--include-partial-messages",
       ],
       stdio: ["pipe", "pipe", "pipe"],
       writeStdin: (stdin, text) => {

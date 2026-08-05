@@ -1213,7 +1213,20 @@ section when it ships.
 
 **v2's claude output now streams (shared adapter change, 2026-07-13).** `shared/invocation/`
 now spawns claude with `--output-format stream-json --verbose`, making claude output
-visible mid-invocation (not buffered until exit).
+visible mid-invocation (not buffered until exit). This does not cover every shape of turn:
+a long no-tool turn (e.g. a review/critic role with the diff baked into the prompt) emits a
+`system init` line then nothing until the final `type:"result"` flush — the idle-output
+watchdog arms once at spawn and never re-arms, so a slow-but-live critic run can settle
+`stall` while claude is still working.
+
+**Claude-first review/critic roles need `--include-partial-messages` (shared adapter change,
+2026-08-05).** `shared/invocation/agents.ts` now appends `--include-partial-messages` to the
+claude argv, streaming `thinking_delta`/`text_delta` partial frames ahead of the terminal
+result event. Any stdout chunk re-arms the idle timer, so a long no-tool turn now produces
+watchdog-visible progress instead of the silence described above. `parseClaudeJsonOutput`
+already skips non-`result` NDJSON lines, so parsed display text/usage/cost are unaffected.
+v1's local claude adapter (`v1/src/agents/claude.ts`) does not pass this flag and keeps the
+pre-2026-08-05 behavior; this is a shared-invocation-only (v2) change.
 
 **v2's write path now arms an idle-output watchdog (2026-07-25).** `resolveWritePathIterationBounds`
 resolves `idleOutputMs` from machine config `idleOutputTimeoutMs` (default 90 s; `0` disables)

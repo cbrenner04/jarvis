@@ -232,7 +232,9 @@ describe("createResolvedAgentBinding", () => {
       "--output-format",
       "stream-json",
       "--verbose",
+      "--include-partial-messages",
     ]);
+    // @mutate shared/invocation/agents.ts "--include-partial-messages" -> ""
     expect(fake.calls[0]?.opts.cwd).toBe("/repo");
     expect(fake.calls[0]?.opts.detached).toBe(true);
     expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
@@ -498,6 +500,57 @@ describe("createResolvedAgentBinding", () => {
     ).invoke({ prompt: "p", cwd: "/repo" });
 
     expect(result).toEqual({ kind: "error", exitCode: -1, stderr: "Error: ENOENT" });
+  });
+
+  // The idle watchdog itself is agent-agnostic — it arms off generic stdout data — so this
+  // is a threading guard, not a regression guard for --include-partial-messages: it proves the
+  // claude wrapper still hands `idleOutputMs`/`setTimeout`/`clearTimeout` to `runAgent`, and that
+  // a stdout chunk (e.g. a streamed partial-message frame) re-arms the timer so the superseded
+  // expiry is inert.
+  test("claude binding threads idleOutputMs through and re-arms the idle timer on stdout", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const armedDelays: (number | undefined)[] = [];
+    const expiries: (() => void)[] = [];
+    const cleared = new Set<() => void>();
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: () => void, delayMs?: number) => {
+          armedDelays.push(delayMs);
+          const wrapped = () => {
+            if (!cleared.has(wrapped)) callback();
+          };
+          expiries.push(wrapped);
+          return wrapped as unknown as ReturnType<typeof setTimeout>;
+        }) as unknown as typeof setTimeout,
+        clearTimeout: ((timer) => {
+          cleared.add(timer as unknown as () => void);
+        }) as typeof clearTimeout,
+      },
+    );
+
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+
+    // Armed once at spawn, with the caller's budget — the wrapper threads it through.
+    expect(armedDelays).toEqual([100]);
+
+    fake.calls[0]?.child?.stdout.write(JSON.stringify({ type: "stream_event", event: { type: "content_block_delta" } }));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The stdout chunk cleared the first timer and armed a fresh one for the same budget.
+    expect(armedDelays).toEqual([100, 100]);
+    expect(cleared.has(expiries[0] as () => void)).toBe(true);
+
+    // Firing the superseded expiry must not kill the child or settle the invocation.
+    expiries[0]?.();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
+
+    // The live timer still stalls when its budget really does elapse.
+    expiries[1]?.();
+    await expect(promise).resolves.toMatchObject({ kind: "stall" });
+    expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
   test("claude telemetry uses resolved binding metadata", async () => {

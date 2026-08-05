@@ -131,14 +131,8 @@ checkbox). On the intent's own reported tree, this exits `complete`, review-inel
 - [x] `shared/linked-subspec-routing.test.ts`'s "classifies completion, detects routing
       mutation, and advances" stays green with its fixtures updated to carry real criteria
       (index advancement behavior unchanged by the routing change).
-- [ ] Mutation checkpoint: inverting the criteria-based selection guard in
-      `shared/linked-subspec-routing.ts` turns its pinning test in
-      `shared/linked-subspec-routing.test.ts` RED via a linked `@mutate` directive, with no
-      production inversion hook.
-- [ ] Mutation checkpoint: reverting `runLinkedImplementStep` to re-run selection after the
-      write loop (instead of reusing the pre-write pinned index) turns its pinning test in
-      `v2/src/execution/workflow-runner.test.ts` RED via a linked `@mutate` directive, with no
-      production inversion hook.
+- [x] Mutation checkpoint: `shared/linked-subspec-routing.test.ts` test `selects the second link by criteria when the first is criteria-complete despite an unchecked index box` carries a linked `// @mutate` directive inverting the criteria-based selection guard in `shared/linked-subspec-routing.ts`; applying it turns that test RED, with no production inversion hook.
+- [x] Mutation checkpoint: `v2/src/execution/workflow-runner.test.ts` test `routes to the second linked subspec by criteria when the first is criteria-complete with an unchecked index box, pinning that selection across the write loop` carries a linked `// @mutate` directive reverting `runLinkedImplementStep` to re-run selection after the write loop; applying it turns that test RED, with no production inversion hook.
 - [x] The `@mutate` directive at `v2/src/execution/implement-workflow-steps.test.ts:335` is
       re-pointed at the predicate's new home in `shared/linked-subspec-routing.ts` and still
       turns its pinning test red.
@@ -165,34 +159,3 @@ checkbox). On the intent's own reported tree, this exits `complete`, review-inel
   the corrected rule that a tree with a criteria-complete individual link skips it and routes
   to the next incomplete link, while a tree whose links are *all* criteria-complete returns
   `already_complete` regardless of index-checkbox state.
-
-## Blocker
-
-The two "Mutation checkpoint:" acceptance criteria (guard inversion in
-`shared/linked-subspec-routing.ts`; re-run-selection reversion in
-`v2/src/execution/workflow-runner.ts`) are implemented for real — real `@mutate`
-directives on real pinning tests (`shared/linked-subspec-routing.test.ts` and
-`v2/src/execution/workflow-runner.test.ts`), each manually confirmed to turn its
-test RED when applied and green when reverted — but ticking either box hard-fails
-the harness's own `spec.criteria-ticked` write-loop contract, unconditionally,
-regardless of implementation.
-
-Cause: `parseAcceptanceCriteria` (`shared/spec-parser.ts`) stores only the
-**first line** of a multi-line AC bullet as `criterion.text`. Both bullets wrap
-their pinning-test backtick reference onto a continuation line (`shared/linked-
-subspec-routing.test.ts` on line 136; `v2/src/execution/workflow-runner.test.ts`
-on line 140), so `pinningTestReferenceFromCriterion` always returns `undefined`
-for these two bullets, and `verifyMutationCheckpoints` reports
-`unresolved_pinning_test` — a hard-blocking `unparseable` entry per
-`v2/src/execution/write.ts`'s `spec.criteria-ticked` contract — the instant either
-box is ticked. Confirmed by running `verifyMutationCheckpoints` against a ticked
-copy of this file: both bullets report `unresolved_pinning_test` with an empty
-`rawReference`.
-
-Fix (out of this subspec's scope — editing AC prose isn't a sanctioned patch-mode
-edit): move each bullet's pinning-test backtick onto its first line, e.g. lead
-with `` `shared/linked-subspec-routing.test.ts` — inverting the criteria-based
-selection guard ... `` / `` `v2/src/execution/workflow-runner.test.ts` — reverting
-`runLinkedImplementStep` ... ``, matching the convention used by every other
-Mutation-checkpoint bullet in this repo's completed specs. No wording change is
-needed, only where the line wraps.

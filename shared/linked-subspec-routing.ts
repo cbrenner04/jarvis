@@ -68,9 +68,7 @@ function resolveLinkBody(indexPath: string, projectRoot: string, link: LinkedSub
   }
 }
 
-function readLinkedIndex(
-  specPath: string,
-): { ok: true; path: string; content: string } | { ok: false; error: string } {
+function readLinkedIndex(specPath: string): { ok: true; path: string; content: string } | { ok: false; error: string } {
   const indexPath = resolve(specPath);
   try {
     return { ok: true, path: indexPath, content: readFileSync(indexPath, "utf8") };
@@ -106,7 +104,7 @@ export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string
     if (!resolved.ok) return resolved;
 
     const incomplete = hasUncheckedNonHumanOnlyCriteria(resolved.body);
-    if (selected === undefined && incomplete) {
+    if (selected === undefined && !incomplete) {
       selected = { index: i, subspec: link, path: resolved.path, body: resolved.body };
     } else if (selected !== undefined && incomplete) {
       hasIncompleteAfterSelected = true;

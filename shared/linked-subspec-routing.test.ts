@@ -110,9 +110,7 @@ describe("shared linked-subspec routing", () => {
       completeLinkedSubspec(before, before, active, "# One\n\n## Acceptance criteria\n\n- [ ] Required\n"),
     ).toEqual({ ok: false, errorKind: "link_incomplete" });
     const mutated = before.replace("- [ ] [One]", "- [x] [One]");
-    expect(
-      completeLinkedSubspec(before, mutated, active, "# One\n\n## Acceptance criteria\n\n- [x] Done\n"),
-    ).toEqual({
+    expect(completeLinkedSubspec(before, mutated, active, "# One\n\n## Acceptance criteria\n\n- [x] Done\n")).toEqual({
       ok: false,
       errorKind: "index_routing_mutated",
     });

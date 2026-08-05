@@ -656,9 +656,12 @@ is green, and (5) if the active subspec's acceptance criteria reference `bun run
 that command exits zero. Rows that exhausted the repair budget instead remain `failed` /
 `ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds.
 
-A ticked non-human-only acceptance criterion is selected when its text contains `Mutation
+A ticked non-human-only acceptance criterion is selected when its assembled bullet block
+(newline-joined first checklist line plus continuation lines) contains `Mutation
 checkpoint:` or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" ->
-"<replacement>"`). Bare `@mutate` prose mentions no longer select. Verification still requires
+"<replacement>"`). Pinning-test resolution and directive linking read that same full block,
+aligned with selection — wrapped pinning-test references and enclosing-test names on
+continuation lines resolve. Bare `@mutate` prose mentions no longer select. Verification still requires
 the harness to **apply** a valid linked directive and watch the scoped suite go red. The machine
 contract is a directive in the pinning test file — `// @mutate <path> "<original>" ->
 "<replacement>"` — located by exact source text that must occur exactly once. A ticked

@@ -1120,8 +1120,10 @@ The loop classifies and routes results:
      from the worktree to catch agent edits. On every implement `done` /
      `no-work` — independent of whether the unticked-row gate registered — the
      same contract id also verifies **ticked** non-human-only criteria whose
-     text contains `Mutation checkpoint:` or a directive-shaped `@mutate`
-     occurrence: each linked `// @mutate` directive in the named pinning test
+     assembled bullet block contains `Mutation checkpoint:` or a directive-shaped `@mutate`
+     occurrence: pinning-test resolution and directive linking read that same full block
+     (aligned with selection); wrapped pinning-test references and enclosing-test names on
+     continuation lines resolve. Each linked `// @mutate` directive in the named pinning test
      (path-qualified first, basename only when unambiguous) is applied in the
      worktree, scoped suites run with `AbortSignal` and remaining
      write-iteration wall budget, and the file is restored (snapshot restore on

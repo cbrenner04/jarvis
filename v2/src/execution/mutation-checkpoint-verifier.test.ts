@@ -51,14 +51,25 @@ function subspecWithCriteria(criteria: readonly string[]): string {
   return ["# Spec", "", "## Acceptance criteria", "", ...criteria, ""].join("\n");
 }
 
-function guardPinFixture(root: string, pinTitle: string, original = GUARD_SOURCE) {
-  const target = writeAt(root, "v2/src/guard.ts", original);
+function writeGuardMutatePin(root: string, relTestPath: string, pinTitle: string) {
+  writeAt(root, "v2/src/guard.ts", GUARD_SOURCE);
   writeAt(
     root,
-    "v2/src/guard.test.ts",
+    relTestPath,
     [`test("${pinTitle}", () => {`, '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
   );
+}
+
+function guardPinFixture(root: string, pinTitle: string, original = GUARD_SOURCE) {
+  const target = writeAt(root, "v2/src/guard.ts", original);
+  writeGuardMutatePin(root, "v2/src/guard.test.ts", pinTitle);
   return { target, original, subspec: writeAt(root, "spec/00.md", subspecNaming("guard.test.ts", pinTitle)) };
+}
+
+function expectSingleCatch(report: MutationCheckpointReport) {
+  expect(report.unparseable).toEqual([]);
+  expect(report.hollow).toEqual([]);
+  expect(report.caught).toHaveLength(1);
 }
 
 /** Records the scoped-suite calls and answers with a caller-supplied verdict. */
@@ -246,6 +257,41 @@ describe("verifyMutationCheckpoints", () => {
     expect(report.unparseable).toEqual([]);
     expect(report.hollow).toHaveLength(2);
     expect(runner.calls).toHaveLength(2);
+  });
+
+  test("wrapped pinning-test reference on continuation line resolves and catches", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "resolvePinningTestPath(worktreeRoot, block)" -> "resolvePinningTestPath(worktreeRoot, criterionText)"
+    const root = makeWorktree();
+    writeGuardMutatePin(root, "v2/src/wrapped-pin.test.ts", "wrapped pin");
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [x] Mutation checkpoint: pinning test on continuation.",
+        "  `wrapped-pin.test.ts` — `wrapped pin`",
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
+  });
+
+  test("wrapped enclosing-test name on continuation line links directive", async () => {
+    const root = makeWorktree();
+    writeGuardMutatePin(root, "v2/src/guard.test.ts", "wrapped pin");
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [x] `guard.test.ts` — Mutation checkpoint: pin name on continuation.",
+        "  `wrapped pin`",
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
   });
 
   test("a directive whose mutation turns the suite red is caught", async () => {

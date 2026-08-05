@@ -36,7 +36,9 @@ in the successor step hanging before it can publish.
 - Root cause is not established — the first acceptance criterion is a reproduction/diagnosis. Do not
   cut a fix against a guessed cause. Candidate loci: the review/shrink/publication successor arms no
   idle-output or wall-clock watchdog (unlike the write step), OR it hangs before the agent
-  invocation so the watchdog has no scope.
+  invocation so the watchdog has no scope. Both observed stalls were successors of runs hit by
+  `implement-completion-honesty` defects, so once that bundle lands the reproduction must construct
+  the stalled successor synthetically rather than replay those runs.
 - A review/shrink/publication successor that produces no output for the machine idle budget settles a
   named, operator-visible failure (`role_stalled` or equivalent) instead of hanging live forever —
   rules out an unbounded successor with no recovery but `kill`.

@@ -568,7 +568,7 @@ settled `runStatus: "completed"` with `outcomeKind: "no-work"` and
 executed in the pre-existing managed worktree (HEAD three commits behind the resolved `--base`, four
 modified tracked paths on disk) which `resetStaleWorkspace` neither retired nor refused, and it read
 that dirty tree's already-ticked spec copy as truth. Confirm a `completed` implement row by its PR,
-not its status. Seed: `v2/spec/seeds/implement-rerun-completes-over-a-stale-dirty-worktree.md`.
+not its status. Seed: `v2/spec/seeds/implement-completion-honesty.md` (absorbed the rerun seed).
 Cleanup: delete this bullet when that seed ships.
 
 **A settled run row can have a live successor step (2026-08-03).** The review step after the run
@@ -1297,14 +1297,15 @@ Operators add bullets here; delete when fixed.
   `undefined` the result fails `typecheck`. Reproducible on `main` today. A run hits it as
   `completion_commit_failed` with the autofix edits sitting uncommitted, then `ready_gate_failed` on
   resume — and every repair entry re-runs autofix, so it re-breaks. Recovery is a hand edit in the
-  worktree, then `jarvis run resume`. Seed: `v2/spec/seeds/gate-autofix-can-turn-a-green-tree-red.md`.
+  worktree, then `jarvis run resume`. Seed: `v2/spec/seeds/gate-repair-fence.md` (absorbed the
+  autofix seed).
 - **Any abnormal settle can strand an applied `@mutate` directive, not just `SIGKILL`
   (2026-08-02):** an ordinary `iteration_timeout` left **three** mutations applied to production
   source, and the scoped verification kept applying and restoring directives in that worktree
   minutes after the run row was terminal — so a single read of the file is not trustworthy. When
   salvaging such a worktree, reverse every directive mechanically (parse the test file's `@mutate`
   lines and restore each replacement to its original) rather than eyeballing the diff. Seed:
-  `v2/spec/seeds/mutation-verification-outlives-its-run.md`.
+  `v2/spec/seeds/mutation-checkpoint-verifier-trust.md` (absorbed the outlives-its-run seed).
 - **The `--detach` entry run ID is not the row to wait on (2026-08-02):** the entry frequently
   reports `completed` while the write row for the same spec is still `live`. `jarvis run wait
   <entry-id>` returning success is not the workflow finishing. Confirm against `jarvis run list`
@@ -1342,8 +1343,9 @@ Operators add bullets here; delete when fixed.
   `bun test <file>` both passed; CI failed 26 v1 plan tests. **Read the committed diff, not the
   worktree**, when a CI failure cannot be reproduced locally:
   `git -C <worktree> show HEAD:<path>`. Recovery was `gh pr close` + `jarvis cleanup --abandon` +
-  a fresh implement run. Seed: `v2/spec/seeds/mutation-verification-outlives-its-run.md` (absorbed
-  the original artifact seed). Cleanup: delete this bullet when it ships.
+  a fresh implement run. Seed: `v2/spec/seeds/mutation-checkpoint-verifier-trust.md` (absorbed
+  the outlives-its-run seed, which had absorbed the original artifact seed). Cleanup: delete this
+  bullet when it ships.
 
 - **`--abandon` refuses over a ready PR and over a dead keyed socket (2026-07-30):** retiring a
   wedged workspace after the executable was rebuilt hits two guards in sequence —

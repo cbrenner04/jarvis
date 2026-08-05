@@ -60,9 +60,8 @@ The check that would have caught it costs seconds and requires no code: *can thi
 - A full-diff revert is **not** the mechanism: new tests import new exports, so reverting everything
   yields a compile error rather than a red test. The keystone is a targeted semantic revert, which is
   what a directive already is.
-- Out of scope: the intent-split prompt, mutation-checkpoint selection
-  (`mutation-selector-fires-on-prose-mentions-of-the-marker`), and directive resolution
-  (`unparseable-mutation-directives-pass-the-gate`).
+- Out of scope: the intent-split prompt; mutation-checkpoint selection and directive resolution
+  (both owned by `mutation-checkpoint-verifier-trust`).
 
 ## Acceptance criteria
 
@@ -93,3 +92,5 @@ The check that would have caught it costs seconds and requires no code: *can thi
 
 - Plan debate review roles (`shared/prompts/review-plan.ts`)
 - `verifyMutationCheckpoints` and directive resolution (`v2/src/execution/mutation-checkpoint-verifier.ts`)
+- `mutation-checkpoint-verifier-trust` landed first — the keystone reuses
+  `verifyMutationCheckpoints`, whose selection, resolution, and gate policy that bundle rewrites

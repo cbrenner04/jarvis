@@ -6599,7 +6599,7 @@ export function isLoadSensitive(file: string): boolean {
     });
 
     test("no-work over dirty worktree with publishCompletion false settles non-completed failure naming uncommitted paths", async () => {
-      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(uncommittedPaths)" -> "false"
+      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "no-work-dirty-publish-off";
@@ -6671,7 +6671,7 @@ export function isLoadSensitive(file: string): boolean {
     }
 
     test("iteration_timeout with one completed subspec is resumable", async () => {
-      // @mutate v2/src/execution/write-loop.ts "hasCompletedSubspec(completionInventory)" -> "false"
+      // @mutate v2/src/execution/write-loop.ts "const resumable = hasCompletedSubspec(inventory)" -> "const resumable = false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-one-complete";

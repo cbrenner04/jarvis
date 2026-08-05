@@ -1,8 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
@@ -11,10 +9,12 @@ import {
   type InvocationExecution,
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
+import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
@@ -1877,6 +1877,7 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 }
 
 /** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: idempotent terminal-result reconstruction fans out over each settled outcome kind
 function committedResult(
   run: StoredRun,
   resumeContext?: { worktreePath: string; projectRoot: string; specPath: string },
@@ -1904,11 +1905,7 @@ function committedResult(
       outcomeKind === "iteration_timeout" &&
       resumeContext !== undefined &&
       hasCompletedSubspec(
-        buildSubspecCompletionInventory(
-          resumeContext.worktreePath,
-          resumeContext.projectRoot,
-          resumeContext.specPath,
-        ),
+        buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath),
       )
     ) {
       return null;
@@ -1916,11 +1913,7 @@ function committedResult(
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     const inventory =
       outcomeKind === "iteration_timeout" && resumeContext !== undefined
-        ? buildSubspecCompletionInventory(
-            resumeContext.worktreePath,
-            resumeContext.projectRoot,
-            resumeContext.specPath,
-          )
+        ? buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath)
         : { completedSubspecPaths: [], remainingSubspecPaths: [] };
     return {
       kind:

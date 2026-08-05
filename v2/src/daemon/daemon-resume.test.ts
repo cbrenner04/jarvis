@@ -9,13 +9,13 @@ import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
 } from "../execution/workflow-runner.ts";
+import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "../execution/write.ts";
 import {
   executeWriteLoop,
   MAX_READY_GATE_REPAIRS,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
 } from "../execution/write-loop.ts";
-import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "../execution/write.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";

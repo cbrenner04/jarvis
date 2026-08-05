@@ -45,8 +45,8 @@ boundary over a dirty tree.
 - [x] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` and `iteration_timeout with no completed subspec stays non-resumable` drive implement-linked fixtures (one complete + one incomplete subspec, and all-incomplete respectively); terminal `loop_finished` carries `resumable: true` vs `resumable: false`; inverting the completed-subspec predicate turns the resumable case red.
 - [x] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` pins `completedSubspecPaths` and `remainingSubspecPaths` on terminal `loop_finished` against the two-subspec fixture; `iteration_timeout with no completed subspec stays non-resumable` pins both lists empty vs full-remaining for the all-incomplete fixture.
 - [x] `daemon-resume.test.ts` `resume after iteration_timeout retains worktree commits without stale reset` resumes a run that timed out with one completed subspec, asserts no `resetStaleWorkspace` / rematerialization on resume, and pre-timeout iteration commit SHAs remain ancestors of branch head after resume settles; fails against current timeout settlement.
-- [x] `write-loop.test.ts` `no-work over dirty worktree with publishCompletion false settles non-completed failure naming uncommitted paths` links `// @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(uncommittedPaths)" -> "false"` in the `publishCompletion === false` completion branch; inverting turns the test red.
-- [x] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` links `// @mutate v2/src/execution/write-loop.ts "hasCompletedSubspec(completionInventory)" -> "false"`; inverting turns the test red.
+- [x] `write-loop.test.ts` `no-work over dirty worktree with publishCompletion false settles non-completed failure naming uncommitted paths` links `// @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)" -> "false"` in the `publishCompletion === false` completion branch; inverting turns the test red.
+- [x] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` links `// @mutate v2/src/execution/write-loop.ts "const resumable = hasCompletedSubspec(inventory)" -> "const resumable = false"`; inverting turns the test red.
 - [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
@@ -54,9 +54,3 @@ boundary over a dirty tree.
 - `v2/docs/operator-runbook.md` § Gate trust — a `completed` implement row no longer admits the `no-work`-over-dirty case; document what `no-work` now settles; `iteration_timeout` is conditionally resumable with completion inventory on the terminal row.
 - `v2/docs/operator-runbook.md` § Recovery — replace "re-dispatch the workflow" guidance for completed-subspec `iteration_timeout` with resume-from-retained-workspace guidance.
 - `v2/docs/v1-behaviors.md` — record dirty `no-work` refusal, resumable `iteration_timeout`, completion inventory fields, and resume retention contract.
-
-## Blocker
-
-Artifact contract check failed: Unparseable mutation checkpoints:
-- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260805T155408Z-implement-completion-honesty/v2/src/execution/write-loop.test.ts:6602: target_absent: // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(uncommittedPaths)" -> "false"
-- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260805T155408Z-implement-completion-honesty/v2/src/execution/write-loop.test.ts:6674: target_absent: // @mutate v2/src/execution/write-loop.ts "hasCompletedSubspec(completionInventory)" -> "false"

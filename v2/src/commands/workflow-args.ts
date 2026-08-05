@@ -15,6 +15,7 @@ export const PLAN_WORKFLOW_PARSE_OPTIONS = {
   "review-passes": { type: "string" },
   "review-behavior": { type: "string" },
   "reset-despite-dirty": { type: "boolean" },
+  "reset-despite-landed-criteria": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
@@ -25,6 +26,7 @@ export const IMPLEMENT_WORKFLOW_PARSE_OPTIONS = {
   "review-passes": { type: "string" },
   "review-behavior": { type: "string" },
   "reset-despite-dirty": { type: "boolean" },
+  "reset-despite-landed-criteria": { type: "boolean" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 type ReviewCliInput = { reviewPasses?: number; reviewBehavior?: ImplementReviewBehavior };
@@ -61,6 +63,7 @@ export type ImplementWorkflowCliInput =
       reviewPasses?: number;
       reviewBehavior?: ImplementReviewBehavior;
       resetDespiteDirty?: boolean;
+      resetDespiteLandedCriteria?: boolean;
     }
   | { ok: false };
 
@@ -89,6 +92,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
   }
 
   const resetDespiteDirty = values["reset-despite-dirty"] === true;
+  const resetDespiteLandedCriteria = values["reset-despite-landed-criteria"] === true;
 
   return {
     ok: true,
@@ -98,6 +102,7 @@ export function parseImplementWorkflowArgs(argv: readonly string[]): ImplementWo
     ...(artifactPath !== undefined ? { artifactPath } : {}),
     ...review,
     ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+    ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
   };
 }
 
@@ -144,7 +149,7 @@ export function parseIntentWorkflowArgs(argv: readonly string[]): IntentWorkflow
 }
 
 export type PlanWorkflowCliInput =
-  | ({ ok: true; readyIntent: string; targetDir?: string; resetDespiteDirty?: boolean } & ReviewCliInput)
+  | ({ ok: true; readyIntent: string; targetDir?: string; resetDespiteDirty?: boolean; resetDespiteLandedCriteria?: boolean } & ReviewCliInput)
   | { ok: false };
 
 export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliInput {
@@ -170,6 +175,7 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
   }
 
   const resetDespiteDirty = values["reset-despite-dirty"] === true;
+  const resetDespiteLandedCriteria = values["reset-despite-landed-criteria"] === true;
 
   return {
     ok: true,
@@ -177,6 +183,7 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
     ...(targetDir !== undefined ? { targetDir } : {}),
     ...review,
     ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+    ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
   };
 }
 

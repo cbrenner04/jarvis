@@ -1,5 +1,6 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   getBaseBranch,
   getCurrentBranchAsync,
@@ -1412,9 +1413,122 @@ export type DirtyWorktreeListResult =
   | { status: "error"; message: string };
 
 export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
+export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-landed-criteria";
 
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
+const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetListingErrorRecovery = `commit, discard local changes, or run \`jarvis cleanup --abandon <branch>\``;
+
+export async function isDescendantOfBase(
+  worktreeHead: string,
+  baseRef: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    await runner.runAsync("git", ["merge-base", "--is-ancestor", baseRef, worktreeHead], projectRoot, {
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function specTreeRelPaths(projectRoot: string, specPath: string, readFile: (absPath: string) => string): string[] {
+  const absoluteSpecPath = isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
+  const specContent = readFile(absoluteSpecPath);
+  const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
+  if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
+    return [relative(projectRoot, absoluteSpecPath)];
+  }
+  return linkedSubspecs.map((link) => {
+    const subspecPath = isAbsolute(link.path) ? link.path : resolve(dirname(absoluteSpecPath), link.path);
+    return relative(projectRoot, subspecPath);
+  });
+}
+
+function hasLandedCriteriaTicksAbsentFromBase(worktreeContent: string, baseContent: string): boolean {
+  const worktreeCriteria = parseSpec(worktreeContent).acceptanceCriteria.filter((criterion) => !criterion.humanOnly);
+  const baseCriteria = parseSpec(baseContent).acceptanceCriteria.filter((criterion) => !criterion.humanOnly);
+  for (let index = 0; index < worktreeCriteria.length; index += 1) {
+    const worktreeCriterion = worktreeCriteria[index];
+    if (worktreeCriterion === undefined || !worktreeCriterion.checked) continue;
+    const baseCriterion = baseCriteria[index];
+    if (baseCriterion === undefined || !baseCriterion.checked) return true;
+  }
+  return false;
+}
+
+type LandedCriteriaSpecTree = {
+  projectRoot: string;
+  worktreePath: string;
+  baseRef: string;
+  specPath: string;
+  runner: AsyncSubprocessRunner;
+};
+
+async function collectLandedCriteriaDrift(specTree: LandedCriteriaSpecTree): Promise<string[]> {
+  const { projectRoot, worktreePath, baseRef, specPath, runner } = specTree;
+  const relPaths = specTreeRelPaths(projectRoot, specPath, (absPath) => {
+    const worktreeAbsPath = join(worktreePath, relative(projectRoot, absPath));
+    if (!existsSync(worktreeAbsPath)) throw new Error(`worktree spec unreadable: ${relative(projectRoot, absPath)}`);
+    return readFileSync(worktreeAbsPath, "utf8");
+  });
+  const drifted: string[] = [];
+  for (const relPath of relPaths) {
+    const worktreeAbsPath = join(worktreePath, relPath);
+    if (!existsSync(worktreeAbsPath)) continue;
+    const worktreeContent = readFileSync(worktreeAbsPath, "utf8");
+    const baseContent = await readGitFileAtRef(projectRoot, baseRef, relPath, runner);
+    if (baseContent === undefined) {
+      if (parseSpec(worktreeContent).acceptanceCriteria.some((criterion) => !criterion.humanOnly && criterion.checked)) {
+        drifted.push(relPath);
+      }
+      continue;
+    }
+    if (hasLandedCriteriaTicksAbsentFromBase(worktreeContent, baseContent)) drifted.push(relPath);
+  }
+  return drifted;
+}
+
+export async function landedCriteriaAbsentFromBase(specTree: LandedCriteriaSpecTree): Promise<string[]> {
+  return collectLandedCriteriaDrift(specTree);
+}
+
+async function readGitFileAtRef(
+  projectRoot: string,
+  baseRef: string,
+  relPath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  try {
+    return await runner.runAsync("git", ["show", `${baseRef}:${relPath}`], projectRoot);
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveStaleResetRef(
+  projectRoot: string,
+  gitRef: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string> {
+  return (await runner.runAsync("git", ["rev-parse", gitRef], projectRoot)).trim();
+}
+
+function staleResetDescendantGateReason(baseRef: string, baseHead: string, worktreeHead: string): string {
+  return `worktree HEAD ${worktreeHead} is not a descendant of base ${baseRef} (${baseHead}); stale reuse refused`;
+}
+
+function staleResetLandedCriteriaGateReason(driftedSubspecPaths: string[]): string {
+  const pathDetail = driftedSubspecPaths.join(", ");
+  return `worktree spec has acceptance criteria ticked that are unticked on base (${pathDetail}); ${staleResetLandedCriteriaRecovery} to retire the workspace, then re-run`;
+}
+
+function combineStaleResetRefusalReasons(parts: string[]): string {
+  return parts.join("; ");
+}
 
 export async function listDirtyWorktreePathsForStaleReset(
   worktreePath: string,
@@ -1464,6 +1578,9 @@ export function staleResetDirtyWorktreeGateReason(
 
 export type ResetStaleWorkspaceOptions = {
   skipDirtyWorktreeGate?: boolean;
+  skipLandedCriteriaGate?: boolean;
+  baseRef?: string;
+  specPath?: string;
 };
 
 export async function resetStaleWorkspace(
@@ -1507,8 +1624,46 @@ export async function resetStaleWorkspace(
 
   const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
   if (dirtyList.status === "not-git-repository") return { status: "no-op" };
-  const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, options.skipDirtyWorktreeGate === true);
-  if (dirtyReason !== undefined) return { status: "refused", reason: dirtyReason };
+
+  const refusalParts: string[] = [];
+  const skipDirtyWorktreeGate = options.skipDirtyWorktreeGate === true;
+  const skipLandedCriteriaGate = options.skipLandedCriteriaGate === true;
+  const baseRef = options.baseRef;
+  const specPath = options.specPath;
+
+  if (baseRef !== undefined) {
+    const [worktreeHead, baseHead] = await Promise.all([
+      resolveStaleResetRef(worktreePath, "HEAD", runner),
+      resolveStaleResetRef(projectRoot, baseRef, runner),
+    ]);
+    if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {
+      refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+    }
+    if (specPath !== undefined) {
+      const specTree = { projectRoot, worktreePath, baseRef, specPath, runner };
+      const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
+      if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
+        refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+      }
+    }
+  }
+
+  if (dirtyList.status === "error") {
+    const listingReason = staleResetDirtyWorktreeGateReason(dirtyList, false);
+    if (listingReason !== undefined) refusalParts.push(listingReason);
+  } else if (dirtyList.status === "dirty") {
+    if (!skipDirtyWorktreeGate) {
+      const dirtyReason = staleResetDirtyWorktreeGateReason(dirtyList, false);
+      if (dirtyReason !== undefined) refusalParts.push(dirtyReason);
+    } else if (refusalParts.length > 0) {
+      const pathDetail = dirtyList.paths.length > 0 ? dirtyList.paths.join(", ") : "unparseable git status output";
+      refusalParts.push(`worktree has uncommitted changes (${pathDetail})`);
+    }
+  }
+
+  if (refusalParts.length > 0) {
+    return { status: "refused", reason: combineStaleResetRefusalReasons(refusalParts) };
+  }
 
   const abandonResult = await performAbandonmentSteps(branch, worktreePath, projectRoot, prGate.pr?.number, runner, io);
   if (abandonResult.ok) return { status: "reset", destroyed: abandonResult.destroyed };

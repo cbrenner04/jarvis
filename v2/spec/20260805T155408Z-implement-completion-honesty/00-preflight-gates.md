@@ -34,15 +34,20 @@ stale/dirty/non-descendant worktree. Precedence is fixed here, not by landing or
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` `run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty` drives incomplete git-enabled implement re-run with `--reset-despite-dirty` against a managed worktree whose HEAD is behind the resolved `--base` with uncommitted tracked paths, asserts exit non-zero, stderr names those paths and stale/descendant reuse refusal, no daemon start, and no retirement; fails against current preflight (today gate (3) is bypassed and gate (1) is absent, so retirement proceeds).
-- [ ] `workflow.test.ts` `run workflow implement refuses re-run when worktree HEAD is not a descendant of base` drives implement re-run with a clean managed worktree whose HEAD is not a descendant of resolved `--base`, asserts exit non-zero and stderr naming the base ref and worktree HEAD; fails against current preflight.
-- [ ] `cleanup.test.ts` `reset refuses when worktree spec has criteria ticked absent from base` and `reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base` cover preserve gate refusal (no retirement, subspec paths on stderr) and override proceed; fail against current `resetStaleWorkspace`.
-- [ ] `cleanup.test.ts` `reset refusal names landed-criteria drift before dirty reuse when both apply` refuses with both conditions named in preserve-before-dirty order and performs no retirement; fails against current gate order.
-- [ ] `workflow.test.ts` `run workflow implement refuses re-run when worktree HEAD is not a descendant of base` links `// @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef)" -> "true"`; inverting turns the test red.
-- [ ] `cleanup.test.ts` `reset refusal names landed-criteria drift before dirty reuse when both apply` links `// @mutate v2/src/commands/cleanup.ts "landedCriteriaAbsentFromBase(specTree)" -> "false"`; inverting turns the test red.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `workflow.test.ts` `run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty` drives incomplete git-enabled implement re-run with `--reset-despite-dirty` against a managed worktree whose HEAD is behind the resolved `--base` with uncommitted tracked paths, asserts exit non-zero, stderr names those paths and stale/descendant reuse refusal, no daemon start, and no retirement; fails against current preflight (today gate (3) is bypassed and gate (1) is absent, so retirement proceeds).
+- [x] `workflow.test.ts` `run workflow implement refuses re-run when worktree HEAD is not a descendant of base` drives implement re-run with a clean managed worktree whose HEAD is not a descendant of resolved `--base`, asserts exit non-zero and stderr naming the base ref and worktree HEAD; fails against current preflight.
+- [x] `cleanup.test.ts` `reset refuses when worktree spec has criteria ticked absent from base` and `reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base` cover preserve gate refusal (no retirement, subspec paths on stderr) and override proceed; fail against current `resetStaleWorkspace`.
+- [x] `cleanup.test.ts` `reset refusal names landed-criteria drift before dirty reuse when both apply` refuses with both conditions named in preserve-before-dirty order and performs no retirement; fails against current gate order.
+- [x] `workflow.test.ts` `run workflow implement refuses re-run when worktree HEAD is not a descendant of base` links `// @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef)" -> "true"`; inverting turns the test red.
+- [x] `cleanup.test.ts` `reset refusal names landed-criteria drift before dirty reuse when both apply` links `// @mutate v2/src/commands/cleanup.ts "landedCriteriaAbsentFromBase(specTree)" -> "false"`; inverting turns the test red.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` § Recovery — document gate sequence (descendant → preserve → dirty → retirement), descendant-check preflight refusal, preserve-before-reuse landed-criteria refusal, `--reset-despite-landed-criteria`, combined stderr when multiple gates fire; keep `--reset-despite-dirty` scoped to dirty refusal only.
 - `v2/docs/v1-behaviors.md` — record descendant-check preflight, preserve-before-reuse gate, gate order, and `--reset-despite-landed-criteria`.
+
+## Blocker
+
+Artifact contract check failed: Unparseable mutation checkpoints:
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260805T155408Z-implement-completion-honesty/v2/src/commands/workflow.test.ts:2876: target_absent: // @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef)" -> "true"

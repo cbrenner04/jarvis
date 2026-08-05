@@ -105,6 +105,13 @@ const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
     "Retire a stale workspace on incomplete re-run even when the worktree is dirty; porcelain or listing errors still refuse.",
 };
 
+const WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG: CommandFlag = {
+  name: "--reset-despite-landed-criteria",
+  argumentShape: "",
+  description:
+    "Retire a stale workspace on incomplete re-run even when the worktree spec has criteria ticked absent from base.",
+};
+
 const WORKFLOW_DETACH_FLAG: CommandFlag = {
   name: "--detach",
   argumentShape: "",
@@ -138,6 +145,7 @@ export const WORKFLOW_PLAN_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--target-dir", argumentShape: "<dir>", description: "Directory for the new spec tree." },
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
   WORKFLOW_DETACH_FLAG,
 ];
 
@@ -165,5 +173,6 @@ export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--artifact", argumentShape: "<path>", description: "Completion artifact path for single-file specs." },
   ...WORKFLOW_REVIEW_FLAGS,
   WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
   WORKFLOW_DETACH_FLAG,
 ];

@@ -49,7 +49,7 @@ import {
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
+import { STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG, STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
 import { setAttachWaitRunIdOverrideForTest, setForceSkipAttachClientWaitForTest } from "./workflow.ts";
 
 let fx: CliRepoFixture;
@@ -75,11 +75,11 @@ const IMPLEMENT_ARGS = [
 ] as const;
 
 const IMPLEMENT_USAGE =
-  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--detach]\n";
+  "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 const INTENT_USAGE =
   "usage: jarvis run workflow intent (--seed <path> | --seed-text <text>) [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--detach]\n";
 const PLAN_USAGE =
-  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--detach]\n";
+  "usage: jarvis run workflow plan --ready-intent <path> [--target-dir <dir>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 
 function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[] {
   return sent.filter((frame) => (frame as { method?: string }).method === method);
@@ -2052,6 +2052,7 @@ describe("implement preflight stale workspace reset", () => {
           "--spec",
           "index.md",
           "--reset-despite-dirty",
+          STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG,
           "--detach",
         ],
         cap.io,
@@ -2869,6 +2870,95 @@ describe("implement preflight stale workspace reset", () => {
     expect(list).toContain(worktreePath);
     const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch"], resetProjectRoot);
     expect(branchList).toContain(resetBranch);
+  });
+
+  test("run workflow implement refuses re-run when worktree HEAD is not a descendant of base", async () => {
+    // @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef)" -> "true"
+    const worktreePath = await materializeStaleWorktree();
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], resetProjectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    expect(worktreeHead).not.toBe(baseHead);
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        ["run", "workflow", "implement", "--branch", resetBranch, "--base", "HEAD", "--spec", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain("HEAD");
+    expect(stderr).toContain(baseHead);
+    expect(stderr).toContain(worktreeHead);
+    expect(stderr).toContain("not a descendant");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
+  });
+
+  test("run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const dirtyFile = "stale-timeout-edit.txt";
+    writeFileSync(join(worktreePath, dirtyFile), "dirty\n", "utf8");
+    writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], resetProjectRoot);
+
+    const sent: unknown[] = [];
+    const cap = captureIo();
+    const teardownCalls: string[] = [];
+    const code = await withStaleResetPreflightUuids(() =>
+      main(
+        [
+          "run",
+          "workflow",
+          "implement",
+          "--branch",
+          resetBranch,
+          "--base",
+          "HEAD",
+          "--spec",
+          "index.md",
+          STALE_RESET_OVERRIDE_CLI_FLAG,
+        ],
+        cap.io,
+        resetImplementDeps({
+          subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+            if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+            if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
+            return undefined;
+          }),
+          connectIpcClient: async () => makeStaleResetIpcClient([], { sent }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(1);
+    const { stderr } = cap.read();
+    expect(stderr).toContain("Cannot re-run incomplete spec:");
+    expect(stderr).toContain(dirtyFile);
+    expect(stderr).toContain("not a descendant");
+    expect(stderr).toContain("stale reuse refused");
+    expect(teardownCalls).toEqual([]);
+    expect(ipcFramesWithMethod(sent, "start")).toEqual([]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).toContain(worktreePath);
   });
 
   test("redispatch-materializes-from-base-after-preflight-reset-stale-remote-tracking-ref", async () => {

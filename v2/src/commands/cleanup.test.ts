@@ -35,6 +35,7 @@ import {
   resolveExactRefOid,
   revalidateMergedBranchRefCandidate,
   runCleanupCommand,
+  STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG,
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
@@ -3107,6 +3108,112 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refuses when worktree spec has criteria ticked absent from base", async () => {
+    const branch = "impl/landed-criteria-refuse";
+    const specDir = join(projectRoot, "v2", "spec", "my-spec");
+    const subspecRel = "v2/spec/my-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: 901, isDraft: true }]);
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: "v2/spec/my-spec/index.md" },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain("acceptance criteria ticked");
+    expect(reason).toContain(STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG);
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base", async () => {
+    const branch = "impl/landed-criteria-override";
+    const specDir = join(projectRoot, "v2", "spec", "override-spec");
+    const subspecRel = "v2/spec/override-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add override spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+
+    const result = await callReset(branch, ghPrListRunner([{ number: 902, isDraft: true }]), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: "v2/spec/override-spec/index.md",
+      skipLandedCriteriaGate: true,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("reset refusal names landed-criteria drift before dirty reuse when both apply", async () => {
+    // @mutate v2/src/commands/cleanup.ts "landedCriteriaAbsentFromBase(specTree)" -> "false"
+    const branch = "impl/landed-before-dirty";
+    const specDir = join(projectRoot, "v2", "spec", "ordered-spec");
+    const subspecRel = "v2/spec/ordered-spec/00-task.md";
+    const dirtyRel = `file-${branch.replace(/\//g, "-")}.txt`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add ordered spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    writeFileSync(join(worktreePath, dirtyRel), "edited\n");
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            return JSON.stringify([{ number: 903, isDraft: true }]);
+          }
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", specPath: "v2/spec/ordered-spec/index.md" },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(subspecRel);
+    expect(reason).toContain(dirtyRel);
+    expect(reason.indexOf("acceptance criteria ticked")).toBeLessThan(reason.indexOf("worktree has uncommitted changes"));
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
   });
 
   test("resetStaleWorkspace prunes stale origin tracking ref when remote head is absent", async () => {

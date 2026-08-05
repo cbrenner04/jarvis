@@ -279,14 +279,31 @@ Linked-index checkboxes are not the completion source of truth. Subspec
 so a hand-finished-and-merged subspec with a lagging index box is skipped
 automatically on re-run rather than needing its box hand-ticked first.
 
-On an incomplete re-run with git enabled, preflight retires a stale workspace for
-the resolved `(project, branch)` after daemon connect and before the write step
-starts, in this order: remove the materialized worktree, delete the local branch,
-delete the remote branch, prune a stale `origin/<branch>` remote-tracking ref when
-it still resolves locally, then close the matching open draft PR (when exactly one
-exists). Implement rematerializes from its explicit `--base`; plan rematerializes
-from its resolved repository base. The sequence aborts at the first failing step.
-First runs with no existing worktree skip this path.
+On an incomplete re-run with git enabled, preflight evaluates four gates in order
+before retiring a stale workspace for the resolved `(project, branch)` after daemon
+connect and before the write step starts:
+
+1. **Descendant check** — managed worktree `HEAD` must be a descendant of the
+   resolved `--base` (implement) or repository base (plan). Refusal names the base
+   ref, resolved base `HEAD`, worktree `HEAD`, and `stale reuse refused`.
+2. **Preserve landed criteria** — refuse when the worktree spec tree has
+   non-human-only acceptance criteria ticked that are unticked on `--base`; stderr
+   names those subspec paths. Pass `--reset-despite-landed-criteria` on the
+   incomplete re-run to skip only this gate.
+3. **Dirty reuse** — refuse when the worktree has uncommitted tracked or untracked
+   paths; stderr names paths and recovery (`--reset-despite-dirty` skips only this
+   gate).
+4. **Retirement** — remove the materialized worktree, delete the local branch,
+   delete the remote branch, prune a stale `origin/<branch>` remote-tracking ref when
+   it still resolves locally, then close the matching open draft PR (when exactly one
+   exists). Implement rematerializes from its explicit `--base`; plan rematerializes
+   from its resolved repository base. The sequence aborts at the first failing step.
+   First runs with no existing worktree skip this path.
+
+When gates (2) and (3) both apply, stderr names landed-criteria drift before dirty
+reuse. When gate (1) refuses with `--reset-despite-dirty` set, stderr still names
+dirty paths for context. Neither `--reset-despite-dirty` nor
+`--reset-despite-landed-criteria` overrides the descendant check.
 
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
@@ -296,13 +313,15 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
   refuse workflow `start` (`worktree_claimed:` on stderr; worktree, local and
   remote branches, and open PR stay intact), the daemon claim-check RPC fails
   (generic `Cannot re-run incomplete spec:` wrapper — not `worktree_claimed:`;
-  no retirement), or the materialized worktree has uncommitted tracked or
-  untracked paths;
+  no retirement), the managed worktree `HEAD` is not a descendant of the resolved
+  base, the worktree spec tree has criteria ticked absent from base, or the
+  materialized worktree has uncommitted tracked or untracked paths;
   stderr names the blocking state (for a dirty worktree, paths and recovery:
   commit, discard local changes, pass `--reset-despite-dirty` on the incomplete
-  re-run to retire despite local edits (listing failure still refuses), or run
-  `jarvis cleanup --abandon <branch>` outside a re-run). The same dirty-worktree
-  gate applies to incomplete git-enabled `jarvis run workflow
+  re-run to retire despite local edits (listing failure still refuses), pass
+  `--reset-despite-landed-criteria` to retire despite landed-criteria drift, or run
+  `jarvis cleanup --abandon <branch>` outside a re-run). The same preflight gates
+  apply to incomplete git-enabled `jarvis run workflow
   plan` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
   run or wait for its lock to clear; mark the PR draft again or merge it; close
   duplicate PRs until exactly one open draft remains; or clean the worktree as
@@ -721,6 +740,17 @@ real ink painting into a fake stdout is green locally and red on CI ([#2417](htt
 ## Recovery
 
 Documented gaps and operator workarounds. Remove entries when seeds merge.
+
+### Stale managed worktree preflight gates
+
+Incomplete git-enabled `jarvis run workflow implement` or `plan` re-runs evaluate
+descendant → preserve landed criteria → dirty reuse → retirement (see [Gate
+trust](#gate-trust) pre-mutation refusal). When the worktree `HEAD` lags or
+diverges from `--base`, or carries criteria ticks absent from base, preflight
+refuses without retirement — re-dispatch does not silently reuse a stale copy.
+`--reset-despite-landed-criteria` skips only the preserve gate;
+`--reset-despite-dirty` skips only the dirty gate; neither overrides the
+descendant check.
 
 ### Stale `origin/<branch>` after hand-merge
 

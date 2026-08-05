@@ -452,15 +452,8 @@ export async function verifyMutationCheckpoints(
   try {
     for (const { criterion, block } of selectedCriteria) {
       throwIfAborted(signal);
-      const linked = resolveLinkedDirectives(
-        worktreeRoot,
-        subspecPath,
-        block,
-        criterion.text,
-        parsedFiles,
-        readFile,
-        report_,
-      );
+      // biome-ignore format: kept single-line so the mutation-checkpoint @mutate directive can match this call verbatim
+      const linked = resolveLinkedDirectives(worktreeRoot, subspecPath, block, criterion.text, parsedFiles, readFile, report_);
       if (linked === undefined) continue;
 
       for (const directive of linked) {

@@ -274,7 +274,10 @@ can bias recreation toward `--base` even when a remote branch still exists.
 Before daemon contact, `jarvis run workflow implement` reads the requested spec
 tree. If all non-human-only criteria are checked, it exits `1` with
 `implement.already_complete`; no worktree, agent invocation, or run row exists.
-Linked-index checkboxes are not the completion source of truth.
+Linked-index checkboxes are not the completion source of truth. Subspec
+*routing* (which link runs next) now keys off the same unticked-criteria rule,
+so a hand-finished-and-merged subspec with a lagging index box is skipped
+automatically on re-run rather than needing its box hand-ticked first.
 
 On an incomplete re-run with git enabled, preflight retires a stale workspace for
 the resolved `(project, branch)` after daemon connect and before the write step

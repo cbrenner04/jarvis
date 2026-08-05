@@ -14,6 +14,13 @@ export function extractRequiredIntegrationScope(acceptanceCriteria: AcceptanceCr
   return undefined;
 }
 
+/** Whether `body` has any non-human-only acceptance criterion left unchecked.
+ * A body with no acceptance criteria at all counts as complete.
+ */
+export function hasUncheckedNonHumanOnlyCriteria(body: string): boolean {
+  return parseSpec(body).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);
+}
+
 export type ActiveLinkedSubspec = {
   index: number;
   subspec: LinkedSubspec;
@@ -39,60 +46,135 @@ export type LinkedSubspecCompletionResult =
   | { ok: true; indexContent: string; isTerminal: boolean }
   | { ok: false; errorKind: "link_incomplete" | "index_routing_mutated" };
 
-/** Select the first unchecked linked subspec and classify routing failures. */
-export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string): LinkedIndexRoutingResult {
-  const indexPath = resolve(specPath);
-  let indexContent: string;
-  try {
-    indexContent = readFileSync(indexPath, "utf8");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return { ok: false, error: `Failed to read index: ${message}`, errorKind: "link_unreadable" };
-  }
+type ResolvedLinkBody =
+  | { ok: true; path: string; body: string }
+  | { ok: false; error: string; errorKind: LinkedIndexErrorKind };
 
-  const linkedSubspecs = parseSpec(indexContent).linkedSubspecs;
-  if (linkedSubspecs.length === 0) {
-    return parseSpec(indexContent).tasks.length > 0
-      ? { ok: false, error: "Subspec input requires an index", errorKind: "requires_index" }
-      : { ok: false, error: "Index has no linked subspecs", errorKind: "empty_index" };
+/** Resolve one link's absolute path and body, classifying malformed/out-of-tree/unreadable links. */
+function resolveLinkBody(indexPath: string, projectRoot: string, link: LinkedSubspec): ResolvedLinkBody {
+  if (!link.path.trim()) {
+    return { ok: false, error: `Malformed link path: "${link.path}"`, errorKind: "malformed_link" };
   }
-
-  const uncheckedIndex = linkedSubspecs.findIndex((link) => !link.checked);
-  if (uncheckedIndex === -1) {
-    return { ok: false, error: "All linked subspecs are complete", errorKind: "already_complete" };
-  }
-  const activeLink = linkedSubspecs[uncheckedIndex];
-  if (!activeLink?.path.trim()) {
-    return { ok: false, error: `Malformed link path: "${activeLink?.path ?? ""}"`, errorKind: "malformed_link" };
-  }
-
-  const resolvedLinkedPath = isAbsolute(activeLink.path)
-    ? activeLink.path
-    : resolve(resolve(indexPath, ".."), activeLink.path);
-  const relativePath = relative(resolve(projectRoot), resolvedLinkedPath);
+  const resolvedPath = isAbsolute(link.path) ? link.path : resolve(resolve(indexPath, ".."), link.path);
+  const relativePath = relative(resolve(projectRoot), resolvedPath);
   if (relativePath.startsWith("..")) {
-    return { ok: false, error: `Linked path is outside project: ${activeLink.path}`, errorKind: "link_out_of_tree" };
+    return { ok: false, error: `Linked path is outside project: ${link.path}`, errorKind: "link_out_of_tree" };
   }
-
-  let body: string;
   try {
-    body = readFileSync(resolvedLinkedPath, "utf8");
+    return { ok: true, path: resolvedPath, body: readFileSync(resolvedPath, "utf8") };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, error: `Failed to read linked subspec: ${message}`, errorKind: "link_unreadable" };
   }
-  const parsedSubspec = parseSpec(body);
-  const requiredIntegrationScope = extractRequiredIntegrationScope(parsedSubspec.acceptanceCriteria);
+}
+
+function readLinkedIndex(
+  specPath: string,
+): { ok: true; path: string; content: string } | { ok: false; error: string } {
+  const indexPath = resolve(specPath);
+  try {
+    return { ok: true, path: indexPath, content: readFileSync(indexPath, "utf8") };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: `Failed to read index: ${message}` };
+  }
+}
+
+/**
+ * Select the first linked subspec with unticked non-human-only acceptance criteria, ignoring
+ * index checkboxes entirely. `isTerminal` is true when every later link is also
+ * criteria-complete (computed during this same scan).
+ */
+export function resolveActiveLinkedSubspec(specPath: string, projectRoot: string): LinkedIndexRoutingResult {
+  const index = readLinkedIndex(specPath);
+  if (!index.ok) return { ok: false, error: index.error, errorKind: "link_unreadable" };
+
+  const linkedSubspecs = parseSpec(index.content).linkedSubspecs;
+  if (linkedSubspecs.length === 0) {
+    return parseSpec(index.content).tasks.length > 0
+      ? { ok: false, error: "Subspec input requires an index", errorKind: "requires_index" }
+      : { ok: false, error: "Index has no linked subspecs", errorKind: "empty_index" };
+  }
+
+  let selected: { index: number; subspec: LinkedSubspec; path: string; body: string } | undefined;
+  let hasIncompleteAfterSelected = false;
+
+  for (let i = 0; i < linkedSubspecs.length; i += 1) {
+    const link = linkedSubspecs[i];
+    if (link === undefined) continue;
+    const resolved = resolveLinkBody(index.path, projectRoot, link);
+    if (!resolved.ok) return resolved;
+
+    const incomplete = hasUncheckedNonHumanOnlyCriteria(resolved.body);
+    if (selected === undefined && incomplete) {
+      selected = { index: i, subspec: link, path: resolved.path, body: resolved.body };
+    } else if (selected !== undefined && incomplete) {
+      hasIncompleteAfterSelected = true;
+    }
+  }
+
+  if (selected === undefined) {
+    return { ok: false, error: "All linked subspecs are complete", errorKind: "already_complete" };
+  }
+
+  const requiredIntegrationScope = extractRequiredIntegrationScope(parseSpec(selected.body).acceptanceCriteria);
   return {
     ok: true,
     active: {
-      index: uncheckedIndex,
-      subspec: activeLink,
-      path: resolvedLinkedPath,
-      body,
+      index: selected.index,
+      subspec: selected.subspec,
+      path: selected.path,
+      body: selected.body,
       ...(requiredIntegrationScope ? { requiredIntegrationScope } : {}),
     },
-    isTerminal: uncheckedIndex === linkedSubspecs.length - 1,
+    isTerminal: !hasIncompleteAfterSelected,
+  };
+}
+
+/**
+ * Re-resolve one previously-selected link by index after its write loop completes, instead of
+ * re-scanning for the first incomplete link — keeps the same subspec pinned across a
+ * resolve/edit/re-resolve cycle. `isTerminal` is a fresh scan of every other link's current body.
+ */
+export function resolvePinnedLinkedSubspec(
+  specPath: string,
+  projectRoot: string,
+  linkIndex: number,
+): LinkedIndexRoutingResult {
+  const index = readLinkedIndex(specPath);
+  if (!index.ok) return { ok: false, error: index.error, errorKind: "link_unreadable" };
+
+  const linkedSubspecs = parseSpec(index.content).linkedSubspecs;
+  const pinnedLink = linkedSubspecs[linkIndex];
+  if (pinnedLink === undefined) {
+    return { ok: false, error: "Pinned linked subspec no longer present in index", errorKind: "malformed_link" };
+  }
+  const resolved = resolveLinkBody(index.path, projectRoot, pinnedLink);
+  if (!resolved.ok) return resolved;
+
+  let hasIncompleteElsewhere = false;
+  for (let i = 0; i < linkedSubspecs.length; i += 1) {
+    if (i === linkIndex) continue;
+    const link = linkedSubspecs[i];
+    if (link === undefined) continue;
+    const otherResolved = resolveLinkBody(index.path, projectRoot, link);
+    if (otherResolved.ok && hasUncheckedNonHumanOnlyCriteria(otherResolved.body)) {
+      hasIncompleteElsewhere = true;
+      break;
+    }
+  }
+
+  const requiredIntegrationScope = extractRequiredIntegrationScope(parseSpec(resolved.body).acceptanceCriteria);
+  return {
+    ok: true,
+    active: {
+      index: linkIndex,
+      subspec: pinnedLink,
+      path: resolved.path,
+      body: resolved.body,
+      ...(requiredIntegrationScope ? { requiredIntegrationScope } : {}),
+    },
+    isTerminal: !hasIncompleteElsewhere,
   };
 }
 
@@ -120,10 +202,7 @@ export function completeLinkedSubspec(
   active: { index: number; isTerminal: boolean },
   subspecContent: string,
 ): LinkedSubspecCompletionResult {
-  const incomplete = parseSpec(subspecContent).acceptanceCriteria.some(
-    (criterion: AcceptanceCriterion) => !criterion.humanOnly && !criterion.checked,
-  );
-  if (incomplete) return { ok: false, errorKind: "link_incomplete" };
+  if (hasUncheckedNonHumanOnlyCriteria(subspecContent)) return { ok: false, errorKind: "link_incomplete" };
   if (findModifiedLinkedCheckbox(beforeIndexContent, afterIndexContent) !== undefined) {
     return { ok: false, errorKind: "index_routing_mutated" };
   }

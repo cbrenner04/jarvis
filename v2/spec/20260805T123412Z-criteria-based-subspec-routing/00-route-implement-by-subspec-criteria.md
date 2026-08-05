@@ -96,39 +96,39 @@ checkbox). On the intent's own reported tree, this exits `complete`, review-inel
 
 ## Acceptance criteria
 
-- [ ] `shared/linked-subspec-routing.test.ts` regression drives `resolveActiveLinkedSubspec`
+- [x] `shared/linked-subspec-routing.test.ts` regression drives `resolveActiveLinkedSubspec`
       against a tree whose first link is unchecked in `index.md` but has all non-human-only
       criteria ticked and whose second link has an unticked criterion; it asserts
       `active.index` is 1 and fails against index-checkbox routing.
-- [ ] `shared/linked-subspec-routing.test.ts` regression asserts a tree whose links are all
+- [x] `shared/linked-subspec-routing.test.ts` regression asserts a tree whose links are all
       unchecked in `index.md` but whose every subspec is fully ticked returns
       `errorKind: "already_complete"`; fails against index-checkbox routing.
-- [ ] `shared/linked-subspec-routing.test.ts` regression asserts a tree whose *last* link is
+- [x] `shared/linked-subspec-routing.test.ts` regression asserts a tree whose *last* link is
       fully ticked (index box unchecked) and whose only earlier incomplete link is not last
       selects that earlier link with `isTerminal: true`; a second case with a further later
       link still incomplete selects the earlier link with `isTerminal: false`. Both fail against
       `isTerminal: selectedIndex === links.length - 1`.
-- [ ] `shared/linked-subspec-routing.test.ts` regression asserts a link that fails to resolve
+- [x] `shared/linked-subspec-routing.test.ts` regression asserts a link that fails to resolve
       (unreadable, malformed, or out-of-tree) still fails routing with its named `errorKind`
       when it sits before a later, otherwise-selectable incomplete link.
-- [ ] `shared/linked-subspec-routing.test.ts` regression asserts a link whose subspec body has
+- [x] `shared/linked-subspec-routing.test.ts` regression asserts a link whose subspec body has
       zero acceptance criteria is treated as complete and skipped in favor of a later
       incomplete link.
-- [ ] `v2/src/execution/workflow-runner.test.ts` regression drives `executeWorkflow` with
+- [x] `v2/src/execution/workflow-runner.test.ts` regression drives `executeWorkflow` with
       `linkedIndexRouting: true` over a worktree tree whose first subspec is fully ticked with
       an unchecked index box and whose second subspec is incomplete: the write loop is invoked
       with the second subspec as `expectedArtifactPath`; on completion the second subspec's
       index checkbox advances while the first's stays exactly as it started; and the workflow
       returns `kind: "complete"` with `implementReviewEligible: true`. Fails against both
       index-checkbox routing and against the current post-write re-resolve.
-- [ ] `v2/src/execution/workflow-runner.test.ts`'s "reads index from project root when worktree
+- [x] `v2/src/execution/workflow-runner.test.ts`'s "reads index from project root when worktree
       is absent and advances checkbox in worktree only" stays green (the pre-write resolve
       still reads the project-root index before the worktree is materialized, and completion
       still advances the checkbox in the worktree's index only).
-- [ ] `v2/src/execution/implement-workflow-steps.test.ts`'s "rejects an already-complete linked
+- [x] `v2/src/execution/implement-workflow-steps.test.ts`'s "rejects an already-complete linked
       tree with only a wrapped human-only criterion unchecked" stays green (a fully-ticked tree
       with only human-only criteria left still settles `already_complete`).
-- [ ] `shared/linked-subspec-routing.test.ts`'s "classifies completion, detects routing
+- [x] `shared/linked-subspec-routing.test.ts`'s "classifies completion, detects routing
       mutation, and advances" stays green with its fixtures updated to carry real criteria
       (index advancement behavior unchanged by the routing change).
 - [ ] Mutation checkpoint: inverting the criteria-based selection guard in
@@ -139,10 +139,10 @@ checkbox). On the intent's own reported tree, this exits `complete`, review-inel
       write loop (instead of reusing the pre-write pinned index) turns its pinning test in
       `v2/src/execution/workflow-runner.test.ts` RED via a linked `@mutate` directive, with no
       production inversion hook.
-- [ ] The `@mutate` directive at `v2/src/execution/implement-workflow-steps.test.ts:335` is
+- [x] The `@mutate` directive at `v2/src/execution/implement-workflow-steps.test.ts:335` is
       re-pointed at the predicate's new home in `shared/linked-subspec-routing.ts` and still
       turns its pinning test red.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and
       `bun run test:integration:v2` pass.
 
 ## Documentation updates
@@ -165,3 +165,34 @@ checkbox). On the intent's own reported tree, this exits `complete`, review-inel
   the corrected rule that a tree with a criteria-complete individual link skips it and routes
   to the next incomplete link, while a tree whose links are *all* criteria-complete returns
   `already_complete` regardless of index-checkbox state.
+
+## Blocker
+
+The two "Mutation checkpoint:" acceptance criteria (guard inversion in
+`shared/linked-subspec-routing.ts`; re-run-selection reversion in
+`v2/src/execution/workflow-runner.ts`) are implemented for real — real `@mutate`
+directives on real pinning tests (`shared/linked-subspec-routing.test.ts` and
+`v2/src/execution/workflow-runner.test.ts`), each manually confirmed to turn its
+test RED when applied and green when reverted — but ticking either box hard-fails
+the harness's own `spec.criteria-ticked` write-loop contract, unconditionally,
+regardless of implementation.
+
+Cause: `parseAcceptanceCriteria` (`shared/spec-parser.ts`) stores only the
+**first line** of a multi-line AC bullet as `criterion.text`. Both bullets wrap
+their pinning-test backtick reference onto a continuation line (`shared/linked-
+subspec-routing.test.ts` on line 136; `v2/src/execution/workflow-runner.test.ts`
+on line 140), so `pinningTestReferenceFromCriterion` always returns `undefined`
+for these two bullets, and `verifyMutationCheckpoints` reports
+`unresolved_pinning_test` — a hard-blocking `unparseable` entry per
+`v2/src/execution/write.ts`'s `spec.criteria-ticked` contract — the instant either
+box is ticked. Confirmed by running `verifyMutationCheckpoints` against a ticked
+copy of this file: both bullets report `unresolved_pinning_test` with an empty
+`rawReference`.
+
+Fix (out of this subspec's scope — editing AC prose isn't a sanctioned patch-mode
+edit): move each bullet's pinning-test backtick onto its first line, e.g. lead
+with `` `shared/linked-subspec-routing.test.ts` — inverting the criteria-based
+selection guard ... `` / `` `v2/src/execution/workflow-runner.test.ts` — reverting
+`runLinkedImplementStep` ... ``, matching the convention used by every other
+Mutation-checkpoint bullet in this repo's completed specs. No wording change is
+needed, only where the line wraps.

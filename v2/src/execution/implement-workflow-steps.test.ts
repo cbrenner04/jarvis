@@ -332,7 +332,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("rejects an already-complete linked tree with only a wrapped human-only criterion unchecked", async () => {
-    // @mutate v2/src/execution/implement-workflow-steps.ts "return parseSpec(content).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);" -> "return parseSpec(content).acceptanceCriteria.some((criterion) => criterion.humanOnly && !criterion.checked);"
+    // @mutate shared/linked-subspec-routing.ts "return parseSpec(body).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);" -> "return parseSpec(body).acceptanceCriteria.some((criterion) => criterion.humanOnly && !criterion.checked);"
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 

@@ -43,4 +43,3 @@ runbook's promise of a completion commit, PR evidence, and a green gate — this
 - A run over a tree whose subspecs are all fully ticked settles `already_complete` rather than `no-work`/`completed`.
 - The write loop maps a `no-work` terminal token to a run status and an operator error projected by `run list` and `run wait`.
 - Per-iteration commit checkpointing runs on every settled main-loop iteration.
-</content>

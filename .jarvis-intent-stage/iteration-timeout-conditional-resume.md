@@ -56,4 +56,3 @@ Second of the class after slice 6 (#2352). Raising timeout values reduces freque
 - The implement preflight refuses to retire a workspace whose spec tree carries criteria ticked that are unticked on `--base`.
 - `composeRunOperatorError` maps `iteration_timeout` to a reason, `nextAction`, and recovery line projected by `run list` and `run wait`.
 - `jarvis run resume` continues an admitted terminal run from its persisted workflow snapshot.
-</content>

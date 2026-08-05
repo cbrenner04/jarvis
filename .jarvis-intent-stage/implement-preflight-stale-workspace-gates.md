@@ -61,4 +61,3 @@ The reproduction lands before the fix.
 - A write step resolving `no-work` over uncommitted tracked paths settles a non-`completed` status naming those paths.
 - `resetStaleWorkspace` gates stale-workspace retirement on live holds, open PRs, daemon claims, and dirtiness before retiring worktree, local branch, and remote branch.
 - `--reset-despite-dirty` waives the dirty-worktree gate on implement and plan workflow starts.
-</content>

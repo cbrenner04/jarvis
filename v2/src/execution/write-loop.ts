@@ -1236,24 +1236,26 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         ...(agent ? { completionAgent: agent } : {}),
       };
       if (args.publishCompletion === false) {
-        const uncommitted = await getUncommittedPaths(worktreePath);
-        if (shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)) {
-          const error = new Error(`Uncommitted changes: ${uncommitted.join(", ")}`);
-          store.setRunStatus(runId, "failed");
-          args.logSink?.append(runId, {
-            kind: "loop_finished",
-            loopOutcomeKind: "completion_commit_failed",
-            iterationsConsumed,
-            resumable: true,
-            completionCommitError: error.message,
-          });
-          return {
-            ...attributed,
-            kind: "completion_commit_failed",
-            runStatus: "failed",
-            resumable: true,
-            completionCommitError: error.message,
-          };
+        if (terminal.outcomeKind === "no-work") {
+          const uncommitted = await getUncommittedPaths(worktreePath);
+          if (shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)) {
+            const error = new Error(`Uncommitted changes: ${uncommitted.join(", ")}`);
+            store.setRunStatus(runId, "failed");
+            args.logSink?.append(runId, {
+              kind: "loop_finished",
+              loopOutcomeKind: "completion_commit_failed",
+              iterationsConsumed,
+              resumable: true,
+              completionCommitError: error.message,
+            });
+            return {
+              ...attributed,
+              kind: "completion_commit_failed",
+              runStatus: "failed",
+              resumable: true,
+              completionCommitError: error.message,
+            };
+          }
         }
         args.logSink?.append(runId, {
           kind: "loop_finished",

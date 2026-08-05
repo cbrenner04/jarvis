@@ -15,6 +15,7 @@
 - **File-scoped unparseable gate:** when a selected criterion opens a pinning file, any comment-leading `unparseable` in that file blocks completion at `spec.criteria-ticked`; the blocker names pinning file, line, raw reference, and reason (unparseables are not criterion-attributed).
 - Keep directive syntax, phrase-only selection, and scoped-run lifecycle unchanged in this subspec — rules out bundling resolution or abort wiring here.
 - Supersedes the verify-directive-only cluster's non-blocking unparseable policy — rules out implementers treating that verdict as still binding.
+- This subspec's own mutation-checkpoint pin (selection revert) references the unique-basename `mutation-checkpoint-verifier.test.ts`, resolvable under today's basename-only lookup. The killable pin proving the `write.ts` unparseable gate lives in subspec 01, whose pinning test `v2/src/execution/write.test.ts` is a **duplicated** basename and only resolves once subspec 01's path-qualified resolution lands — rules out an unresolvable pin here.
 
 ## Tasks
 
@@ -40,7 +41,6 @@ Land in this order so intermediate states do not misclassify or flood completion
 - [ ] `mutation-checkpoint-verifier.test.ts` — `string literals containing @mutate produce no unparseable entries` proves a pinning test with `@mutate` inside a string literal yields zero `unparseable` rows.
 - [ ] `write.test.ts` — `unparseable in a referenced pinning file refuses completion` proves `spec.criteria-ticked` returns `contract_miss` naming pinning file, line, raw reference, and reason when verification reports a comment-leading `unparseable`; it fails against the stderr-only path.
 - [ ] `mutation-checkpoint-verifier.test.ts` — `prose @mutate without a directive-shaped occurrence is not selected`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "DIRECTIVE_PATTERN.test(markerSource)" -> "markerSource.includes(DIRECTIVE_MARKER)"` (revert to bare-substring selection); reverting the real selection guard turns the named pin red.
-- [ ] `write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/write.ts "report.unparseable.length === 0" -> "true"` (remove the unparseable-fails gate); reverting that guard turns the named pin red.
 - [ ] `v2/docs/operator-runbook.md` § Gate trust states `Mutation checkpoint:` selection unchanged, bare `@mutate` prose no longer selects, directive-shaped `@mutate` still selects, and file-scoped unparseable now blocks completion.
 - [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria states phrase or directive-shaped `@mutate` selection and that bare `@mutate` prose mentions are safe.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

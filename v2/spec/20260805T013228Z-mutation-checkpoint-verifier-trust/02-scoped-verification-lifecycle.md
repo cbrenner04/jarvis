@@ -9,7 +9,7 @@
 ## Decisions
 
 - Wire scoped verification to the run `AbortSignal` passed from the write step — rules out verification outliving cooperative cancellation.
-- Apply a per-directive timeout of `min(remaining write-iteration wall, SUPPORTED_HEALTHY_FILE_BUDGET_MS)` (180s) — rules out indefinite hangs; no separate operator override.
+- Bound each per-directive scoped run by the remaining write-iteration wall budget the write step already tracks — rules out indefinite hangs without inventing a timeout constant or value the seed never specified; no separate operator override. The `AbortSignal` wiring is the primary cancellation path; the wall bound is the backstop for a scoped run that neither completes nor observes the signal.
 - On abort or timeout expiry, terminate the active scoped `bun` subprocess (abort the `AbortSignal` passed to `realAsyncSubprocessRunner`, then kill the child if still running) before restoring — rules out "stop awaiting" without process termination.
 - Snapshot each target file's bytes before the first mutation and restore from that snapshot on abort, timeout, or throw — rules out relying solely on per-directive `finally` when the loop exits abnormally.
 - Keep completion-boundary stranded-mutation refusal out of scope — rules out bundling pre-commit checks here.
@@ -18,7 +18,7 @@
 ## Tasks
 
 - Thread `AbortSignal` and remaining iteration budget from `write.ts` / `runWriteStep` into `verifyMutationCheckpoints`.
-- Arm per-directive scoped runs with the computed timeout; on expiry, kill the subprocess and restore from snapshot.
+- Arm per-directive scoped runs with a timeout bounded by the remaining write-iteration wall; on expiry, kill the subprocess and restore from snapshot.
 - Add pre-mutation snapshots and restore on abort, timeout, and throw.
 - Add regressions that abort during verification, exceed timeout, and throw mid-directive with distinct assertions from one another.
 - Update operator gate-trust text for abort/timeout behavior.

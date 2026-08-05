@@ -19,6 +19,7 @@
 - Extend pinning-test resolution in `mutation-checkpoint-verifier.ts` to honor repo-relative backtick paths before basename search.
 - Name ambiguous basename and missing-file outcomes with criterion text, raw reference, and reason at the completion boundary (`write.ts`).
 - Add regressions for path-qualified `v2/src/execution/write.test.ts`, ambiguous basename, missing file, and unchanged single-basename resolution.
+- In `v2/src/execution/write.test.ts`, author the two path-qualified mutation-checkpoint pins (path-first-resolution revert and the moved subspec-00 unparseable-gate removal), each `// @mutate` comment inside its correspondingly-named test block; both criteria reference the pinning test path-qualified so they resolve past the duplicated `write.test.ts` basename.
 - Author a dedicated path-qualified pinning fixture at `v2/src/execution/fixtures/path-qualified-pinning-subspec.md` with two ticked mutation-checkpoint criteria referencing `` `v2/src/execution/write.test.ts` `` and two linked `@mutate` directives; run a fixture pass over it.
 - Update authoring guidance for path-qualified pinning when basename is not unique.
 - Run `bun run typecheck` and `bun run test:v2`.
@@ -33,7 +34,8 @@
 - [ ] `mutation-checkpoint-verifier.test.ts` — `qualified path with no file does not fall back to basename` proves a path-qualified reference that does not resolve is `unresolved_pinning_test` even when the basename alone would match exactly one file.
 - [ ] `mutation-checkpoint-verifier.test.ts` — `single basename match still resolves` proves a bare-basename reference with exactly one repo match keeps today's resolution behavior.
 - [ ] `mutation-checkpoint-verifier.test.ts` — `path-qualified pinning fixture reports zero unparseable and two caught` runs verification over `v2/src/execution/fixtures/path-qualified-pinning-subspec.md` and asserts zero `unparseable` and two `caught` directives.
-- [ ] `write.test.ts` — `unresolved pinning test blocks completion`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "<path-first resolution guard>" -> "<basename-only resolution>"` (revert path-first resolution); reverting the real guard turns the named pin red.
+- [ ] `v2/src/execution/write.test.ts` — `unresolved pinning test blocks completion`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "<path-first resolution guard>" -> "<basename-only resolution>"` (revert path-first resolution); reverting the real guard turns the named pin red. The criterion references its pinning test path-qualified because `write.test.ts` is a duplicated basename; this pin is itself the first exercise of the path-qualified resolution this subspec adds.
+- [ ] `v2/src/execution/write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/write.ts "report.unparseable.length === 0" -> "true"` (remove the subspec-00 unparseable-fails gate); reverting that guard turns the named pin red. Moved here from subspec 00 because its pinning test `write.test.ts` is a duplicated basename that only resolves once this subspec's path-qualified resolution lands.
 - [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria instructs authors to reference pinning tests by repo-relative path when basename is not unique.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

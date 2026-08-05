@@ -9,13 +9,19 @@ A write step resolving `no-work` while its worktree holds uncommitted tracked ch
 worktree, and iteration commits for `jarvis run resume` instead of forcing `resetStaleWorkspace`
 re-dispatch.
 
+## Bundle
+
+Second of three serial intents from `seeds/implement-completion-honesty`; promotes after
+`implement-stale-worktree-preflight-gates`, before `project-completion-honesty-on-run-results`.
+Plan drafts one ordered spec from the bundle.
+
 ## Decisions
 
 - A write step resolving `no-work` over uncommitted tracked paths settles a named non-`completed` failure listing those paths — rules out reporting success over work never committed.
 - `iteration_timeout` with at least one subspec's non-human-only criteria fully ticked settles `resumable: true` / `nextAction: "resume"`; a run with no completed subspec keeps `resumable: false` / `stop` — rules out "re-dispatch and redo" as the sole recovery.
 - The timeout settlement carries a completion inventory naming completed and remaining subspec paths in durable loop output — rules out an opaque timeout with no subspec progress signal.
+- Completed-subspec `iteration_timeout` recovery is `jarvis run resume` on the retained workspace — no distinct re-entry path; re-dispatch after abandon or `--reset-despite-*` overrides remains separate.
 - Resume continues on the retained branch and worktree with no `resetStaleWorkspace` and no rematerialization from `--base` — rules out resume paths that discard iteration commits.
-- Deferred to first consumer: whether timeout recovery is exclusively `jarvis run resume` or also admits a distinct re-entry — pin when the resume command wires the inventory.
 
 ## Acceptance criteria
 
@@ -24,6 +30,7 @@ re-dispatch.
 - [ ] The `iteration_timeout` terminal loop record carries a completion inventory naming each completed subspec path and each remaining one; a test pins both lists against a tree with one complete and one incomplete subspec.
 - [ ] Resuming such a run continues on the retained branch and worktree — no `resetStaleWorkspace`, no rematerialization — and the pre-existing iteration commits are still reachable from the branch head after the resume settles.
 - [ ] Mutation checkpoint: a `// @mutate` directive inverting the dirty-`no-work` refusal turns its pinning test RED.
+- [ ] Mutation checkpoint: a `// @mutate` directive inverting the completed-subspec `iteration_timeout` resumability predicate turns its pinning test RED.
 
 ## Documentation updates
 

@@ -1,6 +1,8 @@
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import {
@@ -116,7 +118,69 @@ export type WriteLoopResult = {
   survivingMutationSourceLine?: number;
   runtimeSmokeCommand?: string;
   runtimeSmokeObservation?: string;
+  completedSubspecPaths?: readonly string[];
+  remainingSubspecPaths?: readonly string[];
 } & Partial<InvocationFailureDetail>;
+
+export type SubspecCompletionInventory = {
+  completedSubspecPaths: readonly string[];
+  remainingSubspecPaths: readonly string[];
+};
+
+export function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
+  return inventory.completedSubspecPaths.length > 0;
+}
+
+function repoRelativeSubspecPath(projectRoot: string, absolutePath: string): string | undefined {
+  const rel = relative(resolve(projectRoot), resolve(absolutePath));
+  if (rel.startsWith("..") || isAbsolute(rel)) return undefined;
+  return rel.split("\\").join("/");
+}
+
+function resolveLinkedIndexPath(worktreePath: string, specPath: string): string {
+  const resolved = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+  if (basename(resolved) === "index.md") return resolved;
+  if (resolved.endsWith(".md")) return resolved;
+  return join(resolved, "index.md");
+}
+
+/** Classify linked subspec bodies by non-human-only acceptance criteria; fail-soft to empty lists. */
+export function buildSubspecCompletionInventory(
+  worktreePath: string,
+  projectRoot: string,
+  specPath: string,
+): SubspecCompletionInventory {
+  try {
+    const indexPath = resolveLinkedIndexPath(worktreePath, specPath);
+    if (!existsSync(indexPath)) return { completedSubspecPaths: [], remainingSubspecPaths: [] };
+    const linkedSubspecs = parseSpec(readFileSync(indexPath, "utf8")).linkedSubspecs;
+    if (linkedSubspecs.length === 0) return { completedSubspecPaths: [], remainingSubspecPaths: [] };
+
+    const completed: string[] = [];
+    const remaining: string[] = [];
+    for (const link of linkedSubspecs) {
+      if (!link.path.trim()) continue;
+      const resolvedPath = isAbsolute(link.path) ? link.path : resolve(dirname(indexPath), link.path);
+      const rel = repoRelativeSubspecPath(projectRoot, resolvedPath);
+      if (rel === undefined) continue;
+      let body: string;
+      try {
+        body = readFileSync(resolvedPath, "utf8");
+      } catch {
+        remaining.push(rel);
+        continue;
+      }
+      if (hasUncheckedNonHumanOnlyCriteria(body)) {
+        remaining.push(rel);
+      } else {
+        completed.push(rel);
+      }
+    }
+    return { completedSubspecPaths: completed, remainingSubspecPaths: remaining };
+  } catch {
+    return { completedSubspecPaths: [], remainingSubspecPaths: [] };
+  }
+}
 
 export type WallSegmentScheduleHandle = { cancel: () => void };
 /** Schedules `fire` after `delayMs`; returns a handle to cancel it. Production default is `setTimeout`. */
@@ -1172,6 +1236,25 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         ...(agent ? { completionAgent: agent } : {}),
       };
       if (args.publishCompletion === false) {
+        const uncommitted = await getUncommittedPaths(worktreePath);
+        if (shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)) {
+          const error = new Error(`Uncommitted changes: ${uncommitted.join(", ")}`);
+          store.setRunStatus(runId, "failed");
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "completion_commit_failed",
+            iterationsConsumed,
+            resumable: true,
+            completionCommitError: error.message,
+          });
+          return {
+            ...attributed,
+            kind: "completion_commit_failed",
+            runStatus: "failed",
+            resumable: true,
+            completionCommitError: error.message,
+          };
+        }
         args.logSink?.append(runId, {
           kind: "loop_finished",
           loopOutcomeKind: "complete",
@@ -1463,13 +1546,14 @@ function boundQuiescenceWait(
   });
 }
 
-function finishIterationTimeout(
+async function finishIterationTimeout(
   args: WriteLoopInput,
   store: StateStore,
   runId: string,
   attemptId: string,
   iterationsConsumed: number,
-): WriteLoopResult {
+  worktreePath: string,
+): Promise<WriteLoopResult> {
   store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "iteration_timeout" });
   args.logSink?.append(runId, {
     kind: "boundary_committed",
@@ -1477,11 +1561,26 @@ function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
   });
+  const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
+  const resumable = hasCompletedSubspec(inventory);
+  const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, resumable, undefined, false);
+  const inventoryFields = {
+    completedSubspecPaths: [...inventory.completedSubspecPaths],
+    remainingSubspecPaths: [...inventory.remainingSubspecPaths],
+  };
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed,
+    resumable,
+    ...inventoryFields,
+  });
   return {
-    ...finishLoop(args, runId, "iteration_timeout", iterationsConsumed, false),
+    ...loopResult,
     attemptId,
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
+    ...inventoryFields,
   };
 }
 
@@ -1540,7 +1639,7 @@ async function finishControlledLoss(
   if (quiesced.kind !== "settled") {
     return race === "aborted"
       ? finishLoop(args, runId, "progress", iterationsConsumed, true)
-      : finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed);
+      : await finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed, worktreePath);
   }
 
   const failure = await checkpointBeforeControlledLoss(
@@ -1557,7 +1656,7 @@ async function finishControlledLoss(
 
   return race === "aborted"
     ? finishLoop(args, runId, "progress", iterationsConsumed, true)
-    : finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed);
+    : await finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed, worktreePath);
 }
 
 function finishExecuteWriteThrow(
@@ -1655,7 +1754,11 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     };
   }
 
-  const committed = committedResult(existingRun);
+  const committed = committedResult(existingRun, {
+    worktreePath,
+    projectRoot: args.worktree.projectRoot,
+    specPath: args.specPath,
+  });
   return committed === null
     ? {
         runId: existingRun.id,
@@ -1772,7 +1875,10 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 }
 
 /** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
-function committedResult(run: StoredRun): WriteLoopResult | null {
+function committedResult(
+  run: StoredRun,
+  resumeContext?: { worktreePath: string; projectRoot: string; specPath: string },
+): WriteLoopResult | null {
   if (run.status === "completed") {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
     const stamp = boundaryStampFromStoredRun(run);
@@ -1792,7 +1898,28 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     if (outcomeKind === "landing_failed") {
       return null;
     }
+    if (
+      outcomeKind === "iteration_timeout" &&
+      resumeContext !== undefined &&
+      hasCompletedSubspec(
+        buildSubspecCompletionInventory(
+          resumeContext.worktreePath,
+          resumeContext.projectRoot,
+          resumeContext.specPath,
+        ),
+      )
+    ) {
+      return null;
+    }
     const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
+    const inventory =
+      outcomeKind === "iteration_timeout" && resumeContext !== undefined
+        ? buildSubspecCompletionInventory(
+            resumeContext.worktreePath,
+            resumeContext.projectRoot,
+            resumeContext.specPath,
+          )
+        : { completedSubspecPaths: [], remainingSubspecPaths: [] };
     return {
       kind:
         outcomeKind === "iteration_timeout" || outcomeKind === "idle_output_timeout"
@@ -1800,8 +1927,14 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
           : "invocation_failure",
       runId: run.id,
       iterationsConsumed: 0,
-      resumable: false,
+      resumable: outcomeKind === "iteration_timeout" ? hasCompletedSubspec(inventory) : false,
       ...(detail !== undefined ? detail : {}),
+      ...(outcomeKind === "iteration_timeout"
+        ? {
+            completedSubspecPaths: [...inventory.completedSubspecPaths],
+            remainingSubspecPaths: [...inventory.remainingSubspecPaths],
+          }
+        : {}),
     };
   }
   if (run.status === "blocked") {

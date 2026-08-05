@@ -6598,6 +6598,168 @@ export function isLoadSensitive(file: string): boolean {
       }
     });
 
+    test("no-work over dirty worktree with publishCompletion false settles non-completed failure naming uncommitted paths", async () => {
+      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(uncommittedPaths)" -> "false"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "no-work-dirty-publish-off";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeFileSync(join(worktreePath, "left-dirty.txt"), "uncommitted\n");
+          return {
+            worktreePath,
+            worktreeReused: false as const,
+            lock: { kind: "acquired" as const },
+            result: { kind: "complete" as const, token: "no-work" as const, invocation: progressInvocation },
+          };
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["no-work"]),
+            publishCompletion: false,
+            completionCommitter: async () => ({}),
+            logSink: sink,
+          }),
+        );
+
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.runStatus).not.toBe("completed");
+        expect(result.completionCommitError).toContain("left-dirty.txt");
+        expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "complete")).toBe(
+          false,
+        );
+        expect(
+          events.some(
+            (event) =>
+              event.kind === "loop_finished" &&
+              event.loopOutcomeKind === "completion_commit_failed" &&
+              "completionCommitError" in event &&
+              event.completionCommitError?.includes("left-dirty.txt"),
+          ),
+        ).toBe(true);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    function writeImplementLinkedSpec(
+      worktreePath: string,
+      specDir: string,
+      subspecs: ReadonlyArray<{ file: string; title: string; criteria: string }>,
+    ): { specPath: string; subspecPaths: string[] } {
+      const specRoot = join(worktreePath, specDir);
+      mkdirSync(specRoot, { recursive: true });
+      const links = subspecs.map((s, i) => `- [ ] [${String(i).padStart(2, "0")} - ${s.title}](./${s.file})`);
+      writeFileSync(join(specRoot, "index.md"), `# Implement\n\n${links.join("\n")}\n`, "utf8");
+      for (const s of subspecs) {
+        writeFileSync(join(specRoot, s.file), `# ${s.title}\n\n## Acceptance criteria\n\n${s.criteria}\n`, "utf8");
+      }
+      return {
+        specPath: `${specDir}/index.md`,
+        subspecPaths: subspecs.map((s) => `${specDir}/${s.file}`),
+      };
+    }
+
+    test("iteration_timeout with one completed subspec is resumable", async () => {
+      // @mutate v2/src/execution/write-loop.ts "hasCompletedSubspec(completionInventory)" -> "false"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-one-complete";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const { specPath, subspecPaths } = writeImplementLinkedSpec(worktreePath, "spec/implement", [
+        { file: "00-first.md", title: "First", criteria: "- [x] done" },
+        { file: "01-second.md", title: "Second", criteria: "- [ ] pending" },
+      ]);
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "timeout-proof.txt"), "work\n", "utf8");
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath,
+            logSink: sink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "iteration_timeout");
+        expect(finished).toMatchObject({
+          resumable: true,
+          completedSubspecPaths: [subspecPaths[0]],
+          remainingSubspecPaths: [subspecPaths[1]],
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("iteration_timeout with no completed subspec stays non-resumable", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-none-complete";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const { specPath, subspecPaths } = writeImplementLinkedSpec(worktreePath, "spec/implement", [
+        { file: "00-first.md", title: "First", criteria: "- [ ] pending" },
+        { file: "01-second.md", title: "Second", criteria: "- [ ] also pending" },
+      ]);
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => resolveOnAbort(input, progressWrite(worktreePath)),
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath,
+            logSink: sink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: false });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "iteration_timeout");
+        expect(finished).toMatchObject({
+          resumable: false,
+          completedSubspecPaths: [],
+          remainingSubspecPaths: subspecPaths,
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("invocation_failure with no binding skips the checkpoint and preserves detail", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));

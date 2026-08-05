@@ -593,6 +593,16 @@ that dirty tree's already-ticked spec copy as truth. Confirm a `completed` imple
 not its status. Seed: `v2/spec/seeds/implement-completion-honesty.md` (absorbed the rerun seed).
 Cleanup: delete this bullet when that seed ships.
 
+**Dirty `no-work` no longer settles `completed`.** A write step resolving `no-work` over
+uncommitted tracked paths settles `completion_commit_failed` (or an equivalent non-`completed`
+failure) naming those paths in durable `loop_finished` output — including workflow steps with
+`publishCompletion: false`. A `completed` implement row over a dirty tree is not trustworthy.
+
+**`iteration_timeout` is conditionally resumable.** When at least one linked subspec's non-human-only
+acceptance criteria are fully ticked, terminal `loop_finished` carries `resumable: true`,
+`completedSubspecPaths`, and `remainingSubspecPaths`; recovery is `jarvis run resume` on the
+retained workspace. A timeout with no completed subspec keeps `resumable: false`.
+
 **A settled run row can have a live successor step (2026-08-03).** The review step after the run
 above dispatched in the same millisecond the write step settled and was still live 75+ minutes
 later, working the debris worktree with a stranded `@mutate` (`if (false)`) on disk — a completion
@@ -751,6 +761,16 @@ refuses without retirement — re-dispatch does not silently reuse a stale copy.
 `--reset-despite-landed-criteria` skips only the preserve gate;
 `--reset-despite-dirty` skips only the dirty gate; neither overrides the
 descendant check.
+
+### `iteration_timeout` with completed subspecs
+
+When a write step times out after at least one linked subspec's non-human-only
+acceptance criteria are fully ticked, the run settles `iteration_timeout` with
+`resumable: true` and terminal `loop_finished` lists `completedSubspecPaths` /
+`remainingSubspecPaths`. Recovery is `jarvis run resume` on the retained
+workspace — not `resetStaleWorkspace`, not a full workflow re-dispatch. A timeout
+with no completed subspec stays non-resumable; re-dispatch the workflow after
+inspecting the stall in `jarvis run log`.
 
 ### Stale `origin/<branch>` after hand-merge
 

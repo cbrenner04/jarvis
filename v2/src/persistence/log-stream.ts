@@ -44,6 +44,8 @@ export type LoopFinishedEvent = {
   readyGateOrigin?: "repair_budget_exhausted";
   /** Count of non-timeout `ready_gate_repair` events on the same run when `readyGateOrigin` is set. */
   readyGateRepairCount?: number;
+  completedSubspecPaths?: string[];
+  remainingSubspecPaths?: string[];
 };
 
 type LogLoopFinishedEvent =

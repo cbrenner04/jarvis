@@ -228,7 +228,7 @@ function mapFromLoopFinished(
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
     case "iteration_timeout":
-      return op("iteration_timeout", "stop");
+      return event.resumable ? op("iteration_timeout", "resume", true) : op("iteration_timeout", "stop");
     case "idle_output_timeout":
       return op("idle_output_timeout", "stop");
     default:

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
 } from "../execution/workflow-runner.ts";
+import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "../execution/write.ts";
 import {
   executeWriteLoop,
   MAX_READY_GATE_REPAIRS,
@@ -113,6 +115,7 @@ afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
   resetWriteLoopBindingSourceDepsForTests();
+  mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
   try {
@@ -2561,4 +2564,144 @@ test("exhausted-red eligibility guard inversion: corrupt checkpoint", () => {
   const terminalReader = loopFinishedLogReader(runId, EXHAUSTED_RED_LOOP_FINISHED);
   const terminalRecord = terminalReader.tail(runId)[0] as TerminalLogRecord;
   expect(resolveExhaustedRedResumeContext(run, stateStore, terminalRecord).ok).toBe(false);
+});
+
+test("resume after iteration_timeout retains worktree commits without stale reset", async () => {
+  const { jarvisRoot, stateDbPath } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "resume-after-timeout";
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  const specDir = join(worktreePath, "spec/implement");
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(
+    join(specDir, "index.md"),
+    "# Implement\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Second](./01-second.md)\n",
+    "utf8",
+  );
+  writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+  writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+
+  const store = openStateStore(stateDbPath);
+  const logsPath = join(tmpdir(), `jarvis-timeout-resume-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  const specPath = "spec/implement/index.md";
+  const progressInvocation = {
+    attempts: [],
+    final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
+    telemetryFailures: [] as const,
+  };
+  let calls = 0;
+
+  mock.module("../execution/write.ts", () => ({
+    executeWrite: (input: WriteExecuteInput) => {
+      calls += 1;
+      if (calls === 1) {
+        writeFileSync(join(worktreePath, "timeout-checkpoint.txt"), "checkpoint\n", "utf8");
+        return new Promise((resolve) => {
+          input.signal?.addEventListener(
+            "abort",
+            () =>
+              resolve({
+                worktreePath,
+                worktreeReused: true as const,
+                lock: { kind: "acquired" as const },
+                result: { kind: "progress" as const, token: "progress" as const, invocation: progressInvocation },
+              }),
+            { once: true },
+          );
+        });
+      }
+      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+      return Promise.resolve({
+        worktreePath,
+        worktreeReused: true as const,
+        lock: { kind: "acquired" as const },
+        result: { kind: "complete" as const, token: "done" as const, invocation: progressInvocation },
+      });
+    },
+  }));
+
+  const workflowSnapshot: NonNullable<WriteLoopInput["workflowSnapshot"]> = {
+    invocationId: "timeout-resume",
+    steps: [
+      {
+        stepId: "step-1",
+        role: "implement",
+        stepRules: "Return progress or done.",
+        expectedArtifactPath: "proof.txt",
+        agents: ["codex"],
+        agentModelConfig: AGENT_MODEL_CONFIG,
+        iterationTimeoutMs: 15,
+      },
+    ],
+  };
+
+  try {
+    const timeoutResult = await executeWriteLoop({
+      worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "Return progress or done.",
+      expectedArtifactPath: "proof.txt",
+      bindings: simulatedBindings(["progress"]),
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink,
+      stepId: "step-1",
+      workflowSnapshot,
+      iterationTimeoutMs: 15,
+      publishCompletion: false,
+    });
+    logSink.close();
+
+    expect(timeoutResult).toMatchObject({ kind: "iteration_timeout", resumable: true });
+    const checkpointSha = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+
+    const localHandlers = createRunControlHandlers({
+      stateStore: store,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: async (input, signal, pauseSignal) => {
+        await executeWriteLoop({
+          ...input,
+          worktree: { ...input.worktree, jarvisRoot },
+          signal,
+          pauseSignal,
+          stateStore: store,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+        });
+      },
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+
+    expect((await resumeDirect(localHandlers, timeoutResult.runId)).kind).toBe("response");
+    for (let i = 0; calls < 2 && i < 50; i += 1) {
+      await flushBackgroundRuns();
+    }
+
+    expect(calls).toBe(2);
+    execFileSync("git", ["-C", worktreePath, "merge-base", "--is-ancestor", checkpointSha, "HEAD"], {
+      stdio: "pipe",
+    });
+    expect(execFileSync("git", ["-C", worktreePath, "show", "HEAD:timeout-checkpoint.txt"], { encoding: "utf8" })).toBe(
+      "checkpoint\n",
+    );
+  } finally {
+    store.close();
+    rmSync(logsPath, { force: true });
+    mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
+  }
 });

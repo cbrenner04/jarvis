@@ -21,6 +21,49 @@ describe("parseClaudeJsonOutput", () => {
     expect(result.cost_usd).toBe(0.17160725);
   });
 
+  test("parses terminal result unchanged when interleaved with stream_event partial deltas", () => {
+    const partials = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({ type: "stream_event", event: { type: "content_block_start" } }),
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "considering..." } },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "hel" } },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "lo" } },
+      }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: "hello",
+        total_cost_usd: 0.17160725,
+        usage: {
+          input_tokens: 6,
+          output_tokens: 6,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 27349,
+        },
+      }),
+    ].join("\n");
+
+    const result = parseClaudeJsonOutput(partials);
+
+    expect(result.warnings).toEqual([]);
+    expect(result.displayText).toBe("hello");
+    expect(result.usage).toEqual({
+      input_tokens: 6,
+      output_tokens: 6,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 27349,
+    });
+    expect(result.cost_usd).toBe(0.17160725);
+  });
+
   test("handles truncated stream gracefully", () => {
     const fixture = readFileSync(join(fixturesDir, "2.1.142-truncated.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);

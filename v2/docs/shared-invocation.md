@@ -47,7 +47,7 @@ Bindings:
 - `createResolvedAgentBinding({ agentId, adapterModel, priceKey })` in
   `shared/invocation/agents.ts` builds one binding from one resolved rung.
   Resolved `claude` bindings spawn `claude -p --permission-mode acceptEdits
-  --model <adapterModel> --output-format stream-json --verbose`, pipe the prompt on stdin,
+  --model <adapterModel> --output-format stream-json --verbose --include-partial-messages`, pipe the prompt on stdin,
   parse the terminal `type: "result"` event from the NDJSON stream, unwrap it into display text (plus agent usage/cost when present),
   reclassify verified exit-0 quota envelopes to `quota`, and settle into
   `ok | quota | model_config | error` before fallback continues.

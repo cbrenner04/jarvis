@@ -53,4 +53,3 @@ the index (#2585) and a re-run.
 - `resolveActiveLinkedSubspec` selects the active linked subspec for index-routed implement runs.
 - The tree-level `implement.already_complete` preflight classifies a spec with no unchecked non-human-only acceptance criteria.
 - Human-only acceptance criteria are excluded from completion requirements by marker matching.
-</content>

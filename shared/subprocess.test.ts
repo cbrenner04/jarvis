@@ -143,12 +143,9 @@ describe("realAsyncSubprocessRunner", () => {
     // the abort wiring (`signal !== undefined` / addEventListener) and the
     // non-settled `killChild` guard both fire.
     const controller = new AbortController();
-    const promise = realAsyncSubprocessRunner.runAsync(
-      "node",
-      ["-e", "setInterval(() => {}, 1000);"],
-      cwd,
-      { signal: controller.signal },
-    );
+    const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", "setInterval(() => {}, 1000);"], cwd, {
+      signal: controller.signal,
+    });
     setTimeout(() => controller.abort(), 100);
     await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
   }, 5000);
@@ -158,12 +155,9 @@ describe("realAsyncSubprocessRunner", () => {
     // rather than addEventListener. Pins the `if (options.signal.aborted)` guard.
     const controller = new AbortController();
     controller.abort();
-    const promise = realAsyncSubprocessRunner.runAsync(
-      "node",
-      ["-e", "setInterval(() => {}, 1000);"],
-      cwd,
-      { signal: controller.signal },
-    );
+    const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", "setInterval(() => {}, 1000);"], cwd, {
+      signal: controller.signal,
+    });
     await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
   }, 5000);
 });

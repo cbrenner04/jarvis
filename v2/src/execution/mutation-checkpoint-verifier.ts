@@ -333,7 +333,11 @@ function resolvePinningTestPath(worktreeRoot: string, criterionText: string): Pi
   if (matches.length !== 1) {
     return { ok: false, rawReference };
   }
-  return { ok: true, testPath: matches[0]! };
+  const testPath = matches[0];
+  if (testPath === undefined) {
+    return { ok: false, rawReference };
+  }
+  return { ok: true, testPath };
 }
 
 /** Directives whose enclosing pin the criterion names. */

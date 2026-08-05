@@ -562,9 +562,10 @@ describe("verifyMutationCheckpoints", () => {
     expect(entry?.reason).toBe("unresolved_pinning_test");
     expect(entry?.criterionText).toContain("absent.test.ts");
     expect(entry?.rawReference).toBe("absent.test.ts");
-    expect(describeUnparseable(entry!)).toContain("criterion:");
-    expect(describeUnparseable(entry!)).toContain("reference: absent.test.ts");
-    expect(describeUnparseable(entry!)).toContain("reason: unresolved_pinning_test");
+    if (entry === undefined) throw new Error("expected unparseable entry");
+    expect(describeUnparseable(entry)).toContain("criterion:");
+    expect(describeUnparseable(entry)).toContain("reference: absent.test.ts");
+    expect(describeUnparseable(entry)).toContain("reason: unresolved_pinning_test");
   });
 
   test("ambiguous pinning-test basename is reported", async () => {
@@ -580,9 +581,10 @@ describe("verifyMutationCheckpoints", () => {
     expect(entry?.reason).toBe("unresolved_pinning_test");
     expect(entry?.criterionText).toContain("guard.test.ts");
     expect(entry?.rawReference).toBe("guard.test.ts");
-    expect(describeUnparseable(entry!)).toContain("criterion:");
-    expect(describeUnparseable(entry!)).toContain("reference: guard.test.ts");
-    expect(describeUnparseable(entry!)).toContain("reason: unresolved_pinning_test");
+    if (entry === undefined) throw new Error("expected unparseable entry");
+    expect(describeUnparseable(entry)).toContain("criterion:");
+    expect(describeUnparseable(entry)).toContain("reference: guard.test.ts");
+    expect(describeUnparseable(entry)).toContain("reason: unresolved_pinning_test");
   });
 
   test("path-qualified pinning test resolves exactly", async () => {
@@ -702,10 +704,12 @@ describe("verifyMutationCheckpoints", () => {
     const root = makeWorktree();
     const { target, original, subspec } = guardPinFixture(root, "abort pin");
     let subprocessKilled = false;
+    let verificationStarted = false;
     const runner: AsyncSubprocessRunner = {
       async runAsync(_cmd, _args, _cwd, options) {
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(resolve, 60_000);
+          verificationStarted = true;
           options?.signal?.addEventListener(
             "abort",
             () => {
@@ -733,7 +737,10 @@ describe("verifyMutationCheckpoints", () => {
         return true;
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const deadline = Date.now() + 5_000;
+    while (!verificationStarted && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
     controller.abort();
     await expect(verifyPromise).rejects.toThrow("aborted");
 

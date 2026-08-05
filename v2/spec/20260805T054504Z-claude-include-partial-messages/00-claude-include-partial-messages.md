@@ -24,7 +24,7 @@ Cursor avoids this via `--stream-partial-output`.
 ## Task checklist
 
 - [ ] Add `--include-partial-messages` after `--verbose` in `runClaudeBinding` `buildArgv`.
-- [ ] Update the pinned claude argv test in `shared/invocation/agents.test.ts`; add `// @mutate shared/invocation/agents.ts "--include-partial-messages", -> ""` on that test.
+- [ ] Update the pinned claude argv test in `shared/invocation/agents.test.ts`; add `// @mutate shared/invocation/agents.ts "--include-partial-messages" -> ""` on that test.
 - [ ] Add a `parseClaudeJsonOutput` regression in `shared/invocation/claude-json.test.ts` with interleaved `stream_event` partial lines before a terminal result.
 - [ ] Add a claude idle-watchdog threading guard in `shared/invocation/agents.test.ts` (mirror the cursor binding test; frame as wiring guard, not proof the flag fixes stalls).
 - [ ] Align `v2/docs/operator-runbook.md`, `v2/docs/shared-invocation.md`, and `v2/docs/v1-behaviors.md`.
@@ -33,7 +33,7 @@ Cursor avoids this via `--stream-partial-output`.
 
 - [ ] `runClaudeBinding` argv includes `--include-partial-messages` after `--verbose`; the pinned-argv regression in `shared/invocation/agents.test.ts` (`toEqual([...])`) asserts it and fails against the current argv.
 - [ ] `parseClaudeJsonOutput` still returns terminal-result `displayText`, usage, and cost when NDJSON interleaves `stream_event` partial-delta lines before the final `type:"result"` event; a regression in `shared/invocation/claude-json.test.ts` feeds partial events plus a result and asserts unchanged parse output.
-- [ ] Mutation checkpoint: `// @mutate shared/invocation/agents.ts "--include-partial-messages", -> ""` on the pinned-argv test turns it RED; pin via `shared/invocation/agents.test.ts` (unique basename).
+- [ ] Mutation checkpoint: `// @mutate shared/invocation/agents.ts "--include-partial-messages" -> ""` on the pinned-argv test turns it RED; pin via `shared/invocation/agents.test.ts` (unique basename).
 - [ ] `shared/invocation/agents.test.ts` includes a claude binding test that threads `idleOutputMs` through and re-arms the idle timer on stdout chunks; comments frame it as a wiring guard (wrapper still hands timer hooks to `runAgent`), not proof that `--include-partial-messages` fixes review stalls.
 - [ ] `v2/docs/shared-invocation.md` claude branch lists `--include-partial-messages` in the spawned argv; `v2/docs/v1-behaviors.md` "Shared claude adapter stream-json support" narrows/replaces the existing "matches v1's spawn and parse contract" claim, records `--include-partial-messages` as a v2 divergence, and notes the widened non-zero quota phrase-matching exposure; the v1-local `claude` argv bullet in the same doc stays unchanged; `v2/docs/operator-runbook.md` § Choosing an actuator scopes the claude output-visibility note to long no-tool turns (stream-json without partials) and records that claude-first review/critic roles work once the flag is passed.
 - [ ] (Manual / no automated guard) A claude review-critic role over a large diff emits incremental stdout and completes without hitting the idle bound.

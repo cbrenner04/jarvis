@@ -34,4 +34,3 @@ Under claude-first agent order, review **critic** roles stall at `failureKind: "
 - `runClaudeBinding` spawns claude with `-p`, `stream-json`, and `--verbose` and arms idle-output watchdog on stdout/stderr chunks
 - `parseClaudeJsonOutput` selects only the terminal `type:"result"` NDJSON event from the stdout stream
 - Review-role invocations pass `idleOutputMs` (default 90s) into the shared binding and map stall failures to `failureKind: "stall"`
-- Cursor binding includes `--stream-partial-output` so token deltas continuously reset the idle timer during long turns

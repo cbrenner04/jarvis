@@ -535,7 +535,9 @@ describe("createResolvedAgentBinding", () => {
     // Armed once at spawn, with the caller's budget — the wrapper threads it through.
     expect(armedDelays).toEqual([100]);
 
-    fake.calls[0]?.child?.stdout.write(JSON.stringify({ type: "stream_event", event: { type: "content_block_delta" } }));
+    fake.calls[0]?.child?.stdout.write(
+      JSON.stringify({ type: "stream_event", event: { type: "content_block_delta" } }),
+    );
     await new Promise((resolve) => setImmediate(resolve));
 
     // The stdout chunk cleared the first timer and armed a fresh one for the same budget.

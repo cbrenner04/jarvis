@@ -338,7 +338,7 @@ describe("createCompletionCommitter", () => {
   });
 
   test("stranded replacement in staged content refuses completion", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "await refuseStrandedMutationsBeforeCommit(runGit, input.worktreePath, index, head, input.unrestoredDirectives !== undefined ? [...input.unrestoredDirectives] : loadUnrestoredDirectives(input.worktreePath));" -> ""
+    // @mutate v2/src/execution/completion-commit.ts "if (isStrandedMutationContent(staged, directive)) {" -> "if (false) {"
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const calls: GitCall[] = [];
 

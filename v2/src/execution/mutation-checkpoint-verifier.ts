@@ -383,7 +383,7 @@ function resolveTarget(
 }
 
 /** Scoped suites for one mutated file, matching the ready gate's classification. */
-function scopeForTarget(worktreeRoot: string, absolutePath: string): string[] {
+export function scopeForTarget(worktreeRoot: string, absolutePath: string): string[] {
   const relPath = relative(worktreeRoot, absolutePath).replace(/\\/g, "/");
   const scope = classifyChangedPaths([relPath]);
   // "full" names the aggregate script; an empty scope would short-circuit the

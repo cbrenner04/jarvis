@@ -123,6 +123,49 @@ describe("realAsyncSubprocessRunner", () => {
     expect(stdout.trim()).toBe("present");
     delete process.env.TEST_INHERITED;
   });
+
+  test("escalates to SIGKILL when the child ignores SIGTERM after abort", async () => {
+    // Ignores SIGTERM and never exits on its own, so only the SIGKILL escalation
+    // can settle the promise. Pins the `if (!settled) child.kill("SIGKILL")` guard.
+    const controller = new AbortController();
+    const promise = realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+      cwd,
+      { signal: controller.signal },
+    );
+    setTimeout(() => controller.abort(), 100);
+    await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+  }, 5000);
+
+  test("aborting a running child kills it via SIGTERM", async () => {
+    // Default SIGTERM handling terminates the child, so a reject only happens when
+    // the abort wiring (`signal !== undefined` / addEventListener) and the
+    // non-settled `killChild` guard both fire.
+    const controller = new AbortController();
+    const promise = realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", "setInterval(() => {}, 1000);"],
+      cwd,
+      { signal: controller.signal },
+    );
+    setTimeout(() => controller.abort(), 100);
+    await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+  }, 5000);
+
+  test("an already-aborted signal kills the child before it can run", async () => {
+    // signal.aborted is true at start, exercising the pre-run `killChild` branch
+    // rather than addEventListener. Pins the `if (options.signal.aborted)` guard.
+    const controller = new AbortController();
+    controller.abort();
+    const promise = realAsyncSubprocessRunner.runAsync(
+      "node",
+      ["-e", "setInterval(() => {}, 1000);"],
+      cwd,
+      { signal: controller.signal },
+    );
+    await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+  }, 5000);
 });
 
 describe("predicate parity", () => {

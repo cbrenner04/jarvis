@@ -7,8 +7,10 @@ import type { MutationCheckpointReport, UnparseableDirective } from "./mutation-
 import {
   describeHollow,
   describeUnparseable,
+  isStrandedMutationContent,
   parseMutateDirectives,
   pinningTestReferenceFromCriterion,
+  scopeForTarget,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
 
@@ -588,6 +590,7 @@ describe("verifyMutationCheckpoints", () => {
   });
 
   test("path-qualified pinning test resolves exactly", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (normalized.includes(\"/\"))" -> "if (false)"
     const root = makeWorktree();
     writeAt(root, "v2/src/commands/write.test.ts", 'test("commands pin", () => {});');
     writeAt(root, "v2/src/execution/guard.ts", "export const ok = (a: number) => a > 0;\n");
@@ -800,5 +803,23 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(runnerInvoked).toBe(true);
     expect(readFileSync(target, "utf8")).toBe(original);
+  });
+
+  test("a target classified full remaps to the aggregate test script", () => {
+    const root = makeWorktree();
+    // A root-tooling path classifies as "full"; the remap must name ["test"],
+    // never an empty scope that would short-circuit verification to a pass.
+    expect(scopeForTarget(root, join(root, "package.json"))).toEqual(["test"]);
+  });
+
+  test("an empty replacement is not flagged as stranded mutation content", () => {
+    // Original absent and replacement empty: without the `replacementText.length > 0`
+    // guard, `content.includes("")` would falsely flag every such directive.
+    expect(
+      isStrandedMutationContent("const enabled = false;\n", {
+        originalText: "const enabled = true;",
+        replacementText: "",
+      }),
+    ).toBe(false);
   });
 });

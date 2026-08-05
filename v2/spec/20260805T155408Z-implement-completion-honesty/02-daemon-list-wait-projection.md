@@ -7,7 +7,8 @@
 [01 - Write-loop settlements](./01-write-loop-settlements.md), durable rows carry dirty-`no-work`
 refusals, conditionally resumable `iteration_timeout` settlements, and completion inventories —
 but daemon mapping still projects `iteration_timeout` as `nextAction: "stop"` and does not
-surface the new fields. Operators reading CLI rows see false `completed` or opaque timeouts.
+surface the new fields. `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout` still says "re-dispatch
+the workflow". Operators reading CLI rows see false `completed` or opaque timeouts.
 
 ## Decision ledger
 
@@ -37,6 +38,7 @@ surface the new fields. Operators reading CLI rows see false `completed` or opaq
 - [ ] `daemon-wait-run-completion.test.ts` `list and wait project resumable iteration_timeout as resume` and `list and wait project non-resumable iteration_timeout as stop` assert `error.nextAction` and `resumable` for terminal `iteration_timeout` rows with `resumable: true` vs `false`; fail against current mapping.
 - [ ] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.completedSubspecPaths` and `error.remainingSubspecPaths` match the terminal `loop_finished` lists for a one-complete one-incomplete fixture; fails against current mapping.
 - [ ] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.publicationFailure` survives alongside inventory when both are present on the terminal row.
+- [ ] `run-operator-error.test.ts` `iteration_timeout recovery copy directs resume when terminal row is resumable` asserts resumable `iteration_timeout` operator errors surface recovery copy directing `jarvis run resume`, not re-dispatch the workflow; fails against current `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout`.
 - [ ] `run-operator-error.test.ts` unit coverage for new `mapFromLoopFinished` branches stays green with the integration fixtures.
 - [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

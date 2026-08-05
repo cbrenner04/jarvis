@@ -38,8 +38,9 @@ the index (#2585) and a re-run.
       subspec is selected and fails against index-checkbox routing.
 - [ ] A regression asserts a run over a tree with one fully-ticked subspec (index box unchecked) and
       one incomplete subspec does not settle `no-work`/`completed` on the ticked one.
-- [ ] A regression asserts a tree whose subspecs are all fully ticked still settles
-      `implement.already_complete`, with unticked human-only criteria not blocking it.
+- [ ] `implement-workflow-steps.test.ts`'s "rejects an already-complete linked tree with only a
+      wrapped human-only criterion unchecked" stays green (behavior unchanged: a fully-ticked tree with
+      only human-only criteria left settles `already_complete`).
 - [ ] Mutation checkpoint: inverting the criteria-based selection turns its pinning test RED.
 
 ## Documentation updates

@@ -32,7 +32,8 @@ Second of the class after slice 6 (#2352). Raising timeout values reduces freque
 
 - [ ] An implement run settling `iteration_timeout` with at least one subspec's non-human-only criteria
       fully ticked reports `resumable: true` / `nextAction: "resume"` on `run list` and `run wait`; a run
-      with no completed subspec keeps `resumable: false` / `stop`.
+      with no completed subspec keeps `resumable: false` / `stop`. Fails against the current
+      unconditional `resumable: false` / `stop` settlement.
 - [ ] The `iteration_timeout` operator error carries a completion inventory naming each completed and
       each remaining subspec path; a test pins both lists against a tree with one complete and one
       incomplete subspec.
@@ -52,7 +53,6 @@ Second of the class after slice 6 (#2352). Raising timeout values reduces freque
 
 - A subspec's completeness is decided by a shared fully-ticked non-human-only criteria predicate.
 - The router selects the first linked subspec with an unticked non-human-only acceptance criterion, independent of its index checkbox.
-- A write step resolving `no-work` over uncommitted tracked paths settles a non-`completed` status naming those paths.
 - The implement preflight refuses to retire a workspace whose spec tree carries criteria ticked that are unticked on `--base`.
 - `composeRunOperatorError` maps `iteration_timeout` to a reason, `nextAction`, and recovery line projected by `run list` and `run wait`.
 - `jarvis run resume` continues an admitted terminal run from its persisted workflow snapshot.

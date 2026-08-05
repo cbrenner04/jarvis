@@ -58,6 +58,5 @@ The reproduction lands before the fix.
 
 - A subspec's completeness is decided by a shared fully-ticked non-human-only criteria predicate.
 - The router selects the first linked subspec with an unticked non-human-only acceptance criterion, independent of its index checkbox.
-- A write step resolving `no-work` over uncommitted tracked paths settles a non-`completed` status naming those paths.
 - `resetStaleWorkspace` gates stale-workspace retirement on live holds, open PRs, daemon claims, and dirtiness before retiring worktree, local branch, and remote branch.
 - `--reset-despite-dirty` waives the dirty-worktree gate on implement and plan workflow starts.

@@ -1,7 +1,8 @@
-import { type Dirent, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { type Dirent, existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 
 /**
  * A checkpoint the harness can apply without inference.
@@ -35,6 +36,10 @@ export type UnparseableDirective = {
   sourceLine: number;
   raw: string;
   reason: "malformed" | "unresolvable_path" | "target_absent" | "target_ambiguous" | "unresolved_pinning_test";
+  /** Present for `unresolved_pinning_test`: the criterion that named the pinning test. */
+  criterionText?: string;
+  /** Present for `unresolved_pinning_test`: the backticked pinning reference from the criterion. */
+  rawReference?: string;
 };
 
 export type HollowCheckpoint = {
@@ -48,15 +53,40 @@ export type MutationCheckpointReport = {
   hollow: HollowCheckpoint[];
   unparseable: UnparseableDirective[];
   caught: MutateDirective[];
+  /** Directives applied during this verify run and not confirmed restored. */
+  unrestored: MutateDirective[];
+  /** Pinning test files opened while verifying selected criteria. */
+  openedPinningFiles: string[];
+};
+
+const UNRESTORED_DIRECTIVES_FILENAME = "jarvis-mutation-unrestored.json";
+
+const EMPTY_MUTATION_CHECKPOINT_REPORT: MutationCheckpointReport = {
+  hollow: [],
+  unparseable: [],
+  caught: [],
+  unrestored: [],
+  openedPinningFiles: [],
+};
+
+export type ScopedTestRunContext = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 export type MutationCheckpointSeams = {
   /** Resolves to true when the scoped suites pass. */
-  runScopedTests?: (cwd: string, scope: string[]) => Promise<boolean>;
+  runScopedTests?: (cwd: string, scope: string[], context?: ScopedTestRunContext) => Promise<boolean>;
   readFile?: (path: string) => string;
   writeFile?: (path: string, content: string) => void;
   /** Operator-visible sink for unparseable directives. */
   report?: (message: string) => void;
+  /** Cooperative cancellation from the write iteration. */
+  signal?: AbortSignal;
+  /** Remaining write-iteration wall budget in milliseconds. */
+  remainingIterationWallMs?: () => number;
+  /** Test seam for scoped `bun` subprocess execution. */
+  asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
 /**
@@ -64,7 +94,8 @@ export type MutationCheckpointSeams = {
  * Quoted segments accept escaped quotes so a directive can target source
  * containing a double quote.
  */
-const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
+export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
+const COMMENT_DIRECTIVE_LINE = /^\s*\/\/.*@mutate/;
 const DIRECTIVE_MARKER = "@mutate";
 const PIN_TITLE_PATTERN = /^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
 const CRITERION_MARKER = "Mutation checkpoint:";
@@ -103,7 +134,83 @@ function acceptanceCriterionBlocks(content: string): string[] {
   return blocks;
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new Error("mutation-checkpoint verification aborted");
+}
+
+function restoreSnapshots(
+  snapshots: ReadonlyMap<string, string>,
+  writeFile: (path: string, content: string) => void,
+): void {
+  for (const [path, content] of snapshots) writeFile(path, content);
+}
+
 /** Occurrences of `needle` in `haystack`, counted without regex escaping concerns. */
+function directiveKey(directive: MutateDirective): string {
+  return `${directive.sourceFile}:${directive.sourceLine}:${directive.targetPath}`;
+}
+
+/** Replacement present without original — stranded mutation content in staged or committed blobs. */
+export function isStrandedMutationContent(
+  content: string,
+  directive: Pick<MutateDirective, "originalText" | "replacementText">,
+): boolean {
+  return (
+    directive.replacementText.length > 0 &&
+    content.includes(directive.replacementText) &&
+    !content.includes(directive.originalText)
+  );
+}
+
+export function describeStrandedMutation(directive: MutateDirective): string {
+  return `${directive.targetPath}: stranded mutation ${directive.sourceFile}:${directive.sourceLine}: ${directive.raw}`;
+}
+
+function resolveGitDirSync(worktreePath: string): string | undefined {
+  const dotGit = join(worktreePath, ".git");
+  if (!existsSync(dotGit)) return undefined;
+  if (statSync(dotGit).isDirectory()) return dotGit;
+  const content = readFileSync(dotGit, "utf8").trim();
+  const match = /^gitdir:\s*(.+)$/m.exec(content);
+  if (match?.[1] === undefined) return undefined;
+  const gitdir = match[1].trim();
+  return isAbsolute(gitdir) ? gitdir : resolve(worktreePath, gitdir);
+}
+
+function unrestoredDirectivesStatePath(worktreePath: string): string | undefined {
+  const gitDir = resolveGitDirSync(worktreePath);
+  return gitDir === undefined ? undefined : join(gitDir, UNRESTORED_DIRECTIVES_FILENAME);
+}
+
+export function persistUnrestoredDirectives(worktreePath: string, unrestored: readonly MutateDirective[]): void {
+  const statePath = unrestoredDirectivesStatePath(worktreePath);
+  if (statePath === undefined) return;
+  if (unrestored.length === 0) {
+    try {
+      unlinkSync(statePath);
+    } catch {
+      /* no prior state */
+    }
+    return;
+  }
+  writeFileSync(statePath, `${JSON.stringify({ unrestored })}\n`, "utf8");
+}
+
+export function loadUnrestoredDirectives(worktreePath: string): MutateDirective[] {
+  const statePath = unrestoredDirectivesStatePath(worktreePath);
+  if (statePath === undefined || !existsSync(statePath)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(statePath, "utf8")) as { unrestored?: MutateDirective[] };
+    return parsed.unrestored ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearUnrestoredDirectives(worktreePath: string): void {
+  persistUnrestoredDirectives(worktreePath, []);
+}
+
 function countOccurrences(haystack: string, needle: string): number {
   if (needle.length === 0) return 0;
   let count = 0;
@@ -137,7 +244,7 @@ export function parseMutateDirectives(
   const lines = content.split("\n");
 
   for (const [index, line] of lines.entries()) {
-    if (!line.includes(DIRECTIVE_MARKER)) continue;
+    if (!COMMENT_DIRECTIVE_LINE.test(line)) continue;
     const raw = line.trim();
     const match = DIRECTIVE_PATTERN.exec(line);
     if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
@@ -151,7 +258,7 @@ export function parseMutateDirectives(
       targetPath: match[1],
       originalText: unescapeDirectiveText(match[2]),
       replacementText: unescapeDirectiveText(match[3]),
-      ...(pinTitle !== undefined ? { pinTitle } : { pinTitle: undefined }),
+      pinTitle,
       raw,
     });
   }
@@ -184,23 +291,60 @@ function findByBasename(root: string, target: string, found: string[] = [], dir 
 }
 
 /** First backticked path-ish segment in criterion text, when one names a test file. */
-export function pinningTestBasenameFromCriterion(criterionText: string): string | undefined {
+export function pinningTestReferenceFromCriterion(criterionText: string): string | undefined {
   const matches = criterionText.matchAll(/`([^`]+)`/g);
   for (const match of matches) {
     const candidate = match[1];
     if (candidate === undefined) continue;
     const name = basename(candidate);
-    if (isTestFileName(name)) return name;
+    if (isTestFileName(name)) return candidate;
   }
   return undefined;
 }
 
-/** Directives whose enclosing pin the criterion names; all of them when it names none. */
+function normalizeRepoRelativePath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/");
+}
+
+type PinningTestResolution = { ok: true; testPath: string } | { ok: false; rawReference: string };
+
+/** Resolve a criterion's pinning test by path-qualified or basename lookup. */
+function resolvePinningTestPath(worktreeRoot: string, criterionText: string): PinningTestResolution {
+  const rawReference = pinningTestReferenceFromCriterion(criterionText);
+  if (rawReference === undefined) {
+    return { ok: false, rawReference: "" };
+  }
+
+  const normalized = normalizeRepoRelativePath(rawReference);
+  if (normalized.includes("/")) {
+    const absolutePath = resolve(worktreeRoot, normalized);
+    const relativeToRoot = relative(worktreeRoot, absolutePath);
+    const escapesRoot = relativeToRoot.startsWith("..");
+    if (escapesRoot || !existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+      return { ok: false, rawReference };
+    }
+    return { ok: true, testPath: absolutePath };
+  }
+
+  const matches = findByBasename(worktreeRoot, normalized);
+  if (matches.length !== 1) {
+    return { ok: false, rawReference };
+  }
+  const testPath = matches[0];
+  if (testPath === undefined) {
+    return { ok: false, rawReference };
+  }
+  return { ok: true, testPath };
+}
+
+/** Directives whose enclosing pin the criterion names. */
 function linkDirectivesToCriterion(criterionText: string, directives: readonly MutateDirective[]): MutateDirective[] {
-  const titled = directives.filter(
+  return directives.filter(
     (directive) => directive.pinTitle !== undefined && criterionText.includes(directive.pinTitle),
   );
-  return titled.length > 0 ? titled : [...directives];
 }
 
 function resolveTarget(
@@ -239,7 +383,7 @@ function resolveTarget(
 }
 
 /** Scoped suites for one mutated file, matching the ready gate's classification. */
-function scopeForTarget(worktreeRoot: string, absolutePath: string): string[] {
+export function scopeForTarget(worktreeRoot: string, absolutePath: string): string[] {
   const relPath = relative(worktreeRoot, absolutePath).replace(/\\/g, "/");
   const scope = classifyChangedPaths([relPath]);
   // "full" names the aggregate script; an empty scope would short-circuit the
@@ -248,6 +392,10 @@ function scopeForTarget(worktreeRoot: string, absolutePath: string): string[] {
 }
 
 export function describeUnparseable(directive: UnparseableDirective): string {
+  if (directive.reason === "unresolved_pinning_test" && directive.criterionText !== undefined) {
+    const reference = directive.rawReference ?? directive.raw;
+    return `criterion: ${directive.criterionText}; reference: ${reference}; reason: ${directive.reason}`;
+  }
   return `${directive.sourceFile}:${directive.sourceLine}: ${directive.reason}: ${directive.raw}`;
 }
 
@@ -269,13 +417,17 @@ export async function verifyMutationCheckpoints(
 ): Promise<MutationCheckpointReport> {
   const readFile = seams.readFile ?? ((path: string) => readFileSync(path, "utf8"));
   const writeFile = seams.writeFile ?? ((path: string, content: string) => writeFileSync(path, content, "utf8"));
-  const runScopedTests = seams.runScopedTests ?? defaultRunScopedTests;
+  const runScopedTests =
+    seams.runScopedTests ??
+    ((cwd, scope, context) => defaultRunScopedTests(cwd, scope, context, seams.asyncSubprocessRunner));
   // Default to stderr, not a no-op: an unparseable directive means verification
   // silently did not happen, which is precisely the state that must not be quiet.
   const report = seams.report ?? ((message: string) => process.stderr.write(`mutation-checkpoint: ${message}\n`));
+  const signal = seams.signal;
+  const remainingIterationWallMs = seams.remainingIterationWallMs;
+  const snapshots = new Map<string, string>();
 
-  const empty: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };
-  if (!existsSync(subspecPath)) return empty;
+  if (!existsSync(subspecPath)) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const subspec = readFile(subspecPath);
   const criterionBlocks = acceptanceCriterionBlocks(subspec);
@@ -284,20 +436,44 @@ export async function verifyMutationCheckpoints(
     // The block spans the criterion's continuation lines; fall back to the first
     // line alone when block assembly and criterion order disagree.
     const markerSource = criterionBlocks[index] ?? criterion.text;
-    return markerSource.includes(CRITERION_MARKER) || markerSource.includes(DIRECTIVE_MARKER);
+    return markerSource.includes(CRITERION_MARKER) || DIRECTIVE_PATTERN.test(markerSource);
   });
-  if (criteria.length === 0) return empty;
+  if (criteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
-  const report_: MutationCheckpointReport = { hollow: [], unparseable: [], caught: [] };
+  const report_: MutationCheckpointReport = {
+    hollow: [],
+    unparseable: [],
+    caught: [],
+    unrestored: [],
+    openedPinningFiles: [],
+  };
   const parsedFiles = new Map<string, { directives: MutateDirective[]; unparseable: UnparseableDirective[] }>();
+  const unrestored = new Map<string, MutateDirective>();
 
-  for (const criterion of criteria) {
-    const linked = resolveLinkedDirectives(worktreeRoot, subspecPath, criterion.text, parsedFiles, readFile, report_);
-    if (linked === undefined) continue;
+  try {
+    for (const criterion of criteria) {
+      throwIfAborted(signal);
+      const linked = resolveLinkedDirectives(worktreeRoot, subspecPath, criterion.text, parsedFiles, readFile, report_);
+      if (linked === undefined) continue;
 
-    for (const directive of linked) {
-      await applyAndClassify(worktreeRoot, criterion.text, directive, { readFile, writeFile, runScopedTests }, report_);
+      for (const directive of linked) {
+        throwIfAborted(signal);
+        await applyAndClassify(
+          worktreeRoot,
+          criterion.text,
+          directive,
+          { readFile, writeFile, runScopedTests },
+          report_,
+          snapshots,
+          unrestored,
+          signal,
+          remainingIterationWallMs,
+        );
+      }
     }
+  } finally {
+    report_.unrestored = [...unrestored.values()];
+    persistUnrestoredDirectives(worktreeRoot, report_.unrestored);
   }
 
   for (const entry of report_.unparseable) report(describeUnparseable(entry));
@@ -317,24 +493,22 @@ function resolveLinkedDirectives(
   readFile: (path: string) => string,
   report_: MutationCheckpointReport,
 ): MutateDirective[] | undefined {
-  const unresolved: UnparseableDirective = {
-    sourceFile: subspecPath,
-    sourceLine: 0,
-    raw: criterionText,
-    reason: "unresolved_pinning_test",
-  };
-
-  const testBasename = pinningTestBasenameFromCriterion(criterionText);
-  if (testBasename === undefined) {
-    report_.unparseable.push(unresolved);
+  const resolved = resolvePinningTestPath(worktreeRoot, criterionText);
+  if (!resolved.ok) {
+    report_.unparseable.push({
+      sourceFile: subspecPath,
+      sourceLine: 0,
+      raw: criterionText,
+      reason: "unresolved_pinning_test",
+      criterionText,
+      rawReference: resolved.rawReference,
+    });
     return undefined;
   }
+  const testPath = resolved.testPath;
 
-  const matches = findByBasename(worktreeRoot, testBasename);
-  const testPath = matches.length === 1 ? matches[0] : undefined;
-  if (testPath === undefined) {
-    report_.unparseable.push(unresolved);
-    return undefined;
+  if (!report_.openedPinningFiles.includes(testPath)) {
+    report_.openedPinningFiles.push(testPath);
   }
 
   let parsed = parsedFiles.get(testPath);
@@ -365,15 +539,22 @@ async function applyAndClassify(
   io: {
     readFile: (path: string) => string;
     writeFile: (path: string, content: string) => void;
-    runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>;
+    runScopedTests: (cwd: string, scope: string[], context?: ScopedTestRunContext) => Promise<boolean>;
   },
   report_: MutationCheckpointReport,
+  snapshots: Map<string, string>,
+  unrestored: Map<string, MutateDirective>,
+  signal: AbortSignal | undefined,
+  remainingIterationWallMs: (() => number) | undefined,
 ): Promise<void> {
   const resolved = resolveTarget(worktreeRoot, directive, io.readFile);
   if (!resolved.ok) {
     report_.unparseable.push(resolved.unparseable);
     return;
   }
+
+  unrestored.set(directiveKey(directive), directive);
+  if (!snapshots.has(resolved.absolutePath)) snapshots.set(resolved.absolutePath, resolved.content);
 
   // Splice rather than String.replace: `$&`, `` $` ``, `$'` and `$<n>` in the
   // replacement would otherwise expand, so the applied edit would not be the
@@ -383,12 +564,25 @@ async function applyAndClassify(
     resolved.content.slice(0, at) +
     directive.replacementText +
     resolved.content.slice(at + directive.originalText.length);
+  const remaining = remainingIterationWallMs?.();
+  const runContext: ScopedTestRunContext = {
+    ...(signal !== undefined ? { signal } : {}),
+    ...(remaining !== undefined ? { timeoutMs: Math.max(0, remaining) } : {}),
+  };
+  let settledAbnormally = false;
   let survived: boolean;
   try {
     io.writeFile(resolved.absolutePath, mutated);
-    survived = await io.runScopedTests(worktreeRoot, scopeForTarget(worktreeRoot, resolved.absolutePath));
+    survived = await io.runScopedTests(worktreeRoot, scopeForTarget(worktreeRoot, resolved.absolutePath), runContext);
+  } catch (error) {
+    settledAbnormally = true;
+    restoreSnapshots(snapshots, io.writeFile);
+    throw error;
   } finally {
-    io.writeFile(resolved.absolutePath, resolved.content);
+    if (!settledAbnormally) {
+      io.writeFile(resolved.absolutePath, resolved.content);
+      unrestored.delete(directiveKey(directive));
+    }
   }
 
   if (survived) {
@@ -398,15 +592,31 @@ async function applyAndClassify(
   }
 }
 
-async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<boolean> {
+/** True when a scoped subprocess exited non-zero; false for abort, timeout, or kill. */
+export function isScopedTestSuiteFailure(error: unknown): boolean {
+  return error instanceof AsyncSubprocessError && error.status !== undefined && error.status !== 0;
+}
+
+async function defaultRunScopedTests(
+  cwd: string,
+  scope: string[],
+  context: ScopedTestRunContext | undefined,
+  runnerOverride?: AsyncSubprocessRunner,
+): Promise<boolean> {
   if (scope.length === 0) return true;
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  const runner = runnerOverride ?? realAsyncSubprocessRunner;
+  const options = {
+    ...(context?.timeoutMs !== undefined ? { timeoutMs: context.timeoutMs } : {}),
+    ...(context?.signal !== undefined ? { signal: context.signal } : {}),
+  };
   try {
     for (const script of scope) {
-      await realAsyncSubprocessRunner.runAsync("bun", ["run", script], cwd);
+      await runner.runAsync("bun", ["run", script], cwd, options);
     }
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isScopedTestSuiteFailure(error)) return false;
+    throw error;
   }
 }

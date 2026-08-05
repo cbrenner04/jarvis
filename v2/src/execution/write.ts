@@ -28,8 +28,10 @@ import {
 } from "./external-worktree.ts";
 import {
   describeHollow,
+  describeUnparseable,
   type HollowCheckpoint,
   type MutationCheckpointSeams,
+  type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
@@ -170,6 +172,8 @@ export type WriteExecuteInput = {
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
   signal?: AbortSignal;
+  /** Remaining write-iteration wall budget in milliseconds. */
+  remainingIterationWallMs?: () => number;
   invocationTelemetry?: Omit<InvocationTelemetryContext, "worktreePath">;
   withExternalWorktree?: typeof realWithExternalWorktree;
   intentSeed?: string;
@@ -352,6 +356,11 @@ function buildHollowCheckpointReason(hollow: readonly HollowCheckpoint[]): strin
   return `Hollow mutation checkpoints (the named mutation left the scoped suite green):\n${lines}`;
 }
 
+function buildUnparseableCheckpointReason(unparseable: readonly UnparseableDirective[]): string {
+  const lines = unparseable.map((entry) => `- ${describeUnparseable(entry)}`).join("\n");
+  return `Unparseable mutation checkpoints:\n${lines}`;
+}
+
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
   if (!existsSync(artifactPath)) {
     return [];
@@ -415,7 +424,23 @@ async function executeDefaultWrite(
     contracts.push({
       id: "spec.criteria-ticked",
       check: async ({ cwd }) => {
-        const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, args.mutationCheckpointSeams);
+        const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
+          ...args.mutationCheckpointSeams,
+          ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          ...(args.remainingIterationWallMs !== undefined
+            ? { remainingIterationWallMs: args.remainingIterationWallMs }
+            : {}),
+        });
+        if (report.unparseable.length === 0) {
+          if (report.hollow.length === 0) return { ok: true };
+          return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
+        }
+        const blockingUnparseable = report.unparseable.filter(
+          (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
+        );
+        if (blockingUnparseable.length > 0) {
+          return { ok: false, reason: buildUnparseableCheckpointReason(blockingUnparseable) };
+        }
         if (report.hollow.length === 0) return { ok: true };
         return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
       },

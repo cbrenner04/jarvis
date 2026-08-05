@@ -240,13 +240,17 @@ test("selection stays inside the painted viewport", () => {
 
 Rules the harness enforces:
 
-- A ticked non-human-only criterion is selected by `Mutation checkpoint:` or the
-  literal, case-sensitive `@mutate` marker. Selection does not parse a directive;
-  successful verification still requires a valid linked directive.
-- The criterion names the pinning test file in backticks; the basename must resolve
-  to exactly one file in the worktree.
+- A ticked non-human-only criterion is selected by `Mutation checkpoint:` or a
+  directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`).
+  Bare `@mutate` prose mentions are safe and do not select. Successful verification still
+  requires a valid linked directive.
+- The criterion names the pinning test file in backticks. When the basename is
+  not unique in the worktree, use a repo-relative path (for example
+  `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on
+  basename search. A bare basename must resolve to exactly one file.
 - The directive's target text must occur **exactly once** in the named path. Zero or
-  several occurrences is unparseable — reported, and the criterion cannot rely on it.
+  several occurrences is unparseable — reported on stderr and, when the pinning file is
+  opened by a selected criterion, blocks completion.
 - Directives are single-line text replacement. A multi-line mutation must be reduced
   to one unique line (neutering the enclosing condition usually does it).
 - A ticked criterion claiming a mutation with **no** linked directive is refused.

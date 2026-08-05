@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
+import type { MutateDirective } from "./mutation-checkpoint-verifier.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -25,6 +26,16 @@ function setupWorktree(specPath?: string): { worktreePath: string; gitDir: strin
 }
 
 type GitCall = { args: readonly string[]; env: Record<string, string> | undefined };
+
+const sampleDirective: MutateDirective = {
+  sourceFile: "v2/src/execution/completion-commit.test.ts",
+  sourceLine: 1,
+  targetPath: "src/guard.ts",
+  originalText: "const enabled = true;",
+  replacementText: "const enabled = false;",
+  pinTitle: "stranded replacement in staged content refuses completion",
+  raw: '// @mutate src/guard.ts "const enabled = true;" -> "const enabled = false;"',
+};
 
 describe("createCompletionCommitter", () => {
   test("commits and returns a sha when the working tree has changes", async () => {
@@ -324,5 +335,113 @@ describe("createCompletionCommitter", () => {
     const invertedSkipGuard = tree !== headTree;
     expect(invertedSkipGuard).toBe(false);
     expect(shouldReuseHeadWithoutNewCommit(tree, headTree, false)).not.toBe(invertedSkipGuard);
+  });
+
+  test("stranded replacement in staged content refuses completion", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "if (isStrandedMutationContent(staged, directive)) {" -> "if (false) {"
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "show" && args[1] === "new-tree:src/guard.ts") {
+        return "const enabled = false;\n";
+      }
+      if (args[0] === "show" && args[1] === "base-head:src/guard.ts") {
+        return "const enabled = true;\n";
+      }
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    await expect(
+      committer({
+        worktreePath,
+        baseRef: "main",
+        specPath: "v2/spec/test/index.md",
+        agent: "claude",
+        title: "Test Spec Title",
+        unrestoredDirectives: [sampleDirective],
+      }),
+    ).rejects.toThrow(
+      'src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts "const enabled = true;" -> "const enabled = false;"',
+    );
+    expect(calls.some((c) => c.args[0] === "add")).toBe(true);
+    expect(calls.some((c) => c.args[0] === "commit-tree")).toBe(false);
+  });
+
+  test("stranded replacement in pending commit resume refuses completion", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const pendingPath = join(gitDir, "jarvis-completion-pending.json");
+    writeFileSync(
+      pendingPath,
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "pending-tree",
+        branchRef: "refs/heads/feature",
+        message: "test spec title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "show" && args[1] === "pending-tree:src/guard.ts") {
+        return "const enabled = false;\n";
+      }
+      if (args[0] === "show" && args[1] === "base-head:src/guard.ts") {
+        return "const enabled = true;\n";
+      }
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    await expect(
+      committer({
+        worktreePath,
+        baseRef: "main",
+        specPath: "v2/spec/test/index.md",
+        agent: "claude",
+        title: "Test Spec Title",
+        unrestoredDirectives: [sampleDirective],
+      }),
+    ).rejects.toThrow(
+      'src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts "const enabled = true;" -> "const enabled = false;"',
+    );
+  });
+
+  test("stranded replacement in HEAD refuses even when working copy is clean", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "show" && args[1] === "new-tree:src/guard.ts") {
+        return "const enabled = true;\n";
+      }
+      if (args[0] === "show" && args[1] === "base-head:src/guard.ts") {
+        return "const enabled = false;\n";
+      }
+      return "";
+    };
+
+    const committer = createCompletionCommitter(runGit);
+    await expect(
+      committer({
+        worktreePath,
+        baseRef: "main",
+        specPath: "v2/spec/test/index.md",
+        agent: "claude",
+        title: "Test Spec Title",
+        unrestoredDirectives: [sampleDirective],
+      }),
+    ).rejects.toThrow("src/guard.ts: stranded mutation");
   });
 });

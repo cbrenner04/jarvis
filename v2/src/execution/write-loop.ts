@@ -1375,6 +1375,7 @@ async function awaitIteration(
 
   const schedule = args.schedule ?? defaultWallSegmentSchedule;
   const wallSegmentMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  let wallSegmentDeadline = Date.now() + wallSegmentMs;
   let wallSchedule: WallSegmentScheduleHandle | undefined;
   let ceilingTimeout: ReturnType<typeof setTimeout> | undefined;
   let watchdogSettled = false;
@@ -1389,6 +1390,7 @@ async function awaitIteration(
 
   const bumpWallSegment = () => {
     if (watchdogSettled) return;
+    wallSegmentDeadline = Date.now() + wallSegmentMs;
     wallSchedule?.cancel();
     wallSchedule = schedule(fireWatchdogTimeout, wallSegmentMs);
   };
@@ -1405,6 +1407,7 @@ async function awaitIteration(
 
   const execution: Promise<QuiescedExecutionOutcome> = executeWrite({
     ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog, landingContractReprompt),
+    remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
     (result): QuiescedExecutionOutcome => ({ kind: "settled", result }),

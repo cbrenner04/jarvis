@@ -654,28 +654,37 @@ that command exits zero. Rows that exhausted the repair budget instead remain `f
 `ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds.
 
 A ticked non-human-only acceptance criterion is selected when its text contains `Mutation
-checkpoint:` or the literal, case-sensitive `@mutate` marker. Selection does not parse a
-directive. Verification still requires the harness to **apply** a valid linked directive
-and watch the scoped suite go red. The machine contract is a directive
-in the pinning test file — `// @mutate <path> "<original>" -> "<replacement>"` — located by exact
-source text that must occur exactly once. A ticked mutation-checkpoint criterion with no linked
-directive is refused; so is one whose directive leaves the scoped suite green, with `path:line:
-directive` coordinates in the blocker. Prose `Mutation checkpoint:` comments still read fine to a
-human but no longer satisfy the contract on their own. An unparseable directive (malformed,
-unresolvable path, target text absent or ambiguous) is reported and skipped rather than treated as
-hollow — reported on stderr, so an unresolvable pin or malformed directive is visible in the daemon
-log rather than silent. Note what this does **not** cover: criteria that make no mutation claim, and
-mutations the directive form cannot express (it is single-line text replacement, so a multi-line
-edit must be reduced to one unique line).
+checkpoint:` or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" ->
+"<replacement>"`). Bare `@mutate` prose mentions no longer select. Verification still requires
+the harness to **apply** a valid linked directive and watch the scoped suite go red. The machine
+contract is a directive in the pinning test file — `// @mutate <path> "<original>" ->
+"<replacement>"` — located by exact source text that must occur exactly once. A ticked
+mutation-checkpoint criterion with no linked directive is refused; so is one whose directive
+leaves the scoped suite green, with `path:line: directive` coordinates in the blocker. Prose
+`Mutation checkpoint:` comments still read fine to a human but no longer satisfy the contract on
+their own. A comment-leading unparseable directive in a pinning file opened by a selected criterion
+(malformed, unresolvable path, target text absent or ambiguous) now blocks completion at
+`spec.criteria-ticked`, naming pinning file, line, raw reference, and reason — superseding the
+prior stderr-only policy for those cases. Unparseables still reach stderr for operator visibility.
+Note what this does **not** cover: criteria that make no mutation claim, and mutations the
+directive form cannot express (it is single-line text replacement, so a multi-line edit must be
+reduced to one unique line).
 
 Two operational caveats. Verification runs the scoped suites **once per directive**, serially, with
 a production file mutated — a subspec with several checkpoints multiplies the write step's wall
-clock accordingly. And the scoped run has no timeout and is not wired to the run's abort signal: a
-mutation that induces a hang blocks the step, and `kill` will not interrupt it. If a write step
-stalls with no agent output and a directive is in play, that is the first place to look. Every
-in-process path restores the mutated file, including when the scoped run throws, but a `SIGKILL`
-mid-verification leaves the **mutated** production file on disk — and the completion committer
-uses `git add -A`, so check the worktree before re-running after a hard kill.
+clock accordingly. Each scoped run is wired to the write iteration's `AbortSignal` and bounded by
+the remaining write-iteration wall budget at the time the directive starts; on abort or timeout the
+harness aborts the scoped `bun` subprocess (SIGTERM, then SIGKILL if needed) before restoring
+from a pre-mutation snapshot taken before the first edit to that file. Abnormal settle (abort,
+timeout, or throw) restores via that snapshot path rather than relying solely on the per-directive
+`finally` restore. If a write step stalls with no agent output and a directive is in play, check
+whether scoped verification is waiting on a hung subprocess before assuming agent silence. After any
+abnormal verification settle, directives applied during that verify run and not confirmed restored
+stay tracked; the completion boundary refuses pre-commit when staged or `HEAD` blob content for such
+a directive still carries its replacement text while the original is absent, naming target path and
+`path:line: directive` coordinates — distinct from `surviving_mutation_failed` at ready finalization.
+Working-copy-only comparison is insufficient: a mutation present in `HEAD` but absent from the
+working tree is still refused.
 
 The spec.criteria-ticked contract prevents `done` / `no-work` completions when
 unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and

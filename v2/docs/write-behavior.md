@@ -1109,7 +1109,20 @@ The loop classifies and routes results:
   1. **`artifact.exists`**: the `--artifact` file (spec or subspec) must exist.
   2. **`spec.criteria-ticked`** (implement writes only): the active subspec's
      non-human-only acceptance criteria must all be ticked; re-reads the spec
-     from the worktree to catch agent edits.
+     from the worktree to catch agent edits. On every implement `done` /
+     `no-work` — independent of whether the unticked-row gate registered — the
+     same contract id also verifies **ticked** non-human-only criteria whose
+     text contains `Mutation checkpoint:` or a directive-shaped `@mutate`
+     occurrence: each linked `// @mutate` directive in the named pinning test
+     (path-qualified first, basename only when unambiguous) is applied in the
+     worktree, scoped suites run with `AbortSignal` and remaining
+     write-iteration wall budget, and the file is restored (snapshot restore on
+     abort, timeout, or throw — abnormal settle does not count as verification).
+     Hollow checkpoints (suite stayed green), comment-leading unparseable
+     directives, and unresolved pinning-test references settle `contract_miss`
+     with named coordinates. Verify-run unrestored directives are tracked;
+     completion refuses when staged or `HEAD` blob content still carries
+     replacement text without the original (including pending-commit resume).
   
   All contracts pass → success (`complete`). Any fail → append `## Blocker`
   to the artifact (spec.criteria-ticked → active subspec; artifact.exists →

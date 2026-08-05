@@ -4,23 +4,14 @@ Authority: operator priorities. Updated 2026-08-04.
 
 ## Goal
 
-**The Ready queue is empty.** The pipeline-trustworthiness thread is fully landed, and the
-completion-commit-error chain (emit → project → render) is complete. The two remaining threads are
-both *new* investment, not burn-down: **TUI slice 6** (steering + log — unseeded) and the **open
-seeds** below (defects that need `intent` → `plan` before they can be implemented).
+**The Ready queue is empty.** The pipeline-trustworthiness thread is fully landed, and the completion-commit-error chain (emit → project → render) is complete. The two remaining threads are both *new* investment, not burn-down: **TUI slice 6** (steering + log — unseeded) and the **seed bundles** below (defects that need `intent` → `plan` before they can be implemented).
 
 ## Start here next
 
 Pick one:
 
-- **TUI slice 6 (steering + log)** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — the last TUI
-  slice, still unseeded. Fold in `seeds/tui-waitstate-is-polled-but-no-longer-rendered`. Needs a seed
-  → `intent` → `plan` first.
-- **Highest-value open seed:** `seeds/unparseable-mutation-directives-pass-the-gate` — a
-  `target_absent` / unparseable `@mutate` directive is stderr-only and does not fail the gate
-  (`write.ts` checks only `report.hollow`, ignores `unparseable`). It let dud pins tick green on
-  #2591 and #2597 this session and a 40% cost over-bill earlier. Fixing it closes the whole
-  hollow/dud-pin class.
+- **`seeds/mutation-checkpoint-verifier-trust`** — bundles the three verifier seeds (unparseable directives pass the gate, prose-mention selection, verification outliving its run) into one intent → plan. Land it first: every other seed's `@mutate` acceptance criteria run through the verifier it fixes, and dud pins ticked green on #2591 and #2597 this session plus a 40% cost over-bill earlier.
+- **TUI slice 6 (steering + log)** from [tui-overhaul-brief.md](tui-overhaul-brief.md) — the last TUI slice, still unseeded. Fold in `seeds/tui-waitstate-is-polled-but-no-longer-rendered`. Needs a seed → `intent` → `plan` first.
 
 ## Landed this session (2026-08-04)
 
@@ -38,30 +29,26 @@ Pick one:
 | 1–5 | complete (see prior queue history) |
 | 6 — steering + log | **not seeded** |
 
-## Open seeds, newest first
+## Open seeds — bundled 2026-08-04, in recommended order
 
-| Seed | Why |
-| --- | --- |
-| `seeds/implement-review-publication-successor-stalls-indefinitely` | Review/shrink/publication successor steps hang after `iteration_started` with no watchdog, holding the branch claim; recovery only via `jarvis run kill`. Hit `c6bf9b42`, `503f2683` on 2026-08-04. |
-| `seeds/implement-router-reselects-fully-ticked-subspec-by-index-checkbox` | Router routes by index checkbox not criteria, so a hand-finished subspec no-ops the next run (`328c3cc6`; worked around by #2585). |
-| `seeds/implement-rerun-completes-over-a-stale-dirty-worktree` | Implement re-run executed in a stale dirty worktree, read old ticks as truth, settled `completed` having committed nothing. Root cause unproven — first AC is a reproduction. |
-| `seeds/entry-run-settlement-terminalizes-live-rows` | `applyEntryRunSettlement` writes `failed` + `endedAt` with no liveness re-check; remaining path to `startedAt == endedAt`. |
-| `seeds/plan-review-must-falsify-guard-premises` | A "rules out X" criterion is only legitimate if X is reachable on `main`; nothing checks it. Cost three implement runs on the retired fan-out spec. |
-| `seeds/plan-output-fails-lint-md-and-repair-edits-unrelated-source` | Plan drafts finalize without linting their own Markdown; repair rewrites unrelated source and commits nothing. |
-| `seeds/pipeline-implement-stage-breaks-when-its-plan-pr-merges` | Implement stage bases its PR on the plan branch, so merging the pipeline's own plan PR kills it with `Base ref must be a branch`. |
-| `seeds/unparseable-mutation-directives-pass-the-gate` | An unresolvable / `target_absent` `@mutate` directive is stderr-only and does not fail the gate. **Recurred on #2591 and #2597 this session.** Highest-value open seed. |
-| `seeds/mutation-verification-outlives-its-run` | An `iteration_timeout` stranded applied `@mutate` directives in production source. |
-| `seeds/gate-autofix-can-turn-a-green-tree-red` | `bun run fix` rewrites `findIndex` → `indexOf` on a possibly-`undefined` needle; cannot self-repair. |
-| `seeds/mutation-selector-fires-on-prose-mentions-of-the-marker` | Selects on a bare `@mutate` substring, so a spec discussing the marker in prose fails its own gate. |
-| `seeds/tui-waitstate-is-polled-but-no-longer-rendered` | Slice 4 left `waitState` with no reader while the `wait` RPC still fires. Fold into slice 6. |
-| `seeds/intent-landing-contract-rejects-wrapped-bullets` | Blocked two intent runs on 2026-08-01. |
-| `seeds/iteration-timeout-discards-completed-subspecs` | Bit repeatedly; workaround: split large subspecs at plan time. |
-| `seeds/out-of-scope-gate-classification-strands-caused-failures` | Run-caused test failures classified out of scope (#2313). |
+Fifteen seeds folded into five bundles + four standalones. Each bundle shares one surface (same files, same doc sections), so one intent → plan → implement lands it without near-serial implement runs conflicting in the same code.
+
+| Order | Seed | Absorbs | Why |
+| --- | --- | --- | --- |
+| 1 | `seeds/mutation-checkpoint-verifier-trust` | unparseable-directives, prose-mention selector, verification-outlives-run | All three in `mutation-checkpoint-verifier.ts`; the gate policy depends on the selection fixes; landing it makes every later seed's `@mutate` checkpoints trustworthy. |
+| 2 | `seeds/implement-completion-honesty` | stale-dirty rerun, index-checkbox router, iteration-timeout retirement | Three ways a `completed` row lies; decides the two new `resetStaleWorkspace` gates' precedence once. |
+| 3 | `seeds/gate-repair-fence` | out-of-scope classification, repair write fence, autofix-turns-tree-red | One repair pipeline: probe scope on base, fence writes to the same allowset, verify autofix output. |
+| 4 | `seeds/pipeline-stage-settlement-honesty` | entry-run settlement, plan-PR-merge base break | One settlement surface: liveness re-check, run-error-derived stage reasons, base-ref fallback. |
+| 5 | `seeds/implement-review-publication-successor-stalls-indefinitely` | — | Successor watchdog; standalone. Repro must be synthetic once bundle 2 lands. |
+| 6 | `seeds/plan-review-must-falsify-guard-premises` | — | After bundle 1 — its keystone mechanism extends the verifier bundle 1 rewrites. |
+| 7 | `seeds/plan-intent-write-steps-lint-own-markdown` | split from plan-output seed | Small, standalone: plan/intent write steps lint their own staged Markdown. |
+| 8 | `seeds/intent-landing-contract-rejects-wrapped-bullets` | — | Small, standalone; reuses the shared bullet-block helper. Blocked two intent runs 2026-08-01. |
+
+`seeds/tui-waitstate-is-polled-but-no-longer-rendered` rides TUI slice 6 (see the brief), not this queue order.
 
 ## Rule
 
-TUI slice 6 and the open seeds are the two active threads; both are new investment. Nothing is in the
-Ready queue.
+TUI slice 6 and the seed bundles are the two active threads; both are new investment. Nothing is in the Ready queue.
 
 ## Carried operator notes
 

@@ -1,12 +1,4 @@
-import {
-  type Dirent,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
@@ -146,7 +138,10 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new Error("mutation-checkpoint verification aborted");
 }
 
-function restoreSnapshots(snapshots: ReadonlyMap<string, string>, writeFile: (path: string, content: string) => void): void {
+function restoreSnapshots(
+  snapshots: ReadonlyMap<string, string>,
+  writeFile: (path: string, content: string) => void,
+): void {
   for (const [path, content] of snapshots) writeFile(path, content);
 }
 
@@ -308,7 +303,10 @@ export function pinningTestReferenceFromCriterion(criterionText: string): string
 }
 
 function normalizeRepoRelativePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+/g, "/");
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/");
 }
 
 type PinningTestResolution = { ok: true; testPath: string } | { ok: false; rawReference: string };

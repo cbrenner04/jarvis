@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, basename } from "node:path";
+import { basename, join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import type { UnparseableDirective, MutationCheckpointReport } from "./mutation-checkpoint-verifier.ts";
+import type { MutationCheckpointReport, UnparseableDirective } from "./mutation-checkpoint-verifier.ts";
 import {
   describeHollow,
   describeUnparseable,
@@ -111,11 +111,7 @@ describe("parseMutateDirectives", () => {
   });
 
   test("string literals containing @mutate produce no unparseable entries", () => {
-    const content = [
-      'test("pin", () => {',
-      '  const hint = "mention @mutate in prose";',
-      "});",
-    ].join("\n");
+    const content = ['test("pin", () => {', '  const hint = "mention @mutate in prose";', "});"].join("\n");
     const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", content);
     expect(directives).toEqual([]);
     expect(unparseable).toEqual([]);
@@ -435,11 +431,7 @@ describe("verifyMutationCheckpoints", () => {
         "});",
       ].join("\n"),
     );
-    const subspec = writeAt(
-      root,
-      "spec/00.md",
-      subspecNaming("guard.test.ts", "missing pin title"),
-    );
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("guard.test.ts", "missing pin title"));
 
     const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
 
@@ -600,17 +592,9 @@ describe("verifyMutationCheckpoints", () => {
     writeAt(
       root,
       "v2/src/execution/write.test.ts",
-      [
-        'test("execution pin", () => {',
-        '  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"',
-        "});",
-      ].join("\n"),
+      ['test("execution pin", () => {', '  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
     );
-    const subspec = writeAt(
-      root,
-      "spec/00.md",
-      subspecNaming("v2/src/execution/write.test.ts", "execution pin"),
-    );
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("v2/src/execution/write.test.ts", "execution pin"));
     const runner = scopedRunner(false);
 
     const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: runner.run });
@@ -629,11 +613,7 @@ describe("verifyMutationCheckpoints", () => {
       "v2/src/execution/guard.test.ts",
       ['test("guard pin", () => {', '  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
     );
-    const subspec = writeAt(
-      root,
-      "spec/00.md",
-      subspecNaming("v2/src/execution/absent.test.ts", "guard pin"),
-    );
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("v2/src/execution/absent.test.ts", "guard pin"));
 
     const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(true).run });
 

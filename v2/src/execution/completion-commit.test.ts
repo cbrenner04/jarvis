@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { MutateDirective } from "./mutation-checkpoint-verifier.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
+import type { MutateDirective } from "./mutation-checkpoint-verifier.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -367,7 +367,7 @@ describe("createCompletionCommitter", () => {
         unrestoredDirectives: [sampleDirective],
       }),
     ).rejects.toThrow(
-      "src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts \"const enabled = true;\" -> \"const enabled = false;\"",
+      'src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts "const enabled = true;" -> "const enabled = false;"',
     );
     expect(calls.some((c) => c.args[0] === "add")).toBe(true);
     expect(calls.some((c) => c.args[0] === "commit-tree")).toBe(false);
@@ -412,7 +412,7 @@ describe("createCompletionCommitter", () => {
         unrestoredDirectives: [sampleDirective],
       }),
     ).rejects.toThrow(
-      "src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts \"const enabled = true;\" -> \"const enabled = false;\"",
+      'src/guard.ts: stranded mutation v2/src/execution/completion-commit.test.ts:1: // @mutate src/guard.ts "const enabled = true;" -> "const enabled = false;"',
     );
   });
 

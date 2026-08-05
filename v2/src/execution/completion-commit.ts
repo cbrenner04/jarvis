@@ -56,12 +56,7 @@ export function shouldReuseHeadWithoutNewCommit(
   return indexTree === headTree && !forceDistinctCommit;
 }
 
-async function readGitBlob(
-  runGit: Git,
-  cwd: string,
-  object: string,
-  env?: Record<string, string>,
-): Promise<string> {
+async function readGitBlob(runGit: Git, cwd: string, object: string, env?: Record<string, string>): Promise<string> {
   try {
     return await runGit(cwd, ["show", object], env);
   } catch {
@@ -125,7 +120,9 @@ async function preparePendingCommit(
     input.worktreePath,
     index,
     head,
-    input.unrestoredDirectives !== undefined ? [...input.unrestoredDirectives] : loadUnrestoredDirectives(input.worktreePath),
+    input.unrestoredDirectives !== undefined
+      ? [...input.unrestoredDirectives]
+      : loadUnrestoredDirectives(input.worktreePath),
   );
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
@@ -171,7 +168,9 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
     try {
       const unrestored =
-        input.unrestoredDirectives !== undefined ? [...input.unrestoredDirectives] : loadUnrestoredDirectives(input.worktreePath);
+        input.unrestoredDirectives !== undefined
+          ? [...input.unrestoredDirectives]
+          : loadUnrestoredDirectives(input.worktreePath);
       let pending: PendingCommit;
       if (existsSync(pendingPath)) {
         pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;

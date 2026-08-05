@@ -427,15 +427,16 @@ async function executeDefaultWrite(
         const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
           ...args.mutationCheckpointSeams,
           ...(args.signal !== undefined ? { signal: args.signal } : {}),
-          ...(args.remainingIterationWallMs !== undefined ? { remainingIterationWallMs: args.remainingIterationWallMs } : {}),
+          ...(args.remainingIterationWallMs !== undefined
+            ? { remainingIterationWallMs: args.remainingIterationWallMs }
+            : {}),
         });
         if (report.unparseable.length === 0) {
           if (report.hollow.length === 0) return { ok: true };
           return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
         }
         const blockingUnparseable = report.unparseable.filter(
-          (entry) =>
-            entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
+          (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
         );
         if (blockingUnparseable.length > 0) {
           return { ok: false, reason: buildUnparseableCheckpointReason(blockingUnparseable) };

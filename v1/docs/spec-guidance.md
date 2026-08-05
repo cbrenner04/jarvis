@@ -244,6 +244,7 @@ Rules the harness enforces:
   directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`).
   Bare `@mutate` prose mentions are safe and do not select. Successful verification still
   requires a valid linked directive.
+- Wrapping the pinning-test reference or enclosing-test name onto a continuation line is safe.
 - The criterion names the pinning test file in backticks. When the basename is
   not unique in the worktree, use a repo-relative path (for example
   `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on

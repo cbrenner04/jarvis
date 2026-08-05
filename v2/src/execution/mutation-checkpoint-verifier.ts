@@ -431,14 +431,13 @@ export async function verifyMutationCheckpoints(
 
   const subspec = readFile(subspecPath);
   const criterionBlocks = acceptanceCriterionBlocks(subspec);
-  const criteria = parseSpec(subspec).acceptanceCriteria.filter((criterion, index) => {
-    if (!criterion.checked || criterion.humanOnly) return false;
-    // The block spans the criterion's continuation lines; fall back to the first
-    // line alone when block assembly and criterion order disagree.
-    const markerSource = criterionBlocks[index] ?? criterion.text;
-    return markerSource.includes(CRITERION_MARKER) || DIRECTIVE_PATTERN.test(markerSource);
+  const selectedCriteria = parseSpec(subspec).acceptanceCriteria.flatMap((criterion, index) => {
+    if (!criterion.checked || criterion.humanOnly) return [];
+    const block = criterionBlocks[index] ?? criterion.text;
+    if (!block.includes(CRITERION_MARKER) && !DIRECTIVE_PATTERN.test(block)) return [];
+    return [{ criterion, block }];
   });
-  if (criteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
+  if (selectedCriteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const report_: MutationCheckpointReport = {
     hollow: [],
@@ -451,9 +450,17 @@ export async function verifyMutationCheckpoints(
   const unrestored = new Map<string, MutateDirective>();
 
   try {
-    for (const criterion of criteria) {
+    for (const { criterion, block } of selectedCriteria) {
       throwIfAborted(signal);
-      const linked = resolveLinkedDirectives(worktreeRoot, subspecPath, criterion.text, parsedFiles, readFile, report_);
+      const linked = resolveLinkedDirectives(
+        worktreeRoot,
+        subspecPath,
+        block,
+        criterion.text,
+        parsedFiles,
+        readFile,
+        report_,
+      );
       if (linked === undefined) continue;
 
       for (const directive of linked) {
@@ -488,12 +495,13 @@ export async function verifyMutationCheckpoints(
 function resolveLinkedDirectives(
   worktreeRoot: string,
   subspecPath: string,
+  block: string,
   criterionText: string,
   parsedFiles: Map<string, { directives: MutateDirective[]; unparseable: UnparseableDirective[] }>,
   readFile: (path: string) => string,
   report_: MutationCheckpointReport,
 ): MutateDirective[] | undefined {
-  const resolved = resolvePinningTestPath(worktreeRoot, criterionText);
+  const resolved = resolvePinningTestPath(worktreeRoot, block);
   if (!resolved.ok) {
     report_.unparseable.push({
       sourceFile: subspecPath,
@@ -518,7 +526,7 @@ function resolveLinkedDirectives(
     report_.unparseable.push(...parsed.unparseable);
   }
 
-  const linked = linkDirectivesToCriterion(criterionText, parsed.directives);
+  const linked = linkDirectivesToCriterion(block, parsed.directives);
   if (linked.length === 0) {
     // The loophole this contract closes: a prose comment is not evidence.
     report_.hollow.push({

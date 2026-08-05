@@ -12,6 +12,15 @@ not by whichever lands second. Absorbs `implement-rerun-completes-over-a-stale-d
 `implement-router-reselects-fully-ticked-subspec-by-index-checkbox`, and
 `iteration-timeout-discards-completed-subspecs` (2026-08-04).
 
+**Status 2026-08-05 — Problem B (index-checkbox routing) is DONE, landed via #2613**
+(`criteria-based-subspec-routing`): the router now selects by unticked non-human-only
+criteria via the shared `hasUncheckedNonHumanOnlyCriteria` predicate, and
+`runLinkedImplementStep` no longer re-resolves past the just-ticked subspec. **Skip Problem B
+below** — its section, its acceptance criteria, and its mutation-checkpoint are already on main.
+**Remaining work for this seed: Problems A and C, plus the `no-work` → `completed` dirty-worktree
+refusal.** Run it as ONE cohesive spec (ordered subspecs); do NOT fan out (the pipeline intent
+over-split this seed on 2026-08-05).
+
 ## Problem A — a re-run executes in a stale dirty worktree and settles `completed` having committed nothing
 
 Observed 2026-08-03, run `eabc39a7` on `20260803T013930Z-tui-command-dispatch`. Telemetry
@@ -29,7 +38,7 @@ gate, which precedes the dirty gate in `resetStaleWorkspace`, so the dirty gate 
 in reproduction. Do not cut a fix against a guessed cause — the first acceptance criterion for this
 path is a reproduction.
 
-## Problem B — the router re-selects a fully-ticked subspec by its unchecked index checkbox
+## Problem B — the router re-selects a fully-ticked subspec by its unchecked index checkbox — DONE (#2613, skip)
 
 The write step routes to the next subspec by the first unchecked `index.md` checkbox, not the first
 subspec with unticked acceptance criteria. A subspec hand-finished and merged without its index box

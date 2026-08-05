@@ -617,7 +617,7 @@ async function runLinkedImplementStep(
     }
 
     const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
-    const pinnedRouting = resolveActiveLinkedSubspec(worktreeIndexPath, worktreePath);
+    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, worktreePath, routing.active.index);
     if (!pinnedRouting.ok) {
       return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }

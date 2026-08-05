@@ -68,9 +68,7 @@ function resolveLinkBody(indexPath: string, projectRoot: string, link: LinkedSub
   }
 }
 
-function readLinkedIndex(
-  specPath: string,
-): { ok: true; path: string; content: string } | { ok: false; error: string } {
+function readLinkedIndex(specPath: string): { ok: true; path: string; content: string } | { ok: false; error: string } {
   const indexPath = resolve(specPath);
   try {
     return { ok: true, path: indexPath, content: readFileSync(indexPath, "utf8") };

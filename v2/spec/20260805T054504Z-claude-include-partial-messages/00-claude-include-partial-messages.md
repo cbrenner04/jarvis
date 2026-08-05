@@ -44,8 +44,3 @@ Cursor avoids this via `--stream-partial-output`.
 - `v2/docs/operator-runbook.md` — § Choosing an actuator: scope the existing claude streaming claim to exclude long no-tool turns without partials; record claude-first review/critic roles work once `--include-partial-messages` is passed.
 - `v2/docs/shared-invocation.md` — claude branch argv includes `--include-partial-messages` after `--verbose`.
 - `v2/docs/v1-behaviors.md` — "Shared claude adapter stream-json support": narrow/replace the "matches v1's spawn and parse contract" sentence; record `--include-partial-messages` as a v2 divergence and the widened non-zero quota phrase-matching exposure; leave the v1-local `claude` argv bullet unchanged.
-
-## Blocker
-
-Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
-- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

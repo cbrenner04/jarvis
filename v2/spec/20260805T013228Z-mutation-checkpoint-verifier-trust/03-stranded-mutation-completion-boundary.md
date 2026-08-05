@@ -26,12 +26,12 @@
 
 ## Acceptance criteria
 
-- [ ] `completion-commit.test.ts` — `stranded replacement in staged content refuses completion` proves the completion boundary refuses when staged content contains a verify-run directive's replacement text while missing its original, naming path and directive; it fails against the current committer.
-- [ ] `completion-commit.test.ts` — `stranded replacement in HEAD refuses even when working copy is clean` proves a verify-run mutation present in `HEAD` but absent from the working copy is still refused; it fails against working-copy-only comparison.
-- [ ] `completion-commit.test.ts` — `stranded replacement in staged content refuses completion`; Mutation checkpoint: its regression carries `// @mutate` removing the pre-commit stranded-mutation check; reverting that guard turns the named pin red.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust replaces the `SIGKILL`-only stranded-mutation caveat with verify-run-scoped completion-boundary refusal after any abnormal verification settle.
-- [ ] `v2/docs/v1-behaviors.md` records narrowed selection, blocking unparseable/unresolved, path-qualified pinning, scoped verification abort/timeout, and stranded-mutation refusal at the completion boundary.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `completion-commit.test.ts` — `stranded replacement in staged content refuses completion` proves the completion boundary refuses when staged content contains a verify-run directive's replacement text while missing its original, naming path and directive; it fails against the current committer.
+- [x] `completion-commit.test.ts` — `stranded replacement in HEAD refuses even when working copy is clean` proves a verify-run mutation present in `HEAD` but absent from the working copy is still refused; it fails against working-copy-only comparison.
+- [x] `completion-commit.test.ts` — `stranded replacement in staged content refuses completion`; Mutation checkpoint: its regression carries `// @mutate` removing the pre-commit stranded-mutation check; reverting that guard turns the named pin red.
+- [x] `v2/docs/operator-runbook.md` § Gate trust replaces the `SIGKILL`-only stranded-mutation caveat with verify-run-scoped completion-boundary refusal after any abnormal verification settle.
+- [x] `v2/docs/v1-behaviors.md` records narrowed selection, blocking unparseable/unresolved, path-qualified pinning, scoped verification abort/timeout, and stranded-mutation refusal at the completion boundary.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

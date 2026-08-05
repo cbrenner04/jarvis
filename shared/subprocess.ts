@@ -14,6 +14,8 @@ export type AsyncSubprocessOptions = {
   timeoutMs?: number;
   /** Environment variables for the child process; unset preserves inherited env. */
   env?: NodeJS.ProcessEnv;
+  /** When aborted, kills the child with SIGTERM then SIGKILL after a short grace period. */
+  signal?: AbortSignal;
 };
 
 export class AsyncSubprocessError extends Error {
@@ -63,7 +65,8 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
   async runAsync(cmd, args, cwd, options) {
     const stdio = options?.stdio ?? "pipe";
     return new Promise((resolve, reject) => {
-      execFile(
+      let settled = false;
+      const child = execFile(
         cmd,
         args,
         {
@@ -75,6 +78,9 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           ...(options?.env !== undefined ? { env: options.env } : {}),
         },
         (error, stdout, stderr) => {
+          if (settled) return;
+          settled = true;
+          cleanupAbort();
           if (error) {
             const status = typeof error.code === "number" ? error.code : undefined;
             reject(
@@ -89,6 +95,21 @@ export const realAsyncSubprocessRunner: AsyncSubprocessRunner = {
           } else resolve(stdio === "ignore" ? "" : (stdout ?? ""));
         },
       );
+
+      const killChild = () => {
+        if (settled) return;
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (!settled) child.kill("SIGKILL");
+        }, 50).unref?.();
+      };
+
+      const onAbort = () => killChild();
+      const cleanupAbort = () => options?.signal?.removeEventListener("abort", onAbort);
+      if (options?.signal !== undefined) {
+        if (options.signal.aborted) killChild();
+        else options.signal.addEventListener("abort", onAbort, { once: true });
+      }
     });
   },
 };

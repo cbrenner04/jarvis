@@ -343,6 +343,107 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
   });
 
+  test("unparseable in a referenced pinning file refuses completion", async () => {
+    // @mutate v2/src/execution/write.ts "report.unparseable.length === 0" -> "true"
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `v2/src/execution/write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: flipping the guard turns this RED.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "v2/src/execution/write.test.ts"),
+      'test("unparseable in a referenced pinning file refuses completion", () => {\n  // @mutate nonsense\n});\n',
+      "utf8",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("v2/src/execution/write.test.ts");
+      expect(result.result.failureReason).toContain("// @mutate nonsense");
+      expect(result.result.failureReason).toContain("malformed");
+    }
+  });
+
+  test("unresolved pinning test blocks completion", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (normalized.includes(\"/\"))" -> "if (false)"
+    const { jarvisRoot } = createJarvisHome();
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
+    writeFileSync(
+      join(worktree, "v2/src/execution/write.test.ts"),
+      [
+        'test("unresolved pinning test blocks completion", () => {',
+        '  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (normalized.includes(\\"/\\"))" -> "if (false)"',
+        "});",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const unresolvedSubspec = join(worktree, "unresolved-pin.md");
+    writeFileSync(
+      unresolvedSubspec,
+      "## Acceptance criteria\n\n- [x] `absent.test.ts` — `missing pin`; Mutation checkpoint: named.\n",
+      "utf8",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: unresolvedSubspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("criterion:");
+      expect(result.result.failureReason).toContain("reference: absent.test.ts");
+      expect(result.result.failureReason).toContain("reason: unresolved_pinning_test");
+    }
+  });
+
+  test("ambiguous pinning-test basename blocks completion", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] `write.test.ts` — `ambiguous pin`; Mutation checkpoint: ambiguous basename.\n",
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(join(worktree, "v2/src/a"), { recursive: true });
+    mkdirSync(join(worktree, "v2/src/b"), { recursive: true });
+    writeFileSync(join(worktree, "v2/src/a/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
+    writeFileSync(join(worktree, "v2/src/b/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: { runScopedTests: async () => true },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
+      expect(result.result.failureReason).toContain("criterion:");
+      expect(result.result.failureReason).toContain("reference: write.test.ts");
+      expect(result.result.failureReason).toContain("reason: unresolved_pinning_test");
+    }
+  });
+
   test("done completes when only a wrapped human-only criterion is unchecked", async () => {
     // @mutate v2/src/execution/write.ts ".filter((criterion) => !criterion.humanOnly && !criterion.checked)" -> ".filter((criterion) => criterion.humanOnly && !criterion.checked)"
     const { jarvisRoot } = createJarvisHome();

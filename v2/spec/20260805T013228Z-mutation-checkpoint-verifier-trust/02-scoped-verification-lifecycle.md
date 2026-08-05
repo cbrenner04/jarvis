@@ -26,12 +26,12 @@
 
 ## Acceptance criteria
 
-- [ ] `mutation-checkpoint-verifier.test.ts` — `abort during verification restores pre-mutation bytes` aborts mid-scoped-run via `AbortSignal`, asserts the scoped `bun` subprocess is terminated and every mutated file matches its pre-mutation bytes; it fails against the pre-fix verifier.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `scoped verification timeout terminates and restores` proves a scoped run exceeding its per-directive budget kills the subprocess and restores the target file rather than blocking indefinitely; it fails against the pre-fix verifier.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `throw mid-directive restores from snapshot` proves a scoped runner throw restores the target file via the snapshot path with assertions distinct from the abort regression; it fails against snapshot-less abort-only wiring.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `abort during verification restores pre-mutation bytes`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "<snapshot-restore guard>" -> "<finally-only restore>"` (revert snapshot restore on abort); reverting the real guard turns the named pin red.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents scoped verification abort/timeout subprocess termination and snapshot restore on abnormal settle.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `mutation-checkpoint-verifier.test.ts` — `abort during verification restores pre-mutation bytes` aborts mid-scoped-run via `AbortSignal`, asserts the scoped `bun` subprocess is terminated and every mutated file matches its pre-mutation bytes; it fails against the pre-fix verifier.
+- [x] `mutation-checkpoint-verifier.test.ts` — `scoped verification timeout terminates and restores` proves a scoped run exceeding its per-directive budget kills the subprocess and restores the target file rather than blocking indefinitely; it fails against the pre-fix verifier.
+- [x] `mutation-checkpoint-verifier.test.ts` — `throw mid-directive restores from snapshot` proves a scoped runner throw restores the target file via the snapshot path with assertions distinct from the abort regression; it fails against snapshot-less abort-only wiring.
+- [x] `mutation-checkpoint-verifier.test.ts` — `abort during verification restores pre-mutation bytes`; Mutation checkpoint: its regression carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "<snapshot-restore guard>" -> "<finally-only restore>"` (revert snapshot restore on abort); reverting the real guard turns the named pin red.
+- [x] `v2/docs/operator-runbook.md` § Gate trust documents scoped verification abort/timeout subprocess termination and snapshot restore on abnormal settle.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

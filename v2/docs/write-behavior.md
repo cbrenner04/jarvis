@@ -1063,24 +1063,32 @@ worktree.
 
 **Implement routing to linked subspecs:** When `jarvis run workflow implement`
 is launched with a multi-subspec `index.md`, the harness routes each write-loop
-iteration to the first unchecked linked subspec in the index. The routing base
-is the external worktree when present, otherwise the registered project root on
-first launch. The active linked subspec's path and body are injected into the
-prompt; agent iterations execute that subspec rather than the index. After the
-write loop creates the worktree, harness advancement reads and writes the
-worktree's index and subspec copies only. Routing state is protected: agent-authored
-changes to index checkboxes are detected, restored, and reported as
-`implement.index_routing_mutated` without advancing routing; agent edits to the
-active subspec's acceptance criteria remain allowed. Harness-only advancement
-occurs when all non-human-only criteria in the active subspec are complete;
-unchecked human-only criteria do not block routing advancement. After the final
-linked subspec completes, shrink runs once. Direct subspec input (non-index
-`--spec`) fails with `implement.requires_index`; empty or already-complete
-indexes return complete without implement or shrink invocation. Invalid linked
-paths (malformed, missing, unreadable, out-of-tree) fail before agent
-invocation with named diagnostics: `implement.malformed_link`,
-`implement.link_missing`, `implement.link_unreadable`, or
-`implement.link_out_of_tree`.
+iteration to the first linked subspec with an unticked non-human-only
+acceptance criterion, ignoring each link's own `index.md` checkbox — a
+criteria-complete link (including one with no acceptance criteria at all) is
+skipped even if its index box is unchecked. The routing base is the external
+worktree when present, otherwise the registered project root on first launch.
+The active linked subspec's path and body are injected into the prompt; agent
+iterations execute that subspec rather than the index. Once that link's write
+loop completes, routing re-resolves the same pinned link by index (not a fresh
+selection) to read back the agent's edits, so the loop cannot walk past the
+link it just finished. After the write loop creates the worktree, harness
+advancement reads and writes the worktree's index and subspec copies only.
+Routing state is protected: agent-authored changes to index checkboxes are
+detected, restored, and reported as `implement.index_routing_mutated` without
+advancing routing; agent edits to the active subspec's acceptance criteria
+remain allowed. Harness-only advancement occurs when all non-human-only
+criteria in the active subspec are complete; unchecked human-only criteria do
+not block routing advancement. After the final linked subspec completes,
+shrink runs once. Direct subspec input (non-index `--spec`) fails with
+`implement.requires_index`; a tree whose links are all criteria-complete
+returns complete without implement or shrink invocation
+(`implement.already_complete`), regardless of index-checkbox state. Invalid
+linked paths (malformed, missing, unreadable, out-of-tree) fail before agent
+invocation with named diagnostics, in scan order — a broken link fails routing
+even when a later, otherwise-selectable incomplete link follows it:
+`implement.malformed_link`, `implement.link_missing`,
+`implement.link_unreadable`, or `implement.link_out_of_tree`.
 
 **Implement debate review (on by default):** Omitted `--review-passes` (or project
 `implement.reviewPasses` absent) appends one `review-debate` step after terminal

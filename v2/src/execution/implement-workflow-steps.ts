@@ -1,6 +1,9 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
+import {
+  hasUncheckedNonHumanOnlyCriteria,
+  resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
+} from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
 import {
   implementReviewPromptProfile,
@@ -348,10 +351,6 @@ function validateLinkedIndexRouting(
   return { error: `implement.${routingResult.errorKind}: ${routingResult.error}` };
 }
 
-function specHasUncheckedAutomatedCriterion(content: string): boolean {
-  return parseSpec(content).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);
-}
-
 const ALREADY_COMPLETE_ERROR =
   "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria";
 
@@ -368,7 +367,7 @@ export function validateImplementSpecTreeCompletion(
   }
   const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
   if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
-    return specHasUncheckedAutomatedCriterion(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
+    return hasUncheckedNonHumanOnlyCriteria(specContent) ? undefined : ALREADY_COMPLETE_ERROR;
   }
   for (const subspec of linkedSubspecs) {
     const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
@@ -376,7 +375,7 @@ export function validateImplementSpecTreeCompletion(
       return `implement.link_out_of_tree: Linked path is outside project: ${subspec.path}`;
     }
     try {
-      if (specHasUncheckedAutomatedCriterion(readSpecFile(subspecPath))) return undefined;
+      if (hasUncheckedNonHumanOnlyCriteria(readSpecFile(subspecPath))) return undefined;
     } catch (err) {
       return `implement.link_unreadable: ${err instanceof Error ? err.message : String(err)}`;
     }

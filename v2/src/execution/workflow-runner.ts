@@ -4,7 +4,12 @@ import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
-import { completeLinkedSubspec, resolveActiveLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
+import {
+  completeLinkedSubspec,
+  type LinkedIndexRoutingResult,
+  resolveActiveLinkedSubspec,
+  resolvePinnedLinkedSubspec,
+} from "../../../shared/linked-subspec-routing.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
@@ -443,7 +448,7 @@ function resolveInWorktree(worktreePath: string, path: string): string {
 }
 
 function linkedImplementRoutingFailureOutcome(
-  routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: false }>,
+  routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
   totalIterationsConsumed: number,
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
@@ -519,7 +524,7 @@ async function runPreparedLinkedWriteStep(
 
 function finalizeLinkedImplementPass(
   stepped: WorkflowStepOutcome,
-  routing: Extract<ReturnType<typeof resolveActiveLinkedSubspec>, { ok: true }>,
+  routing: Extract<LinkedIndexRoutingResult, { ok: true }>,
   beforeIndexContent: string,
   indexPath: string,
 ): WorkflowStepOutcome | undefined {
@@ -546,14 +551,14 @@ function finalizeLinkedImplementPass(
 }
 
 /**
- * Drive one `implement` step across every unchecked linked subspec named by its
- * index (`specPath`). Each pass re-resolves the active link, runs the write
- * loop against it with that link's path as the completion artifact, then — only
- * once the write loop reports `complete` — verifies the link's non-human-only
- * acceptance criteria, guards against agent-authored edits to the index routing
- * checklist, and advances only that link's checkbox before resolving the next
- * link. Returns as soon as a link produces a non-complete outcome, or once the
- * terminal link advances.
+ * Drive one `implement` step across every criteria-incomplete linked subspec named by its
+ * index (`specPath`). Each pass resolves the active link once, runs the write loop against it
+ * with that link's path as the completion artifact, then — only once the write loop reports
+ * `complete` — re-resolves that same pinned link (not a fresh selection) to read back the
+ * agent's edits, verifies its non-human-only acceptance criteria, guards against agent-authored
+ * edits to the index routing checklist, and advances only that link's checkbox before resolving
+ * the next link. Returns as soon as a link produces a non-complete outcome, or once the terminal
+ * link advances.
  */
 async function runLinkedImplementStep(
   step: WriteWorkflowStep,
@@ -612,17 +617,12 @@ async function runLinkedImplementStep(
     }
 
     const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
-    const worktreeRouting = resolveActiveLinkedSubspec(worktreeIndexPath, worktreePath);
-    if (!worktreeRouting.ok) {
-      return linkedImplementRoutingFailureOutcome(
-        worktreeRouting,
-        totalIterationsConsumed,
-        stepIndex,
-        onStepRunCreated,
-      );
+    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, worktreePath, routing.active.index);
+    if (!pinnedRouting.ok) {
+      return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, worktreeRouting, beforeIndexContent, worktreeIndexPath);
+    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, worktreeIndexPath);
     if (finalized !== undefined) {
       return finalized;
     }

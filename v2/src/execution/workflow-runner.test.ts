@@ -4414,6 +4414,60 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
+  test("routes to the second linked subspec by criteria when the first is criteria-complete with an unchecked index box, pinning that selection across the write loop", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "resolvePinnedLinkedSubspec(worktreeIndexPath, worktreePath, routing.active.index)" -> "resolveActiveLinkedSubspec(worktreeIndexPath, worktreePath)"
+    const reviewCalls: string[] = [];
+    const branchName = "linked-routing-criteria-second";
+    const implementStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: "index.md",
+        expectedArtifactPath: "index.md",
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          writeFileSync(join(cwd, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [x] Done\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      linkedIndexRouting: true,
+    };
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      branchName,
+    );
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
+    writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [x] Done\n", "utf8");
+    writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Todo\n", "utf8");
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async () => {
+        reviewCalls.push("review");
+        return { kind: "ok", stdout: "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep, reviewStep], stateStore: store });
+
+      expect(result.kind).toBe("complete");
+      // Review only runs once implementReviewEligible is true, which the outer loop sets only
+      // when the pinned second link's completion is terminal — proving the write loop targeted
+      // and completed the second (not the first, criteria-complete) subspec.
+      expect(reviewCalls.length).toBeGreaterThan(0);
+      expect(readFileSync(join(worktreePath, "index.md"), "utf8")).toBe(
+        "- [ ] [One](./one.md)\n- [x] [Two](./two.md)\n",
+      );
+    });
+  });
+
   test("stops at review invocation_failure without treating it as workflow complete", async () => {
     const implementStep = createStep({
       stepId: "implement",

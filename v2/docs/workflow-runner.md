@@ -556,29 +556,45 @@ when the project record exists regardless of pipeline configuration.
 
 **Linked-subspec routing:** When `specPath` points to a multi-subspec
 `index.md`, the builder and runner use the shared linked-subspec routing contract
-to resolve the first unchecked linked subspec via
-`resolveActiveLinkedSubspec`. A linked workflow materializes and validates its
-managed worktree before its first routing read or callback. The active subspec's
-path relative to that worktree is set as `expectedArtifactPath`, and that subspec's
-body is injected into the prompt during iteration. Acceptance-criteria
-verification, the index-mutation guard, and harness checkbox advancement all read
-and write the worktree copy; index ticks land on the branch, not in the operator
-checkout. Routing state is validated and protected during iteration:
-agent-authored changes to index checkboxes are restored and reported as
-`implement.index_routing_mutated`; agent edits to the active subspec's criteria
-remain allowed. Harness advancement checks non-human-only acceptance criteria
-only; unchecked human-only criteria do not block routing. After the final
-linked subspec completes, shrink runs once. Direct subspec input (non-index
-`specPath`) fails with `implement.requires_index`. Empty indexes (no linked
-subspecs) and empty indexes retain their routing behavior. A complete linked tree
-is rejected at launch rather than starting a no-op workflow. Invalid linked paths fail before agent
-invocation: `implement.malformed_link` (empty/invalid path syntax),
-`implement.link_missing` (file not found), `implement.link_unreadable` (I/O
-error), `implement.link_out_of_tree` (resolved path outside project).
+to resolve the first linked subspec with an unticked non-human-only acceptance
+criterion via `resolveActiveLinkedSubspec` — selection ignores each link's
+`index.md` checkbox entirely; a criteria-complete link (including one with no
+acceptance criteria at all) is skipped in favor of the next incomplete one, even
+if its own index box is unchecked. `isTerminal` means the selected link is the
+last one with unticked criteria remaining, not that it occupies the last index
+position — a later, already-criteria-complete link does not cost terminal
+eligibility. A linked workflow materializes and validates its managed worktree
+before its first routing read or callback. The active subspec's path relative to
+that worktree is set as `expectedArtifactPath`, and that subspec's body is
+injected into the prompt during iteration. Once the write loop for that link
+completes, the runner re-resolves that same pinned link by index (not a fresh
+selection) to read back the agent's edits and a fresh `isTerminal` scan — it
+never re-scans for a new "first incomplete" candidate, since the agent's own
+edits could otherwise cause the loop to walk past the link it just finished.
+Acceptance-criteria verification, the index-mutation guard, and harness checkbox
+advancement all read and write the worktree copy; index ticks land on the
+branch, not in the operator checkout. Routing state is validated and protected
+during iteration: agent-authored changes to index checkboxes are restored and
+reported as `implement.index_routing_mutated`; agent edits to the active
+subspec's criteria remain allowed. Harness advancement checks non-human-only
+acceptance criteria only; unchecked human-only criteria do not block routing.
+After the final linked subspec completes, shrink runs once. Direct subspec input
+(non-index `specPath`) fails with `implement.requires_index`. Empty indexes (no
+linked subspecs) and empty indexes retain their routing behavior. A tree whose
+links are all criteria-complete is rejected at launch (`implement.already_complete`)
+rather than starting a no-op workflow, regardless of index-checkbox state.
+Invalid linked paths fail before agent invocation, in scan order — a broken link
+fails routing even when a later, otherwise-selectable incomplete link follows it:
+`implement.malformed_link` (empty/invalid path syntax), `implement.link_missing`
+(file not found), `implement.link_unreadable` (I/O error),
+`implement.link_out_of_tree` (resolved path outside project).
 
-`shared/linked-subspec-routing.ts` owns linked-subspec selection, advancement,
-terminal detection, and named failure classification. `workflow-runner.ts` only
-coordinates worktree reads, write-loop execution, and applying the shared result.
+`shared/linked-subspec-routing.ts` owns linked-subspec selection, pinned
+re-resolution, advancement, terminal detection, and named failure
+classification — including the shared unticked-non-human-only-criteria
+predicate consumed by the preflight, the router, and completion alike.
+`workflow-runner.ts` only coordinates worktree reads, write-loop execution, and
+applying the shared result.
 
 **Non-linked routing:** When `specPath` is a direct subspec or an index with no
 linked subspecs but tasks, routing behavior is unchanged (direct file routing).

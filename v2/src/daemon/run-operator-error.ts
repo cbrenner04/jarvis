@@ -60,6 +60,8 @@ export type RunOperatorError = {
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
   contractMissDetail?: string;
+  completedSubspecPaths?: string[];
+  remainingSubspecPaths?: string[];
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -154,6 +156,7 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
     case "surviving_mutation_failed":
     case "completion_commit_failed":
     case "iteration_commit_failed":
+    case "iteration_timeout":
     case "landing_failed":
       return true;
     default:
@@ -227,8 +230,15 @@ function mapFromLoopFinished(
         : op("contract_miss", "inspect_spec");
     case "invocation_failure":
       return (lastAttempt && mapInvocationFromAttempt(lastAttempt)) ?? op("invocation_error", "stop");
-    case "iteration_timeout":
-      return event.resumable ? op("iteration_timeout", "resume", true) : op("iteration_timeout", "stop");
+    case "iteration_timeout": {
+      const base = event.resumable ? op("iteration_timeout", "resume", true) : op("iteration_timeout", "stop");
+      return {
+        ...base,
+        ...(event.completedSubspecPaths !== undefined ? { completedSubspecPaths: event.completedSubspecPaths } : {}),
+        ...(event.remainingSubspecPaths !== undefined ? { remainingSubspecPaths: event.remainingSubspecPaths } : {}),
+        ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
+      };
+    }
     case "idle_output_timeout":
       return op("idle_output_timeout", "stop");
     default:
@@ -264,7 +274,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
   surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume (before repair exhaustion)",
   mutation_repair_exhausted: "manually fix and publish the worktree, or untick criteria before re-running implement",
-  iteration_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  iteration_timeout:
+    "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",
   idle_output_timeout: "inspect the stall in jarvis run log, then re-dispatch the workflow",
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",
 } satisfies Record<RunOperatorErrorReason, string>;

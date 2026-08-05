@@ -20,6 +20,8 @@ let logsPath: string;
 let handlers: Handlers;
 
 const WAIT_COMPLETION_MACHINE_PROFILE = "wait-completion-profile";
+const TIMEOUT_FIRST_SUBSPEC = "spec/implement/00-first.md";
+const TIMEOUT_SECOND_SUBSPEC = "spec/implement/01-second.md";
 
 function installWaitCompletionMachineProfile(): void {
   const profileHome = mkdtempSync(join(tmpdir(), "jarvis-wait-completion-profile-"));
@@ -67,6 +69,35 @@ function finishLoop(runId: string, status: RunStatus, iterationsConsumed = 1): v
     loopOutcomeKind: status === "blocked" ? "blocked" : "complete",
     iterationsConsumed,
     resumable: status === "paused" || status === "budget-soft-stopped",
+  });
+}
+
+function createImplementRun(): string {
+  return stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project",
+    branch: `test-branch-${crypto.randomUUID()}`,
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: "inv-implement",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "retry rules",
+          expectedArtifactPath: "/tmp/test-project/artifact",
+          agents: ["codex"],
+          agentModelConfig: {
+            codex: {
+              implement: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+              shrink: { rungs: [{ adapterModel: "S1", priceKey: "S1" }] },
+            },
+          },
+        },
+      ],
+    },
   });
 }
 
@@ -388,6 +419,188 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     loopOutcomeKind: "completion_commit_failed",
     resumable: true,
     error: expectedShrinkError,
+  });
+});
+
+test("list and wait project dirty no-work refusal with uncommitted paths", async () => {
+  const runId = createImplementRun();
+  const completionCommitError = "Uncommitted changes: left-dirty.txt";
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    completionCommitError,
+  });
+
+  const expectedError = {
+    reason: "completion_commit_failed",
+    retryable: true,
+    nextAction: "resume",
+    completionCommitError,
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("dirty-no-work", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "completion_commit_failed",
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait project resumable iteration_timeout as resume", async () => {
+  const runId = createImplementRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths: [TIMEOUT_FIRST_SUBSPEC],
+    remainingSubspecPaths: [TIMEOUT_SECOND_SUBSPEC],
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths: [TIMEOUT_FIRST_SUBSPEC],
+    remainingSubspecPaths: [TIMEOUT_SECOND_SUBSPEC],
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait project non-resumable iteration_timeout as stop", async () => {
+  const runId = createRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 1,
+    resumable: false,
+    completedSubspecPaths: [],
+    remainingSubspecPaths: [TIMEOUT_FIRST_SUBSPEC, TIMEOUT_SECOND_SUBSPEC],
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: false,
+    nextAction: "stop",
+    completedSubspecPaths: [],
+    remainingSubspecPaths: [TIMEOUT_FIRST_SUBSPEC, TIMEOUT_SECOND_SUBSPEC],
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: false, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-non-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
+test("list and wait prefer resumable iteration_timeout over blocked last attempt", async () => {
+  const runId = createImplementRun();
+  const completedSubspecPaths = [TIMEOUT_FIRST_SUBSPEC];
+  const remainingSubspecPaths = [TIMEOUT_SECOND_SUBSPEC];
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "blocked", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("timeout-over-blocked", runId))).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test("list and wait carry iteration_timeout completion inventory", async () => {
+  const runId = createImplementRun();
+  const completedSubspecPaths = [TIMEOUT_FIRST_SUBSPEC];
+  const remainingSubspecPaths = [TIMEOUT_SECOND_SUBSPEC];
+  const publicationFailure = {
+    operation: "push" as const,
+    message: "remote rejected",
+    exitCode: 7,
+    stdoutTail: "out",
+    stderrTail: "err",
+  };
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "iteration_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+
+  const expectedError = {
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toMatchObject(expectedError);
+
+  expect(await expectResponse(await waitDirect("timeout-inventory", runId))).toMatchObject({
+    runStatus: "failed",
+    error: expectedError,
   });
 });
 

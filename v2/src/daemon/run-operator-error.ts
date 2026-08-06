@@ -179,6 +179,7 @@ export function resolveFailedBlockedAttemptPrecedence(
   return lastAttempt ? mapInvocationFromAttempt(lastAttempt) : undefined;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: maps each terminal loop_finished outcome kind to its operator error/recovery, one branch per kind
 function mapFromLoopFinished(
   event: LoopFinishedEvent,
   lastAttempt?: Attempt,

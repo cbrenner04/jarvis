@@ -522,7 +522,10 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout 
     remainingSubspecPaths,
   });
   expect(
-    resolveFailedBlockedAttemptPrecedence(attempt("blocked"), loopFinishedEvent("iteration_timeout", { resumable: false })),
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("iteration_timeout", { resumable: false }),
+    ),
   ).toEqual(err("agent_blocked", "inspect_spec"));
 });
 

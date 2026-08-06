@@ -8,8 +8,8 @@ Authority: operator priorities. Updated 2026-08-06.
 
 ## Start here next (in order)
 
-1. **The implement-blocker cluster — land these three together or back-to-back; they hand-blocked every subspec of `implement-completion-honesty` this session and recur across sessions:**
-   - `seeds/implement-reconciles-mutation-directive-to-landed-code` — **NEW.** Plan-authored `@mutate` directives quote unwritten call syntax → `target_absent` hard-block on otherwise-correct code. Should reprompt the agent to retarget, not settle `resumable: false`.
+1. **The implement-blocker cluster — land these back-to-back; they hand-blocked every subspec of `implement-completion-honesty` this session and recur across sessions:**
+   - ~~`seeds/implement-reconciles-mutation-directive-to-landed-code`~~ — **LANDED** (`20260806T030357Z-mutation-directive-target-absent-reprompts`). Repromptable `target_absent` / `target_ambiguous` within `maxIterations`; hard-block on exhaustion, hollow, mixed failure.
    - `seeds/implement-completion-commit-runs-formatter` — implement commits unformatted code **and** over-complexity; CI `check` / the ready-gate autofix fails. Formatter is autofixable; cognitive complexity is **not** (needs a `biome-ignore` or helper extraction) — cover both.
    - `seeds/implement-review-publication-successor-stalls-indefinitely` — the publication successor dispatches minutes after write+review settle; an operator who reads "no PR yet" races it (did so this session). Successor watchdog / observable publication row.
 2. `seeds/intent-workflow-lacks-stale-workspace-reset` — killed intent strands a verdict marker; next intent run fails non-retryably.
@@ -43,7 +43,7 @@ Notes: seed 2's intent over-split into 4; consolidated to ONE ready-intent → o
 
 | Order | Seed | Notes |
 | --- | --- | --- |
-| 1 | `seeds/implement-reconciles-mutation-directive-to-landed-code` | **NEW.** `target_absent` `@mutate` should reprompt, not hard-block. Recurs every subspec. |
+| 1 | ~~`seeds/implement-reconciles-mutation-directive-to-landed-code`~~ | **LANDED** — reprompt within `maxIterations`; hard-block on exhaustion / hollow / mixed. |
 | 2 | `seeds/implement-completion-commit-runs-formatter` | Unformatted + over-complexity commits fail the gate; complexity is not autofixable. |
 | 3 | `seeds/implement-review-publication-successor-stalls-indefinitely` | Publication successor dispatches late; operators race it. |
 | 4 | `seeds/intent-workflow-lacks-stale-workspace-reset` | Killed intent strands a verdict marker; next intent run fails non-retryably. |

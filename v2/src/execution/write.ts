@@ -21,6 +21,7 @@ import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
+import type { MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -184,6 +185,7 @@ export type WriteExecuteInput = {
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
+  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
   /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
   mutationCheckpointSeams?: MutationCheckpointSeams;
 };
@@ -361,6 +363,23 @@ function buildUnparseableCheckpointReason(unparseable: readonly UnparseableDirec
   return `Unparseable mutation checkpoints:\n${lines}`;
 }
 
+/** True when `spec.criteria-ticked` failed on mutation-checkpoint verification, not unticked rows. */
+export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | undefined): boolean {
+  if (failureReason === undefined) return false;
+  if (failureReason.startsWith("Unticked non-human-only acceptance criteria:")) return false;
+  return (
+    failureReason.startsWith("Unparseable mutation checkpoints:") ||
+    failureReason.startsWith("Hollow mutation checkpoints")
+  );
+}
+
+export function formatMutationDirectiveRepromptListing(context: MutationDirectiveRepromptContext): string {
+  if (context.directives.length > 0) {
+    return context.directives.map((d) => `- ${d.pinningFile}:${d.line}: ${d.reason}: ${d.raw}`).join("\n");
+  }
+  return context.display;
+}
+
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
   if (!existsSync(artifactPath)) {
     return [];
@@ -381,12 +400,20 @@ async function executeDefaultWrite(
 ): Promise<StepRunResult> {
   let prompt: string;
   try {
-    const placeholders = assembleWriteStepPlaceholders(
-      promptId,
-      { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
-      args.promptPlaceholders,
-    );
-    prompt = renderStepPrompt(promptId, placeholders);
+    if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
+      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.mutation-directive-reprompt"), {
+        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
+        DIRECTIVE_LIST: formatMutationDirectiveRepromptListing(args.mutationDirectiveReprompt),
+        STEP_RULES: args.stepRules,
+      });
+    } else {
+      const placeholders = assembleWriteStepPlaceholders(
+        promptId,
+        { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
+        args.promptPlaceholders,
+      );
+      prompt = renderStepPrompt(promptId, placeholders);
+    }
   } catch (err) {
     if (err instanceof PromptRenderingError) {
       return {

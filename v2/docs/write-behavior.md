@@ -1107,6 +1107,8 @@ resuming past it. Checkpoint reuse applies to landed reviews (`plan-tree` and
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 
+**Mutation-directive reprompt pause/resume:** After a repromptable mutation-checkpoint miss, the write loop logs `mutation_directive_reprompt` with structured `directives` and a truncated `display`, commits a `progress` boundary, and continues within `maxIterations`. Reprompt context persists across non-`complete` iterations until mutation checkpoints pass (same pattern as landing reprompt). A paused run after such a miss restores the full directive list from the last `mutation_directive_reprompt` log event for the next `write.mutation-directive-reprompt` iteration.
+
 ## Loop outcomes
 
 The loop classifies and routes results:
@@ -1130,13 +1132,23 @@ The loop classifies and routes results:
      abort, timeout, or throw — abnormal settle does not count as verification).
      Hollow checkpoints (suite stayed green), comment-leading unparseable
      directives, and unresolved pinning-test references settle `contract_miss`
-     with named coordinates. Verify-run unrestored directives are tracked;
+     with named coordinates. Repromptable unparseable directives (`target_absent`,
+     `target_ambiguous` in opened pinning files with no hollow checkpoint and no
+     mixed unparseable reasons) reprompt within `maxIterations` via
+     `write.mutation-directive-reprompt` instead of terminal `contract_miss`;
+     budget exhaustion still settles `contract_miss` with harness `## Blocker`.
+     Verify-run unrestored directives are tracked;
      completion refuses when staged or `HEAD` blob content still carries
      replacement text without the original (including pending-commit resume).
   
-  All contracts pass → success (`complete`). Any fail → append `## Blocker`
-  to the artifact (spec.criteria-ticked → active subspec; artifact.exists →
-  routing index for linked runs) and stop (`contract_miss`). A missing terminal
+  All contracts pass → success (`complete`). Repromptable mutation-directive misses
+  (`target_absent`, `target_ambiguous` with no hollow checkpoint and no mixed
+  unparseable reasons) reprompt within `maxIterations` via
+  `write.mutation-directive-reprompt` instead of appending `## Blocker` and
+  settling terminal `contract_miss`; budget exhaustion still hard-blocks. Other
+  contract failures append `## Blocker` to the artifact
+  (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index
+  for linked runs) and stop (`contract_miss`). A missing terminal
   token after the one re-prompt uses the same contract checks: all pass →
   `complete` (token `done`); any fail → `invalid_token` (no `## Blocker`
   append).

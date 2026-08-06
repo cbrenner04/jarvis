@@ -46,6 +46,7 @@ import {
   applyOperatorSessionId,
   executeWriteLoop,
   findLandingContractRepromptFromLog,
+  findMutationDirectiveRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import { connectIpcClient } from "../ipc/client";
@@ -543,6 +544,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
   }
 
   const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
+  const mutationDirectiveReprompt = findMutationDirectiveRepromptFromLog(logRecords);
 
   return resolveWriteLoopBindings({
     worktree: {
@@ -568,6 +570,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
     ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
+    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
   });
 }
 

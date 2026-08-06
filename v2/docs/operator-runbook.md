@@ -568,13 +568,13 @@ bindings" caveat above.
 
 ## Gate trust
 
-**Plan-authored `@mutate` directives quote unwritten call syntax → `target_absent` hard-block (2026-08-05).**
-A mutation-checkpoint directive whose quoted original names a call site (`fn(a, b)`) blocks completion
-(`spec.criteria-ticked`, `resumable: false`) when the implementer writes a different signature (extra args,
-renamed locals) or the call recurs at several sites (ambiguous). Hit on all three `implement-completion-honesty`
-subspecs this session, and on #2597 the prior session. Fix by hand: retarget the directive in the pinning test
-to the unique real call site, verify it reddens (apply → run the pinning test → expect fail → revert), re-tick.
-Seed: `v2/spec/seeds/implement-reconciles-mutation-directive-to-landed-code.md`. Cleanup: delete when that seed ships.
+**Plan-authored `@mutate` directives quote call syntax the implementer later writes differently → reprompt within `maxIterations` (not terminal hard-block).**
+When every blocking unparseable in opened pinning files is `target_absent` or `target_ambiguous`
+(no hollow checkpoint, no `unresolved_pinning_test`, no other unparseable reasons), the write loop
+reprompts via `write.mutation-directive-reprompt` instead of settling `resumable: false` on the
+first miss. Budget exhaustion, mixed failure, hollow checkpoints, and other unparseable reasons
+still hard-block with harness `## Blocker`. Resume replays the last `mutation_directive_reprompt`
+log event. Seed: `v2/spec/20260806T030357Z-mutation-directive-target-absent-reprompts`.
 
 **Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement does
 not run biome; a new branchy function (preflight-gate sequence, per-outcome mapper) trips
@@ -814,7 +814,9 @@ jarvis run resume <runId>    # write-step runId — re-enters the write loop
 
 `reconstructWriteResume` preserves stage bytes and restores any pending
 landing-contract reprompt context from the last `landing_contract_reprompt` log
-event (including after pause).
+event (including after pause). For implement writes paused after a repromptable
+mutation-checkpoint miss, resume also restores the full directive list from the
+last `mutation_directive_reprompt` log event.
 
 **Review row** (`runId` on the review/finalization step) settled `landing_failed`
 with populated stage replays finalization only

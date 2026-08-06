@@ -126,6 +126,27 @@ export type LandingContractRepromptEvent = {
   offendingFile: string;
 };
 
+/** Structured directive row carried in a mutation-directive reprompt log event. */
+export type MutationDirectiveRepromptDirective = {
+  pinningFile: string;
+  line: number;
+  raw: string;
+  reason: "target_absent" | "target_ambiguous";
+};
+
+/** Resume/prompt payload for a mutation-directive reprompt. */
+export type MutationDirectiveRepromptContext = {
+  directives: MutationDirectiveRepromptDirective[];
+  /** `describeUnparseable` listing for operator display and prompt injection. */
+  display: string;
+};
+
+/** Emitted when implement mutation-checkpoint verification finds only repromptable unparseable directives. */
+export type MutationDirectiveRepromptEvent = {
+  kind: "mutation_directive_reprompt";
+  attemptId: string;
+} & MutationDirectiveRepromptContext;
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -183,6 +204,7 @@ type LogEventWithoutLoopFinished =
   | TokenRepromptEvent
   | BlockerRepromptEvent
   | LandingContractRepromptEvent
+  | MutationDirectiveRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

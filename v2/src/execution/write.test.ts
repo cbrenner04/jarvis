@@ -444,6 +444,47 @@ describe("write behavior", () => {
     }
   });
 
+  test("mutation-directive reprompt uses structured directives when log display is truncated", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(jarvisRoot, "- [x] criterion\n");
+    let capturedPrompt = "";
+    const directives = [
+      {
+        pinningFile: "pin-a.test.ts",
+        line: 2,
+        raw: '// @mutate target.ts "missing-a" -> "x"',
+        reason: "target_absent" as const,
+      },
+      {
+        pinningFile: "pin-b.test.ts",
+        line: 3,
+        raw: '// @mutate target.ts "missing-b" -> "y"',
+        reason: "target_absent" as const,
+      },
+    ];
+
+    await executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: "write-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      specPath: "spec.md",
+      stepRules: "Return exactly one terminal token.",
+      expectedArtifactPath: subspec,
+      promptId: "patch.prompt.body",
+      mutationDirectiveReprompt: { directives, display: "truncated…" },
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+    });
+
+    expect(capturedPrompt).toContain('pin-a.test.ts:2: target_absent: // @mutate target.ts "missing-a" -> "x"');
+    expect(capturedPrompt).toContain('pin-b.test.ts:3: target_absent: // @mutate target.ts "missing-b" -> "y"');
+    expect(capturedPrompt).not.toContain("truncated…");
+  });
+
   test("done completes when only a wrapped human-only criterion is unchecked", async () => {
     // @mutate v2/src/execution/write.ts ".filter((criterion) => !criterion.humanOnly && !criterion.checked)" -> ".filter((criterion) => criterion.humanOnly && !criterion.checked)"
     const { jarvisRoot } = createJarvisHome();

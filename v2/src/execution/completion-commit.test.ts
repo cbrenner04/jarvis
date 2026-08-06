@@ -3,7 +3,11 @@ import { execFile, execFileSync, execSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AsyncSubprocessError, realAsyncSubprocessRunner, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 import type { MutateDirective } from "./mutation-checkpoint-verifier.ts";
@@ -544,9 +548,12 @@ describe("createCompletionCommitter", () => {
     };
 
     await expect(
-      createCompletionCommitter(wrapGitWithAddTracker(() => {
-        addCalled = true;
-      }), failingRunner)(completionInput(worktreePath)),
+      createCompletionCommitter(
+        wrapGitWithAddTracker(() => {
+          addCalled = true;
+        }),
+        failingRunner,
+      )(completionInput(worktreePath)),
     ).rejects.toThrow("failed:\nformatter rejected");
 
     expect(addCalled).toBe(false);
@@ -564,9 +571,10 @@ describe("createCompletionCommitter", () => {
     };
 
     await expect(
-      createCompletionCommitter(wrapGitWithAddTracker(), timeoutRunner)(
-        completionInput(worktreePath, { iterationTimeoutMs: 25 }),
-      ),
+      createCompletionCommitter(
+        wrapGitWithAddTracker(),
+        timeoutRunner,
+      )(completionInput(worktreePath, { iterationTimeoutMs: 25 })),
     ).rejects.toThrow("exceeded 25ms budget");
 
     expect(headSha(worktreePath)).toBe(seedHead);
@@ -588,14 +596,16 @@ describe("createCompletionCommitter", () => {
     };
 
     await expect(
-      createCompletionCommitter(wrapGitWithAddTracker(), capturingRunner)(
-        completionInput(worktreePath, { iterationTimeoutMs: 5 }),
-      ),
+      createCompletionCommitter(
+        wrapGitWithAddTracker(),
+        capturingRunner,
+      )(completionInput(worktreePath, { iterationTimeoutMs: 5 })),
     ).rejects.toThrow("exceeded 5ms budget");
 
-    const result = await createCompletionCommitter(wrapGitWithAddTracker(), capturingRunner)(
-      completionInput(worktreePath, { iterationTimeoutMs: 60_000 }),
-    );
+    const result = await createCompletionCommitter(
+      wrapGitWithAddTracker(),
+      capturingRunner,
+    )(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
     expect(result.commitSha).toBeDefined();
     expect(budgets).toEqual([5, 60_000]);
     expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(FORMATTED_TS);

@@ -2,7 +2,11 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { type AsyncSubprocessRunner, AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import {
   clearUnrestoredDirectives,

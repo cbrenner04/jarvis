@@ -81,6 +81,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   appendRuntimeSmokeOutcome,
+  DEFAULT_ITERATION_TIMEOUT_MS,
   enforcePersistedReadyGateRepairFence,
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
@@ -90,7 +91,6 @@ import {
   MAX_MUTATION_REPAIR_ATTEMPTS,
   publishWithReadyRepair,
   runMutationRepairIteration,
-  DEFAULT_ITERATION_TIMEOUT_MS,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,

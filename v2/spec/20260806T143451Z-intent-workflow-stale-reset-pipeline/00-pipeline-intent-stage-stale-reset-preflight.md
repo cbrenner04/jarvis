@@ -93,14 +93,11 @@ Primary: `v2/src/daemon/pipeline-execution.ts` (`advanceWorkflowStage` path befo
       intent-stage worktree, re-dispatches via failed-stage continuation, asserts worktree absent
       from `git worktree list` and verdict sidecars gone at the dispatch boundary, and fails against
       pre-fix code.
-- [ ] Mutation checkpoint: the affirmative regression in `pipeline-execution.test.ts` carries a
-      `// @mutate` directive that skips intent-stage stale-reset preflight; applying it turns the
-      regression above RED.
+- [ ] Mutation checkpoint: the `pipeline intent-stage re-dispatch resets a poisoned worktree before the write step` test in `pipeline-execution.test.ts` carries a `// @mutate` directive that skips intent-stage stale-reset preflight; applying it turns that test RED.
 - [ ] `pipeline-execution.test.ts` — `"pipeline intent-stage stale-reset refusal fails stage without
       dispatch"` seeds a guard refusal (e.g. dirty tracked file), asserts stage `failed` with
       CLI-matching refusal message and dispatch not called, and fails against pre-fix code.
-- [ ] Mutation checkpoint: the refusal regression in `pipeline-execution.test.ts` carries a
-      `// @mutate` directive on the refusal branch; applying it turns the refusal regression RED.
+- [ ] Mutation checkpoint: the `pipeline intent-stage stale-reset refusal fails stage without dispatch` test in `pipeline-execution.test.ts` carries a `// @mutate` directive on the refusal branch; applying it turns that test RED.
 - [ ] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"` stays
       green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

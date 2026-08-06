@@ -13,8 +13,8 @@
 
 ## Acceptance criteria
 
-- [ ] `bun run fix` on a clean checkout leaves `bun run typecheck` green.
-- [ ] `scripts/biome-useindexof-autofix.test.ts` "does not rewrite findIndex to indexOf when needle is possibly undefined" pins the unsafe `findIndex` → `indexOf` rewrite as not applied; it fails against the pre-fix config.
+- [x] `bun run fix` on a clean checkout leaves `bun run typecheck` green.
+- [x] `scripts/biome-useindexof-autofix.test.ts` "does not rewrite findIndex to indexOf when needle is possibly undefined" pins the unsafe `findIndex` → `indexOf` rewrite as not applied; it fails against the pre-fix config.
 
 ## Documentation updates
 

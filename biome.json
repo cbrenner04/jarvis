@@ -28,6 +28,11 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "complexity": {
+        "useIndexOf": {
+          "fix": "none"
+        }
+      },
       "style": {
         "noNonNullAssertion": {
           "level": "warn",

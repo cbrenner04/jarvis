@@ -3806,8 +3806,8 @@ describe("pipeline plan stage ready-intent consumption", () => {
     else process.env.JARVIS_HOME = previousJarvisHome;
   });
 
-  // @mutate v2/src/execution/publication-workflow-steps.ts "paths: [resolve(project.root, input.readyIntent)]," -> "paths: [join(input.cwd, input.readyIntent)],"
   test("pipeline plan stage landing deletes consumed ready-intent from plan worktree", async () => {
+    // @mutate v2/src/execution/publication-workflow-steps.ts "paths: [resolve(project.root, input.readyIntent)]," -> "paths: [join(input.cwd, input.readyIntent)],"
     const definition = PIPELINE_REGISTRY["full-review"];
     if (definition === undefined) throw new Error("expected full-review pipeline");
     const planStageIndex = definition.stages.findIndex((stage) => stage.stageId === "plan");

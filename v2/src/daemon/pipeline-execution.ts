@@ -1,4 +1,8 @@
 import { basename } from "node:path";
+import type { CliDeps } from "../cli/deps.ts";
+import type { Io } from "../cli/io.ts";
+import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
+import type { IntentWorkflowCliInput } from "../commands/workflow-args.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
@@ -8,6 +12,7 @@ import {
   type TerminalPublicationResult,
 } from "../execution/terminal-publication.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type { IpcClient } from "../ipc/client.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   type ApprovalDecision,
@@ -71,6 +76,14 @@ export type PipelineExecutionDeps = {
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
+  /**
+   * Stale-reset preflight injection for pipeline intent-stage re-dispatch
+   * (see `resetStaleIntentWorkspaceIfNeeded`). `connectClient` opens an `IpcClient` against the
+   * daemon's own socket on demand — pipeline dispatch always runs after the server is listening —
+   * and the preflight closes it after use. Undefined skips the preflight entirely (e.g. in tests
+   * that don't exercise it).
+   */
+  intentStaleReset?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -186,6 +199,7 @@ export async function continuePipeline(
       ...(deps.executeTerminalPublication !== undefined
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),
+      ...(deps.intentStaleReset !== undefined ? { intentStaleReset: deps.intentStaleReset } : {}),
     },
     continuationBranchKey,
   );
@@ -1091,6 +1105,7 @@ type AdvanceWorkflowStageArgs = {
   dispatchClaims: PipelineDispatchClaims;
   peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
+  intentStaleReset?: PipelineExecutionDeps["intentStaleReset"];
 };
 
 function liveLinkedEntryRunId(store: StateStore, record: PipelineStageRecord | undefined): string | undefined {
@@ -1464,6 +1479,64 @@ async function adoptRunningWorkflowStage(
   });
 }
 
+/** Synthetic: default (no override flags) — mirrors CLI `run workflow intent` with no `--reset-despite-*` flags. */
+const SYNTHETIC_INTENT_PARSED_INPUT: IntentWorkflowCliInput = { ok: true, seed: "" };
+
+/**
+ * Before dispatching a resolved intent-stage write step into a git-enabled managed worktree,
+ * reuse the CLI's stale-reset preflight (`maybeResetStaleWorkspace`) so a failed-stage
+ * re-dispatch never reuses a poisoned worktree/branch left over from a prior run. No-op when
+ * `injection` is undefined (stale-reset not wired) or the stage isn't authored `workflow:
+ * "intent"`; `maybeResetStaleWorkspace` itself no-ops for non-git or unmanaged worktrees.
+ */
+async function resetStaleIntentWorkspaceIfNeeded(
+  stage: Extract<PipelineStage, { kind: "workflow" }>,
+  steps: AnyWorkflowStep[],
+  injection: PipelineExecutionDeps["intentStaleReset"],
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (injection === undefined || stage.workflow !== "intent") return { ok: true };
+  let captured = "";
+  const capturingIo: Io = {
+    stdout: injection.io.stdout,
+    stderr: (text: string) => {
+      captured += text;
+      injection.io.stderr(text);
+    },
+  };
+  let client: IpcClient;
+  try {
+    client = await injection.connectClient();
+  } catch (error) {
+    // Fail open: this preflight is a best-effort recovery for a poisoned re-dispatch. If the daemon
+    // cannot open its own control socket (e.g. transient fd pressure), skip the check and proceed to
+    // dispatch rather than hard-failing an otherwise-healthy pipeline stage — degrading to the
+    // pre-feature behavior, where a genuinely poisoned tree still surfaces later at review.
+    injection.io.stderr(
+      `intent-stage stale-reset preflight skipped: could not open daemon control socket: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+    );
+    return { ok: true };
+  }
+  let exitCode: number | undefined;
+  try {
+    exitCode = await maybeResetStaleWorkspace(
+      "intent",
+      { ok: true, steps },
+      injection.cliDeps,
+      capturingIo,
+      SYNTHETIC_INTENT_PARSED_INPUT,
+      client,
+    );
+  } finally {
+    client.close();
+  }
+  if (exitCode !== undefined) {
+    return { ok: false, message: captured.trim() || "Stale workspace reset failed" };
+  }
+  return { ok: true };
+}
+
 /**
  * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
  * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
@@ -1471,6 +1544,7 @@ async function adoptRunningWorkflowStage(
  * call. A resolution failure or a dispatched stage settling non-`succeeded` writes `skipped`
  * to every later stage and stops the loop; no dispatch reaches them.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear stage-advance orchestration; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the single dispatch flow
 async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<StageStepOutcome> {
   const {
     pipelineId,
@@ -1538,11 +1612,30 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       return advanceFanOutStageResolution(args, resolution, stageRecords);
     }
 
+    const resolvedSteps = singleStageResolutionSteps(resolution);
+    // Skips the async call entirely (no extra microtask hop) when stale-reset isn't wired —
+    // the overwhelmingly common case — so the fast path's timing stays exactly as before.
+    const staleReset =
+      args.intentStaleReset === undefined
+        ? ({ ok: true } as const)
+        : await resetStaleIntentWorkspaceIfNeeded(stage, resolvedSteps, args.intentStaleReset);
+    if (!staleReset.ok) {
+      return failWorkflowStageAt(
+        store,
+        pipelineId,
+        stage.stageId,
+        branchKey,
+        stageRecords,
+        index + 1,
+        staleReset.message,
+      );
+    }
+
     await dispatchPipelineStage({
       pipelineId,
       stageId: stage.stageId,
       branchKey,
-      steps: singleStageResolutionSteps(resolution),
+      steps: resolvedSteps,
       dispatch,
       wait,
       store,
@@ -1634,6 +1727,7 @@ async function runConcurrently<T>(tasks: ReadonlyArray<() => Promise<T>>): Promi
   return settled.map((entry) => (entry as PromiseFulfilledResult<T>).value);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential authored-stage loop; the intent-stage stale-reset preflight adds one guarded branch and extracting it would fragment the loop body
 async function runAuthoredStages(args: {
   pipelineId: string;
   deps: PipelineExecutionDeps;
@@ -1687,6 +1781,7 @@ async function runAuthoredStages(args: {
             dispatchClaims,
             peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+            ...(deps.intentStaleReset !== undefined ? { intentStaleReset: deps.intentStaleReset } : {}),
           });
     if (outcome === "stop") return;
     pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;

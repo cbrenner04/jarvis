@@ -15,6 +15,7 @@ Three defects share the ready-gate repair entry pipeline (autofix → classify �
 - Scope is decided by whether the failure reproduces on the run's base ref, not diff membership — rules out path membership as the sole out-of-scope signal.
 - A failure that passes on base and fails in the worktree is in scope; repair proceeds and the failing file joins the repair allowset for that gate only — rules out refusing repair and widening the fence generally.
 - The base-ref probe is scoped to failing files the gate already reports — rules out doubling gate wall time.
+- Base-ref reproduction re-runs each terminal failing ready-step's scoped command at `baseRef` through an injected seam (same step command and attributable paths the gate already reported), not a second full `bun run ready` — rules out doubling gate wall time and rules out opaque worktree snapshot diffs.
 - A probe that cannot run classifies in scope so repair is attempted — rules out fail-closed behavior whose only outcome is an unrecoverable row.
 - An out-of-scope settlement stays `failed` and stops advertising `resumable: true` unless a resume could plausibly change the outcome — rules out infinite identical resume loops.
 - Gate-repair writes only to the attributable allowset the classification computes; edits outside it are refused naming the out-of-scope paths — rules out Markdown failures producing production edits and two divergent path-set notions.
@@ -25,14 +26,14 @@ Three defects share the ready-gate repair entry pipeline (autofix → classify �
 ## Acceptance criteria
 
 - [ ] A pre-fix-failing regression drives a red gate whose failing file is outside the run diff but passes on the base ref: the run classifies it in scope, admits repair, and adds only that file to the repair allowset for that gate.
-- [ ] A red gate whose failing file fails on the base ref too still settles `ready_gate_out_of_scope` with that path named, and existing #2313 regressions stay green.
+- [ ] A red gate whose failing file fails on the base ref too still settles `ready_gate_out_of_scope` with that path named; `ready-finalize.test.ts` "classifies fully attributed terminal failures outside the allowed set as out of scope", "keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", and `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stay green.
 - [ ] A base-ref probe failure classifies in scope; a regression asserts repair is attempted and the probe error is reported.
-- [ ] An out-of-scope settlement reports `resumable` consistently with what a resume can change; a regression asserts a resume over an unchanged out-of-scope condition is refused by name rather than re-settling identically.
+- [ ] An out-of-scope settlement whose outside paths are unchanged reports `loop_finished.resumable: false` and `composeRunOperatorError` `nextAction` other than `resume`; `jarvis run resume` admission rejects naming the unchanged outside paths rather than re-settling `ready_gate_out_of_scope` with `resumable: true` — updates `write-loop.test.ts` untouched-path settlement tests and `daemon-resume.test.ts` "repeated untouched red on an ordinary write row settles ready_gate_out_of_scope with preserved outside-path detail".
 - [ ] A gate-repair attempt that writes a path outside the failing gate steps' attributable set is refused, and the refusal names the out-of-scope paths; a regression covers a `lint:md`-only failure answered with a `.ts` edit.
 - [ ] `bun run fix` on a clean checkout leaves `bun run typecheck` green; a test pins the specific unsafe rewrite (possibly-`undefined` needle) as not applied.
 - [ ] When autofix produces a tree that fails `typecheck`, the gate reverts the autofix edits, records the discard with the failing output, and enters repair against the pre-autofix tree instead of committing the broken edits.
 - [ ] A run whose autofix output typechecks is unaffected: the fence commit, republish, and re-gate path is unchanged; a regression covers it.
-- [ ] Mutation checkpoints: `// @mutate` directives inverting the base-ref comparison, removing the write-fence refusal, and removing the post-autofix typecheck verification each turn their pinning test RED.
+- [ ] Mutation checkpoints in `ready-finalize.test.ts` (base-ref comparison), `write-loop.test.ts` ready-gate repair fence (write-fence refusal), and `write-loop.test.ts` ready-gate repair autofix (post-autofix typecheck verification): `// @mutate` directives inverting each guard turn their pinning test RED.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

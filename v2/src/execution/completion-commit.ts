@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { type AsyncSubprocessRunner, AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import {
   clearUnrestoredDirectives,
   describeStrandedMutation,
@@ -11,8 +12,6 @@ import {
   type MutateDirective,
 } from "./mutation-checkpoint-verifier.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
-
-const DEFAULT_COMPLETION_FORMAT_TIMEOUT_MS = 600_000;
 
 export type CompletionCommitInput = {
   worktreePath: string;
@@ -34,13 +33,11 @@ export type CompletionCommitResult = { commitSha?: string; filesChanged?: number
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 
-export type CompletionFormatOpts = {
+type CompletionFormatOpts = {
   cwd: string;
   paths: readonly string[];
   timeoutMs: number;
 };
-
-export type CompletionFormatRunner = (opts: CompletionFormatOpts) => Promise<void>;
 
 function pathFromPorcelainLine(line: string): string | undefined {
   if (line.endsWith("\r")) line = line.slice(0, -1);
@@ -58,21 +55,8 @@ function pathFromPorcelainLine(line: string): string | undefined {
   return path.length > 0 ? path : undefined;
 }
 
-async function enumerateChangedWorktreePaths(runGit: Git, worktreePath: string): Promise<string[]> {
-  const raw = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-  if (!raw) return [];
-  const lines = raw.split("\n");
-  if (lines.at(-1) === "") lines.pop();
-  const paths: string[] = [];
-  for (const line of lines) {
-    const path = pathFromPorcelainLine(line);
-    if (path !== undefined) paths.push(path);
-  }
-  return paths;
-}
-
 /** Scoped format-only pass on enumerated changed paths; distinct from ready-gate `fixCommand` autofix. */
-export async function runCompletionFormat(
+async function runCompletionFormat(
   opts: CompletionFormatOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<void> {
@@ -179,18 +163,22 @@ async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, com
 async function preparePendingCommit(
   runGit: Git,
   input: CompletionCommitInput,
-  ctx: {
-    agent: string;
-    subject: string;
-    index: string;
-    pendingPath: string;
-    formatRunner: CompletionFormatRunner;
-  },
+  subprocessRunner: AsyncSubprocessRunner,
+  ctx: { agent: string; subject: string; index: string; pendingPath: string },
 ): Promise<{ kind: "pending"; pending: PendingCommit } | { kind: "settled"; result: CompletionCommitResult }> {
-  const { agent, subject, index, pendingPath, formatRunner } = ctx;
-  const changedPaths = await enumerateChangedWorktreePaths(runGit, input.worktreePath);
-  const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_COMPLETION_FORMAT_TIMEOUT_MS;
-  await formatRunner({ cwd: input.worktreePath, paths: changedPaths, timeoutMs });
+  const { agent, subject, index, pendingPath } = ctx;
+  const raw = await runGit(input.worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+  const changedPaths: string[] = [];
+  if (raw) {
+    const lines = raw.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    for (const line of lines) {
+      const path = pathFromPorcelainLine(line);
+      if (path !== undefined) changedPaths.push(path);
+    }
+  }
+  const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
@@ -236,7 +224,7 @@ async function preparePendingCommit(
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
 export function createCompletionCommitter(
   runGit: Git = git,
-  formatRunner: CompletionFormatRunner = runCompletionFormat,
+  subprocessRunner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): CompletionCommitter {
   return async (input) => {
     const agent = input.agent.trim();
@@ -258,12 +246,11 @@ export function createCompletionCommitter(
         pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;
         await refuseStrandedMutationsInTrees(runGit, input.worktreePath, pending.tree, pending.baseHead, unrestored);
       } else {
-        const prepared = await preparePendingCommit(runGit, input, {
+        const prepared = await preparePendingCommit(runGit, input, subprocessRunner, {
           agent,
           subject,
           index,
           pendingPath,
-          formatRunner,
         });
         if (prepared.kind === "settled") return prepared.result;
         pending = prepared.pending;

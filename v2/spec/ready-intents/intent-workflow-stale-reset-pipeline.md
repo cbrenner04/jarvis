@@ -24,10 +24,12 @@ reuses it and review fails non-retryably with foreign verdict ownership.
 
 ## Acceptance criteria
 
-- [ ] An integration or daemon-level regression seeds a poisoned intent-stage worktree (stale
-      `.jarvis-intent-review-verdict.md` from a prior invocation), re-dispatches the pipeline intent
-      stage, and asserts stale-reset retirement before the write step (worktree removed and
-      recreated, verdict gone); fails against pre-fix code.
+- [ ] `pipeline-execution.test.ts` — `"pipeline intent-stage re-dispatch resets a poisoned worktree
+      before the write step"` seeds stale `.jarvis-intent-review-verdict.md` on a managed intent-stage
+      worktree, re-dispatches the pipeline intent stage, asserts retirement before the write step
+      (worktree removed and recreated, verdict gone), and fails against pre-fix code.
+- [ ] Mutation checkpoint: `pipeline-execution.test.ts` carries a `// @mutate` directive that skips
+      intent-stage stale-reset preflight; applying it turns the regression above RED.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

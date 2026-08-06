@@ -29,18 +29,21 @@ invocation`. Recovery today is manual `jarvis cleanup --abandon`.
 
 - [ ] `STALE_RESET_WORKFLOWS` includes `"intent"`; `workflow.test.ts` asserts membership and
       fails against the current two-element set.
-- [ ] `workflow.test.ts` drives an incomplete git-enabled `run workflow intent` re-run over a
-      managed worktree seeded with a stale `.jarvis-intent-review-verdict.md`, asserts retirement
-      before daemon `start` (worktree removed and recreated, verdict gone), and fails against
-      pre-fix code.
-- [ ] Mutation checkpoint: a `// @mutate` directive reverting `STALE_RESET_WORKFLOWS` to
-      `{implement, plan}` turns the membership regression RED; pin via a unique-basename test.
+- [ ] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"`
+      seeds a managed worktree with stale `.jarvis-intent-review-verdict.md`, drives an incomplete
+      git-enabled re-run, asserts retirement before daemon `start` (worktree removed and recreated,
+      verdict gone), and fails against pre-fix code.
+- [ ] `maybeResetStaleWorkspace` is importable outside `v2/src/commands/workflow.ts` (export or
+      relocation); a daemon-surface regression import fails against pre-fix module-private code.
+- [ ] Mutation checkpoint: `workflow.test.ts` carries
+      `// @mutate v2/src/commands/workflow.ts 'const STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);' -> 'const STALE_RESET_WORKFLOWS = new Set(["implement", "plan"]);'`;
+      applying it turns the membership regression RED.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` § Implement workflow — incomplete git-enabled `intent` re-runs
-  share the same stale-workspace preflight as `implement` and `plan`.
+- `v2/docs/operator-runbook.md` § Workflow presets — incomplete re-run stale-workspace preflight
+  prose (~324: add `intent` beside `plan`).
 - `v2/docs/v1-behaviors.md` — record intent in the stale-reset workflow set.
 
 ## Prerequisites

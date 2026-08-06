@@ -928,7 +928,11 @@ describe("write loop", () => {
         'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
         "utf8",
       );
-      writeFileSync(join(worktree, "hollow.test.ts"), 'test("hollow", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n', "utf8");
+      writeFileSync(
+        join(worktree, "hollow.test.ts"),
+        'test("hollow", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+        "utf8",
+      );
       const sink = new TestLogSink();
 
       const result = await runLoop({

@@ -21,6 +21,7 @@ import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
+import type { MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -34,7 +35,6 @@ import {
   type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
-import type { MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 

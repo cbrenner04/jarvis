@@ -1,4 +1,13 @@
-import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
@@ -15,7 +24,7 @@ import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type LandingContractRepromptEvent,
@@ -24,6 +33,7 @@ import {
   type MutationDirectiveRepromptContext,
   type MutationDirectiveRepromptEvent,
   type PersistedRecord,
+  priorLogRecordsFromSink,
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
@@ -53,6 +63,7 @@ import {
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   type ReadyFinalizer,
   ReadyFlipError,
@@ -262,6 +273,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   fixCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Test seam overriding post-autofix `bun run typecheck` verification. */
+  runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
   readyGateScopeSeams?: ReadyGateScopeSeams;
 };
@@ -2419,6 +2432,20 @@ async function initializeFrozenRepairAllowset(
   return { allowset: derived };
 }
 
+function repairFenceFailureMessage(frozen: Set<string>, error: ReadyGateError): string {
+  const attributable = resolveAttributableRepairAllowset(frozen, error);
+  const gateRepair = resolveGateRepairAllowset(frozen, error);
+  if (attributable.size !== gateRepair.size) {
+    return REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE;
+  }
+  for (const path of attributable) {
+    if (!gateRepair.has(path)) {
+      return REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE;
+    }
+  }
+  return REPAIR_FENCE_FAILURE_MESSAGE;
+}
+
 async function enforceRepairIterationFence(
   _args: WriteLoopInput,
   store: StateStore,
@@ -2566,7 +2593,7 @@ async function runReadyGateRepairLoop(
       input,
       attributableAllowset,
       currentIterations,
-      REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE,
+      repairFenceFailureMessage(frozenRepairAllowset, currentOutcome.error),
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
 
@@ -2628,6 +2655,128 @@ function buildReadyRepairPublishResult(
     : { failure: outcome, iterationsConsumed, ...(readyGateOrigin !== undefined ? { readyGateOrigin } : {}) };
 }
 
+const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
+
+export type AutofixTypecheckResult = {
+  exitCode: number;
+  output: string;
+};
+
+type AutofixBaseline = {
+  contents: Map<string, string>;
+  useGit: boolean;
+};
+
+function listWorktreeFiles(worktreePath: string): Map<string, string> {
+  const files = new Map<string, string>();
+  function walk(relDir: string): void {
+    const absDir = join(worktreePath, relDir);
+    for (const entry of readdirSync(absDir)) {
+      if (entry === ".git") {
+        continue;
+      }
+      const rel = relDir ? `${relDir}/${entry}` : entry;
+      const abs = join(absDir, entry);
+      if (statSync(abs).isDirectory()) {
+        walk(rel);
+      } else {
+        files.set(rel, readFileSync(abs, "utf8"));
+      }
+    }
+  }
+  if (!existsSync(worktreePath)) {
+    return files;
+  }
+  walk("");
+  return files;
+}
+
+async function snapshotAutofixBaseline(worktreePath: string): Promise<AutofixBaseline> {
+  const useGit = await shouldEnforceReadyGateRepairFence(worktreePath);
+  const contents = new Map<string, string>();
+  if (useGit) {
+    for (const path of await getUncommittedPaths(worktreePath)) {
+      const fullPath = join(worktreePath, path);
+      if (existsSync(fullPath)) {
+        contents.set(path, readFileSync(fullPath, "utf8"));
+      }
+    }
+  } else {
+    for (const [path, content] of listWorktreeFiles(worktreePath)) {
+      contents.set(path, content);
+    }
+  }
+  return { contents, useGit };
+}
+
+async function revertAutofixEdits(worktreePath: string, baseline: AutofixBaseline): Promise<void> {
+  const afterPaths = baseline.useGit
+    ? await getUncommittedPaths(worktreePath)
+    : [...listWorktreeFiles(worktreePath).keys()];
+  const paths = new Set([...baseline.contents.keys(), ...afterPaths]);
+  for (const path of paths) {
+    const fullPath = join(worktreePath, path);
+    const prior = baseline.contents.get(path);
+    if (prior !== undefined) {
+      mkdirSync(dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, prior, "utf8");
+      continue;
+    }
+    if (baseline.useGit) {
+      try {
+        await runRepairFenceGit(worktreePath, ["checkout", "--", path]);
+      } catch {
+        // best-effort restore to HEAD for paths clean before autofix
+      }
+      try {
+        await runRepairFenceGit(worktreePath, ["clean", "-fd", "--", path]);
+      } catch {
+        // best-effort removal of autofix-created paths
+      }
+      continue;
+    }
+    if (existsSync(fullPath)) {
+      rmSync(fullPath, { force: true });
+    }
+  }
+}
+
+function packageJsonLacksScript(cwd: string, scriptName: string): boolean {
+  const pkgPath = join(cwd, "package.json");
+  if (!existsSync(pkgPath)) {
+    return true;
+  }
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { scripts?: Record<string, unknown> };
+    return typeof pkg.scripts?.[scriptName] !== "string";
+  } catch {
+    return true;
+  }
+}
+
+async function runAutofixTypecheckVerification(
+  args: WriteLoopInput,
+  worktreePath: string,
+): Promise<AutofixTypecheckResult> {
+  const timeoutMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  if (args.runAutofixTypecheck !== undefined) {
+    return args.runAutofixTypecheck({ cwd: worktreePath, timeoutMs });
+  }
+  if (packageJsonLacksScript(worktreePath, "typecheck")) {
+    return { exitCode: 0, output: "" };
+  }
+  try {
+    await realAsyncSubprocessRunner.runAsync("bun", ["run", "typecheck"], worktreePath, { timeoutMs });
+    return { exitCode: 0, output: "" };
+  } catch (err) {
+    if (err instanceof AsyncSubprocessError) {
+      const output = [err.stdout, err.stderr].filter(Boolean).join("\n").trim();
+      return { exitCode: err.status ?? 1, output };
+    }
+    throw err;
+  }
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -2654,9 +2803,10 @@ export async function publishWithReadyRepair(
     frozenRepairAllowset = initialized.allowset;
   }
 
-  const gateRepairAllowset = resolveGateRepairAllowset(frozenRepairAllowset, outcome.error);
+  const gateRepairAllowset = resolveAttributableRepairAllowset(frozenRepairAllowset, outcome.error);
   appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
+  const autofixBaseline = await snapshotAutofixBaseline(input.worktreePath);
   const fixOpts: RunFixCommandOpts = {
     cwd: input.worktreePath,
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
@@ -2675,6 +2825,38 @@ export async function publishWithReadyRepair(
     };
   }
 
+  const typecheckResult = await runAutofixTypecheckVerification(args, input.worktreePath);
+  if (typecheckResult.exitCode !== 0) {
+    await revertAutofixEdits(input.worktreePath, autofixBaseline);
+    args.logSink?.append(result.runId, {
+      kind: "ready_gate_autofix_discarded",
+      typecheckExitCode: typecheckResult.exitCode,
+      typecheckOutput:
+        typecheckResult.output.length <= AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX
+          ? typecheckResult.output
+          : typecheckResult.output.slice(-AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX),
+    });
+    const loopResult = await runReadyGateRepairLoop(
+      args,
+      store,
+      result,
+      input,
+      outcome,
+      iterationsConsumed,
+      frozenRepairAllowset,
+    );
+    if (loopResult.kind === "early") return loopResult.result;
+    appendReadyGateTimeoutLog(args, result.runId, loopResult.outcome);
+    const readyGateOrigin = resolveExhaustedReadyGateOrigin(
+      store,
+      result.runId,
+      result,
+      loopResult.outcome,
+      loopResult.repairBudgetExhausted,
+    );
+    return buildReadyRepairPublishResult(loopResult.outcome, loopResult.iterationsConsumed, readyGateOrigin);
+  }
+
   const autofixFenceFailure = await enforceRepairIterationFence(
     args,
     store,
@@ -2682,6 +2864,7 @@ export async function publishWithReadyRepair(
     input,
     gateRepairAllowset,
     iterationsConsumed,
+    repairFenceFailureMessage(frozenRepairAllowset, outcome.error),
   );
   if (autofixFenceFailure !== undefined) {
     return autofixFenceFailure;
@@ -2929,10 +3112,13 @@ function readyFailed(
   readyGateOrigin?: ReadyGateOrigin,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
-  const resumable =
-    kind === "ready_gate_failed" || kind === "ready_gate_out_of_scope" || kind === "surviving_mutation_failed";
-  const mutationFields = survivingMutationLogFields(error);
   const outOfScopeFields = readyGateOutOfScopeLogFields(error);
+  const priorRecords = priorLogRecordsFromSink(args.logSink, result.runId);
+  const resumable =
+    kind === "ready_gate_out_of_scope"
+      ? outOfScopeSettlementResumable(outOfScopeFields.readyGateOutsidePaths, priorRecords)
+      : kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+  const mutationFields = survivingMutationLogFields(error);
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
   // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
   // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row

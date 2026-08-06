@@ -2752,7 +2752,7 @@ describe("executeWorkflow completion publication", () => {
         },
       });
       expect(outOfScope.kind).toBe("ready_gate_out_of_scope");
-      expect(outOfScope.resumable).toBe(true);
+      expect(outOfScope.resumable).toBe(false);
       expect(outOfScope.readyGateOutsidePaths).toEqual([outsidePath]);
       expect(outOfScope.readyGateOutOfScopeDetail).toBe(outOfScopeDetail);
       expect(outOfScope.readyGateError).toBe(outOfScopeDetail);
@@ -2763,7 +2763,7 @@ describe("executeWorkflow completion publication", () => {
       expect(logSink.getEventsForRun(outOfScope.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "ready_gate_out_of_scope",
-        resumable: true,
+        resumable: false,
         readyGateOutsidePaths: [outsidePath],
         readyGateOutOfScopeDetail: outOfScopeDetail,
       });
@@ -2830,7 +2830,7 @@ describe("executeWorkflow completion publication", () => {
       expect(persisted.event).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "ready_gate_out_of_scope",
-        resumable: true,
+        resumable: false,
         readyGateOutsidePaths: [outsidePath],
         readyGateOutOfScopeDetail: outOfScopeDetail,
       });
@@ -2840,8 +2840,8 @@ describe("executeWorkflow completion publication", () => {
       const operatorError = composeRunOperatorError(run ?? { status: "failed" }, terminal);
       expect(operatorError).toEqual({
         reason: "ready_gate_out_of_scope",
-        retryable: true,
-        nextAction: "resume",
+        retryable: false,
+        nextAction: "stop",
         readyGateOutsidePaths: [outsidePath],
         readyGateOutOfScopeDetail: outOfScopeDetail,
       });

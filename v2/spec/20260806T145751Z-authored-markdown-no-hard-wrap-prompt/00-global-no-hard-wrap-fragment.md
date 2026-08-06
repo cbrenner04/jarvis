@@ -47,7 +47,7 @@ Agents hard-wrap specs, ready-intents, seeds, docs, and PR bodies at ~100 column
 - [ ] `v1/test/modes/prompt/prompt.test.ts` asserts `prompt.prompt.body` global-fragment assembly includes `global.no-hard-wrap` after `global.terse`; fails against the pre-fix `.toBe` join.
 - [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures.
 - [ ] `v1/docs/prompt-governance.md` catalogs `global.no-hard-wrap` and documents shrink layering as `global.terse` → `global.no-hard-wrap`.
-- [ ] Mutation checkpoint: the intent-split assembly test in `shared/prompts/intent-split.test.ts` carries `// @mutate prompts/global/no-hard-wrap.md "behavior: global" -> "behavior: archived"`; applying it turns that test red.
+- [ ] Mutation checkpoint: the `includes governed layering, file output, and optional step rules` test in `shared/prompts/intent-split.test.ts` (extended to assert the no-hard-wrap fragment after `global.terse`) carries `// @mutate prompts/global/no-hard-wrap.md "behavior: global" -> "behavior: archived"`; applying it turns that test red.
 - [ ] `bun run typecheck` and touched test scope (`shared/**` → `test:v1` + `test:v2` + `test:integration:v2`) pass.
 
 ## Documentation updates

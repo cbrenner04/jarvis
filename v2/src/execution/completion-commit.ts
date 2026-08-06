@@ -3,6 +3,12 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
+import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
+import {
   clearUnrestoredDirectives,
   describeStrandedMutation,
   isStrandedMutationContent,
@@ -22,12 +28,90 @@ export type CompletionCommitInput = {
   forceDistinctCommit?: boolean;
   /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
   readyGateAttribution?: "autofix";
+  /** Formatter wall-clock budget; callers pass write-loop `iterationTimeoutMs` when known. */
+  iterationTimeoutMs?: number;
   /** Test seam: verify-run unrestored directives; when absent, loaded from git state. */
   unrestoredDirectives?: readonly MutateDirective[];
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+
+type CompletionFormatOpts = {
+  cwd: string;
+  paths: readonly string[];
+  timeoutMs: number;
+};
+
+function pathFromPorcelainLine(line: string): string | undefined {
+  if (line.endsWith("\r")) line = line.slice(0, -1);
+  if (line.length < 2) return undefined;
+  let path: string;
+  if (line.length >= 3 && line[2] === " ") {
+    path = line.slice(3);
+  } else if (line[1] === " ") {
+    path = line.slice(2);
+  } else {
+    return undefined;
+  }
+  const arrow = path.indexOf(" -> ");
+  if (arrow >= 0) path = path.slice(arrow + 4);
+  return path.length > 0 ? path : undefined;
+}
+
+/** Biome only processes a fixed set of extensions. A changed set that is markdown-only or
+ * deletion-only yields no eligible files, and `biome check` would exit non-zero ("No files
+ * were processed") — that is a skip, not a completion-commit failure. */
+const BIOME_FORMATTABLE_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".jsonc",
+]);
+
+function biomeEligiblePaths(cwd: string, paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const dot = path.lastIndexOf(".");
+    if (dot < 0) return false;
+    if (!BIOME_FORMATTABLE_EXTENSIONS.has(path.slice(dot).toLowerCase())) return false;
+    return existsSync(join(cwd, path));
+  });
+}
+
+/** Scoped format-only pass on enumerated changed paths; distinct from ready-gate `fixCommand` autofix. */
+async function runCompletionFormat(
+  opts: CompletionFormatOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
+  if (!existsSync(join(opts.cwd, "biome.json"))) return;
+  const eligible = biomeEligiblePaths(opts.cwd, opts.paths);
+  if (eligible.length === 0) return;
+  const displayCmd = `bun biome check --write ${eligible.join(" ")}`;
+  try {
+    await runner.runAsync("bun", ["biome", "check", "--write", ...eligible], opts.cwd, {
+      timeoutMs: opts.timeoutMs,
+      env: process.env,
+    });
+  } catch (err) {
+    if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
+      throw new Error(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
+    }
+    const captured =
+      err instanceof AsyncSubprocessError
+        ? [err.stdout, err.stderr].filter(Boolean).join("\n").trim()
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    throw new Error(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+  }
+}
+
 type PendingCommit = {
   baseHead: string;
   tree: string;
@@ -109,9 +193,22 @@ async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, com
 async function preparePendingCommit(
   runGit: Git,
   input: CompletionCommitInput,
+  subprocessRunner: AsyncSubprocessRunner,
   ctx: { agent: string; subject: string; index: string; pendingPath: string },
 ): Promise<{ kind: "pending"; pending: PendingCommit } | { kind: "settled"; result: CompletionCommitResult }> {
   const { agent, subject, index, pendingPath } = ctx;
+  const raw = await runGit(input.worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+  const changedPaths: string[] = [];
+  if (raw) {
+    const lines = raw.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    for (const line of lines) {
+      const path = pathFromPorcelainLine(line);
+      if (path !== undefined) changedPaths.push(path);
+    }
+  }
+  const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
@@ -155,7 +252,10 @@ async function preparePendingCommit(
 }
 
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
-export function createCompletionCommitter(runGit: Git = git): CompletionCommitter {
+export function createCompletionCommitter(
+  runGit: Git = git,
+  subprocessRunner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): CompletionCommitter {
   return async (input) => {
     const agent = input.agent.trim();
     if (!agent) throw new Error("completion attribution is missing");
@@ -176,7 +276,12 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;
         await refuseStrandedMutationsInTrees(runGit, input.worktreePath, pending.tree, pending.baseHead, unrestored);
       } else {
-        const prepared = await preparePendingCommit(runGit, input, { agent, subject, index, pendingPath });
+        const prepared = await preparePendingCommit(runGit, input, subprocessRunner, {
+          agent,
+          subject,
+          index,
+          pendingPath,
+        });
         if (prepared.kind === "settled") return prepared.result;
         pending = prepared.pending;
       }

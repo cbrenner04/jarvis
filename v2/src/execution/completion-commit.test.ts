@@ -1,12 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync, execSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
 import type { MutateDirective } from "./mutation-checkpoint-verifier.ts";
 
 const { roots } = trackedTempRoots();
+const repoRoot = join(import.meta.dir, "../../..");
+const UNFORMATTED_TS = "const x=1;\n";
+const FORMATTED_TS = "const x = 1;\n";
 
 function setupWorktree(specPath?: string): { worktreePath: string; gitDir: string } {
   const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-"));
@@ -23,6 +32,69 @@ function setupWorktree(specPath?: string): { worktreePath: string; gitDir: strin
   }
 
   return { worktreePath, gitDir };
+}
+
+function initRealGitWorktree(): { worktreePath: string; seedHead: string } {
+  const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-real-"));
+  roots.push(worktreePath);
+  execSync("git init -q", { cwd: worktreePath, stdio: "pipe" });
+  execSync("git config user.email 'test@example.com'", { cwd: worktreePath, stdio: "pipe" });
+  execSync("git config user.name 'Test User'", { cwd: worktreePath, stdio: "pipe" });
+  execSync("git config commit.gpgsign false", { cwd: worktreePath, stdio: "pipe" });
+  copyFileSync(join(repoRoot, "biome.json"), join(worktreePath, "biome.json"));
+  copyFileSync(join(repoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
+  try {
+    symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+  } catch {
+    /* reuse existing symlink */
+  }
+  mkdirSync(join(worktreePath, "v2/spec/test"), { recursive: true });
+  writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n");
+  mkdirSync(join(worktreePath, "src"), { recursive: true });
+  writeFileSync(join(worktreePath, "src/example.ts"), "export const seeded = true;\n");
+  execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+  execSync("git commit -q -m seed", { cwd: worktreePath, stdio: "pipe" });
+  const seedHead = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  return { worktreePath, seedHead };
+}
+
+function completionInput(worktreePath: string, overrides?: { iterationTimeoutMs?: number }) {
+  return {
+    worktreePath,
+    baseRef: "main",
+    specPath: "v2/spec/test/index.md",
+    agent: "claude",
+    title: "Test Spec Title",
+    ...overrides,
+  };
+}
+
+function examplePath(worktreePath: string): string {
+  return join(worktreePath, "src/example.ts");
+}
+
+function writeUnformattedExample(worktreePath: string): void {
+  writeFileSync(examplePath(worktreePath), UNFORMATTED_TS);
+}
+
+function headSha(worktreePath: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8", stdio: "pipe" }).trim();
+}
+
+function wrapGitWithAddTracker(onAdd?: () => void) {
+  return async (cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+    if (args[0] === "add") onAdd?.();
+    return new Promise((resolve, reject) => {
+      execFile("git", [...args], { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
+        if (error) reject(error);
+        else resolve(stdout.trim());
+      });
+    });
+  };
 }
 
 type GitCall = { args: readonly string[]; env: Record<string, string> | undefined };
@@ -443,5 +515,128 @@ describe("createCompletionCommitter", () => {
         unrestoredDirectives: [sampleDirective],
       }),
     ).rejects.toThrow("src/guard.ts: stranded mutation");
+  });
+
+  test("formats changed files before staging so committed tree passes biome check", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "await runCompletionFormat({" -> "if (false) { await runCompletionFormat({"
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    const targetPath = examplePath(worktreePath);
+    writeUnformattedExample(worktreePath);
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    expect(readFileSync(targetPath, "utf8")).toBe(FORMATTED_TS);
+    execFileSync("bun", ["biome", "check", "src/example.ts"], { cwd: worktreePath, stdio: "pipe" });
+    const committed = execFileSync("git", ["show", "HEAD:src/example.ts"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toBe(FORMATTED_TS);
+  });
+
+  test("commits a markdown-only changed set without failing on biome-ineligible paths", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    // Only a markdown change — biome cannot process it; the formatter must skip, not throw.
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const committed = execFileSync("git", ["show", "HEAD:v2/spec/test/index.md"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toContain("Updated body.");
+  });
+
+  test("commits a deletion-only changed set without failing on the removed path", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    // A deleted path is not biome-processable; the formatter must skip, not throw.
+    execFileSync("git", ["rm", "-q", "src/example.ts"], { cwd: worktreePath, stdio: "pipe" });
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    expect(existsSync(join(worktreePath, "src/example.ts"))).toBe(false);
+  });
+
+  test("throws before staging when formatter exits non-zero", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    writeUnformattedExample(worktreePath);
+    let addCalled = false;
+    const failingRunner: AsyncSubprocessRunner = {
+      async runAsync() {
+        throw new AsyncSubprocessError("formatter rejected", 1, "", "formatter rejected", undefined);
+      },
+    };
+
+    await expect(
+      createCompletionCommitter(
+        wrapGitWithAddTracker(() => {
+          addCalled = true;
+        }),
+        failingRunner,
+      )(completionInput(worktreePath)),
+    ).rejects.toThrow("failed:\nformatter rejected");
+
+    expect(addCalled).toBe(false);
+    expect(headSha(worktreePath)).toBe(seedHead);
+    expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(UNFORMATTED_TS);
+  });
+
+  test("throws before staging when formatter times out", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    writeUnformattedExample(worktreePath);
+    const timeoutRunner: AsyncSubprocessRunner = {
+      async runAsync(_cmd, _args, _cwd, opts) {
+        throw new AsyncSubprocessError("timeout", undefined, "", "", "ETIMEDOUT");
+      },
+    };
+
+    await expect(
+      createCompletionCommitter(
+        wrapGitWithAddTracker(),
+        timeoutRunner,
+      )(completionInput(worktreePath, { iterationTimeoutMs: 25 })),
+    ).rejects.toThrow("exceeded 25ms budget");
+
+    expect(headSha(worktreePath)).toBe(seedHead);
+    expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(UNFORMATTED_TS);
+  });
+
+  test("honors injected iterationTimeoutMs for formatter budget", async () => {
+    const { worktreePath } = initRealGitWorktree();
+    writeUnformattedExample(worktreePath);
+    const budgets: number[] = [];
+    const capturingRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, cwd, opts) {
+        budgets.push(opts?.timeoutMs ?? 0);
+        if ((opts?.timeoutMs ?? 0) < 100) {
+          throw new AsyncSubprocessError("timeout", undefined, "", "", "ETIMEDOUT");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, opts);
+      },
+    };
+
+    await expect(
+      createCompletionCommitter(
+        wrapGitWithAddTracker(),
+        capturingRunner,
+      )(completionInput(worktreePath, { iterationTimeoutMs: 5 })),
+    ).rejects.toThrow("exceeded 5ms budget");
+
+    const result = await createCompletionCommitter(
+      wrapGitWithAddTracker(),
+      capturingRunner,
+    )(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+    expect(result.commitSha).toBeDefined();
+    expect(budgets).toEqual([5, 60_000]);
+    expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(FORMATTED_TS);
   });
 });

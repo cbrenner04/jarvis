@@ -576,8 +576,7 @@ first miss. Budget exhaustion, mixed failure, hollow checkpoints, and other unpa
 still hard-block with harness `## Blocker`. Resume replays the last `mutation_directive_reprompt`
 log event. Seed: `v2/spec/20260806T030357Z-mutation-directive-target-absent-reprompts`.
 
-**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement does
-not run biome; a new branchy function (preflight-gate sequence, per-outcome mapper) trips
+**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement runs scoped format-only Biome on enumerated changed paths before staging (not full `fix` / semantic lint autofix); a new branchy function (preflight-gate sequence, per-outcome mapper) still trips
 `lint/complexity/noExcessiveCognitiveComplexity` (max 24). `bun run fix` / `check:fix:unsafe` cannot repair it, so
 the ready gate settles `completion_commit_failed`. Recovery: add a `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>`
 above the function (or extract helpers preserving guard text so `@mutate` pins still match), then finalize. Recurs

@@ -81,6 +81,7 @@ import {
 } from "./work-boundary-telemetry.ts";
 import {
   appendRuntimeSmokeOutcome,
+  DEFAULT_ITERATION_TIMEOUT_MS,
   enforcePersistedReadyGateRepairFence,
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
@@ -742,6 +743,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           specPath: step.specPath,
           agent: completionAgent ?? step.agents[0] ?? "implement",
           title,
+          iterationTimeoutMs: step.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         });
         if (committed.commitSha !== undefined) {
           // Same guard (write/implement/!suppressShrink) as the sampling block above, so this is always set.
@@ -948,6 +950,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             agent: publicationAgent,
             title: creationTitle,
             forceDistinctCommit: true,
+            iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
           });
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
@@ -2593,6 +2596,7 @@ async function runIntentResumeCommitAndPublish(
       agent: context.completionAgent as string,
       title: creationTitle,
       forceDistinctCommit: true,
+      iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2993,6 +2997,7 @@ async function commitReviewMutationResumeChanges(
       agent: context.completionAgent as string,
       title: creationTitle,
       forceDistinctCommit: true,
+      iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -3195,6 +3200,7 @@ async function runMutationRepairAttempt(
       agent: context.completionAgent ?? "",
       title: creationTitle,
       forceDistinctCommit: true,
+      iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

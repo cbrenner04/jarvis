@@ -25,13 +25,13 @@
 - Enrich `REVIEW_PASS_CONTEXT` for plan debate roles via non-destructive composition: empty when clean; otherwise a `## At-risk hollow pins` section with findings from the current spec snapshot.
 - Extend `prompts/plan/review-adversary.md` with a hollow-pin reporting instruction; bump its `revision` and regenerate `v1/test/fixtures/prompts/rendered/` entries covered by `rendered-snapshots.test.ts` when rendered bytes change.
 - Add `shared/prompts/review-plan-hollow-pin.test.ts` with hollow vs well-formed fixture criteria and a rendered-prompt assertion that debate roles receive the injected finding.
-- Add the mutation-checkpoint pin in `review-plan-hollow-pin.test.ts` naming the enclosing test pin title verbatim.
+- Add the mutation-checkpoint pin in `review-plan-hollow-pin.test.ts` inside the test titled `flags a mutation-checkpoint criterion that omits its pin title`.
 - Run `bun run typecheck`, `bun run test:shared`, and `bun run test:v1`.
 
 ## Acceptance criteria
 
 - [ ] `shared/prompts/review-plan-hollow-pin.test.ts` feeds a mutation-checkpoint criterion that names only the pinning file and directive (no pin title) and asserts plan debate review rendering flags an at-risk hollow pin; a well-formed criterion naming the pin title in backticks does not trip it; fails against the pre-fix review roles.
-- [ ] Mutation checkpoint: a `// @mutate` directive disabling the plan-review hollow-pin heuristic turns the regression RED; pin via `review-plan-hollow-pin.test.ts`, naming the enclosing test pin title.
+- [ ] Mutation checkpoint: in `shared/prompts/review-plan-hollow-pin.test.ts`, the test titled `flags a mutation-checkpoint criterion that omits its pin title` carries a `// @mutate` directive disabling the plan-review hollow-pin heuristic; the mutation turns that test RED. (The criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
 - [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:v1` pass.
 
 ## Documentation updates

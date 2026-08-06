@@ -4,12 +4,13 @@ Ready-gate repair fence-validates against the frozen diff/spec allowset while cl
 
 ## Decision ledger
 
-- Gate-repair writes only to the attributable allowset classification computes for the failing gate (frozen diff/spec union plus per-gate in-scope failing paths from subspec 01) — rules out Markdown failures producing production edits and two divergent path-set notions.
+- Gate-repair agent writes only to the attributable allowset classification computes for the failing gate (frozen diff/spec union plus per-gate in-scope failing paths from subspec 01) — rules out Markdown failures producing production edits and two divergent path-set notions.
 - Refusal names every out-of-scope path in the staged candidate set — rules out silent drops or generic errors.
+- Agent-repair fence unification lands here; autofix fence validation against the same attributable allowset completes in subspec 05 after post-autofix typecheck verification — rules out landing inconsistent autofix fence state between subspecs.
 
 ## Task checklist
 
-- Unify fence validation in `enforceRepairIterationFence` / `validateReadyGateRepairCompletion` with the classification-derived attributable allowset for autofix and agent repair iterations.
+- Unify fence validation in `enforceRepairIterationFence` / `validateReadyGateRepairCompletion` with the classification-derived attributable allowset for agent repair iterations.
 - Add a `lint:md`-only gate failure regression where the repair agent stages a `.ts` edit outside the attributable set.
 
 ## Acceptance criteria

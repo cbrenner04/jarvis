@@ -526,8 +526,11 @@ edit (confirm via attempt telemetry until `jarvis run list` reports binding).
 An idle-output watchdog on the same review-role invocation times out when a role
 produces no output for the machine-wide `idleOutputTimeoutMs` budget: a configured
 positive value arms it, an absent key uses the 90_000 ms fallback, and `0` disables
-it. A stall settles `invocation_failure` with `failureKind: "stall"` and reports
-`error.reason: "role_stalled"`.
+it. A stall settles `invocation_failure` with `failureKind: "stall"` on the durable
+successor row (`review` / `review-debate`); `jarvis run list` / `wait` on that row's
+`runId` report `error.reason: "role_stalled"`. Entry step-0 `runId` wait/list does not
+project sibling review `role_stalled` — use `list` filtered by branch and `stepId` (or
+wait on the successor `runId`) to read stall detail and `retry_later`.
 Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output,
 does not escalate through rungs, and is retryable (`retry_later`); recovery is
 re-dispatching the same workflow (see [Gate trust](#gate-trust)) — unlike an exhausted
@@ -618,12 +621,15 @@ acceptance criteria are fully ticked, terminal `loop_finished` carries `resumabl
 `completedSubspecPaths`, and `remainingSubspecPaths`; recovery is `jarvis run resume` on the
 retained workspace. A timeout with no completed subspec keeps `resumable: false`.
 
-**A settled run row can have a live successor step (2026-08-03).** The review step after the run
-above dispatched in the same millisecond the write step settled and was still live 75+ minutes
-later, working the debris worktree with a stranded `@mutate` (`if (false)`) on disk — a completion
-commit there would have shipped it via `git add -A`. `jarvis run list` does not associate the two.
-After a workflow appears to finish, check for live rows on the *branch* before touching its
-worktree.
+**Successor-shell idle bounds** fence pre-agent stalls on durable `review` and `review-debate`
+steps (including actuator-only `review-debate` retry). The shell arms from `idleOutputMs`
+immediately after `iteration_started`; absent key → 90 s, `0` disables. The shell hands off
+to role-layer idle bounds at first `invokeReviewRole` entry. Shell idle exhaustion settles
+`invocation_failure` with `failureKind: "stall"` (no `agent`/`model` when no role ran),
+`loop_finished` with `resumable: true`, and releases the `(project, branch)` claim. On the
+**successor row** (`review` / `review-debate`), `run list` / `wait` report
+`error.reason: "role_stalled"`, `retryable: true`, `nextAction: "retry_later"` — not on the
+step-0 entry `runId`; find the failed successor via branch + `stepId` or wait on its `runId`.
 
 Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
 adjudicated verdict on disk; recovery is re-dispatching the same workflow, not

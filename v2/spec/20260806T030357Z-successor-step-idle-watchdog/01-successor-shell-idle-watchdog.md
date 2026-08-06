@@ -38,12 +38,12 @@ A workflow-started implement spawns a successor that logs `iteration_started` th
 
 ## Acceptance criteria
 
-- [ ] `successor-step-idle-watchdog.test.ts` drives each **in-scope** successor kind from 00 through `iteration_started` then silence with a ~20 ms idle budget; the pinning test **fails against pre-fix code** (row stays live past the budget) and **passes after** shell idle arming lands.
-- [ ] `successor-step-idle-watchdog.test.ts` asserts each silent in-scope successor settles within the idle budget: terminal non-live row; `loop_finished` with stall-class outcome; `run list` / `run wait` report `error.reason: "role_stalled"`, `failureKind: "stall"`, `resumable: true`, `retryable: true`, `nextAction: "retry_later"`; pre-agent stall includes `invocationFailureDetail` with `failureKind: "stall"` and `boundMs` and no `agent`/`model`; **fails against pre-fix code**.
-- [ ] Daemon integration test (e.g. `daemon-workflow-start.test.ts` held-live pattern) asserts terminal successor settlement releases the branch claim and `check_workflow_start_claim` admits a fresh run on the same `(project, branch)`; **fails against pre-fix code**.
-- [ ] `successor-step-idle-watchdog.test.ts` links a `// @mutate` directive on the successor-shell idle arming one-liner at the 00-pinned dispatch boundary; inverting turns the settlement pinning test red.
-- [ ] `successor-step-idle-watchdog.test.ts` asserts `idleOutputTimeoutMs: 0` disables shell idle arming for an in-scope kind (row stays live past a short harness budget when disabled).
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `successor-step-idle-watchdog.test.ts` drives each **in-scope** successor kind from 00 through `iteration_started` then silence with a ~20 ms idle budget; the pinning test **fails against pre-fix code** (row stays live past the budget) and **passes after** shell idle arming lands.
+- [x] `successor-step-idle-watchdog.test.ts` asserts each silent in-scope successor settles within the idle budget: terminal non-live row; `loop_finished` with stall-class outcome; `run list` / `run wait` report `error.reason: "role_stalled"`, `failureKind: "stall"`, `resumable: true`, `retryable: true`, `nextAction: "retry_later"`; pre-agent stall includes `invocationFailureDetail` with `failureKind: "stall"` and `boundMs` and no `agent`/`model`; **fails against pre-fix code**.
+- [x] Daemon integration test (e.g. `daemon-workflow-start.test.ts` held-live pattern) asserts terminal successor settlement releases the branch claim and `check_workflow_start_claim` admits a fresh run on the same `(project, branch)`; **fails against pre-fix code**.
+- [x] `successor-step-idle-watchdog.test.ts` links a `// @mutate` directive on the successor-shell idle arming one-liner at the 00-pinned dispatch boundary; inverting turns the settlement pinning test red.
+- [x] `successor-step-idle-watchdog.test.ts` asserts `idleOutputTimeoutMs: 0` disables shell idle arming for an in-scope kind (row stays live past a short harness budget when disabled).
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
@@ -866,4 +867,55 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     else process.env.JARVIS_HOME = previousHome;
     rmSync(profileHome, { recursive: true, force: true });
   }
+});
+
+test("terminal successor shell stall releases the branch claim for a fresh start", async () => {
+  const branch = "successor-shell-stall-claim";
+  const writeStep = createWriteStep("step-1", branch, doneWithArtifactBindingFactory);
+  const worktreePath = join(writeStep.worktree.jarvisRoot ?? "", "worktrees", writeStep.worktree.projectName, branch);
+  const hangingProfile = {
+    ...implementReviewPromptProfile,
+    render: {
+      ...implementReviewPromptProfile.render,
+      debateRole: async () => new Promise<string>(() => {}),
+    },
+  };
+  const debate: ReviewDebateWorkflowStep = {
+    ...createDebateStep("implement-review", branch),
+    cwd: worktreePath,
+    verdictPath: join(worktreePath, "verdict-patch.md"),
+    idleOutputMs: 20,
+    profile: hangingProfile as NonNullable<ReviewDebateWorkflowStep["profile"]>,
+    profileContext: {
+      specPath: "index.md",
+      cwd: worktreePath,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    },
+  };
+  const steps: AnyWorkflowStep[] = [writeStep, debate];
+
+  const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  expect(response.kind).toBe("response");
+
+  await waitFor(async () => {
+    await flushBackgroundRuns();
+    const debateRun = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "implement-review" });
+    return debateRun?.status === "failed";
+  });
+
+  const debateRunId = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "implement-review" })?.id;
+  const debateRun = debateRunId ? stateStore.loadRun(debateRunId) : null;
+  expect(debateRun?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+    failureKind: "stall",
+    boundMs: 20,
+    bindingAttempts: [],
+  });
+
+  const claimed = await handlers.check_workflow_start_claim(
+    requestFrame("probe-shell-stall", "check_workflow_start_claim", { project: "demo", branch }),
+    new AbortController().signal,
+  );
+  expect(claimed).toEqual({ kind: "response", result: { ok: true } });
 });

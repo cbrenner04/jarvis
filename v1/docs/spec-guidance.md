@@ -252,6 +252,9 @@ Rules the harness enforces:
 - The directive's target text must occur **exactly once** in the named path. Zero or
   several occurrences is unparseable — reported on stderr and, when the pinning file is
   opened by a selected criterion, blocks completion.
+- Prefer a **stable anchor** for the quoted original: a unique definition line or unique
+  enclosing statement beats a bare call expression that may change arity or recur at
+  multiple sites after implement lands.
 - Directives are single-line text replacement. A multi-line mutation must be reduced
   to one unique line (neutering the enclosing condition usually does it).
 - A ticked criterion claiming a mutation with **no** linked directive is refused.

@@ -21,6 +21,8 @@ import {
   type LandingContractRepromptEvent,
   type LogSink,
   type LoopFinishedEvent,
+  type MutationDirectiveRepromptContext,
+  type MutationDirectiveRepromptEvent,
   type PersistedRecord,
   truncateLogText,
 } from "../persistence/log-stream.ts";
@@ -39,6 +41,12 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
+import {
+  describeUnparseable,
+  type MutationCheckpointReport,
+  type UnparseableDirective,
+  verifyMutationCheckpoints,
+} from "./mutation-checkpoint-verifier.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
@@ -62,7 +70,7 @@ import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
-import { executeWrite, type WriteExecuteInput } from "./write.ts";
+import { executeWrite, isMutationCheckpointCriteriaTickedMiss, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -243,6 +251,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   /** Reprompt context for the next intent-split iteration after a landing-contract miss. */
   landingContractReprompt?: { violation: string; offendingFile: string };
+  /** Reprompt context for the next implement iteration after a repromptable mutation-directive miss. */
+  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -261,6 +271,35 @@ export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId:
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
 }
 
+function blockingUnparseableEntries(report: MutationCheckpointReport) {
+  return report.unparseable.filter(
+    (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
+  );
+}
+
+function repromptableMutationDirectiveBlocking(
+  report: MutationCheckpointReport,
+): readonly UnparseableDirective[] | undefined {
+  if (report.hollow.length > 0) return undefined;
+  const blocking = blockingUnparseableEntries(report);
+  if (
+    blocking.length === 0 ||
+    !blocking.every(
+      (entry) =>
+        (entry.reason === "target_absent" || entry.reason === "target_ambiguous") &&
+        report.openedPinningFiles.includes(entry.sourceFile),
+    )
+  ) {
+    return undefined;
+  }
+  return blocking;
+}
+
+/** True when every blocking unparseable is `target_absent` or `target_ambiguous` in an opened pinning file. */
+export function isRepromptOnlyMutationDirectiveMiss(report: MutationCheckpointReport): boolean {
+  return repromptableMutationDirectiveBlocking(report) !== undefined;
+}
+
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
 export function findLandingContractRepromptFromLog(
   logRecords: readonly PersistedRecord[] | undefined,
@@ -273,6 +312,22 @@ export function findLandingContractRepromptFromLog(
     }
   }
   return latest === undefined ? undefined : { violation: latest.violation, offendingFile: latest.offendingFile };
+}
+
+/** Last in-loop mutation-directive reprompt from a run's persisted log tail (resume after pause). */
+export function findMutationDirectiveRepromptFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): MutationDirectiveRepromptContext | undefined {
+  if (logRecords === undefined) return undefined;
+  let latest: MutationDirectiveRepromptEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "mutation_directive_reprompt") {
+      latest = record.event;
+    }
+  }
+  if (latest === undefined) return undefined;
+  const { display, directives } = latest;
+  return { display, directives };
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -891,6 +946,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
+    let pendingMutationDirectiveReprompt = args.mutationDirectiveReprompt;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -911,7 +967,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       });
       sessionLog.append("harness", `run=${runId} spec=${args.specPath} iteration=${iterationsConsumed + 1}`);
 
-      const settled = await awaitIteration(args, runId, attemptId, sessionLog, "bounded", pendingLandingReprompt);
+      const settled = await awaitIteration(
+        args,
+        runId,
+        attemptId,
+        sessionLog,
+        "bounded",
+        pendingLandingReprompt,
+        pendingMutationDirectiveReprompt,
+      );
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
         return finishControlledLoss(
@@ -1102,6 +1166,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingLandingReprompt = undefined;
       }
 
+      if (result.kind === "complete") {
+        pendingMutationDirectiveReprompt = undefined;
+      }
+
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
         const blockerPath =
@@ -1110,6 +1178,65 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             : args.promptId === "plan.prompt.draft" && result.failedContractId === "artifact.exists"
               ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
               : resolveSpecPath(worktreePath, args.specPath);
+
+        if (
+          result.failedContractId === "spec.criteria-ticked" &&
+          isMutationCheckpointCriteriaTickedMiss(result.failureReason) &&
+          args.promptId === "patch.prompt.body" &&
+          args.expectedArtifactPath.length > 0
+        ) {
+          const subspecPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
+          const report = await verifyMutationCheckpoints(worktreePath, subspecPath, {
+            ...args.mutationCheckpointSeams,
+            ...(args.signal !== undefined ? { signal: args.signal } : {}),
+          });
+          // Mutation checkpoint: inverting isRepromptOnlyMutationDirectiveMiss must turn
+          // "target_absent mutation directive reprompts before settle" RED.
+          if (isRepromptOnlyMutationDirectiveMiss(report) && iterationsConsumed < maxIterations) {
+            const blocking = repromptableMutationDirectiveBlocking(report)!;
+            const directives = blocking.map((entry) => ({
+              pinningFile: entry.sourceFile,
+              line: entry.sourceLine,
+              raw: entry.raw,
+              reason: entry.reason as "target_absent" | "target_ambiguous",
+            }));
+            const display = blocking.map((entry) => `- ${describeUnparseable(entry)}`).join("\n");
+            try {
+              await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+            } catch (error) {
+              return iterationCommitFailed(
+                args,
+                store,
+                runId,
+                attemptId,
+                iterationsConsumed,
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
+            store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+            args.logSink?.append(runId, {
+              kind: "boundary_committed",
+              attemptId,
+              outcomeKind: "progress",
+              runStatus: "in-progress",
+            });
+            args.logSink?.append(runId, {
+              kind: "mutation_directive_reprompt",
+              attemptId,
+              directives,
+              display: truncateLogText(display),
+            });
+            pendingMutationDirectiveReprompt = { directives, display };
+            if (args.signal?.aborted) {
+              return finishLoop(args, runId, "progress", iterationsConsumed, true);
+            }
+            if (args.pauseSignal?.aborted) {
+              store.setRunStatus(runId, "paused");
+              return finishLoop(args, runId, "paused", iterationsConsumed, true);
+            }
+            continue;
+          }
+        }
         appendBlockerToSpec(blockerPath, reason);
       }
 
@@ -1452,6 +1579,7 @@ async function awaitIteration(
   sessionLog: SessionLog,
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
+  mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
@@ -1491,7 +1619,15 @@ async function awaitIteration(
   });
 
   const execution: Promise<QuiescedExecutionOutcome> = executeWrite({
-    ...buildWriteExecuteInput(args, runId, attemptId, executionController.signal, sessionLog, landingContractReprompt),
+    ...buildWriteExecuteInput(
+      args,
+      runId,
+      attemptId,
+      executionController.signal,
+      sessionLog,
+      landingContractReprompt,
+      mutationDirectiveReprompt,
+    ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
   }).then(
@@ -1790,6 +1926,7 @@ function buildWriteExecuteInput(
   signal: AbortSignal,
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
+  mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -1840,6 +1977,7 @@ function buildWriteExecuteInput(
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
+    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
   };
 }
 

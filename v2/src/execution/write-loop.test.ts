@@ -586,6 +586,370 @@ describe("write loop", () => {
     expect(detail).toBeDefined();
   });
 
+  describe("mutation directive reprompt", () => {
+    const mutationRepromptLoopBase = {
+      publishCompletion: false as const,
+      promptId: "patch.prompt.body" as const,
+      artifactPath: "00-subspec.md",
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+    };
+
+    const tickedMutationSubspec =
+      "## Acceptance criteria\n\n- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.\n";
+
+    function createRepromptWorktree(jarvisRoot: string): string {
+      const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+      mkdirSync(worktree, { recursive: true });
+      return worktree;
+    }
+
+    function seedRepromptWorktree(
+      worktree: string,
+      target: string,
+      pin: string,
+      subspec: string = tickedMutationSubspec,
+    ): void {
+      writeFileSync(join(worktree, "00-subspec.md"), subspec, "utf8");
+      writeFileSync(join(worktree, "target.ts"), target, "utf8");
+      writeFileSync(join(worktree, "pin.test.ts"), pin, "utf8");
+    }
+
+    function seedTargetAbsentFixture(worktree: string): void {
+      seedRepromptWorktree(
+        worktree,
+        "export const ok = (a: number) => a > 0;\n",
+        'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
+      );
+    }
+
+    test("target_absent mutation directive reprompts before settle", async () => {
+      // @mutate v2/src/execution/write-loop.ts "isRepromptOnlyMutationDirectiveMiss(report) && iterationsConsumed < maxIterations" -> "false && iterationsConsumed < maxIterations"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      seedTargetAbsentFixture(worktree);
+      const sink = new TestLogSink();
+      let invocations = 0;
+      let repromptPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...mutationRepromptLoopBase,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              repromptPrompt = prompt;
+              writeFileSync(
+                join(cwd, "pin.test.ts"),
+                'test("pin", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                "utf8",
+              );
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(2);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("mutation_directive_reprompt");
+      expect(events).not.toContain("contract_miss_detail");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).not.toContain("## Blocker");
+      const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "mutation_directive_reprompt");
+      expect(reprompt).toMatchObject({ kind: "mutation_directive_reprompt" });
+      if (reprompt?.kind !== "mutation_directive_reprompt") throw new Error("expected reprompt event");
+      expect(reprompt.display).toContain("target_absent");
+      expect(reprompt.display).toContain('// @mutate target.ts "fn(a, b)" -> "fn()"');
+      expect(reprompt.directives[0]).toMatchObject({
+        line: 2,
+        reason: "target_absent",
+        raw: '// @mutate target.ts "fn(a, b)" -> "fn()"',
+      });
+      expect(reprompt.directives[0]?.pinningFile).toEndWith("pin.test.ts");
+      expect(repromptPrompt).toContain("Retarget each `// @mutate` directive");
+      expect(repromptPrompt).toContain("target_absent");
+      expect(repromptPrompt).toContain('// @mutate target.ts "fn(a, b)" -> "fn()"');
+    });
+
+    test("target_ambiguous mutation directive reprompts before settle", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      seedRepromptWorktree(
+        worktree,
+        "const dup = 1;\nconst also = 'dup';\n",
+        'test("pin", () => {\n  // @mutate target.ts "dup" -> "y"\n});\n',
+      );
+      const sink = new TestLogSink();
+      let invocations = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...mutationRepromptLoopBase,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              writeFileSync(
+                join(cwd, "pin.test.ts"),
+                'test("pin", () => {\n  // @mutate target.ts "const dup" -> "const x"\n});\n',
+                "utf8",
+              );
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("complete");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("mutation_directive_reprompt");
+      expect(events).not.toContain("contract_miss_detail");
+      const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "mutation_directive_reprompt");
+      expect(reprompt?.kind === "mutation_directive_reprompt" && reprompt.directives[0]?.reason).toBe(
+        "target_ambiguous",
+      );
+    });
+
+    test("target_absent mutation directive budget exhaustion settles contract_miss", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      seedTargetAbsentFixture(worktree);
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 1,
+        promptId: mutationRepromptLoopBase.promptId,
+        artifactPath: mutationRepromptLoopBase.artifactPath,
+        mutationCheckpointSeams: mutationRepromptLoopBase.mutationCheckpointSeams,
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      expect(result.resumable).toBe(false);
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      expect(subspec).toContain("target_absent");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("mutation_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+
+    test("unticked criteria plus repromptable target_absent hard-block without reprompt", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      seedRepromptWorktree(
+        worktree,
+        "export const ok = (a: number) => a > 0;\n",
+        'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
+        [
+          "## Acceptance criteria",
+          "",
+          "- [ ] Automated criterion still unchecked",
+          "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.",
+          "",
+        ].join("\n"),
+      );
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        promptId: mutationRepromptLoopBase.promptId,
+        artifactPath: mutationRepromptLoopBase.artifactPath,
+        mutationCheckpointSeams: mutationRepromptLoopBase.mutationCheckpointSeams,
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      expect(result.resumable).toBe(false);
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      expect(subspec).toContain("Automated criterion still unchecked");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("mutation_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+
+    test("mixed unparseable mutation directive reasons hard-block without reprompt", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      seedRepromptWorktree(
+        worktree,
+        "export const ok = (a: number) => a > 0;\n",
+        'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
+        [
+          "## Acceptance criteria",
+          "",
+          "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.",
+          "- [x] `absent.test.ts` — `missing`; Mutation checkpoint: unresolved pinning test.",
+          "",
+        ].join("\n"),
+      );
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        promptId: mutationRepromptLoopBase.promptId,
+        artifactPath: mutationRepromptLoopBase.artifactPath,
+        mutationCheckpointSeams: mutationRepromptLoopBase.mutationCheckpointSeams,
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("mutation_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+
+    test("multiple target_absent directives emit one reprompt with every directive listed", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      writeFileSync(
+        join(worktree, "00-subspec.md"),
+        [
+          "## Acceptance criteria",
+          "",
+          "- [x] `pin-a.test.ts` — `pin a`; Mutation checkpoint: named on that pin.",
+          "- [x] `pin-b.test.ts` — `pin b`; Mutation checkpoint: named on that pin.",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      writeFileSync(join(worktree, "target.ts"), "export const ok = true;\n", "utf8");
+      writeFileSync(
+        join(worktree, "pin-a.test.ts"),
+        'test("pin a", () => {\n  // @mutate target.ts "missing-a" -> "x"\n});\n',
+        "utf8",
+      );
+      writeFileSync(
+        join(worktree, "pin-b.test.ts"),
+        'test("pin b", () => {\n  // @mutate target.ts "missing-b" -> "y"\n});\n',
+        "utf8",
+      );
+      const sink = new TestLogSink();
+      let invocations = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...mutationRepromptLoopBase,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              writeFileSync(
+                join(cwd, "pin-a.test.ts"),
+                'test("pin a", () => {\n  // @mutate target.ts "export const ok" -> "export const fixed"\n});\n',
+                "utf8",
+              );
+              writeFileSync(
+                join(cwd, "pin-b.test.ts"),
+                'test("pin b", () => {\n  // @mutate target.ts "export const ok" -> "export const fixed"\n});\n',
+                "utf8",
+              );
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("complete");
+      const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "mutation_directive_reprompt");
+      if (reprompt?.kind !== "mutation_directive_reprompt") throw new Error("expected reprompt event");
+      expect(reprompt.directives).toHaveLength(2);
+      expect(reprompt.directives.map((d) => d.reason)).toEqual(["target_absent", "target_absent"]);
+      expect(reprompt.display).toContain("missing-a");
+      expect(reprompt.display).toContain("missing-b");
+      expect(reprompt.directives[0]).toMatchObject({
+        line: 2,
+        reason: "target_absent",
+        raw: '// @mutate target.ts "missing-a" -> "x"',
+      });
+      expect(reprompt.directives[1]).toMatchObject({
+        line: 2,
+        reason: "target_absent",
+        raw: '// @mutate target.ts "missing-b" -> "y"',
+      });
+    });
+
+    test("target_absent plus hollow checkpoint hard-blocks without reprompt", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createRepromptWorktree(jarvisRoot);
+      writeFileSync(
+        join(worktree, "00-subspec.md"),
+        [
+          "## Acceptance criteria",
+          "",
+          "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.",
+          "- [x] `hollow.test.ts` — `hollow`; Mutation checkpoint: named on that pin.",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+      writeFileSync(
+        join(worktree, "pin.test.ts"),
+        'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
+        "utf8",
+      );
+      writeFileSync(join(worktree, "hollow.test.ts"), 'test("hollow", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n', "utf8");
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        promptId: mutationRepromptLoopBase.promptId,
+        artifactPath: mutationRepromptLoopBase.artifactPath,
+        mutationCheckpointSeams: { runScopedTests: async () => true },
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("mutation_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+  });
+
   test("contract_miss appends contract_miss_detail to the observability log", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();

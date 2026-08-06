@@ -34,12 +34,12 @@ runs only after a red gate post-commit and does not cover the completion-commit 
 
 ## Acceptance criteria
 
-- [ ] `completion-commit.test.ts` test `formats changed files before staging so committed tree passes biome check` seeds an unformatted change in a real worktree, runs the completion-commit path with real Biome, and asserts the committed tree passes `bun biome check` with no format diff; fails against the pre-fix code.
-- [ ] `completion-commit.test.ts` test `throws before staging when formatter exits non-zero` drives a failing formatter and asserts `preparePendingCommit` throws with no `git add -A` and no unformatted output committed; fails against the pre-fix code.
-- [ ] `completion-commit.test.ts` test `throws before staging when formatter times out` drives a formatter that exceeds injected `iterationTimeoutMs` and asserts throw with no unformatted output committed; fails against the pre-fix code.
-- [ ] `completion-commit.test.ts` test `honors injected iterationTimeoutMs for formatter budget` asserts a short injected timeout triggers formatter timeout while a sufficient budget succeeds; fails against the pre-fix code.
-- [ ] Mutation checkpoint: `v2/src/execution/completion-commit.test.ts` links `// @mutate` neutering the formatter invocation in the completion-commit path; inverting leaves an unformatted change committed and turns the `formats changed files before staging so committed tree passes biome check` regression red.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `completion-commit.test.ts` test `formats changed files before staging so committed tree passes biome check` seeds an unformatted change in a real worktree, runs the completion-commit path with real Biome, and asserts the committed tree passes `bun biome check` with no format diff; fails against the pre-fix code.
+- [x] `completion-commit.test.ts` test `throws before staging when formatter exits non-zero` drives a failing formatter and asserts `preparePendingCommit` throws with no `git add -A` and no unformatted output committed; fails against the pre-fix code.
+- [x] `completion-commit.test.ts` test `throws before staging when formatter times out` drives a formatter that exceeds injected `iterationTimeoutMs` and asserts throw with no unformatted output committed; fails against the pre-fix code.
+- [x] `completion-commit.test.ts` test `honors injected iterationTimeoutMs for formatter budget` asserts a short injected timeout triggers formatter timeout while a sufficient budget succeeds; fails against the pre-fix code.
+- [x] Mutation checkpoint: `v2/src/execution/completion-commit.test.ts` links `// @mutate` neutering the formatter invocation in the completion-commit path; inverting leaves an unformatted change committed and turns the `formats changed files before staging so committed tree passes biome check` regression red.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

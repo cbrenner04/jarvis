@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { type AsyncSubprocessRunner, AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   clearUnrestoredDirectives,
   describeStrandedMutation,
@@ -10,6 +11,8 @@ import {
   type MutateDirective,
 } from "./mutation-checkpoint-verifier.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
+
+const DEFAULT_COMPLETION_FORMAT_TIMEOUT_MS = 600_000;
 
 export type CompletionCommitInput = {
   worktreePath: string;
@@ -22,12 +25,79 @@ export type CompletionCommitInput = {
   forceDistinctCommit?: boolean;
   /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
   readyGateAttribution?: "autofix";
+  /** Formatter wall-clock budget; callers pass write-loop `iterationTimeoutMs` when known. */
+  iterationTimeoutMs?: number;
   /** Test seam: verify-run unrestored directives; when absent, loaded from git state. */
   unrestoredDirectives?: readonly MutateDirective[];
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
+
+export type CompletionFormatOpts = {
+  cwd: string;
+  paths: readonly string[];
+  timeoutMs: number;
+};
+
+export type CompletionFormatRunner = (opts: CompletionFormatOpts) => Promise<void>;
+
+function pathFromPorcelainLine(line: string): string | undefined {
+  if (line.endsWith("\r")) line = line.slice(0, -1);
+  if (line.length < 2) return undefined;
+  let path: string;
+  if (line.length >= 3 && line[2] === " ") {
+    path = line.slice(3);
+  } else if (line[1] === " ") {
+    path = line.slice(2);
+  } else {
+    return undefined;
+  }
+  const arrow = path.indexOf(" -> ");
+  if (arrow >= 0) path = path.slice(arrow + 4);
+  return path.length > 0 ? path : undefined;
+}
+
+async function enumerateChangedWorktreePaths(runGit: Git, worktreePath: string): Promise<string[]> {
+  const raw = await runGit(worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
+  if (!raw) return [];
+  const lines = raw.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  const paths: string[] = [];
+  for (const line of lines) {
+    const path = pathFromPorcelainLine(line);
+    if (path !== undefined) paths.push(path);
+  }
+  return paths;
+}
+
+/** Scoped format-only pass on enumerated changed paths; distinct from ready-gate `fixCommand` autofix. */
+export async function runCompletionFormat(
+  opts: CompletionFormatOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
+  if (opts.paths.length === 0) return;
+  if (!existsSync(join(opts.cwd, "biome.json"))) return;
+  const displayCmd = `bun biome check --write ${opts.paths.join(" ")}`;
+  try {
+    await runner.runAsync("bun", ["biome", "check", "--write", ...opts.paths], opts.cwd, {
+      timeoutMs: opts.timeoutMs,
+      env: process.env,
+    });
+  } catch (err) {
+    if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
+      throw new Error(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
+    }
+    const captured =
+      err instanceof AsyncSubprocessError
+        ? [err.stdout, err.stderr].filter(Boolean).join("\n").trim()
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    throw new Error(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+  }
+}
+
 type PendingCommit = {
   baseHead: string;
   tree: string;
@@ -109,9 +179,18 @@ async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, com
 async function preparePendingCommit(
   runGit: Git,
   input: CompletionCommitInput,
-  ctx: { agent: string; subject: string; index: string; pendingPath: string },
+  ctx: {
+    agent: string;
+    subject: string;
+    index: string;
+    pendingPath: string;
+    formatRunner: CompletionFormatRunner;
+  },
 ): Promise<{ kind: "pending"; pending: PendingCommit } | { kind: "settled"; result: CompletionCommitResult }> {
-  const { agent, subject, index, pendingPath } = ctx;
+  const { agent, subject, index, pendingPath, formatRunner } = ctx;
+  const changedPaths = await enumerateChangedWorktreePaths(runGit, input.worktreePath);
+  const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_COMPLETION_FORMAT_TIMEOUT_MS;
+  await formatRunner({ cwd: input.worktreePath, paths: changedPaths, timeoutMs });
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
@@ -155,7 +234,10 @@ async function preparePendingCommit(
 }
 
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
-export function createCompletionCommitter(runGit: Git = git): CompletionCommitter {
+export function createCompletionCommitter(
+  runGit: Git = git,
+  formatRunner: CompletionFormatRunner = runCompletionFormat,
+): CompletionCommitter {
   return async (input) => {
     const agent = input.agent.trim();
     if (!agent) throw new Error("completion attribution is missing");
@@ -176,7 +258,13 @@ export function createCompletionCommitter(runGit: Git = git): CompletionCommitte
         pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;
         await refuseStrandedMutationsInTrees(runGit, input.worktreePath, pending.tree, pending.baseHead, unrestored);
       } else {
-        const prepared = await preparePendingCommit(runGit, input, { agent, subject, index, pendingPath });
+        const prepared = await preparePendingCommit(runGit, input, {
+          agent,
+          subject,
+          index,
+          pendingPath,
+          formatRunner,
+        });
         if (prepared.kind === "settled") return prepared.result;
         pending = prepared.pending;
       }

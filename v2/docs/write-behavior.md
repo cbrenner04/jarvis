@@ -121,7 +121,14 @@ retryable boundary comprising three operations in sequence: commit, then push+PR
 then PR body refresh. Ready finalization is a separate retryable boundary after
 publication succeeds: ready gate, then draft→ready flip.
 
-**Commit phase:** captures an isolated `git add -A` snapshot, creates one
+**Commit phase:** before staging, enumerates changed worktree paths via
+`git status --porcelain --untracked-files=all` and runs scoped format-only
+`bun biome check --write <path…>` on those paths (skips when empty; fail-closed
+on non-zero exit, timeout, or missing Biome). This is distinct from ready-gate
+repair autofix, which invokes configured `fixCommand` / built-in `bun run fix`
+after a red gate; ready-gate repair re-commits through the same committer, so a
+second scoped format pass may follow `fixCommand`. Then captures an isolated
+`git add -A` snapshot, creates one
 completion commit with the resolved spec title as subject, `Spec: <specPath>`,
 and the final successful binding's `Jarvis-Agent` trailer, then updates the
 branch by compare-and-swap. Hooks are bypassed. A clean snapshot with a HEAD

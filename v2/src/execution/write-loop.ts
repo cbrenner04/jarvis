@@ -802,6 +802,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             agent: prepared.result.completionAgent ?? "",
             title: creationTitle,
             forceDistinctCommit: true,
+            iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
           });
           if (published.commitSha !== undefined) {
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
@@ -1290,6 +1291,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           agent,
           title: creationTitle,
           forceDistinctCommit: true,
+          iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         });
         if (published.commitSha !== undefined) {
           store.setRunStatus(runId, "in-progress");
@@ -2325,6 +2327,7 @@ async function commitRepairAndRepublish(
         agent: result.completionAgent ?? "",
         title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
         forceDistinctCommit: true,
+        iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         ...(options?.readyGateAttribution !== undefined ? { readyGateAttribution: options.readyGateAttribution } : {}),
       });
     }
@@ -2853,6 +2856,7 @@ async function commitSettledIteration(
     specPath,
     agent,
     title,
+    iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
   });
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
     return { kind: "skipped", skipReason: "no_file_changes" };

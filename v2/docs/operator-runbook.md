@@ -576,8 +576,7 @@ subspecs this session, and on #2597 the prior session. Fix by hand: retarget the
 to the unique real call site, verify it reddens (apply → run the pinning test → expect fail → revert), re-tick.
 Seed: `v2/spec/seeds/implement-reconciles-mutation-directive-to-landed-code.md`. Cleanup: delete when that seed ships.
 
-**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement does
-not run biome; a new branchy function (preflight-gate sequence, per-outcome mapper) trips
+**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement runs scoped format-only Biome on enumerated changed paths before staging (not full `fix` / semantic lint autofix); a new branchy function (preflight-gate sequence, per-outcome mapper) still trips
 `lint/complexity/noExcessiveCognitiveComplexity` (max 24). `bun run fix` / `check:fix:unsafe` cannot repair it, so
 the ready gate settles `completion_commit_failed`. Recovery: add a `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>`
 above the function (or extract helpers preserving guard text so `@mutate` pins still match), then finalize. Recurs

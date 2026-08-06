@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { resolveCiTestScope } from "../../../scripts/ci-test-scope.ts";
 import {
@@ -70,6 +71,8 @@ export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scop
 export type ReadyGateClassification = {
   kind: ReadyGateFailureKind;
   outsidePaths?: readonly string[];
+  gateRepairAllowsetPaths?: readonly string[];
+  baseRefProbeError?: string;
 };
 
 export type ReadyGateScopeInput = {
@@ -78,15 +81,27 @@ export type ReadyGateScopeInput = {
   specPath: string;
 };
 
+export type BaseRefProbeResult = "pass" | "fail" | { kind: "error"; message: string };
+
+export type ReproduceReadyGateAtBaseRef = (
+  scope: ReadyGateScopeInput,
+  terminalCommand: string,
+  path: string,
+) => Promise<BaseRefProbeResult>;
+
 export type ReadyGateScopeSeams = {
   gitDiffNameStatus?: (worktreePath: string, baseRef: string) => Promise<string | null>;
   gitUntracked?: (worktreePath: string) => Promise<string | null>;
   listSpecTreePaths?: (worktreePath: string, specPath: string) => Promise<string[] | null>;
+  reproduceReadyGateAtBaseRef?: ReproduceReadyGateAtBaseRef;
 };
 
 export class ReadyGateError extends Error {
   readonly gateFailureKind: ReadyGateFailureKind;
   readonly outsidePaths?: readonly string[];
+  readonly gateRepairAllowsetPaths?: readonly string[];
+  readonly baseRefProbeError?: string;
+  readonly scopeBaseRef?: string;
 
   constructor(
     readonly command: string,
@@ -94,12 +109,22 @@ export class ReadyGateError extends Error {
     readonly output: string,
     readonly timedOut: boolean = false,
     classification?: ReadyGateClassification,
+    scopeBaseRef?: string,
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
     this.gateFailureKind = classification?.kind ?? "ready_gate_failed";
     if (classification?.outsidePaths !== undefined) {
       this.outsidePaths = classification.outsidePaths;
+    }
+    if (classification?.gateRepairAllowsetPaths !== undefined) {
+      this.gateRepairAllowsetPaths = classification.gateRepairAllowsetPaths;
+    }
+    if (classification?.baseRefProbeError !== undefined) {
+      this.baseRefProbeError = classification.baseRefProbeError;
+    }
+    if (scopeBaseRef !== undefined) {
+      this.scopeBaseRef = scopeBaseRef;
     }
   }
 }
@@ -171,6 +196,10 @@ function isReadyTestCommand(command: string): boolean {
   return /^bun run test(?::|$)/.test(command);
 }
 
+function isReadyAttributionCommand(command: string): boolean {
+  return isReadyTestCommand(command) || command === "bun run lint:md";
+}
+
 function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | undefined {
   const seen = new Map<string, string>();
   const result: string[] = [];
@@ -191,11 +220,20 @@ function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | un
   return result;
 }
 
-/** Select validated failing paths from the terminal failed ready test step's final attempt. */
-export function selectTerminalFailingPaths(output: string): string[] | undefined {
+/** Terminal failed ready step from gate output; undefined when attribution is incomplete. */
+export function selectTerminalFailedReadyStep(output: string): ReadyStepCompletion | undefined {
   const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
   const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
-  if (terminalFailed === undefined || !isReadyTestCommand(terminalFailed.command)) {
+  if (terminalFailed === undefined || !isReadyAttributionCommand(terminalFailed.command)) {
+    return undefined;
+  }
+  return terminalFailed;
+}
+
+/** Select validated failing paths from the terminal failed ready test step's final attempt. */
+export function selectTerminalFailingPaths(output: string): string[] | undefined {
+  const terminalFailed = selectTerminalFailedReadyTestStep(output);
+  if (terminalFailed === undefined) {
     return undefined;
   }
   const fileRecords = parseMarkerRecords(output, FAILING_TEST_FILE_MARKER, isFailingTestFileRecord);
@@ -204,6 +242,193 @@ export function selectTerminalFailingPaths(output: string): string[] | undefined
     return undefined;
   }
   return validateAndDeduplicatePaths(matching.map((record) => record.path));
+}
+
+/** Select validated failing paths from the terminal failed ready step's final attempt. */
+export function selectTerminalAttributablePaths(output: string): string[] | undefined {
+  const terminalFailed = selectTerminalFailedReadyStep(output);
+  if (terminalFailed === undefined) {
+    return undefined;
+  }
+  const fileRecords = parseMarkerRecords(output, FAILING_TEST_FILE_MARKER, isFailingTestFileRecord);
+  const matching = fileRecords.filter((record) => record.attemptId === terminalFailed.attemptId);
+  if (matching.length === 0) {
+    return undefined;
+  }
+  return validateAndDeduplicatePaths(matching.map((record) => record.path));
+}
+
+/** Terminal failed ready test step from gate output; undefined when attribution is incomplete. */
+export function selectTerminalFailedReadyTestStep(output: string): ReadyStepCompletion | undefined {
+  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
+  const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
+  if (terminalFailed === undefined || !isReadyTestCommand(terminalFailed.command)) {
+    return undefined;
+  }
+  return terminalFailed;
+}
+
+const BASE_REF_PROBE_OUTPUT_TAIL_CHARS = 4096;
+
+function formatBaseRefProbeError(error: unknown, exitCode?: number, output?: string): string {
+  const parts: string[] = [];
+  if (exitCode !== undefined) {
+    parts.push(`exit ${exitCode}`);
+  }
+  if (output !== undefined && output.length > 0) {
+    const tail =
+      output.length <= BASE_REF_PROBE_OUTPUT_TAIL_CHARS ? output : output.slice(-BASE_REF_PROBE_OUTPUT_TAIL_CHARS);
+    parts.push(tail.trim());
+  }
+  if (parts.length === 0) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return parts.join(": ");
+}
+
+function buildBaseRefProbeCommandArgs(terminalCommand: string, failingPath: string): string[] {
+  if (/^bun run test/.test(terminalCommand)) {
+    return ["test", failingPath];
+  }
+  return ["test", failingPath];
+}
+
+async function removeDetachedWorktree(
+  runner: AsyncSubprocessRunner,
+  projectRoot: string,
+  worktreeDir: string,
+): Promise<void> {
+  try {
+    await runner.runAsync("git", ["worktree", "remove", "--force", worktreeDir], projectRoot);
+  } catch {
+    if (existsSync(worktreeDir)) {
+      rmSync(worktreeDir, { recursive: true, force: true });
+    }
+  }
+}
+
+function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner): ReproduceReadyGateAtBaseRef {
+  return async (scope, terminalCommand, path) => {
+    let worktreeDir: string | undefined;
+    try {
+      const baseCommit = (
+        await runner.runAsync("git", ["merge-base", scope.baseRef, "HEAD"], scope.worktreePath)
+      ).trim();
+      worktreeDir = mkdtempSync(join(tmpdir(), "jarvis-ready-base-ref-probe-"));
+      await runner.runAsync("git", ["worktree", "add", "--detach", worktreeDir, baseCommit], scope.worktreePath);
+      try {
+        await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
+          maxBuffer: READY_GATE_MAX_BUFFER,
+        });
+        return "pass";
+      } catch (error) {
+        if (error instanceof AsyncSubprocessError) {
+          if (error.status === 0) {
+            return "pass";
+          }
+          return "fail";
+        }
+        return { kind: "error", message: formatBaseRefProbeError(error) };
+      }
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError) {
+        const output = `${error.stdout}${error.stderr}`;
+        return {
+          kind: "error",
+          message: formatBaseRefProbeError(error, error.status ?? undefined, output),
+        };
+      }
+      return { kind: "error", message: formatBaseRefProbeError(error) };
+    } finally {
+      if (worktreeDir !== undefined) {
+        await removeDetachedWorktree(runner, scope.worktreePath, worktreeDir);
+      }
+    }
+  };
+}
+
+async function probeOutsidePathsAtBaseRef(
+  outsidePaths: readonly string[],
+  terminalCommand: string,
+  scope: ReadyGateScopeInput,
+  seams: ReadyGateScopeSeams | undefined,
+  runner: AsyncSubprocessRunner,
+): Promise<{
+  inScopePaths: string[];
+  confirmedOutsidePaths: string[];
+  baseRefProbeError?: string;
+}> {
+  const reproduce = seams?.reproduceReadyGateAtBaseRef ?? createDefaultReproduceReadyGateAtBaseRef(runner);
+  const inScopePaths: string[] = [];
+  const confirmedOutsidePaths: string[] = [];
+  let baseRefProbeError: string | undefined;
+  for (const path of outsidePaths) {
+    const outcome = await reproduce(scope, terminalCommand, path);
+    if (outcome === "pass") {
+      inScopePaths.push(path);
+      continue;
+    }
+    if (outcome === "fail") {
+      confirmedOutsidePaths.push(path);
+      continue;
+    }
+    inScopePaths.push(path);
+    if (baseRefProbeError === undefined) {
+      baseRefProbeError = outcome.message;
+    }
+  }
+  return baseRefProbeError === undefined
+    ? { inScopePaths, confirmedOutsidePaths }
+    : { inScopePaths, confirmedOutsidePaths, baseRefProbeError };
+}
+
+/** Classify a ready gate failure from terminal test evidence, allowed paths, and base-ref reproduction. */
+export async function classifyReadyGateFailure(
+  error: Pick<ReadyGateError, "command" | "output" | "timedOut">,
+  failingPaths: string[] | undefined,
+  allowedPaths: Set<string> | undefined,
+  scope?: ReadyGateScopeInput,
+  seams?: ReadyGateScopeSeams,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<ReadyGateClassification> {
+  if (error.timedOut || error.command !== "bun run ready") {
+    return { kind: "ready_gate_failed" };
+  }
+  if (failingPaths === undefined || allowedPaths === undefined || failingPaths.length === 0) {
+    return { kind: "ready_gate_failed" };
+  }
+  const outsidePaths = failingPaths.filter((path) => !allowedPaths.has(path));
+  if (outsidePaths.length === 0) {
+    return { kind: "ready_gate_failed" };
+  }
+  const mixedAttribution = outsidePaths.length < failingPaths.length;
+  const terminalStep = selectTerminalFailedReadyTestStep(error.output);
+  if (terminalStep === undefined || scope === undefined) {
+    if (mixedAttribution) {
+      return { kind: "ready_gate_failed" };
+    }
+    return { kind: "ready_gate_out_of_scope", outsidePaths };
+  }
+
+  const { inScopePaths, confirmedOutsidePaths, baseRefProbeError } = await probeOutsidePathsAtBaseRef(
+    outsidePaths,
+    terminalStep.command,
+    scope,
+    seams,
+    runner,
+  );
+  const probeFields =
+    inScopePaths.length > 0 || baseRefProbeError !== undefined
+      ? {
+          ...(inScopePaths.length > 0 ? { gateRepairAllowsetPaths: inScopePaths } : {}),
+          ...(baseRefProbeError !== undefined ? { baseRefProbeError } : {}),
+        }
+      : {};
+
+  if (mixedAttribution || inScopePaths.length > 0 || baseRefProbeError !== undefined) {
+    return { kind: "ready_gate_failed", ...probeFields };
+  }
+  return { kind: "ready_gate_out_of_scope", outsidePaths: confirmedOutsidePaths };
 }
 
 function parseNulDelimitedPaths(output: string): string[] | undefined {
@@ -375,24 +600,6 @@ export async function deriveGateAllowedPaths(
 }
 
 /** Classify a ready gate failure from terminal test evidence and the run's allowed path set. */
-export function classifyReadyGateFailure(
-  error: Pick<ReadyGateError, "command" | "output" | "timedOut">,
-  failingPaths: string[] | undefined,
-  allowedPaths: Set<string> | undefined,
-): ReadyGateClassification {
-  if (error.timedOut || error.command !== "bun run ready") {
-    return { kind: "ready_gate_failed" };
-  }
-  if (failingPaths === undefined || allowedPaths === undefined || failingPaths.length === 0) {
-    return { kind: "ready_gate_failed" };
-  }
-  const outsidePaths = failingPaths.filter((path) => !allowedPaths.has(path));
-  if (outsidePaths.length === 0 || outsidePaths.length < failingPaths.length) {
-    return { kind: "ready_gate_failed" };
-  }
-  return { kind: "ready_gate_out_of_scope", outsidePaths };
-}
-
 export async function classifyReadyGateError(
   error: ReadyGateError,
   scope: ReadyGateScopeInput,
@@ -401,11 +608,48 @@ export async function classifyReadyGateError(
 ): Promise<ReadyGateError> {
   const failingPaths = selectTerminalFailingPaths(error.output);
   const allowedPaths = await deriveGateAllowedPaths(scope, seams, runner);
-  const classification = classifyReadyGateFailure(error, failingPaths, allowedPaths);
-  if (classification.kind === error.gateFailureKind && classification.outsidePaths === error.outsidePaths) {
+  const classification = await classifyReadyGateFailure(error, failingPaths, allowedPaths, scope, seams, runner);
+  if (
+    classification.kind === error.gateFailureKind &&
+    classification.outsidePaths === error.outsidePaths &&
+    classification.gateRepairAllowsetPaths === error.gateRepairAllowsetPaths &&
+    classification.baseRefProbeError === error.baseRefProbeError
+  ) {
     return error;
   }
-  return new ReadyGateError(error.command, error.exitCode, error.output, error.timedOut, classification);
+  return new ReadyGateError(error.command, error.exitCode, error.output, error.timedOut, classification, scope.baseRef);
+}
+
+export function resolveGateRepairAllowset(frozen: Set<string>, error: ReadyGateError): Set<string> {
+  const extension = error.gateRepairAllowsetPaths;
+  if (extension === undefined || extension.length === 0) {
+    return frozen;
+  }
+  const extended = new Set(frozen);
+  for (const path of extension) {
+    extended.add(path);
+  }
+  return extended;
+}
+
+/** Per-gate repair allowset for agent iterations: attributable failing paths for non-test gates, else frozen diff/spec plus extensions. */
+export function resolveAttributableRepairAllowset(frozen: Set<string>, error: ReadyGateError): Set<string> {
+  const terminalFailed = selectTerminalFailedReadyStep(error.output);
+  if (terminalFailed === undefined || isReadyTestCommand(terminalFailed.command)) {
+    return resolveGateRepairAllowset(frozen, error);
+  }
+  const attributablePaths = selectTerminalAttributablePaths(error.output);
+  if (attributablePaths === undefined || attributablePaths.length === 0) {
+    return resolveGateRepairAllowset(frozen, error);
+  }
+  const allowset = new Set<string>(attributablePaths);
+  const extension = error.gateRepairAllowsetPaths;
+  if (extension !== undefined) {
+    for (const path of extension) {
+      allowset.add(path);
+    }
+  }
+  return allowset;
 }
 
 export class SurvivingMutationError extends Error {
@@ -430,8 +674,8 @@ export type ReadyGateOutOfScopeLogFields = {
   readyGateOutOfScopeDetail?: string;
 };
 
-export function formatReadyGateOutOfScopeDetail(paths: readonly string[]): string {
-  return `ready gate failing paths lie outside the run's touched set: ${paths.join(", ")}`;
+export function formatReadyGateOutOfScopeDetail(paths: readonly string[], baseRef = "baseRef"): string {
+  return `ready gate failing paths also reproduce on ${baseRef}: ${paths.join(", ")}`;
 }
 
 export function readyGateOutOfScopeLogFields(
@@ -445,7 +689,7 @@ export function readyGateOutOfScopeLogFields(
   ) {
     return {
       readyGateOutsidePaths: [...source.outsidePaths],
-      readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail(source.outsidePaths),
+      readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail(source.outsidePaths, source.scopeBaseRef),
     };
   }
   if (source instanceof Error) return {};

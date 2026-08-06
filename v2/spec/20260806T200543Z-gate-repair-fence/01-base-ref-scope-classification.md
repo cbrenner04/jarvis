@@ -24,11 +24,11 @@ Ready-gate repair today treats diff membership as the sole out-of-scope signal, 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that drives a red gate whose failing file is outside the run diff but passes on `baseRef`, asserts the run classifies in scope, admits repair, and adds only that file to the repair allowset for that gate.
-- [ ] A red gate whose failing file also fails on `baseRef` still settles `ready_gate_out_of_scope` with that path named; `ready-finalize.test.ts` "classifies fully attributed terminal failures outside the allowed set as out of scope", "keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", and `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stay green.
-- [ ] `ready-finalize.test.ts` adds a pre-fix-failing regression that a base-ref probe failure classifies in scope; `write-loop.test.ts` asserts repair is attempted and a `ready_gate_base_ref_probe` log event with probe error detail appears in `jarvis run log` tail before the first `ready_gate_repair`.
-- [ ] `formatReadyGateOutOfScopeDetail` and operator mirrors no longer describe out-of-scope paths as lying outside the run's touched set; they state the failure also reproduces on `baseRef`.
-- [ ] In `ready-finalize.test.ts`, the test titled `base-ref reproduction classifies a base-passing worktree-failing path as in scope` carries a `// @mutate` directive inverting the base-ref comparison guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
+- [x] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that drives a red gate whose failing file is outside the run diff but passes on `baseRef`, asserts the run classifies in scope, admits repair, and adds only that file to the repair allowset for that gate.
+- [x] A red gate whose failing file also fails on `baseRef` still settles `ready_gate_out_of_scope` with that path named; `ready-finalize.test.ts` "classifies fully attributed terminal failures outside the allowed set as out of scope", "keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", and `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stay green.
+- [x] `ready-finalize.test.ts` adds a pre-fix-failing regression that a base-ref probe failure classifies in scope; `write-loop.test.ts` asserts repair is attempted and a `ready_gate_base_ref_probe` log event with probe error detail appears in `jarvis run log` tail before the first `ready_gate_repair`.
+- [x] `formatReadyGateOutOfScopeDetail` and operator mirrors no longer describe out-of-scope paths as lying outside the run's touched set; they state the failure also reproduces on `baseRef`.
+- [x] In `ready-finalize.test.ts`, the test titled `base-ref reproduction classifies a base-passing worktree-failing path as in scope` carries a `// @mutate` directive inverting the base-ref comparison guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
 
 ## Documentation updates
 

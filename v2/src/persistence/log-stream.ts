@@ -22,6 +22,11 @@ type ReadyGateRepairEvent = {
   gateExitCode: number | undefined;
 };
 
+type ReadyGateBaseRefProbeEvent = {
+  kind: "ready_gate_base_ref_probe";
+  message: string;
+};
+
 type ReadyGateTimeoutEvent = {
   kind: "ready_gate_timeout";
   gateExitCode: number | undefined;
@@ -194,6 +199,7 @@ type LogEventWithoutLoopFinished =
   | IterationStartedEvent
   | BoundaryCommittedEvent
   | ReadyGateRepairEvent
+  | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
   | RuntimeSmokeOutcomeEvent
   | IterationCommitEvent

@@ -23,7 +23,13 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
-import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import {
+  baseRefProbeFailsSeam,
+  gateFailureOutput,
+  initGateScopeWorktree,
+  initOutsideDiffRepairWorktree,
+  lintMdOnlyGateFailureOutput,
+} from "./ready-finalize.test.ts";
 import {
   deriveGateAllowedPaths,
   ReadyFlipError,
@@ -260,6 +266,7 @@ async function runLoop(args: {
   runFixCommand?: WriteLoopInput["runFixCommand"];
   iterationTimeoutMs?: number;
   mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
+  readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -301,6 +308,7 @@ async function runLoop(args: {
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
+    ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -2219,6 +2227,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2379,6 +2388,7 @@ describe("write loop", () => {
           branchName: outOfScopeBranch,
           baseRef: outOfScopeBaseRef,
           logSink,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
           ...completionHooks,
           readyFinalizer: async () => {
@@ -2449,6 +2459,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2502,6 +2513,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2527,6 +2539,108 @@ describe("write loop", () => {
           logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started"),
         ).toHaveLength(1);
       });
+
+      test("admits repair for an outside-diff gate failure that passes on baseRef and extends the allowset", async () => {
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-outside-diff-in-scope";
+        const { worktreePath, baseRef } = initOutsideDiffRepairWorktree(jarvisRoot, branchName);
+        const frozenAllowset = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(frozenAllowset?.has(outsidePath)).toBe(false);
+
+        let invocations = 0;
+        let gateCalls = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          readyGateScopeSeams: {
+            reproduceReadyGateAtBaseRef: async () => "pass",
+          },
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                if (invocations === 1) {
+                  writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                } else {
+                  writeFileSync(join(cwd, outsidePath), "fixed\n", "utf8");
+                }
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (invocations === 1) {
+              throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+            }
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(gateCalls).toBe(3);
+        expect(invocations).toBe(2);
+        const candidates = (await enumerateRepairCompletionCandidates(worktreePath)) ?? [];
+        expect(findFirstRepairFenceViolation(candidates, frozenAllowset ?? new Set())).toEqual(outsidePath);
+        const extendedAllowset = new Set(frozenAllowset ?? []);
+        extendedAllowset.add(outsidePath);
+        expect(findFirstRepairFenceViolation(candidates, extendedAllowset)).toBeUndefined();
+      });
+
+      test("logs ready_gate_base_ref_probe before ready_gate_repair when base-ref probe errors", async () => {
+        const probeMessage = "exit 2: cannot run base-ref probe";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-base-ref-probe-error";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+        let invocations = 0;
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink,
+          readyGateScopeSeams: {
+            reproduceReadyGateAtBaseRef: async () => ({ kind: "error", message: probeMessage }),
+          },
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          ...completionHooks,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_failed");
+        expect(invocations).toBeGreaterThanOrEqual(2);
+        const events = logSink.getEventsForRun(result.runId);
+        const probeIndex = events.findIndex((event) => event.kind === "ready_gate_base_ref_probe");
+        const repairIndex = events.findIndex((event) => event.kind === "ready_gate_repair");
+        expect(probeIndex).toBeGreaterThanOrEqual(0);
+        expect(repairIndex).toBeGreaterThan(probeIndex);
+        expect(events[probeIndex]).toMatchObject({ kind: "ready_gate_base_ref_probe", message: probeMessage });
+        expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(true);
+      });
     });
 
     describe("ready-gate repair fence", () => {
@@ -2551,7 +2665,11 @@ export function isLoadSensitive(file: string): boolean {
       function initRepairFenceWorktree(
         jarvisRoot: string,
         branchName: string,
-        options?: { harnessSidecars?: boolean; loadSensitiveSlice?: boolean },
+        options?: {
+          harnessSidecars?: boolean;
+          loadSensitiveSlice?: boolean;
+          touchUntouchedInIteration?: boolean;
+        },
       ): { worktreePath: string; baseRef: string } {
         const worktreePath = initGitRepairWorktree(jarvisRoot, branchName);
         if (options?.loadSensitiveSlice === true) {
@@ -2588,6 +2706,11 @@ export function isLoadSensitive(file: string): boolean {
             "utf8",
           );
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "scripts/test-slice.ts"], { stdio: "pipe" });
+        } else if (options?.touchUntouchedInIteration === true) {
+          writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "iteration\n", "utf8");
+          execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "v2/src/untouched.test.ts"], {
+            stdio: "pipe",
+          });
         } else {
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
         }
@@ -2617,6 +2740,8 @@ export function isLoadSensitive(file: string): boolean {
         promptPlaceholders?: WriteLoopInput["promptPlaceholders"];
         intentSeed?: WriteLoopInput["intentSeed"];
         logSink?: LogSink;
+        readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
+        lintMdOnly?: boolean;
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -2656,7 +2781,10 @@ export function isLoadSensitive(file: string): boolean {
           readyFinalizer: async () => {
             gateCalls += 1;
             if (invocations === 1) {
-              throw new ReadyGateError("bun run ready", 1, gateFailureOutput(gateFailurePath));
+              const output = args.lintMdOnly
+                ? lintMdOnlyGateFailureOutput(gateFailurePath)
+                : gateFailureOutput(gateFailurePath);
+              throw new ReadyGateError("bun run ready", 1, output);
             }
           },
           ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
@@ -2666,6 +2794,7 @@ export function isLoadSensitive(file: string): boolean {
           ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
           ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
           ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+          ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
         });
         return { result, gateCalls, invocations, publishCalls };
       }
@@ -2811,6 +2940,79 @@ export function isLoadSensitive(file: string): boolean {
           loopOutcomeKind: "completion_commit_failed",
           completionCommitError: fenced.result.completionCommitError,
         });
+      });
+
+      test("repair refuses a staged path outside the attributable allowset", async () => {
+        // Mutation checkpoint: remove the `!allowedPaths.has(normalized)` rejection in
+        // `findRepairFenceViolations`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-attributable-allowset";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          touchUntouchedInIteration: true,
+        });
+
+        const allowed = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(allowed?.has("v2/src/untouched.test.ts")).toBe(true);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          lintMdOnly: true,
+          gateFailurePath: "spec.md",
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain(
+          "Ready-gate repair stages path outside attributable allowset:",
+        );
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
+
+        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+          .split("\n")
+          .filter(Boolean);
+        expect(dirty).toContain("v2/src/untouched.test.ts");
+      });
+
+      test("lint:md-only gate failure answered with a .ts edit is refused without a repair commit", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-lint-md-ts";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          touchUntouchedInIteration: true,
+        });
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          lintMdOnly: true,
+          gateFailurePath: "spec.md",
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
+
+        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+          .split("\n")
+          .filter(Boolean);
+        expect(dirty).toContain("v2/src/untouched.test.ts");
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {

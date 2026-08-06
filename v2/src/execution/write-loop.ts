@@ -58,8 +58,11 @@ import {
   ReadyFlipError,
   ReadyGateError,
   type ReadyGateScopeInput,
+  type ReadyGateScopeSeams,
   RuntimeSmokeFailedError,
   readyGateOutOfScopeLogFields,
+  resolveAttributableRepairAllowset,
+  resolveGateRepairAllowset,
   SurvivingMutationError,
   survivingMutationLogFields,
   validateRepoRelativePath,
@@ -259,6 +262,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   fixCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Test seam for ready-gate scope classification and base-ref reproduction. */
+  readyGateScopeSeams?: ReadyGateScopeSeams;
 };
 
 /**
@@ -406,6 +411,7 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
 
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
+const REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE = "Ready-gate repair stages path outside attributable allowset: ";
 const REPAIR_FENCE_SIDECAR_FAILURE_MESSAGE = "Ready-gate repair stages harness sidecar: ";
 const REPAIR_FENCE_LOAD_SENSITIVE_FAILURE_MESSAGE = "Ready-gate repair extends LOAD_SENSITIVE_FILES: ";
 const LOAD_SENSITIVE_SLICE_PATH = "scripts/test-slice.ts";
@@ -652,25 +658,30 @@ function findFirstHarnessSidecarBasenameViolation(candidates: readonly string[])
   return undefined;
 }
 
-export function findFirstRepairFenceViolation(
-  candidates: readonly string[],
-  allowedPaths: Set<string>,
-): string | undefined {
+export function findRepairFenceViolations(candidates: readonly string[], allowedPaths: Set<string>): string[] {
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
     const normalized = validateRepoRelativePath(raw);
     if (normalized === undefined) {
-      return escapeRepoPathForEvidence(raw);
+      return [escapeRepoPathForEvidence(raw)];
     }
     normalizedCandidates.push(normalized);
   }
   normalizedCandidates.sort(compareRepoPathsByUtf8Bytes);
+  const violations: string[] = [];
   for (const normalized of normalizedCandidates) {
     if (!allowedPaths.has(normalized)) {
-      return escapeRepoPathForEvidence(normalized);
+      violations.push(escapeRepoPathForEvidence(normalized));
     }
   }
-  return undefined;
+  return violations;
+}
+
+export function findFirstRepairFenceViolation(
+  candidates: readonly string[],
+  allowedPaths: Set<string>,
+): string | undefined {
+  return findRepairFenceViolations(candidates, allowedPaths).at(0);
 }
 
 export function findFirstMarkdownOnlyFenceViolation(
@@ -706,6 +717,7 @@ export async function validateReadyGateRepairCompletion(
   allowedPaths: Set<string>,
   markdownOutputRoots?: readonly string[],
   markdownOnlyRequired = false,
+  fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
 ): Promise<{ error: Error; offendingPath?: string } | undefined> {
   const candidates = await enumerateRepairCompletionCandidates(scope.worktreePath);
   if (candidates === undefined) {
@@ -724,11 +736,12 @@ export async function validateReadyGateRepairCompletion(
       return loadSensitiveViolation;
     }
   }
-  const violation = findFirstRepairFenceViolation(candidates, allowedPaths);
-  if (violation !== undefined) {
+  const violations = findRepairFenceViolations(candidates, allowedPaths);
+  const offendingPath = violations.at(0);
+  if (offendingPath !== undefined) {
     return {
-      offendingPath: violation,
-      error: new Error(`${REPAIR_FENCE_FAILURE_MESSAGE}${violation}`),
+      offendingPath,
+      error: new Error(`${fenceFailureMessage}${violations.join(", ")}`),
     };
   }
   if (markdownOnlyRequired && (markdownOutputRoots === undefined || markdownOutputRoots.length === 0)) {
@@ -2287,15 +2300,20 @@ export async function runMutationRepairIteration(
 async function classifyReadyGatePublishFailure(
   failure: CompletionPublishFailure,
   input: CompletionPublishInput,
+  seams?: ReadyGateScopeSeams,
 ): Promise<CompletionPublishFailure> {
   if (failure.kind !== "ready_gate_failed" || !(failure.error instanceof ReadyGateError)) {
     return failure;
   }
-  const classified = await classifyReadyGateError(failure.error, {
-    worktreePath: input.worktreePath,
-    baseRef: input.baseRef,
-    specPath: input.specPath,
-  });
+  const classified = await classifyReadyGateError(
+    failure.error,
+    {
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+    },
+    seams,
+  );
   return {
     ...failure,
     kind: classified.gateFailureKind === "ready_gate_out_of_scope" ? "ready_gate_out_of_scope" : "ready_gate_failed",
@@ -2406,8 +2424,9 @@ async function enforceRepairIterationFence(
   store: StateStore,
   runId: string,
   input: CompletionPublishInput,
-  frozenRepairAllowset: Set<string>,
+  repairAllowset: Set<string>,
   iterationsConsumed: number,
+  fenceFailureMessage = REPAIR_FENCE_FAILURE_MESSAGE,
 ): Promise<ReadyRepairPublishResult | undefined> {
   if (!(await shouldEnforceReadyGateRepairFence(input.worktreePath))) {
     return undefined;
@@ -2423,17 +2442,21 @@ async function enforceRepairIterationFence(
       baseRef: input.baseRef,
       specPath: input.specPath,
     },
-    frozenRepairAllowset,
+    repairAllowset,
     markdownOutputRoots,
     markdownOnlyRequired,
+    fenceFailureMessage,
   );
   if (fenceResult === undefined) {
     return undefined;
   }
+  const frozenPaths = persistedFence?.allowedPaths;
+  const provenanceAllowset =
+    frozenPaths !== undefined && frozenPaths.length > 0 ? new Set(frozenPaths) : repairAllowset;
   persistReadyGateRepairFence(
     store,
     runId,
-    frozenRepairAllowset,
+    provenanceAllowset,
     fenceResult.offendingPath,
     markdownOutputRoots,
     markdownOnlyRequired ? true : undefined,
@@ -2471,7 +2494,7 @@ async function commitRepairAndRepublish(
     }
     let outcome = await publishCompletionArtifacts(args, input);
     if (outcome.kind !== "success") {
-      outcome = await classifyReadyGatePublishFailure(outcome, input);
+      outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
     }
     return { kind: "success", outcome };
   } catch (error) {
@@ -2499,11 +2522,10 @@ async function runReadyGateRepairLoop(
   input: CompletionPublishInput,
   outcome: CompletionPublishOutcome,
   iterationsConsumed: number,
-  frozenRepairAllowset: Set<string> | undefined,
+  frozenRepairAllowset: Set<string>,
 ): Promise<ReadyGateRepairLoopResult> {
   let currentOutcome = outcome;
   let currentIterations = iterationsConsumed;
-  let allowset = frozenRepairAllowset;
   let repairAttempt = 0;
   let repairBudgetExhausted = false;
 
@@ -2514,11 +2536,7 @@ async function runReadyGateRepairLoop(
       break;
     }
     if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
-    if (allowset === undefined) {
-      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, args, currentIterations);
-      if ("failure" in initialized) return { kind: "early", result: initialized.failure };
-      allowset = initialized.allowset;
-    }
+    appendReadyGateBaseRefProbeLog(args, result.runId, currentOutcome.error);
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
       attempt: repairAttempt,
@@ -2540,13 +2558,15 @@ async function runReadyGateRepairLoop(
       return { kind: "early", result: { failure: currentOutcome, iterationsConsumed: currentIterations } };
     }
 
+    const attributableAllowset = resolveAttributableRepairAllowset(frozenRepairAllowset, currentOutcome.error);
     const fenceFailure = await enforceRepairIterationFence(
       args,
       store,
       result.runId,
       input,
-      allowset,
+      attributableAllowset,
       currentIterations,
+      REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE,
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
 
@@ -2561,6 +2581,16 @@ async function runReadyGateRepairLoop(
     iterationsConsumed: currentIterations,
     repairBudgetExhausted,
   };
+}
+
+function appendReadyGateBaseRefProbeLog(args: WriteLoopInput, runId: string, error: ReadyGateError): void {
+  if (error.baseRefProbeError === undefined) {
+    return;
+  }
+  args.logSink?.append(runId, {
+    kind: "ready_gate_base_ref_probe",
+    message: error.baseRefProbeError,
+  });
 }
 
 function appendReadyGateTimeoutLog(args: WriteLoopInput, runId: string, outcome: CompletionPublishOutcome): void {
@@ -2607,7 +2637,7 @@ export async function publishWithReadyRepair(
 ): Promise<ReadyRepairPublishResult> {
   let outcome = await publishCompletionArtifacts(args, input);
   if (outcome.kind !== "success") {
-    outcome = await classifyReadyGatePublishFailure(outcome, input);
+    outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
   }
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
@@ -2623,6 +2653,9 @@ export async function publishWithReadyRepair(
     if ("failure" in initialized) return initialized.failure;
     frozenRepairAllowset = initialized.allowset;
   }
+
+  const gateRepairAllowset = resolveGateRepairAllowset(frozenRepairAllowset, outcome.error);
+  appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
   const fixOpts: RunFixCommandOpts = {
     cwd: input.worktreePath,
@@ -2647,7 +2680,7 @@ export async function publishWithReadyRepair(
     store,
     result.runId,
     input,
-    frozenRepairAllowset,
+    gateRepairAllowset,
     iterationsConsumed,
   );
   if (autofixFenceFailure !== undefined) {

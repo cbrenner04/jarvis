@@ -48,7 +48,7 @@ import type { InvocationFailureKind } from "./invocation-failure.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { buildPlanWorkflowSteps, validateReadyIntent } from "./publication-workflow-steps.ts";
-import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import { baseRefProbeFailsSeam, gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
   ReadyFlipError,
@@ -2726,6 +2726,7 @@ describe("executeWorkflow completion publication", () => {
       withExternalWorktree: createFakeWithExternalWorktree(home.jarvisRoot),
       stepId: "gate-scope",
       role: "implement",
+      readyGateScopeSeams: baseRefProbeFailsSeam,
       ...overrides,
     };
   }
@@ -2737,7 +2738,7 @@ describe("executeWorkflow completion publication", () => {
     const logSink = new TestLogSink();
     let inScopeGateCalls = 0;
     const outsidePath = "v2/src/untouched.test.ts";
-    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef);
 
     await withStateStore(async (store) => {
       const outOfScope = await executeWorkflow({
@@ -2803,7 +2804,7 @@ describe("executeWorkflow completion publication", () => {
     const branchName = "workflow-gate-out-of-scope-durable";
     const { baseRef } = initGateScopeWorktree(home.jarvisRoot, branchName);
     const outsidePath = "v2/src/untouched.test.ts";
-    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
+    const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath], baseRef);
     const logsPath = join(home.jarvisRoot, "logs.jsonl");
     const logSink = openLogSink(logsPath);
 

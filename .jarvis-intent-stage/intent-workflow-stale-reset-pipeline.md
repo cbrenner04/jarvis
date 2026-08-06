@@ -41,6 +41,5 @@ reuses it and review fails non-retryably with foreign verdict ownership.
 ## Prerequisites
 
 - `STALE_RESET_WORKFLOWS` includes `"intent"`.
-- Incomplete git-enabled `run workflow intent` re-run retires a poisoned managed worktree (stale
-  `.jarvis-intent-review-verdict.md` included) via CLI preflight before the write step.
+- Incomplete git-enabled `run workflow intent` re-run retires a poisoned managed worktree (stale `.jarvis-intent-review-verdict.md` included) via CLI preflight before the write step.
 - Stale-reset preflight is callable from non-CLI workflow entry points.

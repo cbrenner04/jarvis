@@ -30,9 +30,9 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-plan-hollow-pin.test.ts` feeds a mutation-checkpoint criterion that names only the pinning file and directive (no pin title) and asserts plan debate review rendering flags an at-risk hollow pin; a well-formed criterion naming the pin title in backticks does not trip it; fails against the pre-fix review roles.
-- [ ] Mutation checkpoint: in `shared/prompts/review-plan-hollow-pin.test.ts`, the test titled `flags a mutation-checkpoint criterion that omits its pin title` carries a `// @mutate` directive disabling the plan-review hollow-pin heuristic; the mutation turns that test RED. (The criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:v1` pass.
+- [x] `shared/prompts/review-plan-hollow-pin.test.ts` feeds a mutation-checkpoint criterion that names only the pinning file and directive (no pin title) and asserts plan debate review rendering flags an at-risk hollow pin; a well-formed criterion naming the pin title in backticks does not trip it; fails against the pre-fix review roles.
+- [x] Mutation checkpoint: in `shared/prompts/review-plan-hollow-pin.test.ts`, the test titled `flags a mutation-checkpoint criterion that omits its pin title` carries a `// @mutate` directive disabling the plan-review hollow-pin heuristic; the mutation turns that test RED. (The criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:v1` pass.
 
 ## Documentation updates
 

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { detectAtRiskHollowPinsInMarkdown, formatAtRiskHollowPinsSection } from "../mutation-checkpoint-criteria.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import { bindReviewPromptProfile, planReviewProfile } from "./review-profile.ts";
@@ -21,6 +22,19 @@ function readSpecFiles(specPath: string): string {
         `<<<FILE name="${file.name}" BEGIN>>>\n${readFileSync(join(specPath, file.name), "utf8")}\n<<<FILE END>>>`,
     )
     .join("\n\n");
+}
+
+/** `REVIEW_PASS_CONTEXT` for plan debate roles; sibling passes add named sections here. */
+export function buildPlanReviewPassContext(context: PlanReviewPromptContext): string {
+  const specPath = context.specPath;
+  if (!existsSync(specPath)) return "";
+  const findings = readdirSync(specPath, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md" && entry.name !== "intent.md",
+    )
+    .flatMap((entry) => detectAtRiskHollowPinsInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name));
+  return formatAtRiskHollowPinsSection(findings);
 }
 
 function renderPlanReviewPrompt(
@@ -59,16 +73,14 @@ export function renderPlanReviewDebateRolePrompt(
   context: PlanReviewPromptContext,
   priorOutput?: string,
 ): string {
-  return renderPlanReviewPrompt(
-    `plan.prompt.review.${role}`,
-    context,
-    "",
-    role === "advocate"
+  return renderPlanReviewPrompt(`plan.prompt.review.${role}`, context, "", {
+    REVIEW_PASS_CONTEXT: buildPlanReviewPassContext(context),
+    ...(role === "advocate"
       ? { ADVERSARY_FINDINGS: priorOutput ?? "(no prior findings)" }
       : role === "adjudicator"
         ? { ADVOCATE_RESPONSE: priorOutput ?? "(no prior response)" }
-        : {},
-  );
+        : {}),
+  });
 }
 
 export const planReviewPromptProfile = bindReviewPromptProfile<PlanReviewPromptContext, PlanReviewDebateRole>(

@@ -124,8 +124,7 @@ export async function raceSuccessorShellIdle<T>(
   run: (handoff: { signal: AbortSignal | undefined; onRoleStart: () => void }) => Promise<T>,
 ): Promise<T | SuccessorShellStallOutcome> {
   const boundMs = resolveSuccessorShellIdleBoundMs(ctx.idleOutputMs);
-  const signal =
-    ctx.signal !== undefined ? AbortSignal.any([ctx.signal, stallAbort.signal]) : stallAbort.signal;
+  const signal = ctx.signal !== undefined ? AbortSignal.any([ctx.signal, stallAbort.signal]) : stallAbort.signal;
 
   if (shellIdleWatchdog === undefined || boundMs === undefined) {
     return run({ signal: ctx.signal, onRoleStart: () => {} });

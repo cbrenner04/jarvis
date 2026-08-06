@@ -11,7 +11,12 @@ import { withStateStore } from "../testing/write-fixtures.ts";
 import { executeReviewCycle as realExecuteReviewCycle } from "./review-cycle.ts";
 import { executeReviewDebate as realExecuteReviewDebate } from "./review-debate.ts";
 import { armSuccessorShellIdleWatchdog, resolveSuccessorShellIdleBoundMs } from "./successor-step-idle-watchdog.ts";
-import { executeWorkflow, type AnyWorkflowStep, type ReviewDebateWorkflowStep, type ReviewWorkflowStep } from "./workflow-runner.ts";
+import {
+  type AnyWorkflowStep,
+  executeWorkflow,
+  type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
+} from "./workflow-runner.ts";
 
 class TestLogSink implements LogSink {
   events: Array<{ runId: string; event: LogEvent }> = [];

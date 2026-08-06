@@ -1,8 +1,14 @@
 import { type Dirent, existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import {
+  CRITERION_MARKER,
+  DIRECTIVE_PATTERN,
+  selectMutationCheckpointCriteria,
+} from "../../../shared/mutation-checkpoint-criteria.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+
+export { DIRECTIVE_PATTERN } from "../../../shared/mutation-checkpoint-criteria.ts";
 
 /**
  * A checkpoint the harness can apply without inference.
@@ -89,49 +95,13 @@ export type MutationCheckpointSeams = {
   asyncSubprocessRunner?: AsyncSubprocessRunner;
 };
 
-/**
- * Matches `@mutate <path> "<original>" -> "<replacement>"`.
- * Quoted segments accept escaped quotes so a directive can target source
- * containing a double quote.
- */
-export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
 const COMMENT_DIRECTIVE_LINE = /^\s*\/\/.*@mutate/;
 const DIRECTIVE_MARKER = "@mutate";
 const PIN_TITLE_PATTERN = /^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
-const CRITERION_MARKER = "Mutation checkpoint:";
 const DIRECTIVE_FORM = '// @mutate <path> "<original>" -> "<replacement>"';
-const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
-const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
 
 function unescapeDirectiveText(text: string): string {
   return text.replace(/\\(.)/g, "$1");
-}
-
-/** Full Markdown blocks for acceptance criteria, including continuation lines. */
-function acceptanceCriterionBlocks(content: string): string[] {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.indexOf("## Acceptance criteria");
-  if (start === -1) return [];
-
-  const blocks: string[] = [];
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    if (LEVEL_TWO_HEADING_PATTERN.test(line)) break;
-    const item = line.match(CHECKLIST_ITEM_PATTERN);
-    if (item?.[2] === undefined) continue;
-
-    let block = item[2].trim();
-    for (i += 1; i < lines.length; i += 1) {
-      const continuation = lines[i] ?? "";
-      if (LEVEL_TWO_HEADING_PATTERN.test(continuation) || CHECKLIST_ITEM_PATTERN.test(continuation)) {
-        i -= 1;
-        break;
-      }
-      block += `\n${continuation.trim()}`;
-    }
-    blocks.push(block);
-  }
-  return blocks;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -430,13 +400,7 @@ export async function verifyMutationCheckpoints(
   if (!existsSync(subspecPath)) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const subspec = readFile(subspecPath);
-  const criterionBlocks = acceptanceCriterionBlocks(subspec);
-  const selectedCriteria = parseSpec(subspec).acceptanceCriteria.flatMap((criterion, index) => {
-    if (!criterion.checked || criterion.humanOnly) return [];
-    const block = criterionBlocks[index] ?? criterion.text;
-    if (!block.includes(CRITERION_MARKER) && !DIRECTIVE_PATTERN.test(block)) return [];
-    return [{ criterion, block }];
-  });
+  const selectedCriteria = selectMutationCheckpointCriteria(subspec, { requireChecked: true });
   if (selectedCriteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const report_: MutationCheckpointReport = {
@@ -450,17 +414,25 @@ export async function verifyMutationCheckpoints(
   const unrestored = new Map<string, MutateDirective>();
 
   try {
-    for (const { criterion, block } of selectedCriteria) {
+    for (const entry of selectedCriteria) {
       throwIfAborted(signal);
       // biome-ignore format: kept single-line so the mutation-checkpoint @mutate directive can match this call verbatim
-      const linked = resolveLinkedDirectives(worktreeRoot, subspecPath, block, criterion.text, parsedFiles, readFile, report_);
+      const linked = resolveLinkedDirectives(
+        worktreeRoot,
+        subspecPath,
+        entry.block,
+        entry.firstLine,
+        parsedFiles,
+        readFile,
+        report_,
+      );
       if (linked === undefined) continue;
 
       for (const directive of linked) {
         throwIfAborted(signal);
         await applyAndClassify(
           worktreeRoot,
-          criterion.text,
+          entry.firstLine,
           directive,
           { readFile, writeFile, runScopedTests },
           report_,

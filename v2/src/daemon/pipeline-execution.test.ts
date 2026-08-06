@@ -1,15 +1,19 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
 import type {
@@ -22,6 +26,7 @@ import type {
 } from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
@@ -29,6 +34,7 @@ import {
   doneWithArtifactBindingFactory,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
+import { createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "./daemon.ts";
 import {
@@ -68,6 +74,7 @@ import {
   type PipelineStageResolutionResult,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
+  singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 
 const PIPELINE_ID = "pipeline-1";
@@ -3741,5 +3748,112 @@ describe("pipeline intent-stage stale-reset preflight", () => {
       handlers.close();
       stateStore.close();
     }
+  });
+});
+
+describe("pipeline plan stage ready-intent consumption", () => {
+  const { roots, cleanup } = trackedTempRoots();
+  afterEach(cleanup);
+
+  let previousJarvisHome: string | undefined;
+  let jarvisRoot: string;
+  let repoRoot: string;
+  let configPath: string;
+  let intentBranch: string;
+  let intentWorktree: string;
+  let planBranch: string;
+  const readyIntentRel = "spec/ready-intents/feature.md";
+  const intentContent = "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n";
+
+  beforeEach(async () => {
+    previousJarvisHome = process.env.JARVIS_HOME;
+    ({ jarvisRoot } = createJarvisHome());
+    roots.push(join(jarvisRoot, ".."));
+    process.env.JARVIS_HOME = jarvisRoot;
+
+    repoRoot = mkdtempSync(join(tmpdir(), "pipeline-plan-ready-intent-"));
+    roots.push(repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["init", "-q"], repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "base"], repoRoot);
+
+    intentBranch = "intent/feature";
+    intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+    mkdirSync(intentWorktree, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", intentBranch], repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", intentWorktree, intentBranch], repoRoot);
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), intentContent, "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], intentWorktree);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "intent ready-intent"], intentWorktree);
+
+    mkdirSync(join(repoRoot, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(repoRoot, readyIntentRel), intentContent, "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], repoRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "ready-intent on main"], repoRoot);
+
+    planBranch = "plan/feature";
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", planBranch, "main"], repoRoot);
+
+    configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+  });
+
+  afterEach(() => {
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+  });
+
+  // @mutate v2/src/execution/publication-workflow-steps.ts "paths: [resolve(project.root, input.readyIntent)]," -> "paths: [join(input.cwd, input.readyIntent)],"
+  test("pipeline plan stage landing deletes consumed ready-intent from plan worktree", async () => {
+    const definition = PIPELINE_REGISTRY["full-review"];
+    if (definition === undefined) throw new Error("expected full-review pipeline");
+    const planStageIndex = definition.stages.findIndex((stage) => stage.stageId === "plan");
+    if (planStageIndex < 0) throw new Error("expected plan stage");
+
+    const resolved = await resolveStageWorkflowSteps(
+      definition,
+      planStageIndex,
+      { cwd: repoRoot, configPath, seed: "unused" },
+      new Map([[stageArtifactKey("intent"), { entryRunId: "run-intent", specPath: readyIntentRel }]]),
+      {
+        builders: WORKFLOW_PRESET_BUILDERS,
+        loadRun: () => ({ worktreePath: intentWorktree, branch: intentBranch }),
+      },
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const steps = singleStageResolutionSteps(resolved);
+    const writeStep = steps.find((step): step is WriteWorkflowStep => step.behavior === "write");
+    const reviewStep = steps.find((step) => step.behavior === "review-debate");
+    if (!writeStep || reviewStep?.behavior !== "review-debate")
+      throw new Error("expected plan write and review-debate steps");
+    if (writeStep.landing?.kind !== "plan-tree" || reviewStep.landing?.kind !== "plan-tree") {
+      throw new Error("expected plan-tree landing");
+    }
+
+    const planWorktree = getExternalWorktreePath(writeStep.worktree);
+    mkdirSync(dirname(planWorktree), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", planWorktree, planBranch], repoRoot);
+    expect(existsSync(join(planWorktree, readyIntentRel))).toBe(true);
+
+    const stageDir = join(planWorktree, ".jarvis-plan-stage");
+    mkdirSync(stageDir, { recursive: true });
+    writeFileSync(join(stageDir, "index.md"), "# Plan\n", "utf8");
+    writeFileSync(join(stageDir, "intent.md"), intentContent, "utf8");
+    writeFileSync(join(stageDir, "00-first.md"), "# First\n", "utf8");
+    const verdictPath = join(stageDir, "verdict-plan.md");
+    writeFileSync(verdictPath, "ok\n", "utf8");
+
+    const landed = await landReviewedPublicationOutput(planWorktree, reviewStep.landing, verdictPath);
+    expect(landed.ok).toBe(true);
+
+    expect(existsSync(join(planWorktree, readyIntentRel))).toBe(false);
+    expect(execFileSync("git", ["diff", "--name-only"], { cwd: planWorktree, encoding: "utf8" })).toContain(
+      readyIntentRel,
+    );
   });
 });

@@ -417,7 +417,7 @@ Resume replays from the failed stage; succeeded predecessors keep their `workflo
 
 **Terminal `ready` settlement:** when every workflow stage and approval gate has succeeded, the daemon runs terminal publication for `terminalAction: "ready"` (gate then flip draft PR to ready). Derived pipeline state stays `running` until settlement finishes; then `derivePipelineState` is `succeeded` and `terminalPublicationSucceededAt` is set. Pair `pipeline wait` or `pipeline list` with attached `pipeline start` to observe the terminal boundary.
 
-**Inter-stage handoff:** workflow stages hand off through durable stage artifacts recorded on each stage's entry-run worktree. Merging intent or plan PRs to `main` between stages is not required for the next stage to resolve its inputs. Approval gates are continue/stop checkpoints only — they do not merge or rewrite artifact paths between stages.
+**Inter-stage handoff:** workflow stages hand off through durable stage artifacts recorded on each stage's entry-run worktree. Merging intent or plan PRs to `main` between stages is not required for the next stage to resolve its inputs. Approval gates are continue/stop checkpoints only — they do not merge or rewrite artifact paths between stages. The plan stage consumes its chained ready-intent on `plan-tree` landing (same path as standalone `run workflow plan`), so the plan PR removes the queue file from the plan worktree instead of leaving it on `main` after merge.
 
 ## Related docs
 

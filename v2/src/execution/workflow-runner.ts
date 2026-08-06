@@ -2213,7 +2213,7 @@ function restoreVerdictSidecars(
  * regardless of whether the review step's actuator ran. Returns `{ ok: true, specPath }` on
  * success or `{ ok: false, message }` on failure.
  */
-async function landReviewedPublicationOutput(
+export async function landReviewedPublicationOutput(
   worktreePath: string,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,

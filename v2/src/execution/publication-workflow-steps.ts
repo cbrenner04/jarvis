@@ -568,7 +568,7 @@ function planSource(
         durablePath: durableSpecPath,
         inputs: {
           sourceRoot: project.root,
-          paths: [join(input.cwd, input.readyIntent)],
+          paths: [resolve(project.root, input.readyIntent)],
           consumeFrom: git ? "worktree" : "source",
         },
       } satisfies PublicationLanding,

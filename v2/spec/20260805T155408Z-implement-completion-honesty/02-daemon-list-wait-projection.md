@@ -34,13 +34,13 @@ the workflow". Operators reading CLI rows see false `completed` or opaque timeou
 
 ## Acceptance criteria
 
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait project dirty no-work refusal with uncommitted paths` asserts non-`completed` row `status`, operator `error` naming uncommitted paths, and `nextAction` other than success semantics; fails against current daemon mapping.
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait project resumable iteration_timeout as resume` and `list and wait project non-resumable iteration_timeout as stop` assert `error.nextAction` and `resumable` for terminal `iteration_timeout` rows with `resumable: true` vs `false`; fail against current mapping.
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.completedSubspecPaths` and `error.remainingSubspecPaths` match the terminal `loop_finished` lists for a one-complete one-incomplete fixture; fails against current mapping.
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.publicationFailure` survives alongside inventory when both are present on the terminal row.
-- [ ] `run-operator-error.test.ts` `iteration_timeout recovery copy directs resume when terminal row is resumable` asserts resumable `iteration_timeout` operator errors surface recovery copy directing `jarvis run resume`, not re-dispatch the workflow; fails against current `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout`.
-- [ ] `run-operator-error.test.ts` unit coverage for new `mapFromLoopFinished` branches stays green with the integration fixtures.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `daemon-wait-run-completion.test.ts` `list and wait project dirty no-work refusal with uncommitted paths` asserts non-`completed` row `status`, operator `error` naming uncommitted paths, and `nextAction` other than success semantics; fails against current daemon mapping.
+- [x] `daemon-wait-run-completion.test.ts` `list and wait project resumable iteration_timeout as resume` and `list and wait project non-resumable iteration_timeout as stop` assert `error.nextAction` and `resumable` for terminal `iteration_timeout` rows with `resumable: true` vs `false`; fail against current mapping.
+- [x] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.completedSubspecPaths` and `error.remainingSubspecPaths` match the terminal `loop_finished` lists for a one-complete one-incomplete fixture; fails against current mapping.
+- [x] `daemon-wait-run-completion.test.ts` `list and wait carry iteration_timeout completion inventory` asserts `error.publicationFailure` survives alongside inventory when both are present on the terminal row.
+- [x] `run-operator-error.test.ts` `iteration_timeout recovery copy directs resume when terminal row is resumable` asserts resumable `iteration_timeout` operator errors surface recovery copy directing `jarvis run resume`, not re-dispatch the workflow; fails against current `RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout`.
+- [x] `run-operator-error.test.ts` unit coverage for new `mapFromLoopFinished` branches stays green with the integration fixtures.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

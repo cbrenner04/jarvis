@@ -1,0 +1,10 @@
+Reviewing the implementation against the subspec and precedence logic to issue a verdict.
+## Verdict: required outcomes
+
+1. **Resumable `iteration_timeout` must win failed/blocked tie-breaks.** On `failed` or `blocked` runs where the terminal `loop_finished` is a resumable `iteration_timeout` carrying `completedSubspecPaths`, `remainingSubspecPaths`, and optional `publicationFailure`, `composeRunOperatorError` must project those fields and `nextAction: "resume"` even when the last committed attempt maps to a different operator error (e.g. `contract_miss`, `blocked`, `invocation_error`). Today `resumableFinalizationLoopFinishedOutranksAttemptDetail` omits resumable `iteration_timeout`, so mappable attempt detail can override the durable terminal row and contradict resume admission — violating subspec 02’s decision ledger (“resume admission contradicting the durable row” is ruled out). Extend the outrank set and add unit/integration coverage mirroring existing `ready_gate_failed` / `completion_commit_failed` precedence tests.
+
+2. **`daemon-host.md` tie-break prose must match behavior.** The § Composition tie-break list (lines 308–310) must include resumable `iteration_timeout` alongside the other outranking `loopOutcomeKind` values once outcome (1) lands; otherwise operator docs understate when completion inventory and resume semantics survive attempt-detail conflicts.
+
+**Rationale:** Subspec 02’s ACs exercise store-injected terminal rows without conflicting mappable attempts. The new `mapFromLoopFinished` branches and integration fixtures are otherwise aligned with the spec. The precedence gap is a real composition hole that can surface wrong `nextAction`, drop completion inventory, and block resume on exactly the runs subspec 01 made resumable — so it must close in this slice, not as deferred polish.
+
+**Not required for this actuator pass:** fixture symmetry (`createRun` vs `createImplementRun`), split `RUN_OPERATOR_ERROR_RECOVERY` strings per resumability, dirty-`no-work` recovery-copy differentiation, or extending the minimal three-field error table — those are optional hardening and do not block subspec 02’s stated ACs.

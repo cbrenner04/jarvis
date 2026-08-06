@@ -213,6 +213,37 @@ test("composeRunOperatorError maps iteration_timeout as a failed terminal", () =
   ).toEqual(err("iteration_timeout", "stop"));
 });
 
+test("composeRunOperatorError maps resumable iteration_timeout with completion inventory", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const publicationFailure = { operation: "push" as const, message: "remote rejected", exitCode: 7 };
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("iteration_timeout")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        completedSubspecPaths,
+        remainingSubspecPaths,
+        publicationFailure,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+});
+
+test("iteration_timeout recovery copy directs resume when terminal row is resumable", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.iteration_timeout).not.toEqual(
+    "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  );
+});
+
 test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal", () => {
   expect(
     composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]), loopFinished("idle_output_timeout")),
@@ -419,6 +450,42 @@ test("composeRunOperatorError prefers resumable ready_gate_failed over blocked l
   ).toEqual(err("ready_gate_failed", "resume", true));
 });
 
+test("composeRunOperatorError prefers resumable iteration_timeout over blocked last attempt", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const publicationFailure = { operation: "push" as const, message: "remote rejected", exitCode: 7 };
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        completedSubspecPaths,
+        remainingSubspecPaths,
+        publicationFailure,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+    publicationFailure,
+  });
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("iteration_timeout", { resumable: true, completedSubspecPaths, remainingSubspecPaths }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+});
+
 test("resolveFailedBlockedAttemptPrecedence prefers resumable finalization over blocked attempt", () => {
   const blocked = attempt("blocked");
   expect(
@@ -429,6 +496,36 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable finalization over 
   );
   expect(
     resolveFailedBlockedAttemptPrecedence(blocked, loopFinishedEvent("ready_gate_failed", { resumable: false })),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout over mappable attempt detail", () => {
+  const completedSubspecPaths = ["spec/implement/00-first.md"];
+  const remainingSubspecPaths = ["spec/implement/01-second.md"];
+  const resumableTimeout = loopFinishedEvent("iteration_timeout", {
+    resumable: true,
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), resumableTimeout)).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("contract_miss"), resumableTimeout)).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+    completedSubspecPaths,
+    remainingSubspecPaths,
+  });
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("iteration_timeout", { resumable: false }),
+    ),
   ).toEqual(err("agent_blocked", "inspect_spec"));
 });
 

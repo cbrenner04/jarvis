@@ -55,8 +55,8 @@ Rule lint, reflow preservation, and both pinning suites exercise the same cases:
 - [ ] `test/reflow-markdown.test.ts` asserts wrapped paragraph and list-item prose reflows to one physical line per prose run, leaves each shared-exemption-matrix preserve case byte-identical, is idempotent on re-run, and fails against pre-fix wrapped fixtures when reflow is absent or a no-op.
 - [ ] Gate-visible test asserts `reflow:md` uses the same globs and ignores as `.markdownlint-cli2.jsonc`.
 - [ ] `bun run reflow:md` leaves the lint-covered corpus clean: `bun run lint:md` reports zero errors after reflow.
-- [ ] Mutation checkpoint: the positive-detection test in `test/markdownlint-no-hard-wrap.test.ts` carries a `// @mutate` directive on `scripts/markdownlint-no-hard-wrap-rule.ts` that disables detection; applying it turns that test red.
-- [ ] Mutation checkpoint: the reflow fixture test in `test/reflow-markdown.test.ts` carries a `// @mutate` directive on `scripts/reflow-markdown.ts` that disables paragraph/list join; applying it turns that test red.
+- [ ] Mutation checkpoint: a test titled exactly `flags an intra-paragraph soft line break` in `test/markdownlint-no-hard-wrap.test.ts` carries a `// @mutate` directive on `scripts/markdownlint-no-hard-wrap-rule.ts` that disables detection; applying it turns that `flags an intra-paragraph soft line break` test red. (The criterion must contain the enclosing test title verbatim so the harness links the directive.)
+- [ ] Mutation checkpoint: a test titled exactly `reflows a wrapped paragraph to one physical line` in `test/reflow-markdown.test.ts` carries a `// @mutate` directive on `scripts/reflow-markdown.ts` that disables paragraph/list join; applying it turns that `reflows a wrapped paragraph to one physical line` test red. (The criterion must contain the enclosing test title verbatim so the harness links the directive.)
 - [ ] `bun run lint:md`, `bun run typecheck`, and `bun run test` pass.
 
 ## Documentation updates

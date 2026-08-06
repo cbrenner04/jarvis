@@ -281,7 +281,17 @@ automatically on re-run rather than needing its box hand-ticked first.
 
 On an incomplete re-run with git enabled, preflight evaluates four gates in order
 before retiring a stale workspace for the resolved `(project, branch)` after daemon
-connect and before the write step starts:
+connect and before the write step starts. The same path applies to incomplete
+git-enabled `jarvis run workflow implement`, `plan`, `intent`, and `intent-reviewed`
+re-runs (`intent-reviewed` shares the intent preset). Intent has no
+`--reset-despite-dirty` or `--reset-despite-landed-criteria` flags; implement and
+plan retain those overrides. Untracked `.jarvis-*` harness sidecars (for example
+intent review verdict files) do not count toward the dirty gate. When intent's
+write step carries a directory `specPath` (for example `spec/ready-intents`), the
+landed-criteria gate is N/A; only readable spec files and `index.md` trees participate.
+When automatic re-run reset is refused (live-held, PR, descendant, operator dirty
+work beyond harness sidecars), `jarvis cleanup --abandon` remains the manual fallback
+— re-run alone does not always clear a poisoned intent verdict tree.
 
 1. **Descendant check** — managed worktree `HEAD` must be a descendant of the
    resolved `--base` (implement) or repository base (plan). Refusal names the base
@@ -321,8 +331,8 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
   re-run to retire despite local edits (listing failure still refuses), pass
   `--reset-despite-landed-criteria` to retire despite landed-criteria drift, or run
   `jarvis cleanup --abandon <branch>` outside a re-run). The same preflight gates
-  apply to incomplete git-enabled `jarvis run workflow
-  plan` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
+  apply to incomplete git-enabled `jarvis run workflow plan`, `intent`, and
+  `intent-reviewed` re-runs (shared `resetStaleWorkspace` preflight). Recovery: end the live
   run or wait for its lock to clear; mark the PR draft again or merge it; close
   duplicate PRs until exactly one open draft remains; or clean the worktree as
   named in the refusal, then re-run. Manual fallback: `jarvis cleanup --abandon
@@ -992,7 +1002,7 @@ blocker.
 **`jarvis run resume` does not work on a blocked run** — it refuses with
 `terminal_run` and names spec inspection / re-run recovery, and `run list` correctly reports the row as
 `resumable: false` with remediation `inspect_spec`. To continue the work, resolve the blocker and **re-run the spec**. An incomplete
-`jarvis run workflow implement` or `plan` re-run resets the stale worktree from `--base` (see
+`jarvis run workflow implement`, `plan`, `intent`, or `intent-reviewed` re-run resets the stale worktree from `--base` (see
 [Implement workflow](#implement-workflow)). A managed ordinary non-Git directory is instead left for
 locked materialization to validate and replace; other status-listing failures still refuse. Uncommitted
 work in a prior worktree is not carried forward.

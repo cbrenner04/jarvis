@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
@@ -28,13 +27,8 @@ import type {
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { jarvisHome } from "../paths.ts";
-import {
-  createStaleResetDaemonClient,
-  type DestroyedArtifacts,
-  type ResetStaleWorkspaceOptions,
-  resetStaleWorkspace,
-} from "./cleanup.ts";
+import type { DestroyedArtifacts } from "./cleanup.ts";
+import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
@@ -268,62 +262,6 @@ async function prepareWorkflowSteps(
     };
   });
   return { ok: true, steps, built };
-}
-
-/** Workflows whose persistent worktree can go stale between runs; intent stages its own tree. */
-const STALE_RESET_WORKFLOWS = new Set(["implement", "plan"]);
-
-async function maybeResetStaleWorkspace(
-  canonicalName: string,
-  built: SuccessfulWorkflowBuild,
-  deps: CliDeps,
-  io: Io,
-  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
-  client: IpcClient,
-  onDestroyed?: (destroyed: DestroyedArtifacts) => void,
-): Promise<number | undefined> {
-  if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
-  const skipDirtyWorktreeGate = "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
-  const skipLandedCriteriaGate = "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
-  const writeStep = built.steps.find((step) => step.behavior === "write");
-  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
-  if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
-    return undefined;
-  }
-  const resetOptions: ResetStaleWorkspaceOptions = {
-    skipDirtyWorktreeGate,
-    skipLandedCriteriaGate,
-    baseRef: worktree.baseRef,
-    ...(writeStep?.behavior === "write" && writeStep.specPath !== undefined ? { specPath: writeStep.specPath } : {}),
-  };
-  // Runs inside the connected dispatch scope, so an escaping throw would otherwise be reported as a
-  // daemon connection error. Classify reset failures here instead.
-  let resetResult: Awaited<ReturnType<typeof resetStaleWorkspace>>;
-  try {
-    resetResult = await resetStaleWorkspace(
-      worktree.projectName,
-      worktree.branchName,
-      worktree.projectRoot,
-      deps.jarvisRoot ?? jarvisHome(),
-      deps.subprocessRunner ?? realAsyncSubprocessRunner,
-      createStaleResetDaemonClient(client),
-      io,
-      resetOptions,
-    );
-  } catch (error) {
-    io.stderr(`Error: Stale workspace reset failed: ${error instanceof Error ? error.message : String(error)}\n`);
-    return 1;
-  }
-  if ("destroyed" in resetResult && resetResult.destroyed !== undefined) onDestroyed?.(resetResult.destroyed);
-  if (resetResult.status === "refused") {
-    if ("code" in resetResult && resetResult.code === "worktree_claimed") {
-      io.stderr(`worktree_claimed: ${resetResult.message}\n`);
-    } else if ("reason" in resetResult) {
-      io.stderr(`Error: Cannot re-run incomplete spec: ${resetResult.reason}\n`);
-    }
-    return 1;
-  }
-  return undefined;
 }
 
 async function startWorkflowRun(

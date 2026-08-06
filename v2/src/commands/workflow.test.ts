@@ -50,6 +50,7 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG, STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
+import { STALE_RESET_WORKFLOWS } from "./stale-reset-workspace.ts";
 import { setAttachWaitRunIdOverrideForTest, setForceSkipAttachClientWaitForTest } from "./workflow.ts";
 
 let fx: CliRepoFixture;
@@ -1855,6 +1856,46 @@ describe("implement preflight stale workspace reset", () => {
     ];
   }
 
+  const resetIntentBranch = "intent/improve-api";
+
+  function resetIntentSteps(branch = resetIntentBranch): AnyWorkflowStep[] {
+    mkdirSync(join(resetProjectRoot, "spec", "ready-intents"), { recursive: true });
+    return [
+      {
+        behavior: "write",
+        stepId: "intent",
+        role: "plan",
+        promptId: "intent.prompt.split",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {
+          claude: {
+            plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: "HEAD",
+          jarvisRoot: resetJarvisRoot,
+        },
+        specPath: "spec/ready-intents",
+        expectedArtifactPath: ".jarvis-intent-stage",
+        publishCompletion: false,
+        landing: {
+          kind: "intent-stage",
+          baseRef: "HEAD",
+          inputs: { sourceRoot: resetProjectRoot, paths: [], consumeFrom: "worktree" },
+          output: { durableDir: "spec/ready-intents" },
+          stagingDir: ".jarvis-intent-stage",
+          invocationId: "intent-invocation",
+        },
+      },
+    ];
+  }
+
   function resetImplementDeps(overrides: NonNullable<Parameters<typeof main>[2]> = {}) {
     return {
       cwd: () => resetProjectRoot,
@@ -2167,6 +2208,11 @@ describe("implement preflight stale workspace reset", () => {
     rmSync(resetTmp, { recursive: true, force: true });
   });
 
+  // @mutate v2/src/commands/stale-reset-workspace.ts "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\", \"intent\"]);" -> "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\"]);"
+  test("STALE_RESET_WORKFLOWS membership includes intent", () => {
+    expect(STALE_RESET_WORKFLOWS).toEqual(new Set(["implement", "plan", "intent"]));
+  });
+
   type PipelineAdmissionEffects = {
     runRows: number;
     materializations: number;
@@ -2441,6 +2487,51 @@ describe("implement preflight stale workspace reset", () => {
     expect(closedPrs).toEqual([56]);
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).not.toContain(worktreePath);
+  });
+
+  test("run workflow intent resets a stale worktree before daemon start", async () => {
+    const worktreePath = await materializeStaleWorktree(resetIntentBranch);
+    writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
+    writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md.owner"), "foreign-invocation\n", "utf8");
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const closedPrs: number[] = [];
+    const subprocessRunner = staleResetSubprocessRunner(undefined, closedPrs);
+    const connectIpcClient = async () => {
+      const client = makeStaleResetIpcClient(
+        workflowFrames("start", "wait", "run-reset-intent", COMPLETED_WAIT_RESULT),
+        { sent },
+      );
+      const send = client.send.bind(client);
+      client.send = (frame: unknown) => {
+        const request = frame as { method?: string };
+        if (request.method === "start") {
+          expect(existsSync(worktreePath)).toBe(false);
+        }
+        send(frame);
+      };
+      return client;
+    };
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(["run", "workflow", "intent", "--seed-text", "Improve API"], cap.io, {
+        cwd: () => resetProjectRoot,
+        jarvisRoot: resetJarvisRoot,
+        readProjectRegistry: () => ({ demo: { root: resetProjectRoot } }),
+        workflowPresetBuilders: {
+          intent: () => ({ ok: true as const, steps: resetIntentSteps() }),
+        },
+        subprocessRunner,
+        connectIpcClient,
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(closedPrs).toEqual([55]);
+    const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
+    expect(list).not.toContain(worktreePath);
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
   });
 
   test("incomplete implement and plan re-dispatch defer an ordinary non-Git husk to locked materialization", async () => {

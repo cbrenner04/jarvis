@@ -55,21 +55,22 @@ invocation`. Recovery today is manual `jarvis cleanup --abandon`.
 
 ## Acceptance criteria
 
-- [ ] `STALE_RESET_WORKFLOWS` includes `"intent"`; `workflow.test.ts` asserts exported membership
+- [x] `STALE_RESET_WORKFLOWS` includes `"intent"`; `workflow.test.ts` asserts exported membership
       and fails against the current two-element set.
-- [ ] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"` uses
+- [x] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"` uses
       mocked intent write steps (implement/plan pin pattern), seeds a managed git-enabled worktree
       with stale `.jarvis-intent-review-verdict.md` and a foreign-`invocationId`
       `.jarvis-intent-review-verdict.md.owner`, drives incomplete re-run, asserts worktree absent
       from `git worktree list` and verdict sidecars gone before daemon `start` (IPC `sent`
       inspection), then `start` proceeds; fails against pre-fix code.
-- [ ] `stale-reset-workspace.test.ts` imports `maybeResetStaleWorkspace` and `STALE_RESET_WORKFLOWS`
+- [x] `stale-reset-workspace.test.ts` imports `maybeResetStaleWorkspace` and `STALE_RESET_WORKFLOWS`
       from `v2/src/commands/stale-reset-workspace.ts`; fails against pre-fix module-private code.
-- [ ] Mutation checkpoint: `workflow.test.ts` carries
+- [x] Mutation checkpoint: the `STALE_RESET_WORKFLOWS membership includes intent` test in
+      `workflow.test.ts` carries
       `// @mutate v2/src/commands/stale-reset-workspace.ts "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\", \"intent\"]);" -> "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\"]);"`;
       applying it turns **both** the exported-set membership assertion and the intent integration
       test red.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
@@ -89,3 +90,8 @@ invocation`. Recovery today is manual `jarvis cleanup --abandon`.
 
 - Landed `resetStaleWorkspace` / claim-before-reset / dispatch-scoped retirement behavior
   (`v2/spec/completed/20260722T134237Z-retire-stale-workspace-only-after-dispatch-is-reachable/`).
+
+## Blocker
+
+Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
+- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

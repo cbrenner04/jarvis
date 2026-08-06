@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getBaseBranch,
@@ -1532,6 +1532,27 @@ function combineStaleResetRefusalReasons(parts: string[]): string {
   return parts.join("; ");
 }
 
+function isUntrackedPorcelainLine(line: string): boolean {
+  const status = line.slice(0, 2);
+  return status === "??" || status[0] === "?" || status[1] === "?";
+}
+
+function isJarvisHarnessSidecarPath(path: string): boolean {
+  return path.split("/").some((segment) => segment.startsWith(".jarvis-"));
+}
+
+export function isStaleResetLandedCriteriaSpecPath(projectRoot: string, specPath: string): boolean {
+  const absoluteSpecPath = isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
+  if (!existsSync(absoluteSpecPath)) return false;
+  try {
+    if (statSync(absoluteSpecPath).isDirectory()) return false;
+    readFileSync(absoluteSpecPath, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function listDirtyWorktreePathsForStaleReset(
   worktreePath: string,
   runner: AsyncSubprocessRunner,
@@ -1541,12 +1562,17 @@ export async function listDirtyWorktreePathsForStaleReset(
     const lines = output.split("\n").filter((line) => line.trim().length > 0);
     if (lines.length === 0) return { status: "clean" };
     const paths: string[] = [];
+    let hasBlockingPorcelain = false;
     for (const line of lines) {
+      const untracked = isUntrackedPorcelainLine(line);
       let path = line.slice(3).trim();
       const arrow = path.lastIndexOf(" -> ");
       if (arrow >= 0) path = path.slice(arrow + 4).trim();
+      if (untracked && path && isJarvisHarnessSidecarPath(path)) continue;
+      hasBlockingPorcelain = true;
       if (path) paths.push(path);
     }
+    if (!hasBlockingPorcelain) return { status: "clean" };
     return { status: "dirty", paths };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1642,7 +1668,7 @@ export async function resetStaleWorkspace(
     if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {
       refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
     }
-    if (specPath !== undefined) {
+    if (specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath)) {
       const specTree = { projectRoot, worktreePath, baseRef, specPath, runner };
       const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
       if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {

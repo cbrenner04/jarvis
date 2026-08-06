@@ -31,13 +31,13 @@ Primary: `v2/src/daemon/pipeline-stage-dispatch.ts` (`applyEntryRunSettlement`, 
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-dispatch.test.ts` — `"non-success settlement declines to terminalize a still-live entry run"` fails against the current writer, which terminalizes unconditionally; after implement, asserts deferred `failureDetail` (`code: "settlement_deferred"`, `reason: "entry_run_still_live"`, `entryRunId`, `rollupStatus`) while the stage stays `running` without `endedAt`.
-- [ ] `pipeline-stage-dispatch.test.ts` — `"adopt settlement does not terminalize when wait resolves non-completed over a still-live entry run"` fails against the current writer; after implement, adopt/settlement through the mirror-primitive `wait` does not write a `failed` or `succeeded` patch while the entry run is live.
-- [ ] No stage row receives `failed` or `succeeded` while its linked entry run is live (`isLiveEntryRun`).
-- [ ] `pipeline-stage-dispatch.test.ts` — `"deferred settlement re-settles with operator error when entry run later terminals"` fails against the current writer (premature terminal patch records `harness_failure` / `stop` or terminalizes over live entry run); after implement, re-settlement mirrors `composeRunOperatorError` on the terminal patch.
-- [ ] `pipeline-stage-dispatch.test.ts` — `"non-success settlement mirrors composeRunOperatorError from terminal log context"` stays green.
-- [ ] `pipeline-stage-dispatch.test.ts` — `"non-success settlement declines to terminalize a still-live entry run"`: `// @mutate` removing the settlement liveness re-check turns the pinning regression RED.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, and `bun run test:v2` exit zero.
+- [x] `pipeline-stage-dispatch.test.ts` — `"non-success settlement declines to terminalize a still-live entry run"` fails against the current writer, which terminalizes unconditionally; after implement, asserts deferred `failureDetail` (`code: "settlement_deferred"`, `reason: "entry_run_still_live"`, `entryRunId`, `rollupStatus`) while the stage stays `running` without `endedAt`.
+- [x] `pipeline-stage-dispatch.test.ts` — `"adopt settlement does not terminalize when wait resolves non-completed over a still-live entry run"` fails against the current writer; after implement, adopt/settlement through the mirror-primitive `wait` does not write a `failed` or `succeeded` patch while the entry run is live.
+- [x] No stage row receives `failed` or `succeeded` while its linked entry run is live (`isLiveEntryRun`).
+- [x] `pipeline-stage-dispatch.test.ts` — `"deferred settlement re-settles with operator error when entry run later terminals"` fails against the current writer (premature terminal patch records `harness_failure` / `stop` or terminalizes over live entry run); after implement, re-settlement mirrors `composeRunOperatorError` on the terminal patch.
+- [x] `pipeline-stage-dispatch.test.ts` — `"non-success settlement mirrors composeRunOperatorError from terminal log context"` stays green.
+- [x] `pipeline-stage-dispatch.test.ts` — `"non-success settlement declines to terminalize a still-live entry run"`: `// @mutate` removing the settlement liveness re-check turns the pinning regression RED.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, and `bun run test:v2` exit zero.
 
 ## Documentation updates
 

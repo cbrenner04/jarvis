@@ -62,6 +62,8 @@ export type RunOperatorError = {
   contractMissDetail?: string;
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];
+  requestedBase?: string;
+  resolvedBase?: string;
 };
 
 /** Last terminal log row selected for operator-error composition (`loop_finished` or `run_execution_failed`). */
@@ -197,6 +199,9 @@ function mapFromLoopFinished(
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
         ...("completionCommitError" in event && typeof event.completionCommitError === "string"
           ? { completionCommitError: event.completionCommitError }
+          : {}),
+        ...(event.requestedBase !== undefined && event.resolvedBase !== undefined
+          ? { requestedBase: event.requestedBase, resolvedBase: event.resolvedBase }
           : {}),
       };
     case "iteration_commit_failed":

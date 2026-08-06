@@ -33,11 +33,11 @@ Primary: `v2/src/execution/completion-publisher.ts`. In-scope: `completion-publi
 
 ## Acceptance criteria
 
-- [ ] `completion-publisher.test.ts` — `"retargets PR base to repository base when requested base ref is absent from remote"` fails against the baseline publication chain (uses absent requested base through create/confirm/body refresh) and asserts the resolved base.
-- [ ] The retarget is recorded on the stage artifact when publication succeeds after retarget, or on `failureDetail` when publication still fails, with `requestedBase` and `resolvedBase` string fields naming both bases.
-- [ ] `completion-publisher.test.ts` — `"preserves requested base when branch exists on origin"` stays green (requested `--base` unchanged; no retarget metadata on artifact).
-- [ ] `completion-publisher.test.ts` — `"retargets PR base to repository base when requested base ref is absent from remote"`: `// @mutate` removing the base-existence check turns the pinning regression RED.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `completion-publisher.test.ts` — `"retargets PR base to repository base when requested base ref is absent from remote"` fails against the baseline publication chain (uses absent requested base through create/confirm/body refresh) and asserts the resolved base.
+- [x] The retarget is recorded on the stage artifact when publication succeeds after retarget, or on `failureDetail` when publication still fails, with `requestedBase` and `resolvedBase` string fields naming both bases.
+- [x] `completion-publisher.test.ts` — `"preserves requested base when branch exists on origin"` stays green (requested `--base` unchanged; no retarget metadata on artifact).
+- [x] `completion-publisher.test.ts` — `"retargets PR base to repository base when requested base ref is absent from remote"`: `// @mutate` removing the base-existence check turns the pinning regression RED.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

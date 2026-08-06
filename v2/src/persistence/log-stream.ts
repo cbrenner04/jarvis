@@ -40,6 +40,8 @@ export type LoopFinishedEvent = {
   publicationFailure?: PublicationFailure;
   prNumber?: number;
   prUrl?: string;
+  requestedBase?: string;
+  resolvedBase?: string;
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;

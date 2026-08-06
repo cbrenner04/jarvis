@@ -27,8 +27,8 @@ Primary: `v2/src/daemon/pipeline-execution.ts` (`failWorkflowStageAt`). In-scope
 
 ## Acceptance criteria
 
-- [ ] `failWorkflowStageAt` has no live-linkage guard — the unreachable `running` + live-link branch is deleted.
-- [ ] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
+- [x] `failWorkflowStageAt` has no live-linkage guard — the unreachable `running` + live-link branch is deleted.
+- [x] `bun run typecheck`, `bun run check`, `bun run lint:md`, `bun run test:v2`, and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type CompletionPublisherInput, createCompletionPublisher } from "./completion-publisher.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 
@@ -18,6 +19,136 @@ describe("createCompletionPublisher", () => {
     renderFooter: async () => "",
   };
   const viewPr = (number: number, url: string, baseRefName = "main") => JSON.stringify({ number, url, baseRefName });
+
+  function originPresenceRunner(presentRefs: ReadonlySet<string>, defaultBranch = "main"): AsyncSubprocessRunner {
+    return {
+      runAsync: async (command, args, _cwd) => {
+        if (command === "git" && args[0] === "ls-remote" && args[1] === "--heads") {
+          const branch = args[3];
+          if (branch !== undefined && presentRefs.has(branch)) {
+            return `deadbeef\trefs/heads/${branch}\n`;
+          }
+          return "";
+        }
+        if (command === "gh" && args.includes("defaultBranchRef")) {
+          return defaultBranch;
+        }
+        throw new Error(`unexpected subprocess: ${command} ${args.join(" ")}`);
+      },
+    };
+  }
+
+  it("augments publication failure with retarget metadata when requested base ref is absent from remote", async () => {
+    const requestedBase = "plan/merged-first";
+    const resolvedBase = "main";
+    const publisher = createCompletionPublisher({
+      subprocessRunner: originPresenceRunner(new Set(), resolvedBase),
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        if (args[0] === "push") throw new Error("push failed after retarget");
+        return "";
+      },
+      gh: async () => "",
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const error = await publisher({ ...baseInput, baseRef: requestedBase }).then(
+      () => {
+        throw new Error("expected publication failure");
+      },
+      (caught: unknown) => caught,
+    );
+    expect(error).toMatchObject({
+      message: "push failed after retarget",
+      requestedBase,
+      resolvedBase,
+    });
+  });
+
+  it("retargets PR base to repository base when requested base ref is absent from remote", async () => {
+    // @mutate v2/src/execution/completion-publisher.ts "if (!(await branchExistsOnOriginAsync" -> "if (false && !(await branchExistsOnOriginAsync"
+    const requestedBase = "plan/merged-first";
+    const resolvedBase = "main";
+    const ghCalls: string[] = [];
+    let refreshBase = "";
+
+    const publisher = createCompletionPublisher({
+      subprocessRunner: originPresenceRunner(new Set(), resolvedBase),
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(42, "https://github.com/user/repo/pull/42", resolvedBase);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async () => {},
+      renderFooter: async ({ base }) => {
+        refreshBase = base;
+        return "";
+      },
+    });
+
+    const result = await publisher({ ...baseInput, baseRef: requestedBase });
+
+    expect(result.prNumber).toBe(42);
+    expect(result.requestedBase).toBe(requestedBase);
+    expect(result.resolvedBase).toBe(resolvedBase);
+    const createCall = ghCalls.find((call) => call.startsWith("pr create"));
+    expect(createCall).toContain(`--base ${resolvedBase}`);
+    expect(createCall).not.toContain(`--base ${requestedBase}`);
+    expect(refreshBase).toBe(resolvedBase);
+  });
+
+  it("preserves requested base when branch exists on origin", async () => {
+    const requestedBase = "develop";
+    const ghCalls: string[] = [];
+    let refreshBase = "";
+
+    const publisher = createCompletionPublisher({
+      subprocessRunner: originPresenceRunner(new Set([requestedBase])),
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push(args.join(" "));
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "https://github.com/user/repo/pull/42";
+        if (args[0] === "pr" && args[1] === "view") {
+          return viewPr(42, "https://github.com/user/repo/pull/42", requestedBase);
+        }
+        return "";
+      },
+      delay: noopDelay,
+      fetchPrBody: async () => "",
+      writePrBody: async () => {},
+      renderFooter: async ({ base }) => {
+        refreshBase = base;
+        return "";
+      },
+    });
+
+    const result = await publisher({ ...baseInput, baseRef: requestedBase });
+
+    expect(result.prNumber).toBe(42);
+    expect(result.requestedBase).toBeUndefined();
+    expect(result.resolvedBase).toBeUndefined();
+    const createCall = ghCalls.find((call) => call.startsWith("pr create"));
+    expect(createCall).toContain(`--base ${requestedBase}`);
+    expect(refreshBase).toBe(requestedBase);
+  });
 
   it("publishes push with new upstream and creates draft PR", async () => {
     const gitCalls: string[] = [];

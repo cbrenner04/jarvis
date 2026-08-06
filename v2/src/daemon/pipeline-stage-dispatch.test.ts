@@ -78,12 +78,38 @@ function loopFinished(
   };
 }
 
+const RETARGET_REQUESTED_BASE = "plan/merged-first";
+const RETARGET_RESOLVED_BASE = "main";
+
+function expectStageNotTerminalized(patches: Array<{ patch: Record<string, unknown> }>): void {
+  expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
+  expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
+  expect(patches.some((p) => p.patch.endedAt !== undefined)).toBe(false);
+}
+
+function runningStageStore(entryRunId: string, runState: Partial<Run>) {
+  const { store, patches } = fakeStore({ [entryRunId]: runState });
+  store.loadPipeline = () =>
+    ({
+      stages: [stageRecord({ status: "running", workflowInvocationId: entryRunId })],
+    }) as ReturnType<StateStore["loadPipeline"]>;
+  return { store, patches };
+}
+
+function mirrorWorkflowEntryRunWait(store: StateStore): PipelineWorkflowWait {
+  return async (entryRunId) => {
+    const run = store.loadRun(entryRunId);
+    if (run === null) return "failed";
+    return run.status;
+  };
+}
+
 describe("shouldStopForInFlightStageRow", () => {
   test.each([
     ["pending", stageRecord({ status: "pending" }), true],
     ["running with live link", stageRecord({ status: "running", workflowInvocationId: "entry-live" }), true],
     ["running without link", stageRecord({ status: "running" }), false],
-    ["running with dead link", stageRecord({ status: "running", workflowInvocationId: "entry-dead" }), false],
+    ["running with dead link", stageRecord({ status: "running", workflowInvocationId: "entry-dead" }), true],
     ["failed", stageRecord({ status: "failed" }), false],
     ["succeeded", stageRecord({ status: "succeeded" }), false],
     ["undefined", undefined, false],
@@ -121,6 +147,40 @@ describe("dispatchPipelineStage refused claim", () => {
     expect(dispatchCalled).toBe(false);
     expect(releaseCount).toBe(0);
     expect(patches).toHaveLength(0);
+  });
+
+  test("adopts and settles when the stage row is running with a terminal linked entry run pending re-settlement", async () => {
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "entry-adopt" };
+    };
+    const wait: PipelineWorkflowWait = async () => "failed";
+    const entryRunId = "entry-adopt";
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/adopt.md", status: "failed" },
+    });
+    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+    store.loadPipeline = () =>
+      ({
+        stages: [
+          stageRecord({
+            status: "running",
+            workflowInvocationId: entryRunId,
+            failureDetail: {
+              code: "settlement_deferred",
+              reason: "entry_run_still_live",
+              entryRunId,
+              rollupStatus: "failed",
+            },
+          }),
+        ],
+      }) as ReturnType<StateStore["loadPipeline"]>;
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(dispatchCalled).toBe(false);
+    expect(patches.some((p) => p.patch.status === "failed")).toBe(true);
   });
 
   test("adopts and settles when the stage row is running with a live entry run", async () => {
@@ -352,6 +412,104 @@ describe("dispatchPipelineStage", () => {
     // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });
 
+  test("non-success settlement declines to terminalize a still-live entry run", async () => {
+    const entryRunId = "entry-live-defer";
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId,
+      invocationId: "inv-live-defer",
+    });
+    const wait: PipelineWorkflowWait = async () => "failed";
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/live-defer.md", status: "in-progress" },
+    });
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expectStageNotTerminalized(patches);
+    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
+    expect(deferredPatch?.patch.failureDetail).toEqual({
+      code: "settlement_deferred",
+      reason: "entry_run_still_live",
+      entryRunId,
+      rollupStatus: "failed",
+    });
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, entryRunId)) {" -> "if (false) {"
+  });
+
+  test("adopt settlement does not terminalize when wait resolves non-completed over a still-live entry run", async () => {
+    const entryRunId = "entry-adopt-live";
+    const { store, patches } = runningStageStore(entryRunId, { specPath: "spec/adopt-live.md", status: "in-progress" });
+    const wait = mirrorWorkflowEntryRunWait(store);
+    let waitCalls = 0;
+    const countingWait: PipelineWorkflowWait = async (id) => {
+      waitCalls += 1;
+      return wait(id);
+    };
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId,
+      wait: countingWait,
+    });
+
+    expect(waitCalls).toBe(1);
+    expectStageNotTerminalized(patches);
+  });
+
+  test("deferred settlement re-settles with operator error when entry run later terminals", async () => {
+    const entryRunId = "entry-re-settle";
+    const terminalRecord = loopFinished(entryRunId, "completion_commit_failed", { resumable: true });
+    const runState: Partial<Run> = { specPath: "spec/re-settle.md", status: "in-progress" };
+    let waitCalls = 0;
+    const wait: PipelineWorkflowWait = async () => {
+      waitCalls += 1;
+      return "failed";
+    };
+    const { store, patches } = runningStageStore(entryRunId, runState);
+    const loadLogRecords = () => (runState.status === "failed" ? [terminalRecord] : []);
+
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId,
+      wait,
+      loadLogRecords,
+    });
+
+    expect(waitCalls).toBe(1);
+    expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
+    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
+    expect(deferredPatch?.patch.failureDetail).toEqual({
+      code: "settlement_deferred",
+      reason: "entry_run_still_live",
+      entryRunId,
+      rollupStatus: "failed",
+    });
+
+    runState.status = "failed";
+    await adoptAndSettlePipelineStage({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      entryRunId,
+      wait,
+      loadLogRecords,
+    });
+
+    const terminalPatch = patches.find((p) => p.patch.status === "failed");
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) throw new Error("expected entry run");
+    expect(terminalPatch?.patch.failureDetail).toEqual(
+      composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord),
+    );
+    expect(terminalPatch?.patch.failureDetail).not.toEqual({
+      reason: "harness_failure",
+      retryable: false,
+      nextAction: "stop",
+    });
+  });
+
   test("non-success settlement mirrors composeRunOperatorError from terminal log context", async () => {
     const entryRunId = "entry-commit-fail";
     const terminalRecord = loopFinished(entryRunId, "completion_commit_failed", { resumable: true });
@@ -381,11 +539,6 @@ describe("dispatchPipelineStage", () => {
     expect(terminalPatch?.patch.failureDetail).toEqual(
       composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord),
     );
-    expect(terminalPatch?.patch.failureDetail).toEqual({
-      reason: "completion_commit_failed",
-      nextAction: "resume",
-      retryable: true,
-    });
     // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "composeRunOperatorError(entryRun, terminalRecord, logRecords)" -> "composeRunOperatorError(entryRun)"
   });
 
@@ -451,6 +604,85 @@ describe("dispatchPipelineStage", () => {
       entryRunId: "entry-single-file",
       invocationId: "inv-single-file",
       specPath: "ready-intents/single.md",
+    });
+  });
+
+  test("success settlement artifact records publication base retarget from log evidence", async () => {
+    const entryRunId = "entry-retarget-success";
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId,
+      invocationId: "inv-retarget-success",
+    });
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const loadLogRecords = () => [
+      loopFinished(entryRunId, "complete", {
+        resumable: false,
+        requestedBase: RETARGET_REQUESTED_BASE,
+        resolvedBase: RETARGET_RESOLVED_BASE,
+      }),
+    ];
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/implement.md", prNumber: 42, prUrl: "https://example.com/pr/42" },
+    });
+
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [okStep],
+      dispatch,
+      wait,
+      store,
+      loadLogRecords,
+    });
+
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    expect(successPatch?.patch.artifact).toEqual({
+      entryRunId,
+      invocationId: "inv-retarget-success",
+      specPath: "spec/implement.md",
+      prNumber: 42,
+      prUrl: "https://example.com/pr/42",
+      requestedBase: RETARGET_REQUESTED_BASE,
+      resolvedBase: RETARGET_RESOLVED_BASE,
+    });
+  });
+
+  test("failed settlement failureDetail records publication base retarget from terminal log context", async () => {
+    const entryRunId = "entry-retarget-fail";
+    const terminalRecord = loopFinished(entryRunId, "completion_commit_failed", {
+      resumable: true,
+      requestedBase: RETARGET_REQUESTED_BASE,
+      resolvedBase: RETARGET_RESOLVED_BASE,
+    });
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId,
+      invocationId: "inv-retarget-fail",
+    });
+    const wait: PipelineWorkflowWait = async () => "failed";
+    const loadLogRecords = () => [terminalRecord];
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/implement.md", status: "failed" },
+    });
+
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [okStep],
+      dispatch,
+      wait,
+      store,
+      loadLogRecords,
+    });
+
+    const failedPatch = patches.find((p) => p.patch.status === "failed");
+    expect(failedPatch?.patch.failureDetail).toEqual({
+      reason: "completion_commit_failed",
+      nextAction: "resume",
+      retryable: true,
+      requestedBase: RETARGET_REQUESTED_BASE,
+      resolvedBase: RETARGET_RESOLVED_BASE,
     });
   });
 });

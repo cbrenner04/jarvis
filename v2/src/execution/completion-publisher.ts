@@ -1,4 +1,5 @@
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
   defaultPublicationDelay,
@@ -24,6 +25,8 @@ export type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;
+  requestedBase?: string;
+  resolvedBase?: string;
 };
 
 export type CompletionPublisher = (input: CompletionPublisherInput) => Promise<CompletionPublisherResult>;
@@ -45,6 +48,7 @@ type PublisherSeams = {
   fetchPrBody?: FetchPrBody;
   writePrBody?: WritePrBody;
   renderFooter?: RenderFooter;
+  subprocessRunner?: AsyncSubprocessRunner;
 };
 
 function defaultCommand(
@@ -70,68 +74,92 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
 
   return async (input) => {
     const specPath = normalizePublicationSpecPath(input.worktreePath, input.specPath);
+    const subprocessRunner = seams?.subprocessRunner ?? realAsyncSubprocessRunner;
+    const requestedBaseRef = input.baseRef;
+    let effectiveBaseRef = requestedBaseRef;
+    if (!(await branchExistsOnOriginAsync(input.worktreePath, requestedBaseRef, subprocessRunner))) {
+      effectiveBaseRef = await getBaseBranch(input.worktreePath, subprocessRunner);
+    }
+    const retargetMeta =
+      effectiveBaseRef !== requestedBaseRef
+        ? { requestedBase: requestedBaseRef, resolvedBase: effectiveBaseRef }
+        : undefined;
 
     const result: CompletionPublisherResult = {};
 
-    const pushSha = await runPublicationWithRetry(
-      "push",
-      async () => {
-        const hasUpstream = await checkHasUpstream(git, input.worktreePath, input.branch);
-        if (hasUpstream) {
-          await git(input.worktreePath, ["push"]);
-        } else {
-          await git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+    try {
+      const pushSha = await runPublicationWithRetry(
+        "push",
+        async () => {
+          const hasUpstream = await checkHasUpstream(git, input.worktreePath, input.branch);
+          if (hasUpstream) {
+            await git(input.worktreePath, ["push"]);
+          } else {
+            await git(input.worktreePath, ["push", "-u", "origin", input.branch]);
+          }
+          return await git(input.worktreePath, ["rev-parse", "HEAD"]);
+        },
+        { delay, retryNotice },
+      );
+
+      if (pushSha) {
+        result.pushSha = pushSha;
+      }
+
+      const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
+      const prEvidence = await runPublicationWithRetry(
+        "pr",
+        () => findOrCreatePr(gh, input.worktreePath, effectiveBaseRef, input.branch, specPath, creationTitle),
+        { delay, retryNotice },
+      );
+
+      if (prEvidence) {
+        result.prNumber = prEvidence.number;
+        result.prUrl = prEvidence.url;
+      }
+
+      await runPublicationWithRetry(
+        "pr-body-refresh",
+        async () => {
+          const bodySummary = input.specTemplate
+            ? await deriveSpecRunBodySummary({
+                worktreePath: input.worktreePath,
+                specPath: input.specPath,
+                baseRef: effectiveBaseRef,
+                git: async (cwd, args) => git(cwd, args),
+              })
+            : input.bodySummary;
+          await refreshPrBody({
+            specPath,
+            branch: input.branch,
+            base: effectiveBaseRef,
+            cwd: input.worktreePath,
+            git,
+            ...(bodySummary !== undefined ? { bodySummary } : {}),
+            ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
+            ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
+            ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
+            ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
+          });
+          return true;
+        },
+        { delay, retryNotice },
+      );
+
+      if (retargetMeta !== undefined) {
+        result.requestedBase = retargetMeta.requestedBase;
+        result.resolvedBase = retargetMeta.resolvedBase;
+      }
+      return result;
+    } catch (error) {
+      if (retargetMeta !== undefined) {
+        if (error instanceof Error) {
+          throw Object.assign(error, retargetMeta);
         }
-        return await git(input.worktreePath, ["rev-parse", "HEAD"]);
-      },
-      { delay, retryNotice },
-    );
-
-    if (pushSha) {
-      result.pushSha = pushSha;
+        throw Object.assign(new Error(String(error)), retargetMeta);
+      }
+      throw error;
     }
-
-    const creationTitle = resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle);
-    const prEvidence = await runPublicationWithRetry(
-      "pr",
-      () => findOrCreatePr(gh, input.worktreePath, input.baseRef, input.branch, specPath, creationTitle),
-      { delay, retryNotice },
-    );
-
-    if (prEvidence) {
-      result.prNumber = prEvidence.number;
-      result.prUrl = prEvidence.url;
-    }
-
-    await runPublicationWithRetry(
-      "pr-body-refresh",
-      async () => {
-        const bodySummary = input.specTemplate
-          ? await deriveSpecRunBodySummary({
-              worktreePath: input.worktreePath,
-              specPath: input.specPath,
-              baseRef: input.baseRef,
-              git: async (cwd, args) => git(cwd, args),
-            })
-          : input.bodySummary;
-        await refreshPrBody({
-          specPath,
-          branch: input.branch,
-          base: input.baseRef,
-          cwd: input.worktreePath,
-          git,
-          ...(bodySummary !== undefined ? { bodySummary } : {}),
-          ...(input.narrative !== undefined ? { narrative: input.narrative } : {}),
-          ...(seams?.fetchPrBody !== undefined ? { fetchPrBody: seams.fetchPrBody } : {}),
-          ...(seams?.writePrBody !== undefined ? { writePrBody: seams.writePrBody } : {}),
-          ...(seams?.renderFooter !== undefined ? { renderFooter: seams.renderFooter } : {}),
-        });
-        return true;
-      },
-      { delay, retryNotice },
-    );
-
-    return result;
   };
 }
 

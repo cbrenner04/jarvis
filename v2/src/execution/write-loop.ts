@@ -872,6 +872,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             forceDistinctCommit: true,
             iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
           });
+          let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
           if (published.commitSha !== undefined) {
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
@@ -893,7 +894,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
               };
               return publication.failure.kind === "completion_commit_failed"
-                ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
+                ? completionCommitFailed(args, store, publishedResult, publication.failure)
                 : readyFailed(
                     args,
                     store,
@@ -914,6 +915,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               prepared.result.prUrl = publication.success.prUrl;
             }
             appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
+            if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
+              publicationBaseRetarget = {
+                requestedBase: publication.success.requestedBase,
+                resolvedBase: publication.success.resolvedBase,
+              };
+            }
           }
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree));
@@ -934,6 +941,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             resumable: false,
             ...(prepared.result.prNumber !== undefined ? { prNumber: prepared.result.prNumber } : {}),
             ...(prepared.result.prUrl !== undefined ? { prUrl: prepared.result.prUrl } : {}),
+            ...(publicationBaseRetarget ?? {}),
           });
           if (published.commitSha === undefined) {
             return { ...prepared.result, runStatus: "completed" };
@@ -1433,6 +1441,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           forceDistinctCommit: true,
           iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         });
+        let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
         if (published.commitSha !== undefined) {
           store.setRunStatus(runId, "in-progress");
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
@@ -1458,7 +1467,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ...(publication.failure.prUrl !== undefined ? { prUrl: publication.failure.prUrl } : {}),
             };
             return publication.failure.kind === "completion_commit_failed"
-              ? completionCommitFailed(args, store, publishedResult, publication.failure.error)
+              ? completionCommitFailed(args, store, publishedResult, publication.failure)
               : readyFailed(
                   args,
                   store,
@@ -1479,6 +1488,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             attributed.prUrl = publication.success.prUrl;
           }
           appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
+          if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
+            publicationBaseRetarget = {
+              requestedBase: publication.success.requestedBase,
+              resolvedBase: publication.success.resolvedBase,
+            };
+          }
         }
         if (published.commitSha === undefined) {
           const uncommitted = await getUncommittedPaths(worktreePath);
@@ -1499,6 +1514,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           resumable: false,
           ...(attributed.prNumber !== undefined ? { prNumber: attributed.prNumber } : {}),
           ...(attributed.prUrl !== undefined ? { prUrl: attributed.prUrl } : {}),
+          ...(publicationBaseRetarget ?? {}),
         });
         if (published.commitSha === undefined) {
           return { ...attributed, runStatus: "completed" };
@@ -2145,12 +2161,16 @@ export type CompletionPublishFailure = {
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome?: SmokePass;
+  requestedBase?: string;
+  resolvedBase?: string;
 };
 
 export type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome: SmokePass | undefined;
+  requestedBase?: string;
+  resolvedBase?: string;
 };
 
 export function appendRuntimeSmokeOutcome(
@@ -2817,6 +2837,24 @@ function buildFinalizationErrorResponse(
   };
 }
 
+function publicationBaseRetarget(
+  source?: Error | Pick<CompletionPublishFailure, "requestedBase" | "resolvedBase" | "error">,
+): { requestedBase: string; resolvedBase: string } | undefined {
+  if (source !== undefined && !(source instanceof Error)) {
+    if (source.requestedBase !== undefined && source.resolvedBase !== undefined) {
+      return { requestedBase: source.requestedBase, resolvedBase: source.resolvedBase };
+    }
+  }
+  const error = source instanceof Error ? source : source?.error;
+  if (error === undefined) return undefined;
+  const requestedBase = (error as { requestedBase?: string }).requestedBase;
+  const resolvedBase = (error as { resolvedBase?: string }).resolvedBase;
+  if (typeof requestedBase === "string" && typeof resolvedBase === "string") {
+    return { requestedBase, resolvedBase };
+  }
+  return undefined;
+}
+
 export async function publishCompletionArtifacts(
   seams: CompletionPublicationSeams,
   input: {
@@ -2836,7 +2874,12 @@ export async function publishCompletionArtifacts(
     publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
     const err = publishError instanceof Error ? publishError : new Error(String(publishError));
-    return { kind: "completion_commit_failed", error: err };
+    const retarget = publicationBaseRetarget(err);
+    return {
+      kind: "completion_commit_failed",
+      error: err,
+      ...(retarget ?? {}),
+    };
   }
   if (publisherResult?.pushSha !== undefined && publisherResult?.prNumber === undefined) {
     const err = new Error("Pushed completion without PR evidence is a publication failure");
@@ -2862,6 +2905,9 @@ export async function publishCompletionArtifacts(
     kind: "success",
     ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
     ...(publisherResult?.prUrl !== undefined ? { prUrl: publisherResult.prUrl } : {}),
+    ...(publisherResult?.requestedBase !== undefined && publisherResult?.resolvedBase !== undefined
+      ? { requestedBase: publisherResult.requestedBase, resolvedBase: publisherResult.resolvedBase }
+      : {}),
     runtimeSmokeOutcome,
   };
 }
@@ -2870,10 +2916,12 @@ function completionCommitFailed(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
-  error?: Error,
+  source?: Error | CompletionPublishFailure,
 ): WriteLoopResult {
   store.setRunStatus(result.runId, "completed");
+  const error = source instanceof Error ? source : source?.error;
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
+  const retarget = publicationBaseRetarget(source);
   const completionCommitErrorMessage = error?.message ?? "completion commit failed";
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
@@ -2882,6 +2930,7 @@ function completionCommitFailed(
     resumable: true,
     completionCommitError: completionCommitErrorMessage,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    ...(retarget ?? {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });
@@ -2891,6 +2940,7 @@ function completionCommitFailed(
     resumable: true,
     completionCommitError: error?.message ?? "completion commit failed",
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
+    ...(retarget ?? {}),
   };
 }
 

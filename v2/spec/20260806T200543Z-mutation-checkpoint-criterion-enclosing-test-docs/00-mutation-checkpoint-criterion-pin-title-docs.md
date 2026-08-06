@@ -26,11 +26,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria instructs authors to include the enclosing `test()` title (pin title / `directive.pinTitle`) in every mutation-checkpoint criterion; defines linker matching as case-sensitive `criterionText.includes(directive.pinTitle)` with no fallback (substring of the full title suffices, different casing does not); states that loose references go `hollow` under the no-fallback linker; includes at least one good/bad criterion example.
-- [ ] `test/spec-guidance-doc-assertions.test.ts` asserts § Mutation-checkpoint criteria documents the enclosing-`test()`-title requirement, case-sensitive `includes(pinTitle)` matching with substring sufficiency, and hollow-on-loose-reference behavior; fails when that guidance is removed or reduced to token presence only.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents first-hollow linker-miss (blocker `no @mutate directive linked to this criterion; add // @mutate … on the named pin` when a directive exists but the criterion omits the enclosing `test()` title) and the fix (edit the criterion to include the title — not add/repair the directive, not proof-form or directive-syntax); the bullet is placed before the premise-smell hollow bullet and cross-references it for the opposite fix on second hollow.
-- [ ] `v2/spec/implement-queue.md` no longer lists row #2 (`seeds/mutation-checkpoint-criterion-must-name-enclosing-test`).
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria instructs authors to include the enclosing `test()` title (pin title / `directive.pinTitle`) in every mutation-checkpoint criterion; defines linker matching as case-sensitive `criterionText.includes(directive.pinTitle)` with no fallback (substring of the full title suffices, different casing does not); states that loose references go `hollow` under the no-fallback linker; includes at least one good/bad criterion example.
+- [x] `test/spec-guidance-doc-assertions.test.ts` asserts § Mutation-checkpoint criteria documents the enclosing-`test()`-title requirement, case-sensitive `includes(pinTitle)` matching with substring sufficiency, and hollow-on-loose-reference behavior; fails when that guidance is removed or reduced to token presence only.
+- [x] `v2/docs/operator-runbook.md` § Gate trust documents first-hollow linker-miss (blocker `no @mutate directive linked to this criterion; add // @mutate … on the named pin` when a directive exists but the criterion omits the enclosing `test()` title) and the fix (edit the criterion to include the title — not add/repair the directive, not proof-form or directive-syntax); the bullet is placed before the premise-smell hollow bullet and cross-references it for the opposite fix on second hollow.
+- [x] `v2/spec/implement-queue.md` no longer lists row #2 (`seeds/mutation-checkpoint-criterion-must-name-enclosing-test`).
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

@@ -1,0 +1,12 @@
+Reviewing the implementation artifacts and queue/runbook context to issue a grounded verdict.
+## Verdict
+
+1. **`v2/spec/implement-queue.md` cross-reference must match the post-close queue.** The cluster-session note still says “see Start-here item 2” for the reprompt (#2633) finalization flake, but item 2 is no longer `mutation-checkpoint-criterion-must-name-enclosing-test`; it now points at “the other open seeds below.” Operators following that pointer get the wrong priority. The reprompt flake note must reference the correct seed or describe the failure without a stale ordinal.
+
+2. **`v2/spec/implement-queue.md` landed-session note must not imply the linker gap is still open.** The stale-reset sibling note still says every mutation criterion was hand-pre-fixed “(the linker gap)” with no signal that authoring guidance and operator triage for pin-title omission now ship in this work. That reads as ongoing harness deficiency after the spec’s explicit queue-close and doc deliverables. The note must reflect that the gap was closed here (past tense or pointer to landed guidance), not that operators must keep hand-fixing at plan time.
+
+3. **`test/spec-guidance-doc-assertions.test.ts` section extraction must not depend on a stray `z` lookahead.** The `### Mutation-checkpoint criteria` capture uses `(?=\n### |z)`, which truncates at any lowercase `z` before the next `###` heading. That is a silent false-pass risk on future edits and undermines the CI guard this subspec requires. Extraction must reliably bound the section without that typo hazard.
+
+**Rationale:** Subspec acceptance criteria for spec-guidance, operator-runbook Gate trust, doc assertions, and queue row removal are otherwise met on a literal read. The three items above are upheld defects in artifacts this patch owns—queue reconciliation was an explicit AC, and the doc-assertion test is the subspec’s drift guard—not scope expansion into `write-behavior.md`, runbook CI, or `intent.md` sync.
+
+**Not required:** Cause-based vs ordinal “first/second hollow” rewording (matches the checked AC and cross-reference to premise-smell); `operator-runbook.md` line 419 cross-link; `intent.md` checkbox sync; negative fixture proving token-collage prose fails.

@@ -23,7 +23,12 @@ import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
-import { gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import {
+  baseRefProbeFailsSeam,
+  gateFailureOutput,
+  initGateScopeWorktree,
+  initOutsideDiffRepairWorktree,
+} from "./ready-finalize.test.ts";
 import {
   deriveGateAllowedPaths,
   ReadyFlipError,
@@ -260,6 +265,7 @@ async function runLoop(args: {
   runFixCommand?: WriteLoopInput["runFixCommand"];
   iterationTimeoutMs?: number;
   mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
+  readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -301,6 +307,7 @@ async function runLoop(args: {
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
+    ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -2219,6 +2226,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2379,6 +2387,7 @@ describe("write loop", () => {
           branchName: outOfScopeBranch,
           baseRef: outOfScopeBaseRef,
           logSink,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
           ...completionHooks,
           readyFinalizer: async () => {
@@ -2449,6 +2458,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2502,6 +2512,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
           bindings: [
             {
               id: "sim.1",
@@ -2526,6 +2537,108 @@ describe("write loop", () => {
         expect(
           logSink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started"),
         ).toHaveLength(1);
+      });
+
+      test("admits repair for an outside-diff gate failure that passes on baseRef and extends the allowset", async () => {
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-outside-diff-in-scope";
+        const { worktreePath, baseRef } = initOutsideDiffRepairWorktree(jarvisRoot, branchName);
+        const frozenAllowset = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(frozenAllowset?.has(outsidePath)).toBe(false);
+
+        let invocations = 0;
+        let gateCalls = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          readyGateScopeSeams: {
+            reproduceReadyGateAtBaseRef: async () => "pass",
+          },
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                if (invocations === 1) {
+                  writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                } else {
+                  writeFileSync(join(cwd, outsidePath), "fixed\n", "utf8");
+                }
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: completionHooks.completionCommitter,
+          completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
+          readyFinalizer: async () => {
+            gateCalls += 1;
+            if (invocations === 1) {
+              throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+            }
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(gateCalls).toBe(3);
+        expect(invocations).toBe(2);
+        const candidates = (await enumerateRepairCompletionCandidates(worktreePath)) ?? [];
+        expect(findFirstRepairFenceViolation(candidates, frozenAllowset ?? new Set())).toEqual(outsidePath);
+        const extendedAllowset = new Set(frozenAllowset ?? []);
+        extendedAllowset.add(outsidePath);
+        expect(findFirstRepairFenceViolation(candidates, extendedAllowset)).toBeUndefined();
+      });
+
+      test("logs ready_gate_base_ref_probe before ready_gate_repair when base-ref probe errors", async () => {
+        const probeMessage = "exit 2: cannot run base-ref probe";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-base-ref-probe-error";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+        let invocations = 0;
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          logSink,
+          readyGateScopeSeams: {
+            reproduceReadyGateAtBaseRef: async () => ({ kind: "error", message: probeMessage }),
+          },
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          ...completionHooks,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput("v2/src/untouched.test.ts"));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_failed");
+        expect(invocations).toBeGreaterThanOrEqual(2);
+        const events = logSink.getEventsForRun(result.runId);
+        const probeIndex = events.findIndex((event) => event.kind === "ready_gate_base_ref_probe");
+        const repairIndex = events.findIndex((event) => event.kind === "ready_gate_repair");
+        expect(probeIndex).toBeGreaterThanOrEqual(0);
+        expect(repairIndex).toBeGreaterThan(probeIndex);
+        expect(events[probeIndex]).toMatchObject({ kind: "ready_gate_base_ref_probe", message: probeMessage });
+        expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(true);
       });
     });
 
@@ -2617,6 +2730,7 @@ export function isLoadSensitive(file: string): boolean {
         promptPlaceholders?: WriteLoopInput["promptPlaceholders"];
         intentSeed?: WriteLoopInput["intentSeed"];
         logSink?: LogSink;
+        readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -2666,6 +2780,7 @@ export function isLoadSensitive(file: string): boolean {
           ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
           ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed } : {}),
           ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+          ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
         });
         return { result, gateCalls, invocations, publishCalls };
       }

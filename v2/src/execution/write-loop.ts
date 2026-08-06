@@ -58,8 +58,10 @@ import {
   ReadyFlipError,
   ReadyGateError,
   type ReadyGateScopeInput,
+  type ReadyGateScopeSeams,
   RuntimeSmokeFailedError,
   readyGateOutOfScopeLogFields,
+  resolveGateRepairAllowset,
   SurvivingMutationError,
   survivingMutationLogFields,
   validateRepoRelativePath,
@@ -259,6 +261,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   fixCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Test seam for ready-gate scope classification and base-ref reproduction. */
+  readyGateScopeSeams?: ReadyGateScopeSeams;
 };
 
 /**
@@ -2287,15 +2291,20 @@ export async function runMutationRepairIteration(
 async function classifyReadyGatePublishFailure(
   failure: CompletionPublishFailure,
   input: CompletionPublishInput,
+  seams?: ReadyGateScopeSeams,
 ): Promise<CompletionPublishFailure> {
   if (failure.kind !== "ready_gate_failed" || !(failure.error instanceof ReadyGateError)) {
     return failure;
   }
-  const classified = await classifyReadyGateError(failure.error, {
-    worktreePath: input.worktreePath,
-    baseRef: input.baseRef,
-    specPath: input.specPath,
-  });
+  const classified = await classifyReadyGateError(
+    failure.error,
+    {
+      worktreePath: input.worktreePath,
+      baseRef: input.baseRef,
+      specPath: input.specPath,
+    },
+    seams,
+  );
   return {
     ...failure,
     kind: classified.gateFailureKind === "ready_gate_out_of_scope" ? "ready_gate_out_of_scope" : "ready_gate_failed",
@@ -2471,7 +2480,7 @@ async function commitRepairAndRepublish(
     }
     let outcome = await publishCompletionArtifacts(args, input);
     if (outcome.kind !== "success") {
-      outcome = await classifyReadyGatePublishFailure(outcome, input);
+      outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
     }
     return { kind: "success", outcome };
   } catch (error) {
@@ -2499,26 +2508,22 @@ async function runReadyGateRepairLoop(
   input: CompletionPublishInput,
   outcome: CompletionPublishOutcome,
   iterationsConsumed: number,
-  frozenRepairAllowset: Set<string> | undefined,
+  frozenRepairAllowset: Set<string>,
 ): Promise<ReadyGateRepairLoopResult> {
   let currentOutcome = outcome;
   let currentIterations = iterationsConsumed;
-  let allowset = frozenRepairAllowset;
   let repairAttempt = 0;
   let repairBudgetExhausted = false;
 
   while (isActiveReadyGateFailure(currentOutcome)) {
+    const gateRepairAllowset = resolveGateRepairAllowset(frozenRepairAllowset, currentOutcome.error);
     repairAttempt += 1;
     if (repairAttempt > MAX_READY_GATE_REPAIRS) {
       repairBudgetExhausted = true;
       break;
     }
     if (currentIterations >= (args.maxIterations ?? DEFAULT_MAX_ITERATIONS)) break;
-    if (allowset === undefined) {
-      const initialized = await initializeFrozenRepairAllowset(store, result.runId, input, args, currentIterations);
-      if ("failure" in initialized) return { kind: "early", result: initialized.failure };
-      allowset = initialized.allowset;
-    }
+    appendReadyGateBaseRefProbeLog(args, result.runId, currentOutcome.error);
     args.logSink?.append(result.runId, {
       kind: "ready_gate_repair",
       attempt: repairAttempt,
@@ -2545,7 +2550,7 @@ async function runReadyGateRepairLoop(
       store,
       result.runId,
       input,
-      allowset,
+      gateRepairAllowset,
       currentIterations,
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
@@ -2561,6 +2566,16 @@ async function runReadyGateRepairLoop(
     iterationsConsumed: currentIterations,
     repairBudgetExhausted,
   };
+}
+
+function appendReadyGateBaseRefProbeLog(args: WriteLoopInput, runId: string, error: ReadyGateError): void {
+  if (error.baseRefProbeError === undefined) {
+    return;
+  }
+  args.logSink?.append(runId, {
+    kind: "ready_gate_base_ref_probe",
+    message: error.baseRefProbeError,
+  });
 }
 
 function appendReadyGateTimeoutLog(args: WriteLoopInput, runId: string, outcome: CompletionPublishOutcome): void {
@@ -2607,7 +2622,7 @@ export async function publishWithReadyRepair(
 ): Promise<ReadyRepairPublishResult> {
   let outcome = await publishCompletionArtifacts(args, input);
   if (outcome.kind !== "success") {
-    outcome = await classifyReadyGatePublishFailure(outcome, input);
+    outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
   }
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
@@ -2623,6 +2638,9 @@ export async function publishWithReadyRepair(
     if ("failure" in initialized) return initialized.failure;
     frozenRepairAllowset = initialized.allowset;
   }
+
+  const gateRepairAllowset = resolveGateRepairAllowset(frozenRepairAllowset, outcome.error);
+  appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
   const fixOpts: RunFixCommandOpts = {
     cwd: input.worktreePath,
@@ -2647,7 +2665,7 @@ export async function publishWithReadyRepair(
     store,
     result.runId,
     input,
-    frozenRepairAllowset,
+    gateRepairAllowset,
     iterationsConsumed,
   );
   if (autofixFenceFailure !== undefined) {

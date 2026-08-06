@@ -403,7 +403,7 @@ test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate
 
 test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths and retry-finalization recovery", () => {
   const outsidePath = "v2/src/untouched.test.ts";
-  const detail = `ready gate failing paths lie outside the run's touched set: ${outsidePath}`;
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
   const event = loopFinished("ready_gate_out_of_scope", {
     resumable: true,
     readyGateOutsidePaths: [outsidePath],

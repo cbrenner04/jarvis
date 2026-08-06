@@ -12,8 +12,10 @@ import {
   classifyReadyGateFailure,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  formatReadyGateOutOfScopeDetail,
   parseGitNameStatusZ,
   ReadyGateError,
+  type ReadyGateScopeSeams,
   SurvivingMutationError,
   selectTerminalFailingPaths,
   validateRepoRelativePath,
@@ -72,16 +74,45 @@ export function initGateScopeWorktree(
   return { worktreePath, baseRef };
 }
 
+export function initOutsideDiffRepairWorktree(
+  jarvisRoot: string,
+  branchName: string,
+): { worktreePath: string; baseRef: string } {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+  writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "base\n", "utf8");
+  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+  return { worktreePath, baseRef };
+}
+
 const scope = {
   worktreePath: "/tmp/worktree",
   baseRef: "main",
   specPath: "v2/spec/demo/index.md",
 };
 
-const allowedSeams = {
+const allowedSeams: ReadyGateScopeSeams = {
   gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
   gitUntracked: async () => "",
   listSpecTreePaths: async () => ["v2/spec/demo/index.md", "v2/spec/demo/01-task.md"],
+  reproduceReadyGateAtBaseRef: async () => "fail",
+};
+
+export const baseRefProbeFailsSeam: ReadyGateScopeSeams = {
+  reproduceReadyGateAtBaseRef: async () => "fail",
 };
 
 describe("ready gate untouched-path classification", () => {
@@ -127,6 +158,7 @@ describe("ready gate untouched-path classification", () => {
     const classified = await classifyReadyGateError(error, directSubspecScope, {
       gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
       gitUntracked: async () => "",
+      reproduceReadyGateAtBaseRef: async () => "fail",
     });
     expect(classified.gateFailureKind).toBe("ready_gate_failed");
 
@@ -134,6 +166,7 @@ describe("ready gate untouched-path classification", () => {
       gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
       gitUntracked: async () => "",
       listSpecTreePaths: async () => ["v2/spec/demo/01-task.md"],
+      reproduceReadyGateAtBaseRef: async () => "fail",
     });
     expect(singleFileEnumeration.gateFailureKind).toBe("ready_gate_out_of_scope");
   });
@@ -341,7 +374,44 @@ describe("ready gate untouched-path classification", () => {
     expect(integration.gateFailureKind).toBe("ready_gate_failed");
   });
 
-  it("turns guard inversions red for parsing, validation, scope resolution, and classification", () => {
+  it("formats out-of-scope detail from base-ref reproduction semantics", () => {
+    expect(formatReadyGateOutOfScopeDetail(["v2/src/untouched.test.ts"], "main")).toBe(
+      "ready gate failing paths also reproduce on main: v2/src/untouched.test.ts",
+    );
+  });
+
+  it("base-ref reproduction classifies a base-passing worktree-failing path as in scope", async () => {
+    // @mutate invert `outcome === "pass"` to `outcome !== "pass"` in `probeOutsidePathsAtBaseRef` (ready-finalize.ts)
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, {
+      ...allowedSeams,
+      reproduceReadyGateAtBaseRef: async () => "pass",
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+    expect(classified.gateRepairAllowsetPaths).toEqual(["v2/src/untouched.test.ts"]);
+  });
+
+  it("base-ref probe failure classifies in scope", async () => {
+    const probeMessage = "exit 1: probe stderr tail";
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const classified = await classifyReadyGateError(error, scope, {
+      ...allowedSeams,
+      reproduceReadyGateAtBaseRef: async () => ({ kind: "error", message: probeMessage }),
+    });
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+    expect(classified.gateRepairAllowsetPaths).toEqual(["v2/src/untouched.test.ts"]);
+    expect(classified.baseRefProbeError).toBe(probeMessage);
+  });
+
+  it("turns guard inversions red for parsing, validation, scope resolution, and classification", async () => {
     const output = gateOutput({
       completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
       failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],
@@ -358,13 +428,35 @@ describe("ready gate untouched-path classification", () => {
     expect(parseGitNameStatusZ("M\0v2/src/changed.ts\0")).toEqual(["v2/src/changed.ts"]);
     expect(parseGitNameStatusZ("M\0broken")).toBeUndefined();
 
-    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed)).toEqual({
+    expect(
+      await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, scope, {
+        reproduceReadyGateAtBaseRef: async () => "fail",
+      }),
+    ).toEqual({
       kind: "ready_gate_out_of_scope",
       outsidePaths: ["v2/src/untouched.test.ts"],
     });
-    expect(classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed).kind).not.toBe("ready_gate_failed");
-    expect(classifyReadyGateFailure(error, undefined, allowed).kind).toBe("ready_gate_failed");
-    expect(classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed).kind).toBe("ready_gate_failed");
+    expect(
+      (
+        await classifyReadyGateFailure(error, ["v2/src/untouched.test.ts"], allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => "fail",
+        })
+      ).kind,
+    ).not.toBe("ready_gate_failed");
+    expect(
+      (
+        await classifyReadyGateFailure(error, undefined, allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => "fail",
+        })
+      ).kind,
+    ).toBe("ready_gate_failed");
+    expect(
+      (
+        await classifyReadyGateFailure(error, ["v2/src/changed.ts"], allowed, scope, {
+          reproduceReadyGateAtBaseRef: async () => "fail",
+        })
+      ).kind,
+    ).toBe("ready_gate_failed");
   });
 });
 

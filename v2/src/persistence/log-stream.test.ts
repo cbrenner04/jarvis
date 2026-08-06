@@ -407,7 +407,7 @@ describe("log-stream", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);
     const outsidePath = "v2/src/untouched.test.ts";
-    const detail = `ready gate failing paths lie outside the run's touched set: ${outsidePath}`;
+    const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
 
     sink.append("run-1", {
       kind: "loop_finished",

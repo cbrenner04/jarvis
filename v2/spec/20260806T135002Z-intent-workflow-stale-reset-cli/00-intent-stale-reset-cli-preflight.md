@@ -65,7 +65,8 @@ invocation`. Recovery today is manual `jarvis cleanup --abandon`.
       inspection), then `start` proceeds; fails against pre-fix code.
 - [x] `stale-reset-workspace.test.ts` imports `maybeResetStaleWorkspace` and `STALE_RESET_WORKFLOWS`
       from `v2/src/commands/stale-reset-workspace.ts`; fails against pre-fix module-private code.
-- [x] Mutation checkpoint: `workflow.test.ts` carries
+- [x] Mutation checkpoint: the `STALE_RESET_WORKFLOWS membership includes intent` test in
+      `workflow.test.ts` carries
       `// @mutate v2/src/commands/stale-reset-workspace.ts "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\", \"intent\"]);" -> "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\"]);"`;
       applying it turns **both** the exported-set membership assertion and the intent integration
       test red.

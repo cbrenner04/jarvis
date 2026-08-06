@@ -792,6 +792,14 @@ refuses without retirement — re-dispatch does not silently reuse a stale copy.
 `--reset-despite-dirty` skips only the dirty gate; neither overrides the
 descendant check.
 
+Pipeline intent-stage re-dispatch (reopen/resume after a failed-stage
+continuation, including daemon-restart continuation) now auto-clears a
+poisoned intent worktree and review-verdict sidecar the same way, when the
+same gates pass — no manual step. When a gate refuses (dirty tree, criteria
+drift), the stage fails with the CLI's refusal text instead of dispatching;
+run `jarvis cleanup --abandon` to retire the worktree by hand, same as any
+other refused-guard or non-pipeline case.
+
 ### `iteration_timeout` with completed subspecs
 
 When a write step times out after at least one linked subspec's non-human-only

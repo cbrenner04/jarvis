@@ -88,19 +88,19 @@ Primary: `v2/src/daemon/pipeline-execution.ts` (`advanceWorkflowStage` path befo
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `"pipeline intent-stage re-dispatch resets a poisoned worktree
+- [x] `pipeline-execution.test.ts` — `"pipeline intent-stage re-dispatch resets a poisoned worktree
       before the write step"` seeds stale `.jarvis-intent-review-verdict.md` on a managed
       intent-stage worktree, re-dispatches via failed-stage continuation, asserts worktree absent
       from `git worktree list` and verdict sidecars gone at the dispatch boundary, and fails against
       pre-fix code.
-- [ ] Mutation checkpoint: the `pipeline intent-stage re-dispatch resets a poisoned worktree before the write step` test in `pipeline-execution.test.ts` carries a `// @mutate` directive that skips intent-stage stale-reset preflight; applying it turns that test RED.
-- [ ] `pipeline-execution.test.ts` — `"pipeline intent-stage stale-reset refusal fails stage without
+- [x] Mutation checkpoint: the `pipeline intent-stage re-dispatch resets a poisoned worktree before the write step` test in `pipeline-execution.test.ts` carries a `// @mutate` directive that skips intent-stage stale-reset preflight; applying it turns that test RED.
+- [x] `pipeline-execution.test.ts` — `"pipeline intent-stage stale-reset refusal fails stage without
       dispatch"` seeds a guard refusal (e.g. dirty tracked file), asserts stage `failed` with
       CLI-matching refusal message and dispatch not called, and fails against pre-fix code.
-- [ ] Mutation checkpoint: the `pipeline intent-stage stale-reset refusal fails stage without dispatch` test in `pipeline-execution.test.ts` carries a `// @mutate` directive on the refusal branch; applying it turns that test RED.
-- [ ] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"` stays
+- [x] Mutation checkpoint: the `pipeline intent-stage stale-reset refusal fails stage without dispatch` test in `pipeline-execution.test.ts` carries a `// @mutate` directive on the refusal branch; applying it turns that test RED.
+- [x] `workflow.test.ts` — `"run workflow intent resets a stale worktree before daemon start"` stays
       green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -114,3 +114,8 @@ Primary: `v2/src/daemon/pipeline-execution.ts` (`advanceWorkflowStage` path befo
 - `v2/docs/v1-behaviors.md` — record pipeline intent-stage stale reset on re-dispatch (git-enabled
   managed worktree only; shared `maybeResetStaleWorkspace` gates; no pipeline override flags in this
   slice).
+
+## Blocker
+
+Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
+- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

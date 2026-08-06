@@ -966,9 +966,23 @@ pipeline loop will dispatch the next stage moments later on the admitting daemon
 
 **Deferred vs CLI workflow launch:** `jarvis run workflow …` runs
 `prepareWorkflowSteps` (iteration bounds, configured idle-output and review-role
-timeouts on review steps) and `maybeResetStaleWorkspace` for `plan`/`implement`
-before `start { steps }`. Pipeline stage resolution dispatches raw preset-builder
-output without that post-processing or stale-worktree reset in this slice.
+timeouts on review steps) before `start { steps }`. Pipeline stage resolution
+dispatches raw preset-builder output without that post-processing in this
+slice.
+
+For an authored `workflow: "intent"` stage resolving to a git-enabled managed
+write-step worktree, `advanceWorkflowStage` (`pipeline-execution.ts`) runs the
+same stale-reset preflight as CLI `run workflow intent` — `maybeResetStaleWorkspace`
+from `stale-reset-workspace.ts` — after stage resolution and before dispatch.
+This closes the gap where a failed-stage re-dispatch (reopen/resume, including
+daemon-restart continuation) reused a poisoned worktree/branch and review
+verdict left over from a prior run. The preflight runs via an injected
+`intentStaleReset` bundle on `PipelineExecutionDeps` (`CliDeps`, `Io`, an
+in-process `IpcClient` against the same daemon — not a loopback socket); it
+no-ops when unwired or the resolved worktree isn't git-enabled/managed, and a
+guard refusal fails the stage (`failureDetail.message` matches the CLI's
+refusal text) without dispatching. Plan/implement pipeline stages and
+fan-out resolution don't run this preflight yet.
 
 `runPipeline` walks `loadPipeline(pipelineId).stages` in authored position
 order. For each workflow stage it re-reads the stage's own row before acting

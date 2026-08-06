@@ -5,6 +5,7 @@ import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,
@@ -49,7 +50,7 @@ import {
   findMutationDirectiveRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
-import { connectIpcClient } from "../ipc/client";
+import { connectIpcClient, type IpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
@@ -698,6 +699,14 @@ export function runListTerminalFinishAtMs(
  * - `failureReporter`: invoked on spawn-boundary executor rejection with the original
  *   rejection value; awaited before ownership release. Sync or async.
  */
+/**
+ * Read bound for the intent-stage stale-reset preflight's self-RPCs (`list`, `check_workflow_start_claim`).
+ * These are fast local handlers; the bound only exists so a wedged reply can't hang the preflight
+ * indefinitely (`connectIpcClient`'s own 5s bound covers connect, not reply). On timeout the preflight
+ * fails open (see `resetStaleIntentWorkspaceIfNeeded`).
+ */
+const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
+
 export type RunControlHandlerDeps = {
   stateStore: StateStore;
   logReader?: LogReader;
@@ -724,6 +733,16 @@ export type RunControlHandlerDeps = {
   pipelineWait?: PipelineWorkflowWait;
   /** Test seam for pipeline terminal publication settlement. */
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
+  /**
+   * The daemon's own socket path. When set, pipeline intent-stage re-dispatch runs the CLI's
+   * stale-reset preflight, opening an `IpcClient` against this socket per preflight (see
+   * {@link resetStaleIntentWorkspaceIfNeeded}). Undefined (most tests) leaves the preflight unwired.
+   */
+  daemonSocketPath?: string;
+  /** Test seam for the stale-reset preflight's client factory; defaults to {@link connectIpcClient}. */
+  connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
+  /** Test seam for the stale-reset preflight's `CliDeps` (only `jarvisRoot`/`subprocessRunner` are read). */
+  staleResetCliDeps?: CliDeps;
 };
 
 export type WaitRunCompletionResult = {
@@ -1854,16 +1873,37 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const pipelineWait = deps.pipelineWait ?? defaultPipelineWait;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
 
-  const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => ({
-    store,
-    dispatch: pipelineDispatch,
-    wait: pipelineWait,
-    resolveStage,
-    ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
-    ...(deps.executeTerminalPublication !== undefined
-      ? { executeTerminalPublication: deps.executeTerminalPublication }
-      : {}),
-  });
+  const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => {
+    const daemonSocketPath = deps.daemonSocketPath;
+    const connectStaleResetClient = deps.connectStaleResetClient;
+    return {
+      store,
+      dispatch: pipelineDispatch,
+      wait: pipelineWait,
+      resolveStage,
+      ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
+      ...(deps.executeTerminalPublication !== undefined
+        ? { executeTerminalPublication: deps.executeTerminalPublication }
+        : {}),
+      ...(daemonSocketPath !== undefined
+        ? {
+            intentStaleReset: {
+              // maybeResetStaleWorkspace reads only `jarvisRoot`/`subprocessRunner` from CliDeps
+              // (stale-reset-workspace.ts); the daemon supplies real values for both.
+              cliDeps:
+                deps.staleResetCliDeps ??
+                ({ jarvisRoot: jarvisHome(), subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps),
+              io: { stdout: () => {}, stderr: (text: string) => console.error(text) },
+              // The daemon dials its own control socket; bound the reply read so a wedged self-RPC
+              // can't hang the preflight (the 5s connect bound covers only connect, not reply).
+              connectClient: connectStaleResetClient
+                ? () => connectStaleResetClient(daemonSocketPath)
+                : () => connectIpcClient(daemonSocketPath, STALE_RESET_RPC_TIMEOUT_MS),
+            },
+          }
+        : {}),
+    };
+  };
 
   /**
    * Admit an already-validated pipeline definition: create its durable rows, start the
@@ -1972,6 +2012,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
     continueContinuablePipelines: async () => recoverContinuablePipelines(store, pipelineExecutionDeps()),
+    /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
+    pipelineExecutionDeps,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */
@@ -2298,6 +2340,7 @@ export async function startDaemonRuntime(
     setRetiring,
     hasActiveRuns,
     isRetiring,
+    pipelineExecutionDeps: _pipelineExecutionDeps,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,
@@ -2306,6 +2349,10 @@ export async function startDaemonRuntime(
     operatorSessionId,
     writeLoopExecutor,
     failureReporter: createRunExecutionFailureReporter(logsPath),
+    // Load-bearing: this is the only production wire that enables the pipeline intent-stage
+    // stale-reset preflight. Removing it silently reverts the daemon to constructing no bundle
+    // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
+    daemonSocketPath: socketPath,
   });
 
   const supersedHandler: RpcHandler = () => {

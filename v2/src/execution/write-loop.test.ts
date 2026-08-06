@@ -28,6 +28,7 @@ import {
   gateFailureOutput,
   initGateScopeWorktree,
   initOutsideDiffRepairWorktree,
+  lintMdOnlyGateFailureOutput,
 } from "./ready-finalize.test.ts";
 import {
   deriveGateAllowedPaths,
@@ -2664,7 +2665,11 @@ export function isLoadSensitive(file: string): boolean {
       function initRepairFenceWorktree(
         jarvisRoot: string,
         branchName: string,
-        options?: { harnessSidecars?: boolean; loadSensitiveSlice?: boolean },
+        options?: {
+          harnessSidecars?: boolean;
+          loadSensitiveSlice?: boolean;
+          touchUntouchedInIteration?: boolean;
+        },
       ): { worktreePath: string; baseRef: string } {
         const worktreePath = initGitRepairWorktree(jarvisRoot, branchName);
         if (options?.loadSensitiveSlice === true) {
@@ -2701,6 +2706,11 @@ export function isLoadSensitive(file: string): boolean {
             "utf8",
           );
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "scripts/test-slice.ts"], { stdio: "pipe" });
+        } else if (options?.touchUntouchedInIteration === true) {
+          writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "iteration\n", "utf8");
+          execFileSync("git", ["-C", worktreePath, "add", "proof.txt", "v2/src/untouched.test.ts"], {
+            stdio: "pipe",
+          });
         } else {
           execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
         }
@@ -2731,6 +2741,7 @@ export function isLoadSensitive(file: string): boolean {
         intentSeed?: WriteLoopInput["intentSeed"];
         logSink?: LogSink;
         readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
+        lintMdOnly?: boolean;
       }) {
         const artifactPath = args.expectedArtifactPath ?? "proof.txt";
         const specPath = args.specPath ?? "spec.md";
@@ -2770,7 +2781,10 @@ export function isLoadSensitive(file: string): boolean {
           readyFinalizer: async () => {
             gateCalls += 1;
             if (invocations === 1) {
-              throw new ReadyGateError("bun run ready", 1, gateFailureOutput(gateFailurePath));
+              const output = args.lintMdOnly
+                ? lintMdOnlyGateFailureOutput(gateFailurePath)
+                : gateFailureOutput(gateFailurePath);
+              throw new ReadyGateError("bun run ready", 1, output);
             }
           },
           ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
@@ -2926,6 +2940,79 @@ export function isLoadSensitive(file: string): boolean {
           loopOutcomeKind: "completion_commit_failed",
           completionCommitError: fenced.result.completionCommitError,
         });
+      });
+
+      test("repair refuses a staged path outside the attributable allowset", async () => {
+        // Mutation checkpoint: remove the `!allowedPaths.has(normalized)` rejection in
+        // `findRepairFenceViolations`.
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-attributable-allowset";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          touchUntouchedInIteration: true,
+        });
+
+        const allowed = await deriveGateAllowedPaths(
+          { worktreePath, baseRef, specPath: "spec.md" },
+          { gitUntracked: async () => "\0" },
+        );
+        expect(allowed?.has("v2/src/untouched.test.ts")).toBe(true);
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          lintMdOnly: true,
+          gateFailurePath: "spec.md",
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain(
+          "Ready-gate repair stages path outside attributable allowset:",
+        );
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
+
+        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+          .split("\n")
+          .filter(Boolean);
+        expect(dirty).toContain("v2/src/untouched.test.ts");
+      });
+
+      test("lint:md-only gate failure answered with a .ts edit is refused without a repair commit", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "repair-fence-lint-md-ts";
+        const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
+          touchUntouchedInIteration: true,
+        });
+
+        const fenced = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          lintMdOnly: true,
+          gateFailurePath: "spec.md",
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(fenced.result.kind).toBe("completion_commit_failed");
+        expect(fenced.result.completionCommitError).toContain("v2/src/untouched.test.ts");
+        expect(fenced.publishCalls).toBe(2);
+        expect(fenced.gateCalls).toBe(2);
+
+        const dirty = execFileSync("git", ["-C", worktreePath, "diff", "--name-only", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        })
+          .split("\n")
+          .filter(Boolean);
+        expect(dirty).toContain("v2/src/untouched.test.ts");
       });
 
       function stageHarnessSidecarRepairEdit(cwd: string) {

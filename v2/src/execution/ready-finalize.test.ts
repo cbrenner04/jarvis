@@ -50,6 +50,16 @@ export function gateFailureOutput(failingPath: string): string {
   });
 }
 
+export function lintMdOnlyGateFailureOutput(failingMdPath: string): string {
+  return gateOutput({
+    completions: [
+      { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 0 },
+      { stepId: "3", attemptId: "3.1", command: "bun run lint:md", status: 3 },
+    ],
+    failingFiles: [{ attemptId: "3.1", path: failingMdPath }],
+  });
+}
+
 export function initGateScopeWorktree(
   jarvisRoot: string,
   branchName: string,

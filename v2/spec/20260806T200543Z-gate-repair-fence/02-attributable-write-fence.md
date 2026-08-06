@@ -15,8 +15,8 @@ Ready-gate repair fence-validates against the frozen diff/spec allowset while cl
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression where a `lint:md`-only gate failure is answered with a `.ts` edit: repair is refused, the refusal names the out-of-scope paths, and no repair commit lands.
-- [ ] In `v2/src/execution/write-loop.test.ts` `ready-gate repair fence` describe block, the test titled `repair refuses a staged path outside the attributable allowset` carries a `// @mutate` directive inverting the attributable write-fence guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
+- [x] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression where a `lint:md`-only gate failure is answered with a `.ts` edit: repair is refused, the refusal names the out-of-scope paths, and no repair commit lands.
+- [x] In `v2/src/execution/write-loop.test.ts` `ready-gate repair fence` describe block, the test titled `repair refuses a staged path outside the attributable allowset` carries a `// @mutate` directive inverting the attributable write-fence guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
 
 ## Documentation updates
 

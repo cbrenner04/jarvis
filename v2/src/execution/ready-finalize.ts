@@ -196,6 +196,10 @@ function isReadyTestCommand(command: string): boolean {
   return /^bun run test(?::|$)/.test(command);
 }
 
+function isReadyAttributionCommand(command: string): boolean {
+  return isReadyTestCommand(command) || command === "bun run lint:md";
+}
+
 function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | undefined {
   const seen = new Map<string, string>();
   const result: string[] = [];
@@ -216,9 +220,33 @@ function validateAndDeduplicatePaths(rawPaths: readonly string[]): string[] | un
   return result;
 }
 
+/** Terminal failed ready step from gate output; undefined when attribution is incomplete. */
+export function selectTerminalFailedReadyStep(output: string): ReadyStepCompletion | undefined {
+  const completions = parseMarkerRecords(output, READY_STEP_COMPLETION_MARKER, isReadyStepCompletion);
+  const terminalFailed = [...completions].reverse().find((record) => record.status !== 0);
+  if (terminalFailed === undefined || !isReadyAttributionCommand(terminalFailed.command)) {
+    return undefined;
+  }
+  return terminalFailed;
+}
+
 /** Select validated failing paths from the terminal failed ready test step's final attempt. */
 export function selectTerminalFailingPaths(output: string): string[] | undefined {
   const terminalFailed = selectTerminalFailedReadyTestStep(output);
+  if (terminalFailed === undefined) {
+    return undefined;
+  }
+  const fileRecords = parseMarkerRecords(output, FAILING_TEST_FILE_MARKER, isFailingTestFileRecord);
+  const matching = fileRecords.filter((record) => record.attemptId === terminalFailed.attemptId);
+  if (matching.length === 0) {
+    return undefined;
+  }
+  return validateAndDeduplicatePaths(matching.map((record) => record.path));
+}
+
+/** Select validated failing paths from the terminal failed ready step's final attempt. */
+export function selectTerminalAttributablePaths(output: string): string[] | undefined {
+  const terminalFailed = selectTerminalFailedReadyStep(output);
   if (terminalFailed === undefined) {
     return undefined;
   }
@@ -602,6 +630,26 @@ export function resolveGateRepairAllowset(frozen: Set<string>, error: ReadyGateE
     extended.add(path);
   }
   return extended;
+}
+
+/** Per-gate repair allowset for agent iterations: attributable failing paths for non-test gates, else frozen diff/spec plus extensions. */
+export function resolveAttributableRepairAllowset(frozen: Set<string>, error: ReadyGateError): Set<string> {
+  const terminalFailed = selectTerminalFailedReadyStep(error.output);
+  if (terminalFailed === undefined || isReadyTestCommand(terminalFailed.command)) {
+    return resolveGateRepairAllowset(frozen, error);
+  }
+  const attributablePaths = selectTerminalAttributablePaths(error.output);
+  if (attributablePaths === undefined || attributablePaths.length === 0) {
+    return resolveGateRepairAllowset(frozen, error);
+  }
+  const allowset = new Set<string>(attributablePaths);
+  const extension = error.gateRepairAllowsetPaths;
+  if (extension !== undefined) {
+    for (const path of extension) {
+      allowset.add(path);
+    }
+  }
+  return allowset;
 }
 
 export class SurvivingMutationError extends Error {

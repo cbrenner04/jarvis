@@ -568,6 +568,21 @@ bindings" caveat above.
 
 ## Gate trust
 
+**Plan-authored `@mutate` directives quote unwritten call syntax → `target_absent` hard-block (2026-08-05).**
+A mutation-checkpoint directive whose quoted original names a call site (`fn(a, b)`) blocks completion
+(`spec.criteria-ticked`, `resumable: false`) when the implementer writes a different signature (extra args,
+renamed locals) or the call recurs at several sites (ambiguous). Hit on all three `implement-completion-honesty`
+subspecs this session, and on #2597 the prior session. Fix by hand: retarget the directive in the pinning test
+to the unique real call site, verify it reddens (apply → run the pinning test → expect fail → revert), re-tick.
+Seed: `v2/spec/seeds/implement-reconciles-mutation-directive-to-landed-code.md`. Cleanup: delete when that seed ships.
+
+**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement does
+not run biome; a new branchy function (preflight-gate sequence, per-outcome mapper) trips
+`lint/complexity/noExcessiveCognitiveComplexity` (max 24). `bun run fix` / `check:fix:unsafe` cannot repair it, so
+the ready gate settles `completion_commit_failed`. Recovery: add a `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>`
+above the function (or extract helpers preserving guard text so `@mutate` pins still match), then finalize. Recurs
+across sessions (#2591, #2595 prior session; all three subspecs here).
+
 **A second hollow mutation checkpoint on a different guard in the same subspec is a premise smell,
 not a proof-form problem (2026-08-03).** A guard against a condition that cannot occur has no
 killable failure state, so repeatedly-unkillable guards mean the spec is defending against a

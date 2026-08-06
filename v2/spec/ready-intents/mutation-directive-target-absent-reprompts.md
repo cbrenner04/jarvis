@@ -16,14 +16,18 @@ correct. Observed on all three `implement-completion-honesty` subspecs (2026-08-
 
 - When `spec.criteria-ticked` fails **only** because a selected criterion's linked directive is
   `target_absent` or `target_ambiguous` — not hollow, not missing-directive, not
-  `unresolved_pinning_test`, not a real red scoped suite — the write loop reprompts with the named
-  `pinningFile:line`, raw directive, and reason so the agent retargets the quoted original to a
-  unique landed anchor, within the existing iteration budget — rules out settling
-  `blocked`/`resumable: false` on a one-line pin-text mismatch the agent can self-heal.
+  `unresolved_pinning_test`, not a real red scoped suite — the write loop takes a pre-settle
+  `continue` path (not in-step `blocker_reprompt`) with the named `pinningFile:line`, raw directive,
+  and reason so the agent retargets the quoted original to a unique landed anchor, consuming
+  `maxIterations` across separate loop iterations — rules out settling `blocked`/`resumable: false`
+  on a one-line pin-text mismatch the agent can self-heal.
+- Repromptable `target_absent`/`ambiguous` misses skip `contract_miss`, `appendBlockerToSpec`, and
+  terminal settle until `maxIterations` is exhausted — rules out appending `## Blocker` on the first
+  pin-text miss the agent can fix in-run.
 - Hollow, missing-directive, `unresolved_pinning_test`, and red-suite failures still settle
   `contract_miss` with harness `## Blocker` append — rules out reprompting every unparseable
   checkpoint.
-- Budget exhaustion with the directive still unparseable settles terminal `contract_miss` /
+- `maxIterations` exhaustion with the directive still unparseable settles terminal `contract_miss` /
   `resumable: false` — rules out unbounded repair.
 - Reprompt payload carries `pinningFile:line`, raw directive, and `target_absent`/`ambiguous`
   reason verbatim — rules out a generic contract-miss message the agent cannot act on.
@@ -37,13 +41,13 @@ correct. Observed on all three `implement-completion-honesty` subspecs (2026-08-
 - [ ] A write-loop regression drives a ticked mutation-checkpoint criterion whose pinning-file
       directive is `target_absent` against the landed source, and asserts the loop **reprompts**
       (records the directive + `target_absent` reason and re-enters the agent) instead of settling
-      `blocked`/`resumable: false`; a run that exhausts the reprompt budget still blocks. Fails
+      `blocked`/`resumable: false`; a run that exhausts `maxIterations` still blocks. Fails
       against the current hard-block boundary.
 - [ ] The reprompt payload names the offending `pinningFile:line`, the raw directive, and the
       `target_absent`/`ambiguous` reason verbatim; a test pins the payload text.
-- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — prefer a unique/stable anchor for
-      the directive's quoted original; a bare call expression with implementer-chosen argument names
-      or multiple call sites risks `target_absent`/ambiguous.
+- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents stable-anchor guidance
+      for directive quoted originals (unique definition or enclosing statement over bare call
+      expressions that may change arity or recur).
 - [ ] Mutation checkpoint: a `// @mutate` directive inverting the "unparseable-only → reprompt"
       predicate (so it falls through to hard block) turns its pinning test RED; author it single-line
       naming the enclosing test verbatim.
@@ -52,7 +56,7 @@ correct. Observed on all three `implement-completion-honesty` subspecs (2026-08-
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — `spec.criteria-ticked` reprompts on `target_absent`/`ambiguous`
-  linked directives within the iteration budget; budget exhaustion still settles `contract_miss`.
+  linked directives within `maxIterations`; budget exhaustion still settles `contract_miss`.
 - `v2/docs/operator-runbook.md` § Gate trust — reprompt replaces the operator hand-fix workaround
   for plan-authored pin-text mismatch; delete the 2026-08-05 bullet when this ships.
 - `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — stable-anchor guidance above.
@@ -62,4 +66,4 @@ correct. Observed on all three `implement-completion-honesty` subspecs (2026-08-
 
 - `verifyMutationCheckpoints` reports `unparseable` entries with `target_absent`/`target_ambiguous` reasons and `pinningFile:line` coordinates.
 - The write-loop `spec.criteria-ticked` boundary settles `contract_miss` / `resumable: false` on unparseable checkpoints in opened pinning files.
-- The write loop has a bounded iteration budget consumed by ordinary step iterations.
+- The write loop has a bounded `maxIterations` budget consumed by ordinary step iterations.

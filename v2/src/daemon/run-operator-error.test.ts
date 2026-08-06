@@ -401,8 +401,36 @@ test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate
   expect(error).not.toHaveProperty("readyGateRepairCount");
 });
 
-test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths and retry-finalization recovery", () => {
+test("composeRunOperatorError maps unchanged-path ready_gate_out_of_scope as terminal stop", () => {
   const outsidePath = "v2/src/untouched.test.ts";
+  const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
+  const event = loopFinished("ready_gate_out_of_scope", {
+    resumable: false,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+
+  expect(composeRunOperatorError(runWith("failed"), event)).toEqual({
+    reason: "ready_gate_out_of_scope",
+    retryable: false,
+    nextAction: "stop",
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: detail,
+  });
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("ready_gate_out_of_scope", {
+        resumable: false,
+        readyGateOutsidePaths: [outsidePath],
+        readyGateOutOfScopeDetail: detail,
+      }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("composeRunOperatorError maps changed-path ready_gate_out_of_scope as resumable", () => {
+  const outsidePath = "v2/src/other-untouched.test.ts";
   const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
   const event = loopFinished("ready_gate_out_of_scope", {
     resumable: true,
@@ -417,27 +445,12 @@ test("composeRunOperatorError maps ready_gate_out_of_scope with outside paths an
     readyGateOutsidePaths: [outsidePath],
     readyGateOutOfScopeDetail: detail,
   });
-  expect(
-    resolveFailedBlockedAttemptPrecedence(
-      attempt("blocked"),
-      loopFinishedEvent("ready_gate_out_of_scope", {
-        resumable: true,
-        readyGateOutsidePaths: [outsidePath],
-        readyGateOutOfScopeDetail: detail,
-      }),
-    ),
-  ).toEqual({
-    reason: "ready_gate_out_of_scope",
-    retryable: true,
-    nextAction: "resume",
-    readyGateOutsidePaths: [outsidePath],
-    readyGateOutOfScopeDetail: detail,
-  });
 });
 
-test("ready_gate_out_of_scope recovery guides retry finalization instead of source repair", () => {
-  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).toContain("retry finalization");
+test("ready_gate_out_of_scope recovery does not guide retry finalization", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("retry finalization");
   expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).not.toContain("fix the ready gate failure");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_out_of_scope).toContain("jarvis run resume");
   expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_failed).toContain("fix the ready gate failure");
 });
 

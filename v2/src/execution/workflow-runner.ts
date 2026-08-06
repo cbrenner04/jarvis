@@ -19,12 +19,13 @@ import {
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { readProjectFixCommand } from "../config/machine-config-loader.ts";
-import type {
-  IntentFinalizationEvent,
-  LogSink,
-  LoopFinishedEvent,
-  PersistedRecord,
-  RunExecutionFailedEvent,
+import {
+  type IntentFinalizationEvent,
+  type LogSink,
+  type LoopFinishedEvent,
+  type PersistedRecord,
+  priorLogRecordsFromSink,
+  type RunExecutionFailedEvent,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -49,7 +50,13 @@ import {
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
-import { readyGateOutOfScopeLogFields, SurvivingMutationError, survivingMutationLogFields } from "./ready-finalize.ts";
+import {
+  isResumableOutOfScopeTerminalEvidence,
+  outOfScopeSettlementResumable,
+  readyGateOutOfScopeLogFields,
+  SurvivingMutationError,
+  survivingMutationLogFields,
+} from "./ready-finalize.ts";
 import {
   executeReviewCycle,
   type ReviewCycleInput,
@@ -1069,10 +1076,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 publication.failure.kind === "ready_gate_failed" ||
                 publication.failure.kind === "ready_gate_out_of_scope";
               const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
+              const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
+              const publicationResumable =
+                publication.failure.kind === "ready_gate_out_of_scope"
+                  ? outOfScopeSettlementResumable(gateOutOfScopeFields.readyGateOutsidePaths, priorRecords)
+                  : !isFlipFailure;
               const publicationLoopFinishedBase = {
                 kind: "loop_finished" as const,
                 iterationsConsumed: totalIterationsConsumed,
-                resumable: !isFlipFailure,
+                resumable: publicationResumable,
                 ...survivingMutationLogFields(publication.failure.error),
                 ...gateOutOfScopeFields,
                 ...exhaustedRedTerminalLogFields(publication.readyGateOrigin),
@@ -1108,7 +1120,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 stepId: lastStepId,
                 runId: lastResult.runId,
                 iterationsConsumed: totalIterationsConsumed,
-                resumable: !isFlipFailure,
+                resumable: publicationResumable,
                 ...(isGateFailure
                   ? {
                       readyGateError:
@@ -2869,6 +2881,12 @@ export function resolveReviewMutationResumeContext(
   ) {
     return { ok: false, message: "run did not fail with a surviving mutation" };
   }
+  if (
+    terminalRecord.event.loopOutcomeKind === "ready_gate_out_of_scope" &&
+    !isResumableOutOfScopeTerminalEvidence(terminalRecord.event)
+  ) {
+    return { ok: false, message: "ready_gate_out_of_scope with unchanged outside paths is not resumable" };
+  }
   return resolved;
 }
 
@@ -2929,7 +2947,7 @@ export function resolveWriteOutOfScopeResumeContext(
   terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): ReviewMutationResumeResolution {
   return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
-    admit: (event) => event.loopOutcomeKind === "ready_gate_out_of_scope",
+    admit: isResumableOutOfScopeTerminalEvidence,
     rejectMessage: "run did not fail with ready_gate_out_of_scope",
   });
 }
@@ -3355,10 +3373,6 @@ function reviewMutationExhaustedTerminalFields(
  * `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so the retained-checkpoint origin adds no
  * admission beyond the set membership.
  */
-function reviewMutationPublicationResumable(failureKind: WriteLoopOutcomeKind, isFlip: boolean): boolean {
-  return !isFlip && REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failureKind);
-}
-
 async function settleFailedReviewMutationPublication(
   context: ReviewMutationResumeContext,
   store: StateStore,
@@ -3388,6 +3402,7 @@ async function settleFailedReviewMutationPublication(
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   const exhaustedFields = reviewMutationExhaustedTerminalFields(store, context.runId, publication.readyGateOrigin);
+  const priorRecords = priorLogRecordsFromSink(deps.logSink, context.runId);
   const reviewMutationPublicationCommitError = message;
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
@@ -3396,7 +3411,15 @@ async function settleFailedReviewMutationPublication(
     // Reflects this resolver's own retryability, not merely "not a ready-flip": `runtime_smoke_failed`
     // is excluded from `REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS`, so retrying this tail can never
     // change that outcome — the newly emitted record must say so rather than claim resumable.
-    resumable: reviewMutationPublicationResumable(failure.kind, isFlip),
+    resumable:
+      isFlip || !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(failure.kind)
+        ? false
+        : failure.kind === "ready_gate_out_of_scope"
+          ? outOfScopeSettlementResumable(
+              readyGateOutOfScopeLogFields(failure.error).readyGateOutsidePaths,
+              priorRecords,
+            )
+          : true,
     ...survivingMutationLogFields(failure.error),
     ...readyGateOutOfScopeLogFields(failure.error),
     ...exhaustedFields,

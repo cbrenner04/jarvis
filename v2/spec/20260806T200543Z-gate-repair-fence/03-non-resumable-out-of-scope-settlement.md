@@ -21,11 +21,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that an out-of-scope settlement whose outside paths are unchanged reports `loop_finished.resumable: false` and `composeRunOperatorError` `nextAction: "stop"` with `retryable: false`.
-- [ ] `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stays green.
-- [ ] `daemon-resume.test.ts` "repeated untouched red on an ordinary write row settles ready_gate_out_of_scope with preserved outside-path detail" is updated to assert resume admission rejects naming the unchanged outside paths rather than re-settling with `resumable: true`; it fails against the pre-fix code.
-- [ ] `daemon-resume.test.ts` "repeated untouched red on a review row settles ready_gate_out_of_scope with preserved outside-path detail" is updated to assert the same admission rejection; it fails against the pre-fix code.
-- [ ] `workflow-runner.test.ts` "settles an attributed untouched red gate as ready_gate_out_of_scope without repair" and "persists ready_gate_out_of_scope evidence through durable logs and operator mirrors" are updated to expect `resumable: false` and `nextAction: "stop"` for unchanged-path settlement; they fail against the pre-fix code.
+- [x] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that an out-of-scope settlement whose outside paths are unchanged reports `loop_finished.resumable: false` and `composeRunOperatorError` `nextAction: "stop"` with `retryable: false`.
+- [x] `write-loop.test.ts` "never invokes repair for a fully attributed untouched-path gate" stays green.
+- [x] `daemon-resume.test.ts` "repeated untouched red on an ordinary write row settles ready_gate_out_of_scope with preserved outside-path detail" is updated to assert resume admission rejects naming the unchanged outside paths rather than re-settling with `resumable: true`; it fails against the pre-fix code.
+- [x] `daemon-resume.test.ts` "repeated untouched red on a review row settles ready_gate_out_of_scope with preserved outside-path detail" is updated to assert the same admission rejection; it fails against the pre-fix code.
+- [x] `workflow-runner.test.ts` "settles an attributed untouched red gate as ready_gate_out_of_scope without repair" and "persists ready_gate_out_of_scope evidence through durable logs and operator mirrors" are updated to expect `resumable: false` and `nextAction: "stop"` for unchanged-path settlement; they fail against the pre-fix code.
 
 ## Documentation updates
 

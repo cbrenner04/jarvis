@@ -207,10 +207,15 @@ function mapFromLoopFinished(
     case "ready_gate_failed":
       return op("ready_gate_failed", "resume", true);
     case "ready_gate_out_of_scope":
-      return {
-        ...op("ready_gate_out_of_scope", "resume", true),
-        ...readyGateOutOfScopeLogFields(event),
-      };
+      return event.resumable
+        ? {
+            ...op("ready_gate_out_of_scope", "resume", true),
+            ...readyGateOutOfScopeLogFields(event),
+          }
+        : {
+            ...op("ready_gate_out_of_scope", "stop", false),
+            ...readyGateOutOfScopeLogFields(event),
+          };
     case "ready_flip_failed":
       return {
         ...op("ready_flip_failed", "stop", false),
@@ -270,7 +275,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   completion_commit_failed: "fix git/gh publication, then jarvis run resume",
   iteration_commit_failed: "fix git state, then jarvis run resume",
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
-  ready_gate_out_of_scope: "retry finalization with jarvis run resume; do not repair unrelated source files",
+  ready_gate_out_of_scope:
+    "when nextAction is resume, jarvis run resume may change outside-path attribution; unchanged outside paths are terminal — do not repair unrelated source files",
   ready_flip_failed:
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
   surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume (before repair exhaustion)",

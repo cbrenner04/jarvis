@@ -615,7 +615,7 @@ test("resume admits ready_gate_failed when repair attempt ended blocked", async 
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
-test("resume admits ready_gate_out_of_scope for finalization retry and refuses repair re-entry", async () => {
+test("resume rejects unchanged-path ready_gate_out_of_scope finalization retry", async () => {
   const outsidePath = "v2/src/untouched.test.ts";
   const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
   const runId = createWorkflowRun({ invocationId: "ready-gate-out-of-scope-admission" });
@@ -633,7 +633,7 @@ test("resume admits ready_gate_out_of_scope for finalization retry and refuses r
     kind: "loop_finished",
     loopOutcomeKind: "ready_gate_out_of_scope",
     iterationsConsumed: 1,
-    resumable: true,
+    resumable: false,
     readyGateOutsidePaths: [outsidePath],
     readyGateOutOfScopeDetail: outOfScopeDetail,
   });
@@ -657,17 +657,71 @@ test("resume admits ready_gate_out_of_scope for finalization retry and refuses r
     expect(run).toBeDefined();
     if (!run) return;
     const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
+    expect(isResumeAdmitted(run, terminalRecord)).toBe(false);
+    expect(composeRunOperatorError(run, terminalRecord)?.nextAction).toBe("stop");
+
+    const response = await resumeDirect(localHandlers, runId);
+    expect(response.kind).toBe("error");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("changed-path ready_gate_out_of_scope admits resume", async () => {
+  const outsidePath = "v2/src/other-untouched.test.ts";
+  const outOfScopeDetail = formatReadyGateOutOfScopeDetail([outsidePath]);
+  const runId = createWorkflowRun({ invocationId: "ready-gate-out-of-scope-changed-path" });
+  failWriteRunAtOutOfScopeGate(runId);
+  const logsPath = join(tmpdir(), `jarvis-admission-oos-changed-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "ready_gate_out_of_scope",
+    iterationsConsumed: 1,
+    resumable: true,
+    readyGateOutsidePaths: [outsidePath],
+    readyGateOutOfScopeDetail: outOfScopeDetail,
+  });
+  seedSink.close();
+  try {
+    let finalizerCalls = 0;
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
+        readyFinalizer: async () => {
+          finalizerCalls += 1;
+          return undefined;
+        },
+      },
+    });
+    const run = stateStore.loadRun(runId);
+    expect(run).toBeDefined();
+    if (!run) return;
+    const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
     expect(isResumeAdmitted(run, terminalRecord)).toBe(true);
-    expect(composeRunOperatorError(run, terminalRecord)?.nextAction).toBe("resume");
+    expect(composeRunOperatorError(run, terminalRecord)).toMatchObject({
+      reason: "ready_gate_out_of_scope",
+      nextAction: "resume",
+      retryable: true,
+      readyGateOutsidePaths: [outsidePath],
+    });
 
     const response = await resumeDirect(localHandlers, runId);
     expect(response.kind).toBe("response");
     expect(fakeExecutor.pendingCount()).toBe(0);
     expect(starts).toHaveLength(0);
-    const events = openLogReader(logsPath)
-      .tail(runId)
-      .map((record) => record.event);
-    expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
+    expect(finalizerCalls).toBe(1);
+    expect(stateStore.loadRun(runId)?.status).toBe("completed");
   } finally {
     rmSync(logsPath, { force: true });
   }
@@ -965,7 +1019,7 @@ test.each(
   const logReader = loopFinishedLogReader(runId, {
     loopOutcomeKind,
     iterationsConsumed: 1,
-    resumable: true,
+    resumable: loopOutcomeKind === "ready_gate_out_of_scope" ? false : true,
     ...loopExtra,
   });
   const localHandlers = createHandlers(logReader);
@@ -1391,7 +1445,7 @@ function seedOutOfScopeLogsPath(prefix: string, runId: string, outsidePath: stri
     kind: "loop_finished",
     loopOutcomeKind: "ready_gate_out_of_scope",
     iterationsConsumed: 0,
-    resumable: true,
+    resumable: false,
     readyGateOutsidePaths: [outsidePath],
     readyGateOutOfScopeDetail: formatReadyGateOutOfScopeDetail([outsidePath]),
   });
@@ -1410,7 +1464,7 @@ function failWriteRunAtOutOfScopeGate(runId: string, completionAgent = "codex"):
   stateStore.setRunStatus(runId, "failed");
 }
 
-test("resumes an ordinary write row's ready_gate_out_of_scope: green retry completes without agent or repair", async () => {
+test("unchanged-path ready_gate_out_of_scope rejects resume even when the gate would pass on retry", async () => {
   const outsidePath = "v2/src/untouched.test.ts";
   const runId = createWorkflowRun({ invocationId: "write-out-of-scope-green" });
   failWriteRunAtOutOfScopeGate(runId);
@@ -1436,17 +1490,11 @@ test("resumes an ordinary write row's ready_gate_out_of_scope: green retry compl
     });
 
     const response = await resumeDirect(localHandlers, runId);
-    expect(response.kind).toBe("response");
+    expect(response.kind).toBe("error");
     expect(fakeExecutor.pendingCount()).toBe(0);
     expect(starts).toHaveLength(0);
-    expect(finalizerCalls).toBe(1);
-    expect(stateStore.loadRun(runId)?.status).toBe("completed");
-
-    const events = openLogReader(logsPath)
-      .tail(runId)
-      .map((record) => record.event);
-    expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
-    expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
+    expect(finalizerCalls).toBe(0);
+    expect(stateStore.loadRun(runId)?.status).toBe("failed");
   } finally {
     rmSync(logsPath, { force: true });
   }
@@ -1489,11 +1537,10 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
       .tail(runId)
       .map((record) => record.event);
     expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(false);
-    const settled = events.at(-1);
-    expect(settled).toMatchObject({
+    expect(events.at(-1)).toMatchObject({
       kind: "loop_finished",
       loopOutcomeKind: "ready_gate_out_of_scope",
-      resumable: true,
+      resumable: false,
       readyGateOutsidePaths: [outsidePath],
       readyGateOutOfScopeDetail: outOfScopeDetail,
     });
@@ -1504,7 +1551,8 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
     if (!run) return;
     expect(composeRunOperatorError(run, terminalRecord)).toMatchObject({
       reason: "ready_gate_out_of_scope",
-      nextAction: "resume",
+      nextAction: "stop",
+      retryable: false,
       readyGateOutsidePaths: [outsidePath],
       readyGateOutOfScopeDetail: outOfScopeDetail,
     });
@@ -1516,7 +1564,7 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
 test.each([
   "review",
   "review-debate",
-] as const)("resumes a %s row's ready_gate_out_of_scope: finalization completes without re-invoking the implement write step", async (reviewBehavior) => {
+] as const)("unchanged-path ready_gate_out_of_scope rejects %s row resume", async (reviewBehavior) => {
   const outsidePath = "v2/src/untouched.test.ts";
   const { writeRunId, reviewRunId } = createReviewMutationRuns({
     invocationId: `review-out-of-scope-${reviewBehavior}`,
@@ -1546,20 +1594,14 @@ test.each([
     });
 
     const response = await resumeDirect(localHandlers, reviewRunId);
-    expect(response.kind).toBe("response");
+    expect(response.kind).toBe("error");
     expect(fakeExecutor.pendingCount()).toBe(0);
     expect(starts).toHaveLength(0);
-    expect(finalizerCalls).toBe(1);
-    expect(stateStore.loadRun(reviewRunId)?.status).toBe("completed");
+    expect(finalizerCalls).toBe(0);
+    expect(stateStore.loadRun(reviewRunId)?.status).toBe("failed");
 
     const writeRecords = openLogReader(logsPath).tail(writeRunId);
     expect(writeRecords.some((record) => record.event.kind === "iteration_started")).toBe(false);
-
-    const reviewEvents = openLogReader(logsPath)
-      .tail(reviewRunId)
-      .map((record) => record.event);
-    expect(reviewEvents.some((event) => event.kind === "ready_gate_repair")).toBe(false);
-    expect(reviewEvents.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
   } finally {
     rmSync(logsPath, { force: true });
   }
@@ -1608,7 +1650,7 @@ test("repeated untouched red on a review row settles ready_gate_out_of_scope wit
     expect(events.at(-1)).toMatchObject({
       kind: "loop_finished",
       loopOutcomeKind: "ready_gate_out_of_scope",
-      resumable: true,
+      resumable: false,
       readyGateOutsidePaths: [outsidePath],
       readyGateOutOfScopeDetail: outOfScopeDetail,
     });

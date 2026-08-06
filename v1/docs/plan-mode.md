@@ -135,8 +135,7 @@ The agent produces files under `<targetDir>/<spec-dir>/` in the worktree. Jarvis
 
 The produced files plus the copied `intent.md` are staged and committed as `plan: draft`, and the draft PR opens (or refreshes) on the first `plan: draft` commit.
 
-**Prompt rendering:** Plan prompt builders use non-recursive template rendering, so placeholder-looking text in injected values (intent, spec name, etc.) is treated as literal data. For example, if the intent documents exact placeholder tokens like `<SPEC_GUIDANCE>`, those strings appear verbatim in the final prompt without escaping or recursive substitution. This allows spec-governance and prompt-documentation content to reference exact placeholder names.
-Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).
+**Prompt rendering:** Plan prompt builders use non-recursive template rendering, so placeholder-looking text in injected values (intent, spec name, etc.) is treated as literal data. For example, if the intent documents exact placeholder tokens like `<SPEC_GUIDANCE>`, those strings appear verbatim in the final prompt without escaping or recursive substitution. This allows spec-governance and prompt-documentation content to reference exact placeholder names. Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).
 
 **Commit shape:**
 - Subject: `plan: draft`
@@ -185,8 +184,7 @@ The fixed prefix and one line per reverted path are always emitted on recovery; 
 
 Each cycle is bounded by the configured pass count; the agents do not decide when to stop or how many cycles to run. Non-empty role and actuator artifacts are staged and committed as `plan: review: <role>` / `plan: review: actuator` (with resume suffixes when applicable). Empty verdicts skip the actuator and produce no actuator commit.
 
-**Prompt rendering:** Like the draft phase, review prompts use non-recursive template rendering so that placeholder-looking text in the current spec (e.g., `<CURRENT_SPEC>` appearing in the snapshot) is treated as literal data without recursive substitution.
-Review role and actuator variants are snapshot-tested so wording and delimiter boundaries are review-visible.
+**Prompt rendering:** Like the draft phase, review prompts use non-recursive template rendering so that placeholder-looking text in the current spec (e.g., `<CURRENT_SPEC>` appearing in the snapshot) is treated as literal data without recursive substitution. Review role and actuator variants are snapshot-tested so wording and delimiter boundaries are review-visible.
 
 **Commit shape (for actuator):**
 - Subject: `plan: review: actuator`

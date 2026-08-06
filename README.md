@@ -1,10 +1,6 @@
 # jarvis
 
-Jarvis is a TypeScript/Bun harness for running coding-agent CLIs (`claude`,
-`codex`, `cursor`, `opencode`) against Markdown specs. It does not implement an
-agent itself: it prepares the repo, invokes one configured CLI at a time,
-classifies the outcome deterministically, and handles the git/GitHub
-bookkeeping around each successful step.
+Jarvis is a TypeScript/Bun harness for running coding-agent CLIs (`claude`, `codex`, `cursor`, `opencode`) against Markdown specs. It does not implement an agent itself: it prepares the repo, invokes one configured CLI at a time, classifies the outcome deterministically, and handles the git/GitHub bookkeeping around each successful step.
 
 Two engines ship side by side:
 
@@ -14,8 +10,7 @@ Two engines ship side by side:
   investment; covers the original pipeline (intent → plan → run → review →
   triage).
 
-Both engines read the shared top-level `prompts/` tree, so prompt improvements
-land in both.
+Both engines read the shared top-level `prompts/` tree, so prompt improvements land in both.
 
 ## Installation
 
@@ -36,16 +31,11 @@ ln -s ~/code/jarvis/bin/jarvis /usr/local/bin/jarvis
 ln -s ~/code/jarvis/bin/jarvis1 /usr/local/bin/jarvis1
 ```
 
-The shims run `bun v2/src/cli.ts` and `bun v1/src/cli.ts` from this checkout,
-so keep the checkout at a stable path. If `/usr/local/bin` is not writable,
-symlink into another `PATH` directory such as `~/.local/bin`.
+The shims run `bun v2/src/cli.ts` and `bun v1/src/cli.ts` from this checkout, so keep the checkout at a stable path. If `/usr/local/bin` is not writable, symlink into another `PATH` directory such as `~/.local/bin`.
 
 ## v2 (`jarvis`)
 
-v2 is the primary engine: a host-agnostic write loop, a long-running daemon,
-durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC,
-workflow presets, review behaviors, draft-PR publication, cleanup, and an ink
-TUI are all implemented. Remaining gaps are listed under [Status](#status).
+v2 is the primary engine: a host-agnostic write loop, a long-running daemon, durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC, workflow presets, review behaviors, draft-PR publication, cleanup, and an ink TUI are all implemented. Remaining gaps are listed under [Status](#status).
 
 ### Configuration
 
@@ -58,10 +48,7 @@ v2 splits configuration into two layers:
   each `(agent, role)` pair to an ordered list of model rungs. Profiles
   `home` and `work` are seeded.
 
-Both loops — outer agent order, inner rung escalation — advance on quota
-exhaustion only; model-config errors are terminal. See
-[v2/docs/agent-model-config.md](v2/docs/agent-model-config.md) and
-[v2/docs/role-resolution.md](v2/docs/role-resolution.md).
+Both loops — outer agent order, inner rung escalation — advance on quota exhaustion only; model-config errors are terminal. See [v2/docs/agent-model-config.md](v2/docs/agent-model-config.md) and [v2/docs/role-resolution.md](v2/docs/role-resolution.md).
 
 ### Quickstart
 
@@ -74,11 +61,7 @@ jarvis run start --project-root <repo> --project <label> --branch <branch> \
 jarvis tui
 ```
 
-`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`,
-`jarvis run log <id>`, or `jarvis daemon log --follow`; steer with
-`jarvis run pause|kill|wait <id>`. On completion the run commits, pushes, and
-opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path:
-[v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
+`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`, `jarvis run log <id>`, or `jarvis daemon log --follow`; steer with `jarvis run pause|kill|wait <id>`. On completion the run commits, pushes, and opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path: [v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
 
 Workflow presets mirror the v1 pipeline stages:
 
@@ -127,15 +110,9 @@ jarvis --version
 
 ### Status
 
-Implemented: write loop, daemon host with restart reconciliation and
-memory-watermark admission, IPC, SQLite state store, structured per-run logs,
-workflow runner with `intent`/`plan`/`implement` presets, light and debate
-review behaviors, shrink pass, PR publication, TUI.
+Implemented: write loop, daemon host with restart reconciliation and memory-watermark admission, IPC, SQLite state store, structured per-run logs, workflow runner with `intent`/`plan`/`implement` presets, light and debate review behaviors, shrink pass, PR publication, TUI.
 
-Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume),
-per-invocation `--agent`/`--model` overrides, the local-model terminal
-fallback, and the natural-language prompt router (`jarvis "<intent>"`).
-Roadmap: [v2/spec/v2-meta-index.md](v2/spec/v2-meta-index.md).
+Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume), per-invocation `--agent`/`--model` overrides, the local-model terminal fallback, and the natural-language prompt router (`jarvis "<intent>"`). Roadmap: [v2/spec/v2-meta-index.md](v2/spec/v2-meta-index.md).
 
 ### v2 documentation
 
@@ -160,10 +137,7 @@ Roadmap: [v2/spec/v2-meta-index.md](v2/spec/v2-meta-index.md).
 
 ## v1 (`jarvis1`)
 
-v1 is the maintenance-only fallback pipeline: size work with `intent`, draft
-specs with `plan`, implement with `run`, then post-completion shrink and review
-passes flip the draft PR to ready. Specs are ordinary Markdown; work is
-complete when the active spec has no unchecked task-list items.
+v1 is the maintenance-only fallback pipeline: size work with `intent`, draft specs with `plan`, implement with `run`, then post-completion shrink and review passes flip the draft PR to ready. Specs are ordinary Markdown; work is complete when the active spec has no unchecked task-list items.
 
 ### Quickstart
 
@@ -182,10 +156,7 @@ jarvis1 intent "Add a settings toggle for dark mode"
 jarvis1 plan spec/ready-intents/<name>.md
 ```
 
-Plan mode drafts `spec/YYYY-MM-DDTHH-mm-ssZ-<name>/` (index + atomic subspecs)
-on a `plan/<name>` branch, opens a draft PR, runs self-review passes, and
-flips the PR ready when everything is green. Review and merge it before
-implementation.
+Plan mode drafts `spec/YYYY-MM-DDTHH-mm-ssZ-<name>/` (index + atomic subspecs) on a `plan/<name>` branch, opens a draft PR, runs self-review passes, and flips the PR ready when everything is green. Review and merge it before implementation.
 
 Run the implementation loop (the log server must be up):
 
@@ -195,11 +166,7 @@ jarvis1 log-server
 jarvis1 run spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md
 ```
 
-`jarvis1 run` creates or resumes `.worktree/<spec-name>/`, invokes agents from
-`modes.patch.agentOrder` with quota fallback, commits each completed subspec,
-pushes, and maintains a draft PR. After the checklist completes, a gated
-pipeline runs: full ready gate → shrink pass → review passes
-(`modes.review.passes`) → guarded draft→ready flip. Jarvis never merges PRs.
+`jarvis1 run` creates or resumes `.worktree/<spec-name>/`, invokes agents from `modes.patch.agentOrder` with quota fallback, commits each completed subspec, pushes, and maintains a draft PR. After the checklist completes, a gated pipeline runs: full ready gate → shrink pass → review passes (`modes.review.passes`) → guarded draft→ready flip. Jarvis never merges PRs.
 
 ### Spec shape
 
@@ -211,10 +178,7 @@ spec/YYYY-MM-DDTHH-mm-ssZ-my-feature/
   01-second-task.md
 ```
 
-Each subspec carries a `## Acceptance criteria` checklist; the agent ticks
-only the criteria it satisfied, and Jarvis uses those checkbox transitions to
-decide commit, `WIP:` progress commit, no-progress stop, or blocker stop.
-Authoring contract: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
+Each subspec carries a `## Acceptance criteria` checklist; the agent ticks only the criteria it satisfied, and Jarvis uses those checkbox transitions to decide commit, `WIP:` progress commit, no-progress stop, or blocker stop. Authoring contract: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 
 ### Commands
 
@@ -274,8 +238,7 @@ jarvis1 help
 
 ### Configuration
 
-State lives under `~/.jarvis/` (`config.json`, `runs.jsonl`, `sessions/`,
-`specs/`). Config version 2 gives each mode its own agent order:
+State lives under `~/.jarvis/` (`config.json`, `runs.jsonl`, `sessions/`, `specs/`). Config version 2 gives each mode its own agent order:
 
 ```json
 {
@@ -302,8 +265,7 @@ State lives under `~/.jarvis/` (`config.json`, `runs.jsonl`, `sessions/`,
 }
 ```
 
-Default agent order is `claude → codex → cursor`; `opencode` is opt-in with an
-explicit model string. Important switches:
+Default agent order is `claude → codex → cursor`; `opencode` is opt-in with an explicit model string. Important switches:
 
 - `git: false` disables worktrees, commits, pushes, and PRs; the agent runs in
   the project root or `--cwd <dir>`.
@@ -319,8 +281,7 @@ Full schema and validation: [v1/docs/config.md](v1/docs/config.md).
 
 ### Agents and output
 
-One agent CLI per phase or iteration; quota exhaustion rotates to the next
-configured agent, model-config errors do not fall back.
+One agent CLI per phase or iteration; quota exhaustion rotates to the next configured agent, model-config errors do not fall back.
 
 - `claude` — JSON stream mode with token/cost extraction.
 - `codex` — `codex exec` with workspace-write sandboxing; usage correlated
@@ -328,9 +289,7 @@ configured agent, model-config errors do not fall back.
 - `cursor` — headless `cursor agent`; token usage recorded as unavailable.
 - `opencode` — opt-in `opencode run`; permissions via opencode's config file.
 
-Output destinations: concise harness progress in the run terminal, full
-transcripts in `~/.jarvis/sessions/*.log` and the `jarvis1 log-server` viewer,
-per-invocation telemetry in `~/.jarvis/runs.jsonl`.
+Output destinations: concise harness progress in the run terminal, full transcripts in `~/.jarvis/sessions/*.log` and the `jarvis1 log-server` viewer, per-invocation telemetry in `~/.jarvis/runs.jsonl`.
 
 ### v1 documentation
 
@@ -359,22 +318,15 @@ Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 
 ## Hit a harness gap?
 
-Found friction using Jarvis on another repo?
-[Submit a harness suggestion](https://github.com/cbrenner04/jarvis/issues/new/choose).
+Found friction using Jarvis on another repo? [Submit a harness suggestion](https://github.com/cbrenner04/jarvis/issues/new/choose).
 
 ## Development
 
 TypeScript on Bun with strict compiler settings and Biome.
 
-Checks: `bun run typecheck`, `bun run lint`, `bun run check`, and
-`bun run lint:md` (markdownlint over v1 and v2 specs, v1 and v2 docs, reports, and root docs). Fixes:
-`bun run format`, `bun run lint:fix`, `bun run check:fix` (plus `:unsafe`
-variants — inspect their diffs).
+Checks: `bun run typecheck`, `bun run lint`, `bun run check`, and `bun run lint:md` (markdownlint over v1 and v2 specs, v1 and v2 docs, reports, and root docs). Repair soft-wrapped authored markdown with `bun run reflow:md` (same corpus scope). Fixes: `bun run format`, `bun run lint:fix`, `bun run check:fix` (plus `:unsafe` variants — inspect their diffs).
 
-Tests are scoped by surface: `bun run test` (all), `test:v1`, `test:v2`,
-`test:integration:v2`, `test:shared`. Per-test timeout is 30 s via
-`bunfig.toml`; pass `{ timeout: <ms> }` only when a test legitimately needs
-more.
+Tests are scoped by surface: `bun run test` (all), `test:v1`, `test:v2`, `test:integration:v2`, `test:shared`. Per-test timeout is 30 s via `bunfig.toml`; pass `{ timeout: <ms> }` only when a test legitimately needs more.
 
 Before moving a PR out of draft:
 
@@ -382,8 +334,4 @@ Before moving a PR out of draft:
 bun run ready
 ```
 
-`ready` runs install (when required), `check`, `typecheck`, `test`, and
-`lint:md`, each under its own fixed step budget, with a 45-minute overall run
-ceiling as backstop (override with `JARVIS_READY_TIMEOUT_MS`); on timeout it
-kills the process tree and exits 124. `JARVIS_READY_TIER=fast` runs just
-`typecheck` + `test`.
+`ready` runs install (when required), `check`, `typecheck`, `test`, and `lint:md`, each under its own fixed step budget, with a 45-minute overall run ceiling as backstop (override with `JARVIS_READY_TIMEOUT_MS`); on timeout it kills the process tree and exits 124. `JARVIS_READY_TIER=fast` runs just `typecheck` + `test`.

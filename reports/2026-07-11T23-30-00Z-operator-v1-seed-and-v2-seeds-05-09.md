@@ -1,10 +1,6 @@
 # Operator report — v1 sizing seed + regression + v2 seeds 05–09
 
-UTC 2026-07-11. Operator: Claude Code (Opus 4.8, 1M). Agent order started
-`codex → claude → cursor → opencode`; codex depleted mid-session (removed, then
-re-added on reset, then depleted again). Cursor (Composer 2.5) became the reliable
-impl actuator once codex was out — separate pool from the operator's Claude
-session, so no pool contention.
+UTC 2026-07-11. Operator: Claude Code (Opus 4.8, 1M). Agent order started `codex → claude → cursor → opencode`; codex depleted mid-session (removed, then re-added on reset, then depleted again). Cursor (Composer 2.5) became the reliable impl actuator once codex was out — separate pool from the operator's Claude session, so no pool contention.
 
 ## What shipped (34 PRs merged; 3 failed PRs closed)
 
@@ -13,37 +9,21 @@ session, so no pool contention.
 - `plan-one-iteration-subspec-drafting` — draft/review prompt sizing + `validateSplitIntegrity` (#1325)
 - `plan-resplit-timed-out-subspec` — `jarvis1 plan --recover` timed-out-subspec recovery; removed the manual subspec-split runbook stopgap (#1330)
 
-**Self-inflicted regression, fixed** — #1325 gated split-integrity on the verdict
-text matching `/\bsplit\b/i`, so any plan whose review verdict merely mentioned
-"split" aborted (`agent-error`). Killed both seed-06 plans. Seeded (#1333),
-fixed via intent→plan(`--review-passes 0`)→run (#1334/#1335/#1336): gate on an
-actual structural split; no-split returns null.
+**Self-inflicted regression, fixed** — #1325 gated split-integrity on the verdict text matching `/\bsplit\b/i`, so any plan whose review verdict merely mentioned "split" aborted (`agent-error`). Killed both seed-06 plans. Seeded (#1333), fixed via intent→plan(`--review-passes 0`)→run (#1334/#1335/#1336): gate on an actual structural split; no-split returns null.
 
-**v2 seed 05 `implement-spec-routing`** — 3 specs: linked-subspec routing (#1337),
-optional preset review slot (#1338), spec-path launch resolution (#1339).
+**v2 seed 05 `implement-spec-routing`** — 3 specs: linked-subspec routing (#1337), optional preset review slot (#1338), spec-path launch resolution (#1339).
 
-**v2 seed 06 `workflow-loader-non-write`** — 2 specs: load `review-debate` steps
-(#1345), load `review` steps + route reviewed-intent (#1347).
+**v2 seed 06 `workflow-loader-non-write`** — 2 specs: load `review-debate` steps (#1345), load `review` steps + route reviewed-intent (#1347).
 
-**v2 seed 07 `plan-reviewed-light`** — plan (#1350) + impl (#1353): `review`
-critic prompt + light plan-review workflow.
+**v2 seed 07 `plan-reviewed-light`** — plan (#1350) + impl (#1353): `review` critic prompt + light plan-review workflow.
 
-**v2 seed 08 `plan-reviewed-debate`** — plan (#1348) + impl (#1352): `plan-reviewed`
-debate preset (review caught a real git-disabled `cwd` bug).
+**v2 seed 08 `plan-reviewed-debate`** — plan (#1348) + impl (#1352): `plan-reviewed` debate preset (review caught a real git-disabled `cwd` bug).
 
-**v2 seed 09 `implement-review-selection`** — optional debate review (#1354) +
-light review selection (#1357).
+**v2 seed 09 `implement-review-selection`** — optional debate review (#1354) + light review selection (#1357).
 
-**User-directed revert** (#1349) — the operator judged the one-iteration-sizing
-review enforcement (`validateSplitIntegrity`) more trouble than value: it never
-achieved its aim (specs drafted for it were still monoliths) and its strict
-"preserve exactly once" check aborted plans when the actuator reworded during a
-split. Removed the enforcement check + tests; kept the advisory prompts and
-`--recover`. Owner confirmed review overall stays (the `review` behavior is
-needed — the only other review path is full debate).
+**User-directed revert** (#1349) — the operator judged the one-iteration-sizing review enforcement (`validateSplitIntegrity`) more trouble than value: it never achieved its aim (specs drafted for it were still monoliths) and its strict "preserve exactly once" check aborted plans when the actuator reworded during a split. Removed the enforcement check + tests; kept the advisory prompts and `--recover`. Owner confirmed review overall stays (the `review` behavior is needed — the only other review path is full debate).
 
-**Close-out seeds** (#1356): hermetic-tests-re-machine-config,
-completion-ready-gate-rides-watchdog, plan-subspec-overbuild-still-open.
+**Close-out seeds** (#1356): hermetic-tests-re-machine-config, completion-ready-gate-rides-watchdog, plan-subspec-overbuild-still-open.
 
 ## Observations / harness friction
 
@@ -66,9 +46,7 @@ completion-ready-gate-rides-watchdog, plan-subspec-overbuild-still-open.
 
 ## Cost
 
-Jarvis per-run cost is **not persisted in this repo's `runs.jsonl`** (no cost
-field). The figures below were reconstructed from the saved run/plan summaries
-and reconciled into the four cost CSVs + `efficiency.csv`.
+Jarvis per-run cost is **not persisted in this repo's `runs.jsonl`** (no cost field). The figures below were reconstructed from the saved run/plan summaries and reconciled into the four cost CSVs + `efficiency.csv`.
 
 - **Jarvis (12 completed specs, plan+run): $66.08.** Plus **$10.02 wasted** on
   three abandoned plans blocked by the split-gate regression (#1331 $5.15,
@@ -82,15 +60,6 @@ and reconciled into the four cost CSVs + `efficiency.csv`.
 - **Operator (this Claude Code session): $101.35** — see the operator row below.
 - **Observed total (Jarvis completed + wasted + operator): ≈ $177.45.**
 
-**Operator (this Claude Code session): $101.35** (Opus 4.8) — 37.7k input /
-256.2k output / 167.7M cache-read / 1.1M cache-write tokens; API time 1h 18m,
-wall 14h 12m. The orchestration loop dominated session spend — roughly 2–3× the
-paid-tier Jarvis run cost — as expected for a long serial-drive session with many
-poll / merge / review turns (the exact pattern the runbook's feedback-cadence
-guidance targets).
+**Operator (this Claude Code session): $101.35** (Opus 4.8) — 37.7k input / 256.2k output / 167.7M cache-read / 1.1M cache-write tokens; API time 1h 18m, wall 14h 12m. The orchestration loop dominated session spend — roughly 2–3× the paid-tier Jarvis run cost — as expected for a long serial-drive session with many poll / merge / review turns (the exact pattern the runbook's feedback-cadence guidance targets).
 
-The four cost CSVs (`session-costs`, `operator-costs`, `session-outcomes`,
-`operator-outcomes`) and `efficiency.csv` carry the reconciled rows — 12
-session-cost rows (one per completed spec), one operator row, matching outcome
-rows, and a session efficiency snapshot. Per-spec costs came from the saved run
-summaries, not `runs.jsonl` (which lacks a cost field this session).
+The four cost CSVs (`session-costs`, `operator-costs`, `session-outcomes`, `operator-outcomes`) and `efficiency.csv` carry the reconciled rows — 12 session-cost rows (one per completed spec), one operator row, matching outcome rows, and a session efficiency snapshot. Per-spec costs came from the saved run summaries, not `runs.jsonl` (which lacks a cost field this session).

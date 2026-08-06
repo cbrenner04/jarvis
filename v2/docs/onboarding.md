@@ -1,14 +1,10 @@
 # Start here
 
-Orientation for newcomers: what jarvis is, which binary to use, v2 vocabulary,
-and where to read next. Design detail lives in linked docs — not duplicated here.
+Orientation for newcomers: what jarvis is, which binary to use, v2 vocabulary, and where to read next. Design detail lives in linked docs — not duplicated here.
 
 ## What jarvis is
 
-Jarvis is a TypeScript/Bun harness that drives a coding-agent CLI (`claude`,
-`codex`, `cursor`, …) against Markdown specs. It prepares the repo, invokes one
-configured CLI at a time, records what happened, and handles git/GitHub
-bookkeeping around each step. **It does not implement an agent itself.**
+Jarvis is a TypeScript/Bun harness that drives a coding-agent CLI (`claude`, `codex`, `cursor`, …) against Markdown specs. It prepares the repo, invokes one configured CLI at a time, records what happened, and handles git/GitHub bookkeeping around each step. **It does not implement an agent itself.**
 
 ## Which binary to use
 
@@ -19,9 +15,7 @@ Two binaries coexist in this repo:
 | `jarvis` | v2 | **Daily driver** — daemon, intent/plan/implement workflows, TUI, cleanup. |
 | `jarvis1` | v1 | Maintenance-only fallback — kept green, no new investment. |
 
-**Default to `jarvis`.** Reach for `jarvis1` only for the few surfaces v2 does
-not own yet (see the [v2 operator runbook](./operator-runbook.md) routing
-table).
+**Default to `jarvis`.** Reach for `jarvis1` only for the few surfaces v2 does not own yet (see the [v2 operator runbook](./operator-runbook.md) routing table).
 
 ## v2 vocabulary
 

@@ -1,20 +1,10 @@
 # Invocation liveness
 
-Behavioral contract for **stall** (process up, no useful progress toward the step
-outcome) vs **slow work** (long but legitimate) during one agent invocation. Shared
-invocation detects stdout/stderr-only stalls when a caller supplies an `idleOutputMs`
-budget. Workflow write and review-role invocations share the machine-wide
-`idleOutputTimeoutMs` policy: a configured positive value arms the watchdog,
-an absent key gives review roles their 90_000 ms fallback, and `0` disables it.
-Workflow loops consume outcomes. Workspace and marker signals, stall-driven binding
-advance, and operator-visible stall diagnostics remain deferred.
+Behavioral contract for **stall** (process up, no useful progress toward the step outcome) vs **slow work** (long but legitimate) during one agent invocation. Shared invocation detects stdout/stderr-only stalls when a caller supplies an `idleOutputMs` budget. Workflow write and review-role invocations share the machine-wide `idleOutputTimeoutMs` policy: a configured positive value arms the watchdog, an absent key gives review roles their 90_000 ms fallback, and `0` disables it. Workflow loops consume outcomes. Workspace and marker signals, stall-driven binding advance, and operator-visible stall diagnostics remain deferred.
 
-Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md),
-[`v1-behaviors.md`](./v1-behaviors.md).
+Related: [`shared-invocation.md`](./shared-invocation.md), [`role-resolution.md`](./role-resolution.md), [`v1-behaviors.md`](./v1-behaviors.md).
 
-When a run hangs before structured log records accrue, read the invocation session
-log first: `~/.jarvis/sessions/<run-id>-<timestamp>.log` (one file per write-loop
-iteration; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
+When a run hangs before structured log records accrue, read the invocation session log first: `~/.jarvis/sessions/<run-id>-<timestamp>.log` (one file per write-loop iteration; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
 
 ## Terminology
 
@@ -27,8 +17,7 @@ iteration; see [`daemon-host.md`](./daemon-host.md#invocation-session-logs)).
 
 ## Definitions
 
-**Slow work** — the agent is running and at least one progress signal (below) moves
-toward the step outcome within the invocation's liveness profile.
+**Slow work** — the agent is running and at least one progress signal (below) moves toward the step outcome within the invocation's liveness profile.
 
 - **`actuator` applying a verdict** — edits on verdict targets; sparse stdout OK.
 - **`implement` under `write`** — touches acceptance-criteria files, runs tests, or
@@ -36,19 +25,13 @@ toward the step outcome within the invocation's liveness profile.
 - **Read-only debate** (`adversary`, `advocate`, `adjudicator`) — produces review
   artifacts via **agent output** and **step-completion markers**; no repo writes.
 
-**Stall** — process still up but no progress signal moves toward the outcome longer
-than the profile's **stall budget** (bounded span without outcome-relevant progress
-before stall is declared).
+**Stall** — process still up but no progress signal moves toward the outcome longer than the profile's **stall budget** (bounded span without outcome-relevant progress before stall is declared).
 
-Negative candidate: no output, no outcome-relevant workspace movement, no
-step-completion marker advance for the full **stall window** (illustrative span for
-negative examples; enforcement sets concrete values — e.g. hung tool call with zero
-activity). Long test runs with periodic mtime or marker updates are not stalls.
+Negative candidate: no output, no outcome-relevant workspace movement, no step-completion marker advance for the full **stall window** (illustrative span for negative examples; enforcement sets concrete values — e.g. hung tool call with zero activity). Long test runs with periodic mtime or marker updates are not stalls.
 
 ## Progress signal categories
 
-Multi-category, outcome-oriented; weights, intervals, and thresholds deferred to
-first enforcement consumer.
+Multi-category, outcome-oriented; weights, intervals, and thresholds deferred to first enforcement consumer.
 
 | Category | Meaning |
 | --- | --- |
@@ -56,16 +39,9 @@ first enforcement consumer.
 | **Workspace activity toward step outcome** | Cwd changes plausibly advancing the step (edits, test artifacts, review writes). |
 | **Step-completion markers** | Harness-observable step advance (outcome token, contract check, role artifact). |
 
-Read-only debate roles (`adversary`, `advocate`, `adjudicator`) progress via **agent
-output** and **step-completion markers** only — not workspace activity. The
-workspace row applies when the resolved role may write toward the step outcome
-(`actuator`, `implement` under `write`, etc.).
+Read-only debate roles (`adversary`, `advocate`, `adjudicator`) progress via **agent output** and **step-completion markers** only — not workspace activity. The workspace row applies when the resolved role may write toward the step outcome (`actuator`, `implement` under `write`, etc.).
 
-v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus
-`iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). v2 currently
-enforces stdout/stderr idle budgets only: workflow writes and review roles use
-the same configured `idleOutputTimeoutMs` policy, including the review fallback
-and disabled state above.
+v1 ≈ `max(output idle, file idle)` under one global `idleOutputTimeoutMs` plus `iterationTimeoutMs` — [`v1-behaviors.md`](./v1-behaviors.md). v2 currently enforces stdout/stderr idle budgets only: workflow writes and review roles use the same configured `idleOutputTimeoutMs` policy, including the review fallback and disabled state above.
 
 ## Stall-response categories
 
@@ -79,13 +55,9 @@ Recorded at policy level; kill-path wiring deferred.
 
 ## Liveness profiles (behavior × role)
 
-Outcome handling varies by **behavior** and **role**, but workflow write and review
-roles share the machine-wide `idleOutputTimeoutMs` configuration. Taxonomy:
-[`role-resolution.md`](./role-resolution.md).
+Outcome handling varies by **behavior** and **role**, but workflow write and review roles share the machine-wide `idleOutputTimeoutMs` configuration. Taxonomy: [`role-resolution.md`](./role-resolution.md).
 
-Each profile combines the current output-idle detection budget with an optional
-absolute ceiling (bounded steps; v1's parallel idle + wall is the contrast baseline,
-not the v2 default everywhere). Profile tables deferred.
+Each profile combines the current output-idle detection budget with an optional absolute ceiling (bounded steps; v1's parallel idle + wall is the contrast baseline, not the v2 default everywhere). Profile tables deferred.
 
 Exemplars:
 

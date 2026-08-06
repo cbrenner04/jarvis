@@ -1,49 +1,18 @@
 # Quota Signals & Transient Errors
 
-Jarvis classifies quota exhaustion and transient transport errors after an agent
-CLI exits non-zero. Exit codes are not documented as stable by the vendors, so
-the implementation treats the exit code as a guard (`0` is never quota or transient
-at the shared spawn layer) and matches stderr text patterns. **Exception:** the
-Claude adapter reclassifies a verified exit-`0` JSON error envelope before
-accepting `kind: "ok"` (see [Claude](#claude)).
+Jarvis classifies quota exhaustion and transient transport errors after an agent CLI exits non-zero. Exit codes are not documented as stable by the vendors, so the implementation treats the exit code as a guard (`0` is never quota or transient at the shared spawn layer) and matches stderr text patterns. **Exception:** the Claude adapter reclassifies a verified exit-`0` JSON error envelope before accepting `kind: "ok"` (see [Claude](#claude)).
 
 ## Transient transport errors
 
-A transient transport error is a momentary network failure (connection reset,
-broken pipe, HTTP 502/503/504, etc.) that exits non-zero but is not caused by
-quota exhaustion or code failure. The shared spawn layer (`src/agents/spawn.ts`)
-detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries the
-**same** agent on the **same** binding, bounded by a fixed cap of **3 re-attempts
-(4 total spawns)** with **escalating backoff ([1s, 2s, 4s]** before re-attempts
-1/2/3). If all attempts fail, the final error is returned as **`kind: "error"`**
-for normal fallback/termination handling. This recovery happens transparently
-before callers see a result — **no mode or binding changes**. `isTransientSignal`
-matches the shared transport patterns for every agent plus opencode-only
-guarded HTTP 500 stderr phrasing, including current best-effort
-`UnknownError`+`500` wording, so opencode server blips ride the same retry loop
-without changing git/gh retry classification.
+A transient transport error is a momentary network failure (connection reset, broken pipe, HTTP 502/503/504, etc.) that exits non-zero but is not caused by quota exhaustion or code failure. The shared spawn layer (`src/agents/spawn.ts`) detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries the **same** agent on the **same** binding, bounded by a fixed cap of **3 re-attempts (4 total spawns)** with **escalating backoff ([1s, 2s, 4s]** before re-attempts 1/2/3). If all attempts fail, the final error is returned as **`kind: "error"`** for normal fallback/termination handling. This recovery happens transparently before callers see a result — **no mode or binding changes**. `isTransientSignal` matches the shared transport patterns for every agent plus opencode-only guarded HTTP 500 stderr phrasing, including current best-effort `UnknownError`+`500` wording, so opencode server blips ride the same retry loop without changing git/gh retry classification.
 
-Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or
-global); whole-iteration budgets accrue across all attempts. An aborted
-invocation (timeout, SIGINT) is not retried; the abort result is returned
-immediately. Backoff sleep races the abort signal — an abort arriving during
-backoff returns immediately without waiting out the remaining delay. Each
-re-attempt fires an optional `onTransientRetry` callback allowing modes to emit
-operator-facing diagnostics (see patch harness below).
+Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or global); whole-iteration budgets accrue across all attempts. An aborted invocation (timeout, SIGINT) is not retried; the abort result is returned immediately. Backoff sleep races the abort signal — an abort arriving during backoff returns immediately without waiting out the remaining delay. Each re-attempt fires an optional `onTransientRetry` callback allowing modes to emit operator-facing diagnostics (see patch harness below).
 
-**Patch mode:** Patch wires `onTransientRetry` to emit `transient transport error
-(exit N); retrying same agent (attempt A/CAP)` via harness stderr so operators
-can distinguish retry from hang. This phrase shares no substring with quota
-strings (`quota exhausted; falling back` / `probable quota-like error`).
+**Patch mode:** Patch wires `onTransientRetry` to emit `transient transport error (exit N); retrying same agent (attempt A/CAP)` via harness stderr so operators can distinguish retry from hang. This phrase shares no substring with quota strings (`quota exhausted; falling back` / `probable quota-like error`).
 
 ### Git/gh chokepoint retry
 
-The harness chokepoint `runGhCommand` (`src/gh.ts`) — used for `gh auth status`,
-`gh repo view`, `gh pr comment`, and review-feedback gh calls — implements the
-same bounded retry pattern for transient git/gh network errors. The classifier
-**`isTransientNetworkError`** (`src/agents/quota.ts`) matches the shared
-`sharedTransportPatterns` (agent-spawned errors) ∪ harness-scoped git/gh
-phrasings that the agent path does not exercise:
+The harness chokepoint `runGhCommand` (`src/gh.ts`) — used for `gh auth status`, `gh repo view`, `gh pr comment`, and review-feedback gh calls — implements the same bounded retry pattern for transient git/gh network errors. The classifier **`isTransientNetworkError`** (`src/agents/quota.ts`) matches the shared `sharedTransportPatterns` (agent-spawned errors) ∪ harness-scoped git/gh phrasings that the agent path does not exercise:
 
 - `TLS handshake timeout` (seed 3 kill signal)
 - `could not resolve host` (DNS failure)
@@ -51,54 +20,25 @@ phrasings that the agent path does not exercise:
 - `SSL_ERROR` / `SSL error` / `handshake failure`
 - `the remote end hung up unexpectedly` (git over HTTPS)
 
-Bounded retry cap is **2 re-attempts (3 total invocations)**, with a **1-second
-backoff** between attempts (network transients benefit from a brief pause; agent
-spawn matches with escalating backoff). Sleep is injectable for tests. Permanent
-gh failures — not-authenticated, 404, branch-protection `BLOCKED` — do not match
-any pattern and fast-fail with exactly one invocation. Each re-attempt emits
-`OP: transient network error; retrying (attempt A/CAP)` via an injectable
-`onRetry` callback, operator-distinguishable from quota strings and the agent
-transient line (not confusable with hang or fallback).
+Bounded retry cap is **2 re-attempts (3 total invocations)**, with a **1-second backoff** between attempts (network transients benefit from a brief pause; agent spawn matches with escalating backoff). Sleep is injectable for tests. Permanent gh failures — not-authenticated, 404, branch-protection `BLOCKED` — do not match any pattern and fast-fail with exactly one invocation. Each re-attempt emits `OP: transient network error; retrying (attempt A/CAP)` via an injectable `onRetry` callback, operator-distinguishable from quota strings and the agent transient line (not confusable with hang or fallback).
 
 ## Credential/auth failures
 
-A credential or auth failure is a durable session/token error (refresh token
-revoked, re-authentication required, log out and sign in) that prevents the
-agent from running. The shared spawn layer (`src/agents/spawn.ts`) detects
-these via **`isCredentialAuthSignal`** (`src/agents/quota.ts`) and classifies
-them as **`kind: "quota"`** with an **`authFailure: true` marker**, allowing
-the run to rotate to the next agent. Only true durable-auth phrasing is matched;
-transient-looking blips (bare `401`/`unauthorized`, or messages matching both
-auth and transient signals) fall through to the transient or generic-error paths
-and do not rotate (allowing same-agent retries to recover a momentary blip).
+A credential or auth failure is a durable session/token error (refresh token revoked, re-authentication required, log out and sign in) that prevents the agent from running. The shared spawn layer (`src/agents/spawn.ts`) detects these via **`isCredentialAuthSignal`** (`src/agents/quota.ts`) and classifies them as **`kind: "quota"`** with an **`authFailure: true` marker**, allowing the run to rotate to the next agent. Only true durable-auth phrasing is matched; transient-looking blips (bare `401`/`unauthorized`, or messages matching both auth and transient signals) fall through to the transient or generic-error paths and do not rotate (allowing same-agent retries to recover a momentary blip).
 
-Patterns are **scoped per-agent**: Codex has verified auth patterns; Claude and
-Cursor patterns are deferred to the first real sample. This rules out false
-positives from broad cross-agent matching. When every agent is exhausted by auth
-and/or quota, the run terminates via the existing quota-exhaustion path (exit 2).
+Patterns are **scoped per-agent**: Codex has verified auth patterns; Claude and Cursor patterns are deferred to the first real sample. This rules out false positives from broad cross-agent matching. When every agent is exhausted by auth and/or quota, the run terminates via the existing quota-exhaustion path (exit 2).
 
-**Known limitation:** Classification requires a non-zero exit code; an exit-0 CLI
-emitting auth-failure stderr (if one exists) would return `kind: "ok"` without
-rotating. This is within the stderr-driven, exit-code-unconfirmed scope, but
-represents residual risk if a sample exits 0.
+**Known limitation:** Classification requires a non-zero exit code; an exit-0 CLI emitting auth-failure stderr (if one exists) would return `kind: "ok"` without rotating. This is within the stderr-driven, exit-code-unconfirmed scope, but represents residual risk if a sample exits 0.
 
 ## Quota fallback
 
-**Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
-(`src/agents/quota.ts`) may upgrade `kind: "error"` using **`applyQuotaFallbackToAgentResult`**
- / **`isWeakQuotaSignal`**. The caller passes **`allowLenientWeakQuotaFallback`**: patch sets it when
-an iteration made **no progress** (no new acceptance-criteria checks and no dirty worktree).
-Plan sets it when **`git status --porcelain`** is **unchanged** across that agent invocation (snapshot
-before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the worktree changed, weak
-quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
-**`kind: "quota"`** still triggers fallback immediately (no guard).
+**Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`** (`src/agents/quota.ts`) may upgrade `kind: "error"` using **`applyQuotaFallbackToAgentResult`** / **`isWeakQuotaSignal`**. The caller passes **`allowLenientWeakQuotaFallback`**: patch sets it when an iteration made **no progress** (no new acceptance-criteria checks and no dirty worktree). Plan sets it when **`git status --porcelain`** is **unchanged** across that agent invocation (snapshot before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the worktree changed, weak quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side **`kind: "quota"`** still triggers fallback immediately (no guard).
 
 Spawn order **transient → auth → quota → model_config** ([pipeline](agent-cli-failure-pipeline.md)); same doc covers **`agent.run`** callsites and mode guards.
 
 ## Classification and fallback outcome matrix
 
-Authoritative outcomes for CLI result classification, fallback behavior, exit
-codes after fallback exhaustion, and telemetry semantics.
+Authoritative outcomes for CLI result classification, fallback behavior, exit codes after fallback exhaustion, and telemetry semantics.
 
 | Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis1 run`) | Plan phase behavior (`jarvis1 plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
 | --- | --- | --- | --- | --- | --- |
@@ -114,18 +54,11 @@ codes after fallback exhaustion, and telemetry semantics.
 | Zero exit + Claude verified stdout JSON quota envelope (`is_error: true`, `api_error_status: 429`, quota message in `result`) | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
 | Zero exit + Codex or Cursor quota pattern in combined stderr+stdout | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
 
-Mode-specific note: patch mode runs one selected agent per iteration, while
-plan mode executes an inner agent-order loop per phase invocation. **Documented
-policy:** the plan inner loop continues to the next agent after a hard `error`
-(availability for spec drafting). Patch stops the iteration on hard `error` and
-only rotates agents for quota-classified results within that iteration; see
-[plan-mode.md § Hard generic errors](./plan-mode.md#5-hard-generic-errors-excluding-quota-and-model-configuration).
+Mode-specific note: patch mode runs one selected agent per iteration, while plan mode executes an inner agent-order loop per phase invocation. **Documented policy:** the plan inner loop continues to the next agent after a hard `error` (availability for spec drafting). Patch stops the iteration on hard `error` and only rotates agents for quota-classified results within that iteration; see [plan-mode.md § Hard generic errors](./plan-mode.md#5-hard-generic-errors-excluding-quota-and-model-configuration).
 
 ### Operator-visible stderr (grep contract)
 
-Patch (`jarvis1 run`) and plan (`jarvis1 plan`) share these substrings when
-rotating agents after a quota-classified result. Each rotation event emits one
-line, not multiple:
+Patch (`jarvis1 run`) and plan (`jarvis1 plan`) share these substrings when rotating agents after a quota-classified result. Each rotation event emits one line, not multiple:
 
 - **Per-agent rotation (plain quota):** `quota exhausted; falling back` (strict spawn-side
   quota) and `probable quota-like error (exit N); falling back` (lenient
@@ -150,8 +83,7 @@ line, not multiple:
   `plan: all agents quota-exhausted` and may add a phase suffix (`during
   refine`, `during naming-only phase`, etc.).
 
-Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
-lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
+Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
 **No-progress escalation (patch only):** When an iteration makes no progress, patch mode also advances `agentOrder` before exiting 4. The per-agent advance line is `<agent>: no progress; escalating to next agent` — distinct from quota-fallback phrasing so operators can distinguish the cause. Exit 4 is reached only after the last rung also makes no progress. See [agents.md § agentOrder as an escalation ladder](./agents.md) for full semantics.
 
@@ -167,8 +99,7 @@ lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
 ### Patch telemetry (`~/.jarvis/runs.jsonl`)
 
-Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today.
-For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
+Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today. For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
 
 | exitReason | When |
 | --- | --- |
@@ -187,11 +118,7 @@ Timeout records use **`kind`: `"timeout"`** with:
 | `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
 | `run-timeout` | Global run timeout fired. |
 
-Watchdog-triggered timeout rows may include `watchdog_pgid` so investigations
-can tie the timeout to the exact killed process group. They may also include
-`last_output_age_ms` (ms since last stdout/stderr chunk at watchdog fire; `null`
-when no output arrived) and `watchdog_descendants_alive` (whether ≥1 descendant
-of the agent root pid was live at snapshot; omitted when pgid was unavailable).
+Watchdog-triggered timeout rows may include `watchdog_pgid` so investigations can tie the timeout to the exact killed process group. They may also include `last_output_age_ms` (ms since last stdout/stderr chunk at watchdog fire; `null` when no output arrived) and `watchdog_descendants_alive` (whether ≥1 descendant of the agent root pid was live at snapshot; omitted when pgid was unavailable).
 
 **Zero-output detection:** Implementation-phase iterations that observed zero stdout/stderr include `zero_agent_output: true` on all telemetry records written during that iteration (invocation + terminal rows). This field is omitted (not `false`) when output was observed. The harness emits a distinct `zero agent output observed from <agent>; check agent binding` line on stderr when this condition occurs, distinct from timeout/idle diagnostics.
 
@@ -419,18 +346,11 @@ Non-zero exit and zero-exit quota detection.
 
 ### `weakQuotaExitCodes` (`quotaFallback: "lenient"`)
 
-The `weakQuotaExitCodes` config field (default `[]`) lets operators add
-exit codes that should be treated as probable quota when no progress was
-made in the iteration. It is intentionally empty by default until real
-samples justify a code being added. Populate it via `~/.jarvis/config.json`
-when a vendor consistently signals quota with a non-zero exit code that
-the strict patterns miss.
+The `weakQuotaExitCodes` config field (default `[]`) lets operators add exit codes that should be treated as probable quota when no progress was made in the iteration. It is intentionally empty by default until real samples justify a code being added. Populate it via `~/.jarvis/config.json` when a vendor consistently signals quota with a non-zero exit code that the strict patterns miss.
 
 ### `harnessGitGhTransportPatterns` (git/gh chokepoint retry)
 
-Git/gh-specific transient patterns used by `isTransientNetworkError` and the
-bounded-retry `runGhCommand` chokepoint. These are **not** added to the agent
-classifier to avoid perturbing agent-spawn behavior as a side effect.
+Git/gh-specific transient patterns used by `isTransientNetworkError` and the bounded-retry `runGhCommand` chokepoint. These are **not** added to the agent classifier to avoid perturbing agent-spawn behavior as a side effect.
 
 - `/\\bTLS handshake timeout\\b/i` — Matched.
   Sample link: seed 3 (gh auth status failure).

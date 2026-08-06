@@ -10,8 +10,7 @@ How a vendor CLI invocation becomes an `AgentResult`, then a mode-specific outco
    - **transient** — **`isTransientSignal`** → **`kind: "error"`** (step 4 may retry).
    - **auth** — **`isCredentialAuthSignal`** → **`kind: "quota"`** with **`authFailure: true`**.
    - **quota** — **`isQuotaSignal`** (strict per-agent patterns; exit must be non-zero) → **`kind: "quota"`**.
-   - **model_config** — **`isModelConfigurationSignal`** (patterns in `src/agents/quota.ts`; opencode uses agent-aware helpers) → **`kind: "model_config"`**.
-   **`weakQuotaPatterns`** / **`weakQuotaExitCodes`** do **not** run in spawn; they apply only inside **`applyQuotaFallbackToAgentResult`** when **`quotaFallback: "lenient"`** and the mode guard allows it (step 5).
+   - **model_config** — **`isModelConfigurationSignal`** (patterns in `src/agents/quota.ts`; opencode uses agent-aware helpers) → **`kind: "model_config"`**. **`weakQuotaPatterns`** / **`weakQuotaExitCodes`** do **not** run in spawn; they apply only inside **`applyQuotaFallbackToAgentResult`** when **`quotaFallback: "lenient"`** and the mode guard allows it (step 5).
    - **Abort:** `opts.signal` can settle early as **`error`** with `stderr` like `aborted: …` (iteration/run timeout or SIGINT path).
 4. **Transient retry** — Separate from step 3: when **`runAgent`** gets **`kind: "error"`** from **`singleSpawn`**, if **`isTransientSignal`** still matches and the invocation is not aborted, re-attempt the **same** agent up to **3 re-attempts (4 total spawns)**. Optional `onTransientRetry` per attempt; whole-iteration timeouts accrue. Returns the eventual non-transient result or final `error` at cap.
 5. **Mode-specific post-processing** — Callers apply **`applyQuotaFallbackWhenAllowed`** (`src/agents/quota.ts`) where configured:

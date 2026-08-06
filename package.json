@@ -19,6 +19,7 @@
     "lint:fix": "bun biome lint --write .",
     "lint:fix:unsafe": "bun biome lint --write --unsafe .",
     "lint:md": "bun node_modules/markdownlint-cli2/markdownlint-cli2.js",
+    "reflow:md": "bun scripts/reflow-markdown.ts",
     "typecheck": "tsc --noEmit -p v1/tsconfig.json && tsc --noEmit -p v2/tsconfig.json && tsc --noEmit -p shared/tsconfig.json && tsc --noEmit -p test/tsconfig.json",
     "install-opencode-permissions": "bun run scripts/install-opencode-permissions.ts",
     "test": "bun run scripts/run-tests.ts",

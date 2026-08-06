@@ -4,8 +4,7 @@ This document defines prompt identity and validation for Jarvis-managed prompts.
 
 ## First Registry Rollout (Metadata-First)
 
-The first rollout includes shared global guidance fragments plus prompt
-artifacts that shape agent behavior in patch mode and plan draft/review:
+The first rollout includes shared global guidance fragments plus prompt artifacts that shape agent behavior in patch mode and plan draft/review:
 
 - `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
   into agent-facing prompts
@@ -54,8 +53,7 @@ Deferred in this rollout:
 
 ## Required Metadata
 
-Each registered prompt artifact must start with leading frontmatter and include
-all required fields:
+Each registered prompt artifact must start with leading frontmatter and include all required fields:
 
 - `id` (stable runtime lookup key)
 - `behavior` (real grouping key: `global`, `patch`, `plan`, or another scoped class)
@@ -71,16 +69,14 @@ Optional relationship fields used during validation:
 
 ## Validation Boundary
 
-Registry validation runs eagerly during registry load, before any prompt render
-or agent invocation logic:
+Registry validation runs eagerly during registry load, before any prompt render or agent invocation logic:
 
 - Missing required metadata is a hard load error.
 - Duplicate IDs are a hard load error.
 - Unknown `fragmentOf` IDs are hard load errors.
 - Unknown `overrides` IDs are hard load errors.
 
-Runtime prompt lookup is by stable `id` only. File paths are implementation
-detail and are not part of the runtime lookup contract.
+Runtime prompt lookup is by stable `id` only. File paths are implementation detail and are not part of the runtime lookup contract.
 
 Validation and rendering failures are intentionally split:
 
@@ -140,11 +136,9 @@ Rendered prompt snapshots for this rollout use revision-aware keys:
 - Shared prompt body snapshots: `<id>@r<revision>...shared.txt`
 - Wrapper snapshots: `<id>@r<revision>.wrapper.<variant>.txt`
 
-Wrapper snapshots are adapter-local post-render artifacts; they must be stored
-and reviewed separately from shared prompt body snapshots.
+Wrapper snapshots are adapter-local post-render artifacts; they must be stored and reviewed separately from shared prompt body snapshots.
 
-Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
-is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
+Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
 - patch prompt body (`patch.prompt.body`, currently `@r9`)
 - plan draft/review prompts (draft `@r10`, review `@r6`; review
@@ -152,5 +146,4 @@ is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 - plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r4`)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 
-Coverage remains assembled-output focused: tests assert final rendered prompt
-text and wrapper outputs rather than fragment-only snapshots.
+Coverage remains assembled-output focused: tests assert final rendered prompt text and wrapper outputs rather than fragment-only snapshots.

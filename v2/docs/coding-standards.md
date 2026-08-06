@@ -53,32 +53,17 @@ Tests must be deterministic and sandbox-runnable by default. See [`test-writing.
 
 ## Synchronous subprocesses
 
-`v2/**` and `shared/**` may not introduce synchronous child processes. The
-only allowlisted module is `shared/subprocess.ts`, the v1 CLI-only synchronous
-runner seam; new allowlist entries need a CLI-only reason. `bun run check`
-enforces this, including v2 imports of synchronous runner seams and Git helpers.
-Small synchronous filesystem reads remain permitted.
+`v2/**` and `shared/**` may not introduce synchronous child processes. The only allowlisted module is `shared/subprocess.ts`, the v1 CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
 
 ## Production invert-for-test hooks
 
-Production code under `v2/src`, `v1/src`, and `shared` must not carry the four
-invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest`
-module variables, `invert*` function parameters, and `invert*ForTest` type
-members. `bun run check` enforces this via
-`scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of
-scope.
+Production code under `v2/src`, `v1/src`, and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.
 
 ## Workflow composition gate
 
-New workflow behavior must compose the existing publication, review, landing,
-and linked-subspec routing groups. Do not duplicate those groups in
-preset-specific paths.
+New workflow behavior must compose the existing publication, review, landing, and linked-subspec routing groups. Do not duplicate those groups in preset-specific paths.
 
-If composition requires a new runner dispatch branch, add an exact `##
-Blocker` to the active subspec instead of extending the runner state machine.
-Declarative preset-table rows are exempt when they only compose existing
-groups. This is a planning and implementation standard; it adds no runtime or
-lint gate.
+If composition requires a new runner dispatch branch, add an exact `## Blocker` to the active subspec instead of extending the runner state machine. Declarative preset-table rows are exempt when they only compose existing groups. This is a planning and implementation standard; it adds no runtime or lint gate.
 
 ## Referenced documents
 

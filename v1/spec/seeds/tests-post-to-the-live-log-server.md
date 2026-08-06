@@ -2,25 +2,11 @@
 
 ## Problem
 
-`v1/test/plan-agent-override.test.ts` calls `planCommand({...})` without injecting `logClient`
-(the file never mentions `logClient`). `planCommand` only wires the field when a caller supplies it;
-when it is absent, `enterMode` falls through to
-`createLogClient(cfg.logServerUrl ?? "http://127.0.0.1:4310/logs")` — a **real** HTTP client
-(`v1/src/mode-entry.ts` / `shared-entry.ts:89,145`, `v1/src/logging.ts:15`). Plan mode's intent-split
-phase then fires `onOutboundPrompt → logOutboundPrompt` (`v1/src/modes/plan/run.ts:788,904,1185,1474`),
-which `fetch()`-POSTs the full "Plan Mode - Intent Split Phase" prompt to that URL. The operator's
-log-server is always up on `127.0.0.1:4310`, so under `bun run ready` the test silently writes real
-log lines into the operator's live server on every run.
+`v1/test/plan-agent-override.test.ts` calls `planCommand({...})` without injecting `logClient` (the file never mentions `logClient`). `planCommand` only wires the field when a caller supplies it; when it is absent, `enterMode` falls through to `createLogClient(cfg.logServerUrl ?? "http://127.0.0.1:4310/logs")` — a **real** HTTP client (`v1/src/mode-entry.ts` / `shared-entry.ts:89,145`, `v1/src/logging.ts:15`). Plan mode's intent-split phase then fires `onOutboundPrompt → logOutboundPrompt` (`v1/src/modes/plan/run.ts:788,904,1185,1474`), which `fetch()`-POSTs the full "Plan Mode - Intent Split Phase" prompt to that URL. The operator's log-server is always up on `127.0.0.1:4310`, so under `bun run ready` the test silently writes real log lines into the operator's live server on every run.
 
-`plan.ts:16` documents the field as *"Override the log client (for tests)"* — the seam exists and
-this test just doesn't use it, unlike the plan/run tests that inject
-`{ assertReachable: async () => {}, send: async () => {} }`.
+`plan.ts:16` documents the field as *"Override the log client (for tests)"* — the seam exists and this test just doesn't use it, unlike the plan/run tests that inject `{ assertReachable: async () => {}, send: async () => {} }`.
 
-Observed 2026-07-24: the operator saw the intent-split prompt appear on their log-server on repeat
-while running `bun run ready` (the ready gate runs the full v1 suite; a repaired/re-run gate replays
-it). Two aggravations, both real: (1) the write is a live network round-trip to the operator's
-server, so a slow or wedged log-server adds latency to the test run; (2) it pollutes the operator's
-log stream with test traffic that looks like a real run.
+Observed 2026-07-24: the operator saw the intent-split prompt appear on their log-server on repeat while running `bun run ready` (the ready gate runs the full v1 suite; a repaired/re-run gate replays it). Two aggravations, both real: (1) the write is a live network round-trip to the operator's server, so a slow or wedged log-server adds latency to the test run; (2) it pollutes the operator's log stream with test traffic that looks like a real run.
 
 ## Decisions
 

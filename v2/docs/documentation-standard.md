@@ -4,9 +4,7 @@ Defines the operational meaning of "Documented in code".
 
 ## Inline standard
 
-A doc-comment is not owed to every export — only to one whose contract isn't
-already evident from its name and type signature. Tier by how much the
-signature already tells you:
+A doc-comment is not owed to every export — only to one whose contract isn't already evident from its name and type signature. Tier by how much the signature already tells you:
 
 - **Evident from name + type**: no doc-comment. Adding one would only restate
   the type or narrate the body — comment why, not what; do not narrate
@@ -18,9 +16,7 @@ signature already tells you:
   tags are purpose, params, returns, thrown errors, invariants — include only
   the ones carrying non-obvious information, not every tag on every symbol.
 
-In every tier, a comment must add information the code cannot: never restate
-a parameter/return type in prose, and never narrate what the body does
-line-by-line.
+In every tier, a comment must add information the code cannot: never restate a parameter/return type in prose, and never narrate what the body does line-by-line.
 
 **Examples:**
 

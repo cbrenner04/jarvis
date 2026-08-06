@@ -83,24 +83,9 @@ The current `artifact` envelope (written by `v2/src/daemon/pipeline-stage-dispat
 - `{ reason, retryable, nextAction }` — composed operator errors from `composeRunOperatorError` when the entry run row is missing at settlement.
 - The full operator-error object from `composeRunOperatorError` when the entry run row is present.
 
-The pipeline-level `status` stores only restart-reconciliation state:
-`active` or `interrupted`. It does not describe execution progress — observation
-derives boundary state from stage rows even when the pipeline row still reads
-`interrupted` after reconcile. Callers derive overall pipeline state from durable
-pipeline and stage rows with `derivePipelineState` in
-`v2/src/daemon/pipeline-execution.ts`; the seven-state precedence walk,
-stage-satisfaction rules, terminality, and daemon observation contract live in
-[`daemon-host.md`](./daemon-host.md#pipeline-snapshots). `claimPipelineContinuation`
-restores a reconciled `interrupted` row to `active` when continuation claims
-ownership.
+The pipeline-level `status` stores only restart-reconciliation state: `active` or `interrupted`. It does not describe execution progress — observation derives boundary state from stage rows even when the pipeline row still reads `interrupted` after reconcile. Callers derive overall pipeline state from durable pipeline and stage rows with `derivePipelineState` in `v2/src/daemon/pipeline-execution.ts`; the seven-state precedence walk, stage-satisfaction rules, terminality, and daemon observation contract live in [`daemon-host.md`](./daemon-host.md#pipeline-snapshots). `claimPipelineContinuation` restores a reconciled `interrupted` row to `active` when continuation claims ownership.
 
-`skipped` rows (written when an earlier stage fails) are never themselves
-read as `failed` — they only distinguish "will never run" from "not yet
-reached". Restart reconciliation treats them as reconciliation-stable alongside
-decided approval and terminal rows, so a failed pipeline's blocked suffix survives
-daemon restart with each durable `id`, authored `stage_id`, and `skipped` status
-intact. See `daemon-host.md`'s "Ordered pipeline progression" for how the loop
-drives stages into these rows.
+`skipped` rows (written when an earlier stage fails) are never themselves read as `failed` — they only distinguish "will never run" from "not yet reached". Restart reconciliation treats them as reconciliation-stable alongside decided approval and terminal rows, so a failed pipeline's blocked suffix survives daemon restart with each durable `id`, authored `stage_id`, and `skipped` status intact. See `daemon-host.md`'s "Ordered pipeline progression" for how the loop drives stages into these rows.
 
 ## Semantics
 

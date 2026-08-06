@@ -6,10 +6,7 @@ claude --resume 056c1971-eb19-46eb-add1-db571394ed25
 
 ## What shipped
 
-Rescued a stalled WIP branch (`2026-06-27T22-03-04Z-jarvis-fix-commit-ready-order-2`,
-planned as #723 in a prior session) and merged it as **PR #734**. The branch
-arrived with **31 failing tests** and looked dump-worthy; the spec logic was
-actually sound — the red was masking two real source bugs plus test-fixture gaps.
+Rescued a stalled WIP branch (`2026-06-27T22-03-04Z-jarvis-fix-commit-ready-order-2`, planned as #723 in a prior session) and merged it as **PR #734**. The branch arrived with **31 failing tests** and looked dump-worthy; the spec logic was actually sound — the red was masking two real source bugs plus test-fixture gaps.
 
 | Spec | PR | Agent | Notes |
 | --- | --- | --- | --- |
@@ -33,32 +30,19 @@ actually sound — the red was masking two real source bugs plus test-fixture ga
    pattern); one was mis-modeled — it exercised the dirty-worktree-completion
    path, not the pre-ready fix-commit path.
 
-Then completed the spec's remaining acceptance criteria: **7 doc files** updated
-for the new fix → commit → ready order; all **25 ACs** ticked.
+Then completed the spec's remaining acceptance criteria: **7 doc files** updated for the new fix → commit → ready order; all **25 ACs** ticked.
 
 ## Finalization (manual → jarvis gate)
 
-The spec was hand-implemented, so finalization went through the harness:
-commit → rebase onto `origin/main` (4 daemon commits, zero v1 overlap, clean) →
-`triage --mark-ready` (ran the *real* fix → commit → ready gate on the committed
-tree → green → opened + readied #734) → `triage --merge` (CI green →
-admin-squash-merge `b97df27a`).
+The spec was hand-implemented, so finalization went through the harness: commit → rebase onto `origin/main` (4 daemon commits, zero v1 overlap, clean) → `triage --mark-ready` (ran the *real* fix → commit → ready gate on the committed tree → green → opened + readied #734) → `triage --merge` (CI green → admin-squash-merge `b97df27a`).
 
 ## Harness friction
 
-`triage --mark-ready`/`--merge` first refused with
-`.active-spec-path marker not found` — production `jarvis run` never writes that
-marker. Already seeded (`ready-intents/patch-run-writes-active-spec-path-marker.md`,
-`ready-intents/triage-finalize-without-active-spec-path-marker.md`), so no new
-seed; worked around by hand-creating the marker. This is the **second** session
-to hit it (see `2026-06-27T18-36-37Z-operator.md`, red-main spiral cause #3) —
-worth prioritizing those two intents.
+`triage --mark-ready`/`--merge` first refused with `.active-spec-path marker not found` — production `jarvis run` never writes that marker. Already seeded (`ready-intents/patch-run-writes-active-spec-path-marker.md`, `ready-intents/triage-finalize-without-active-spec-path-marker.md`), so no new seed; worked around by hand-creating the marker. This is the **second** session to hit it (see `2026-06-27T18-36-37Z-operator.md`, red-main spiral cause #3) — worth prioritizing those two intents.
 
 ## Cost
 
-No jarvis plan/run spend this session: the plan was a prior session (#723), the
-implementation was manual, and triage completion gates consume zero agent tokens.
-Spend is the operator loop (Opus).
+No jarvis plan/run spend this session: the plan was a prior session (#723), the implementation was manual, and triage completion gates consume zero agent tokens. Spend is the operator loop (Opus).
 
 ### Operator cost
 
@@ -72,10 +56,7 @@ Spend is the operator loop (Opus).
       claude-opus-4-8:  20.1k input, 169.9k output, 27.4m cache read, 457.5k cache write ($22.09)
 ```
 
-The operator loop dominated (the entire session was diagnosis + manual
-implementation); the high cache-read / output ratio reflects iterative
-test-failure forensics — three rounds of instrumenting the fake-`bun` shim and
-the gate before the `execFileSync` env root cause surfaced.
+The operator loop dominated (the entire session was diagnosis + manual implementation); the high cache-read / output ratio reflects iterative test-failure forensics — three rounds of instrumenting the fake-`bun` shim and the gate before the `execFileSync` env root cause surfaced.
 
 ## Stats
 

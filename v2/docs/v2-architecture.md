@@ -1,14 +1,10 @@
 # Jarvis v2 — Architecture
 
-The decided v2 architecture, worked out through design interviews. Companion to
-`v2-vision.md`: the vision owns the *why* and the constraints/guiding
-principles that govern the design; this doc owns the *how* — the layered model,
-prompts, workflows, config, the execution model, and the runtime.
+The decided v2 architecture, worked out through design interviews. Companion to `v2-vision.md`: the vision owns the *why* and the constraints/guiding principles that govern the design; this doc owns the *how* — the layered model, prompts, workflows, config, the execution model, and the runtime.
 
 ## Source layout
 
-Canonical `v2/src/` domain map, import direction, and entrypoint policy — not
-duplicated in per-domain docs. Role-based directories with co-located tests.
+Canonical `v2/src/` domain map, import direction, and entrypoint policy — not duplicated in per-domain docs. Role-based directories with co-located tests.
 
 ### Domain map
 
@@ -24,8 +20,7 @@ duplicated in per-domain docs. Role-based directories with co-located tests.
 | TUI host | `v2/src/tui/` (ink monitor/log-follow, daemon client) |
 | Test support | `v2/src/testing/` |
 
-Root keeps only the pinned entrypoints and cross-cutting modules: `cli.ts`,
-`daemon-entrypoint.ts`, `paths.ts`, and their co-located tests.
+Root keeps only the pinned entrypoints and cross-cutting modules: `cli.ts`, `daemon-entrypoint.ts`, `paths.ts`, and their co-located tests.
 
 ### Import direction
 
@@ -38,19 +33,11 @@ Root keeps only the pinned entrypoints and cross-cutting modules: `cli.ts`,
 | `testing/` | Anything |
 | Production code | Not `testing/` |
 
-**Committed exceptions:** persistence may **type-import** from execution/config
-(e.g. `state-store.ts` ← `InvocationFailureDetail`, `WriteLoopInput`;
-`log-stream.ts` ← `WriteLoopOutcomeKind`, `PublicationFailure`) — never value
-imports. `log-stream` ↔ `write-loop` is a mutual type-only dependency
-(execution imports `LogSink` from persistence). Hoist shared types to `shared/`
-before adding new cross-library edges; no silent value imports across
-libraries.
+**Committed exceptions:** persistence may **type-import** from execution/config (e.g. `state-store.ts` ← `InvocationFailureDetail`, `WriteLoopInput`; `log-stream.ts` ← `WriteLoopOutcomeKind`, `PublicationFailure`) — never value imports. `log-stream` ↔ `write-loop` is a mutual type-only dependency (execution imports `LogSink` from persistence). Hoist shared types to `shared/` before adding new cross-library edges; no silent value imports across libraries.
 
 ### Entrypoints
 
-Pinned at `v2/src/` root; relocate only with every caller in the same change set.
-`bin/jarvis` → `../v2/src/cli.ts`; `daemon-lifecycle` spawns
-`resolve(import.meta.dir, "../daemon-entrypoint.ts")`.
+Pinned at `v2/src/` root; relocate only with every caller in the same change set. `bin/jarvis` → `../v2/src/cli.ts`; `daemon-lifecycle` spawns `resolve(import.meta.dir, "../daemon-entrypoint.ts")`.
 
 ### Conventions
 
@@ -60,8 +47,7 @@ Pinned at `v2/src/` root; relocate only with every caller in the same change set
 
 ## The layered model
 
-The smallest pieces of Jarvis split across four layers — two in source, two in
-config. Naming them separately is what keeps the design from feeling tangled.
+The smallest pieces of Jarvis split across four layers — two in source, two in config. Naming them separately is what keeps the design from feeling tangled.
 
 | Layer | Lives in | What it is |
 | --- | --- | --- |
@@ -70,13 +56,7 @@ config. Naming them separately is what keeps the design from feeling tangled.
 | **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + role). No agent/model. |
 | **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Role→model bindings live separately, in a machine-independent store. |
 
-**Terminology change.** The earlier framing of a "building block = prompt + agent" is retired.
-The reusable source unit is a **step** (behavior + prompt + output contract); a step names a
-**role**, never a concrete model. The **agent** is a per-machine fallback order and
-the **model** resolves per agent from the step's role — neither is baked into the step.
-See [`role-resolution.md`](role-resolution.md) for the closed `Role` union.
-Keeping "building block" as "prompt + agent" is exactly what pulls the design back toward
-baking models into source, so we drop the term.
+**Terminology change.** The earlier framing of a "building block = prompt + agent" is retired. The reusable source unit is a **step** (behavior + prompt + output contract); a step names a **role**, never a concrete model. The **agent** is a per-machine fallback order and the **model** resolves per agent from the step's role — neither is baked into the step. See [`role-resolution.md`](role-resolution.md) for the closed `Role` union. Keeping "building block" as "prompt + agent" is exactly what pulls the design back toward baking models into source, so we drop the term.
 
 ## Prompts
 
@@ -96,22 +76,13 @@ Decided:
   **explicitly override** the default — add or remove specific fragments when
   it's the exception.
 
-Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the
-override syntax, and the rendered-prompt snapshot test standard (a prompt edit
-can shift `jarvis1` output, so changes are kept visible via revision-keyed
-snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
+Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the override syntax, and the rendered-prompt snapshot test standard (a prompt edit can shift `jarvis1` output, so changes are kept visible via revision-keyed snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
 
-**v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.**
-It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`).
-This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments.
-Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
+**v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
 
 ## Workflows & orchestration
 
-Composability is paramount. A workflow is a linear (with loops) array of steps.
-Different projects need different postures — heavier review for sensitive repos,
-YOLO for others, fast short-circuits for small tasks — without changing the
-underlying behavior or prompt implementations.
+Composability is paramount. A workflow is a linear (with loops) array of steps. Different projects need different postures — heavier review for sensitive repos, YOLO for others, fast short-circuits for small tasks — without changing the underlying behavior or prompt implementations.
 
 Decided:
 
@@ -188,8 +159,7 @@ Per-project config:
 
 ### Review-debate
 
-The **review-debate** behavior is a structured debate, not N identical critique passes
-(the shape designed in `v2/spec/2026-06-07T19-57-26Z-review-debate`):
+The **review-debate** behavior is a structured debate, not N identical critique passes (the shape designed in `v2/spec/2026-06-07T19-57-26Z-review-debate`):
 
 - **Read-only reviewers → a writing actuator.** One cycle is three read-only
   reviewer roles — adversary → advocate → adjudicator — then a separate actuator. The
@@ -219,11 +189,7 @@ The **review-debate** behavior is a structured debate, not N identical critique 
 
 ### Output contract (step outcomes)
 
-What gives the runner permission to advance, retry, or stop at each step. The
-model is **asymmetric "both"**: the agent emits a cheap structured outcome token,
-and the runner **deterministically** verifies an artifact contract before
-trusting a finish. No second agent call is spent verifying completion unless a
-workflow explicitly adds a review step.
+What gives the runner permission to advance, retry, or stop at each step. The model is **asymmetric "both"**: the agent emits a cheap structured outcome token, and the runner **deterministically** verifies an artifact contract before trusting a finish. No second agent call is spent verifying completion unless a workflow explicitly adds a review step.
 
 Outcome tokens:
 
@@ -253,8 +219,7 @@ Rules:
 - **Budget exhausted while still `progress` → soft stop**, matching v1's
   max-iterations (exit `5`): resumable, not a blocker.
 
-To design later: the contract primitive vocabulary. A blocker surfaces as a
-`blocked` run the operator inspects and re-runs.
+To design later: the contract primitive vocabulary. A blocker surfaces as a `blocked` run the operator inspects and re-runs.
 
 ### Interface
 
@@ -360,12 +325,7 @@ Observability (log follow interface):
 
 ## Runs & state
 
-The daemon-first decision needs a durable run model under it. The governing
-split: **the daemon owns *orchestration* state, never the *work* itself.** The
-work product lives where it always has — git worktree, branch, spec files, PR.
-The daemon stores only the position and bookkeeping needed to drive and resume a
-workflow, so a run stays recoverable and inspectable even when the daemon is
-down.
+The daemon-first decision needs a durable run model under it. The governing split: **the daemon owns *orchestration* state, never the *work* itself.** The work product lives where it always has — git worktree, branch, spec files, PR. The daemon stores only the position and bookkeeping needed to drive and resume a workflow, so a run stays recoverable and inspectable even when the daemon is down.
 
 A **run** is a workflow instance carrying:
 
@@ -388,12 +348,7 @@ Durable split (target shape):
   the run by durable IDs — not a free-form JSON blob on `runs`, so runner
   branching reads closed outcome classifications rather than parsing payloads.
 
-The exact columns are grown behind their consumers, not designed ahead of them:
-the write loop's resume read defines the first attempt/outcome fields, the
-workflow runner adds cross-step history. Payloads stay narrow and deterministic
-(timestamps, terminal status, outcome classification, minimal branch fields);
-transcript bodies, rich logs/events, daemon/session metadata, and token/cost
-streams stay out of the orchestration store.
+The exact columns are grown behind their consumers, not designed ahead of them: the write loop's resume read defines the first attempt/outcome fields, the workflow runner adds cross-step history. Payloads stay narrow and deterministic (timestamps, terminal status, outcome classification, minimal branch fields); transcript bodies, rich logs/events, daemon/session metadata, and token/cost streams stay out of the orchestration store.
 
 ### Persistence
 
@@ -482,19 +437,11 @@ streams stay out of the orchestration store.
 
 ### Blocked runs pause for the operator
 
-A **blocked** outcome (from the output contract) stops the run with its
-worktree, branch, and spec intact. The operator inspects the spec and
-uncommitted work, resolves the blocker, and re-runs — no blocker polling, no
-brittle external resume conditions. (An in-workflow human-approval step with
-approve/revise decisions shipped once and was deleted as unreachable, PR #1803;
-steering is pause/resume/kill only.)
+A **blocked** outcome (from the output contract) stops the run with its worktree, branch, and spec intact. The operator inspects the spec and uncommitted work, resolves the blocker, and re-runs — no blocker polling, no brittle external resume conditions. (An in-workflow human-approval step with approve/revise decisions shipped once and was deleted as unreachable, PR #1803; steering is pause/resume/kill only.)
 
 ## Concurrency & memory budget
 
-The unit is the **run**: workflows are linear, so a run has at most one agent
-subprocess in flight at a time. Concurrency is therefore "how many runs execute
-at once," and the heavy memory consumers are the active agent CLI subprocesses
-and the local model.
+The unit is the **run**: workflows are linear, so a run has at most one agent subprocess in flight at a time. Concurrency is therefore "how many runs execute at once," and the heavy memory consumers are the active agent CLI subprocesses and the local model.
 
 - **Adaptive, memory-watermark admission.** A static count cap doesn't translate
   across machines (personal M5 with ~2× the memory vs. work M1) or across
@@ -531,14 +478,7 @@ and the local model.
 
 ## Git, worktrees & PRs
 
-Most of v1's git/GitHub machinery is sound and carries forward unchanged:
-harness-authored commits (not agent git automation), `Spec:`-line + embedded
-acceptance-criteria commit bodies, `index.md` checkbox flips, `Jarvis-Agent`
-trailers + the PR attribution footer, idempotent draft-PR creation (OPEN-only),
-narrative-marker body rewrites, two-phase push, base branch via `gh`, the `gh
-auth` preflight, and the git toggle (global + per-project, incl. git:false
-loop-only runs). What the long-lived daemon and the "no artifacts in target
-repos" principle change is smaller:
+Most of v1's git/GitHub machinery is sound and carries forward unchanged: harness-authored commits (not agent git automation), `Spec:`-line + embedded acceptance-criteria commit bodies, `index.md` checkbox flips, `Jarvis-Agent` trailers + the PR attribution footer, idempotent draft-PR creation (OPEN-only), narrative-marker body rewrites, two-phase push, base branch via `gh`, the `gh auth` preflight, and the git toggle (global + per-project, incl. git:false loop-only runs). What the long-lived daemon and the "no artifacts in target repos" principle change is smaller:
 
 - **Worktrees live outside the repo.** v1 puts them at in-repo `.worktree/<name>`.
   v2 moves them to `~/.jarvis/worktrees/<project>/<branch>/` as linked worktrees.
@@ -589,9 +529,7 @@ repos" principle change is smaller:
 
 ## Interface & IPC
 
-The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC
-transport. All daemon control is async/await; there is no CLI here (CLI/TUI
-surface is a sibling concern, wired via this interface).
+The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC transport. All daemon control is async/await; there is no CLI here (CLI/TUI surface is a sibling concern, wired via this interface).
 
 - **IPC transport:** Length-prefixed JSON frames over Unix sockets. RPC methods
   (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
@@ -650,8 +588,4 @@ Run orchestration verbs over the daemon's IPC interface:
 
 ## Constraints & guiding principles
 
-The constraints and guiding principles that govern this architecture — cost,
-memory, configurability, composability, extendibility, reliability; terseness,
-capped PR size, strong architectural decisions — are the canonical list in
-[`v2-vision.md`](v2-vision.md). They are not duplicated here, to avoid drift; this
-doc is checked against them.
+The constraints and guiding principles that govern this architecture — cost, memory, configurability, composability, extendibility, reliability; terseness, capped PR size, strong architectural decisions — are the canonical list in [`v2-vision.md`](v2-vision.md). They are not duplicated here, to avoid drift; this doc is checked against them.

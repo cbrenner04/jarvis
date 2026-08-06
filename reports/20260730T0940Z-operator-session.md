@@ -1,19 +1,12 @@
 # Operator session — 2026-07-30 (04:10–14:00Z)
 
-Surface: v2 (`jarvis`). Goal: work the `v2/spec/implement-queue.md` queue, driving everything through
-implementation, and at minimum close the phase gate (in-flight specs + slot-before intents).
-Agent order: `codex,cursor,claude` for the first two hours, then `cursor,codex,claude`.
+Surface: v2 (`jarvis`). Goal: work the `v2/spec/implement-queue.md` queue, driving everything through implementation, and at minimum close the phase gate (in-flight specs + slot-before intents). Agent order: `codex,cursor,claude` for the first two hours, then `cursor,codex,claude`.
 
 ## Outcome
 
-**Phase gate closed, and the pipeline phase went from slices 1–2 through slices 3, 4, and the front
-of 5.** 45 PRs merged: 19 implementations, 20 plans, 4 intents, 2 operator spec fixes. Two specs
-carried over.
+**Phase gate closed, and the pipeline phase went from slices 1–2 through slices 3, 4, and the front of 5.** 45 PRs merged: 19 implementations, 20 plans, 4 intents, 2 operator spec fixes. Two specs carried over.
 
-`jarvis pipeline start | list | wait` and daemon-side approve/reject/resume now exist on `main`, with
-the approval/resume CLI (#2335) and terminal-action validation (#2336) landed. Not yet usable end to
-end: terminal-action *execution* and settlement are still queued intents, and slice 6 (the one
-integration proof) has not been planned.
+`jarvis pipeline start | list | wait` and daemon-side approve/reject/resume now exist on `main`, with the approval/resume CLI (#2335) and terminal-action validation (#2336) landed. Not yet usable end to end: terminal-action *execution* and settlement are still queued intents, and slice 6 (the one integration proof) has not been planned.
 
 ## Implementation PRs (17)
 
@@ -41,19 +34,15 @@ integration proof) has not been planned.
 
 ## Plan and intent PRs (26)
 
-Intents: #2288 #2289 #2290 #2291 (pipeline slices 3–6, each fanned out by surface — the split
-discipline from #2277 working end to end).
+Intents: #2288 #2289 #2290 #2291 (pipeline slices 3–6, each fanned out by surface — the split discipline from #2277 working end to end).
 
-Plans: #2285 #2286 #2292 #2293 #2294 #2295 #2296 #2299 #2300 #2305 #2306 #2307 #2317 #2318 #2319,
-plus #2325 #2327 #2329 #2332 #2333.
+Plans: #2285 #2286 #2292 #2293 #2294 #2295 #2296 #2299 #2300 #2305 #2306 #2307 #2317 #2318 #2319, plus #2325 #2327 #2329 #2332 #2333.
 
-Operator spec fixes: #2301 (name test doubles in an interface-widening spec), #2321 (move a wrapped
-`(Manual)` marker to the criterion's first line).
+Operator spec fixes: #2301 (name test doubles in an interface-widening spec), #2321 (move a wrapped `(Manual)` marker to the criterion's first line).
 
 ## Still open — two draft PRs left deliberately
 
-Both have a complete, working implementation blocked only by one missing mutation-killing test.
-Abandoning them would discard that work, so they are left as **drafts** rather than closed:
+Both have a complete, working implementation blocked only by one missing mutation-killing test. Abandoning them would discard that work, so they are left as **drafts** rather than closed:
 
 - **PR #2337** `repair-commits-limited-to-run-diff-and-spec-tree` — five attempts (one
   `role_stalled`, then `surviving_mutation_failed` repeatedly). Site:
@@ -65,22 +54,17 @@ Abandoning them would discard that work, so they are left as **drafts** rather t
   it by asserting a terminal review progress gets `attemptCount` coerced to ≥ 1 while an
   `in_progress` one is stored unchanged.
 
-Also unimplemented: `20260730T043002Z-exhausted-red-ready-gate-settles-failed-and-resumable`
-(planned #2296) and slice 5's remaining two intents.
+Also unimplemented: `20260730T043002Z-exhausted-red-ready-gate-settles-failed-and-resumable` (planned #2296) and slice 5's remaining two intents.
 
 ## Cost
 
-Agent-side (telemetry, 412 role invocations): **$12.53**. cursor 220 invocations (subscription,
-$0.00 recorded), codex 188 (`gpt-5.6-sol` 141, `gpt-5.6-terra` 47), claude 4. Exit kinds: 332 `ok`,
-72 `quota`, 7 `stall`, 1 `error`. Operator `/cost` requested separately.
+Agent-side (telemetry, 412 role invocations): **$12.53**. cursor 220 invocations (subscription, $0.00 recorded), codex 188 (`gpt-5.6-sol` 141, `gpt-5.6-terra` 47), claude 4. Exit kinds: 332 `ok`, 72 `quota`, 7 `stall`, 1 `error`. Operator `/cost` requested separately.
 
-The 72 `quota` exits are codex escalations during the codex-first window; they did not stop work —
-the flat agent list escalated and the runs completed.
+The 72 `quota` exits are codex escalations during the codex-first window; they did not stop work — the flat agent list escalated and the runs completed.
 
 ## What the fan-out taught us
 
-Peak was **8 concurrent lanes** (5 implement + 3 plan/intent), load average 15–25. That is past this
-machine's comfortable point:
+Peak was **8 concurrent lanes** (5 implement + 3 plan/intent), load average 15–25. That is past this machine's comfortable point:
 
 - Three runs settled `idle_output_timeout` at peak load, all of which recovered on re-dispatch at
   lower load. Read a cluster of these as saturation, not as an agent verdict.
@@ -89,8 +73,7 @@ machine's comfortable point:
 - Fanning out a dependency chain wastes one dispatch per unmet edge — five plan runs correctly
   refused with `## Blocker` naming an unmerged sibling.
 
-Plans and intents parallelize cleanly (each ~5 min, none contended). The throttle belongs on
-implement runs, at about 3–4 on this machine.
+Plans and intents parallelize cleanly (each ~5 min, none contended). The throttle belongs on implement runs, at about 3–4 on this machine.
 
 ## Hand interventions (each one a harness gap)
 
@@ -120,8 +103,7 @@ Seven, all recorded above or seeded:
 | `guard-inversion-criteria-produce-production-test-flags` | #2323 added one `setInvert*ForTest`, #2328 added four — while #2326 existed to delete one |
 | `human-only-marker-read-from-first-line-only` | A wrapped `(Manual)` criterion blocked two implement dispatches |
 
-Runbook updated with seven gotchas from this session (see `v2/docs/operator-runbook.md` §
-Known gotchas, 2026-07-30 entries).
+Runbook updated with seven gotchas from this session (see `v2/docs/operator-runbook.md` § Known gotchas, 2026-07-30 entries).
 
 ## Friction not seeded (one-offs)
 

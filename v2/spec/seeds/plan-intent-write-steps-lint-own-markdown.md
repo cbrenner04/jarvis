@@ -4,18 +4,11 @@ name: plan-intent-write-steps-lint-own-markdown
 
 # Plan and intent write steps finalize Markdown they never linted
 
-Split from `plan-output-fails-lint-md-and-repair-edits-unrelated-source` (2026-08-04): this seed
-owns the write-step self-lint; the repair misbehavior those runs also exhibited is owned by
-`gate-repair-fence`.
+Split from `plan-output-fails-lint-md-and-repair-edits-unrelated-source` (2026-08-04): this seed owns the write-step self-lint; the repair misbehavior those runs also exhibited is owned by `gate-repair-fence`.
 
 ## Problem
 
-The plan write step drafts Markdown and finalizes without ever linting it. `lint:md` then runs in
-the ready gate and goes red on the spec the run just wrote — the gate is the first thing that reads
-the plan's own output. Two plan runs on 2026-08-03, same session: `f225849b` → `5fd45995`
-(`tui-command-editor` 00, `MD012` × 1) and `77b741af` → `080e3d64` (`tui-command-dispatch` 02,
-`MD038` × 4). Both entered gate repair, both settled `completion_commit_failed`, both cost a
-hand-finish. The intent write step drafts Markdown on the identical seam.
+The plan write step drafts Markdown and finalizes without ever linting it. `lint:md` then runs in the ready gate and goes red on the spec the run just wrote — the gate is the first thing that reads the plan's own output. Two plan runs on 2026-08-03, same session: `f225849b` → `5fd45995` (`tui-command-editor` 00, `MD012` × 1) and `77b741af` → `080e3d64` (`tui-command-dispatch` 02, `MD038` × 4). Both entered gate repair, both settled `completion_commit_failed`, both cost a hand-finish. The intent write step drafts Markdown on the identical seam.
 
 ## Decisions
 

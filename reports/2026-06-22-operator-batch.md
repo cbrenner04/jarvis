@@ -50,9 +50,7 @@ Merged main (one `v1-behaviors.md` conflict, kept both serial-retry + complete-b
 | harness-suggestion-intake | opus · $2.17 · 7m | haiku · $1.46 · 16m | 12k→19k / 8k→23k |
 | finalize-complete-but-dirty (#390) | opus · — (prior session) | haiku · ~$6.75³ · — | — / — |
 
-¹ Includes a ~23-min review-actuator stall killed only by the blunt 30-min iteration timeout (no idle watchdog on the running harness — the very thing #390 fixes).
-² Run first errored on a `check:fix:unsafe`-induced typecheck failure (the `noNonNullAssertion` trap, [[check-fix-unsafe-rewrites-nonnull-assertions]]); resolved by an operator gate-compat fix + finalize re-run.
-³ #390's plan was prior-session; this is the `finalize-complete-but-dirty-run` namespace total across re-drives (original stalled run that was killed, the gate-red finalize, and the post-watchdog-fix finalize) plus operator hand-debug. The standalone pre-compaction finalize run was $4.05 (exited agent-error). Hand-finalized.
+¹ Includes a ~23-min review-actuator stall killed only by the blunt 30-min iteration timeout (no idle watchdog on the running harness — the very thing #390 fixes). ² Run first errored on a `check:fix:unsafe`-induced typecheck failure (the `noNonNullAssertion` trap, [[check-fix-unsafe-rewrites-nonnull-assertions]]); resolved by an operator gate-compat fix + finalize re-run. ³ #390's plan was prior-session; this is the `finalize-complete-but-dirty-run` namespace total across re-drives (original stalled run that was killed, the gate-red finalize, and the post-watchdog-fix finalize) plus operator hand-debug. The standalone pre-compaction finalize run was $4.05 (exited agent-error). Hand-finalized.
 
 **Jarvis telemetry spend (2026-06-22):** ~$59.54 across all plan+run summaries in `runs.jsonl` (includes the pre-compaction harness-transient / codex-path-cache / finalize work and all re-runs). Per-intent plan+impl landed ~$4–9.
 

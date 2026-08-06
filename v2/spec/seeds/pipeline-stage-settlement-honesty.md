@@ -4,41 +4,17 @@ name: pipeline-stage-settlement-honesty
 
 # Stage settlement can terminalize a live run, downgrade run errors, and die on a merged base branch
 
-One bundle: both defects are the same surface — what a pipeline stage row records when its linked
-run settles or fails (`v2/src/daemon/pipeline-stage-dispatch.ts`,
-`v2/src/execution/pipeline-execution.ts`). Absorbs `entry-run-settlement-terminalizes-live-rows`
-and `pipeline-implement-stage-breaks-when-its-plan-pr-merges` (2026-08-04).
+One bundle: both defects are the same surface — what a pipeline stage row records when its linked run settles or fails (`v2/src/daemon/pipeline-stage-dispatch.ts`, `v2/src/execution/pipeline-execution.ts`). Absorbs `entry-run-settlement-terminalizes-live-rows` and `pipeline-implement-stage-breaks-when-its-plan-pr-merges` (2026-08-04).
 
 ## Problem A — settlement terminalizes a live-linked stage; one guard from the fix is inert
 
-PR #2566 stopped the ordered-progression and fan-out writers from terminalizing a stage whose
-`workflowInvocationId` names a live entry run. It did not guard the **writer** that records the
-terminal patch. `applyEntryRunSettlement` (`pipeline-stage-dispatch.ts:135-142`) writes
-`status: "failed"` and `endedAt` on any non-`completed` rollup with no `isLiveEntryRun` re-check.
-It trusts `wait` — but `waitForWorkflowEntryRun` (`daemon.ts:1758`) **awaits nothing** when
-`workflowPromisesByEntryRunId` has no entry for the run: it rolls up `isLive: false` and
-`rollupWorkflowRunStatus` (`workflow-run-status-rollup.ts:38-45`) returns the in-flight step's
-`in-progress`, or `"killed"` for a step row that does not exist yet. So `wait` can resolve
-non-`completed` over a run that is still live, and the stage is terminalized anyway. Because
-`adoptAndSettlePipelineStage` can write linkage and settle in the same tick, this is also the one
-remaining path to `startedAt == endedAt` — the signature observed 2026-08-03. In-process dispatch
-is safe (the promise registers at `daemon.ts:1089` before resolve); the exposure is the
-cross-process / post-restart adopt path — precisely the case #2566's adoption machinery serves.
+PR #2566 stopped the ordered-progression and fan-out writers from terminalizing a stage whose `workflowInvocationId` names a live entry run. It did not guard the **writer** that records the terminal patch. `applyEntryRunSettlement` (`pipeline-stage-dispatch.ts:135-142`) writes `status: "failed"` and `endedAt` on any non-`completed` rollup with no `isLiveEntryRun` re-check. It trusts `wait` — but `waitForWorkflowEntryRun` (`daemon.ts:1758`) **awaits nothing** when `workflowPromisesByEntryRunId` has no entry for the run: it rolls up `isLive: false` and `rollupWorkflowRunStatus` (`workflow-run-status-rollup.ts:38-45`) returns the in-flight step's `in-progress`, or `"killed"` for a step row that does not exist yet. So `wait` can resolve non-`completed` over a run that is still live, and the stage is terminalized anyway. Because `adoptAndSettlePipelineStage` can write linkage and settle in the same tick, this is also the one remaining path to `startedAt == endedAt` — the signature observed 2026-08-03. In-process dispatch is safe (the promise registers at `daemon.ts:1089` before resolve); the exposure is the cross-process / post-restart adopt path — precisely the case #2566's adoption machinery serves.
 
-Smaller: `failWorkflowStageAt` (`pipeline-execution.ts:1039`) carries a live-linkage guard whose
-failure state is unreachable — all three call sites pass the same `stageRecords` snapshot from
-which the caller already established the row is not `running`, so the guard can never observe
-`running` and no mutation can kill it. Mandated by subspec 01's Decisions, so it is the spec asking
-for a guard against a condition that cannot occur — the same shape as the retired
-`destinationDistinctFromPredecessor`. Related: `plan-review-must-falsify-guard-premises`.
+Smaller: `failWorkflowStageAt` (`pipeline-execution.ts:1039`) carries a live-linkage guard whose failure state is unreachable — all three call sites pass the same `stageRecords` snapshot from which the caller already established the row is not `running`, so the guard can never observe `running` and no mutation can kill it. Mandated by subspec 01's Decisions, so it is the spec asking for a guard against a condition that cannot occur — the same shape as the retired `destinationDistinctFromPredecessor`. Related: `plan-review-must-falsify-guard-premises`.
 
 ## Problem B — merging the pipeline's own plan PR kills the implement stage, and the failure is downgraded
 
-A `full-review` implement stage opens its draft PR with `--base <plan stage branch>` — a stacked
-chain nothing documents or guards. The runbook directs the operator to merge each green PR as it
-lands, and a squash merge deletes the head branch, so merging the pipeline's own plan PR removes
-the base ref the implement stage is about to target. Observed 2026-08-03, pipeline `3b97c231`
-(seed `surface-the-completion-commit-error-instead-of-swallowing-it`): plan PR #2547 merged, then
+A `full-review` implement stage opens its draft PR with `--base <plan stage branch>` — a stacked chain nothing documents or guards. The runbook directs the operator to merge each green PR as it lands, and a squash merge deletes the head branch, so merging the pipeline's own plan PR removes the base ref the implement stage is about to target. Observed 2026-08-03, pipeline `3b97c231` (seed `surface-the-completion-commit-error-instead-of-swallowing-it`): plan PR #2547 merged, then
 
 ```text
 Command failed: gh pr create --draft --base plan/persist-completion-commit-error-in-loop-log …
@@ -46,13 +22,7 @@ pull request create failed: GraphQL: Head sha can't be blank, Base sha can't be 
   Base ref must be a branch (createPullRequest)
 ```
 
-The stage recorded `harness_failure` / retryable: false / `nextAction: "stop"` and the pipeline
-derived terminal `failed` — while `jarvis run wait` on the owning run reported
-`completion_commit_failed`, retryable, `nextAction: "resume"`. The completion commit was not lost,
-but no PR existed and recovery was a hand rebase onto `main` (#2549). (The same failure also showed
-the stage linked to the wrong run with `startedAt == endedAt`; stage-to-run linkage identity has
-since been reworked by settlement-first fan-out terminality, #2590/#2591 — verify remaining linkage
-scope at plan time.)
+The stage recorded `harness_failure` / retryable: false / `nextAction: "stop"` and the pipeline derived terminal `failed` — while `jarvis run wait` on the owning run reported `completion_commit_failed`, retryable, `nextAction: "resume"`. The completion commit was not lost, but no PR existed and recovery was a hand rebase onto `main` (#2549). (The same failure also showed the stage linked to the wrong run with `startedAt == endedAt`; stage-to-run linkage identity has since been reworked by settlement-first fan-out terminality, #2590/#2591 — verify remaining linkage scope at plan time.)
 
 ## Decisions
 

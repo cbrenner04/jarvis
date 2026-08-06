@@ -39,16 +39,16 @@ Agents hard-wrap specs, ready-intents, seeds, docs, and PR bodies at ~100 column
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/registry.test.ts` asserts `global.no-hard-wrap` is in the loaded artifact set; fails against the pre-fix registry.
-- [ ] `shared/prompts/intent-split.test.ts` asserts `buildIntentSplitPrompt` includes the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix assembly.
-- [ ] `v2/src/execution/write-prompt.test.ts` asserts `write.execute` and `plan.prompt.draft` renders include the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix assembly.
-- [ ] `v2/src/execution/write-prompt.test.ts` asserts `patch.prompt.shrink` render includes the no-hard-wrap fragment text after `global.terse` and omits `global.documentation` / `global.naming` body text; fails against the pre-fix assembly.
-- [ ] `v1/test/prompt.test.ts` asserts `buildPrompt` includes the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix output.
-- [ ] `v1/test/modes/prompt/prompt.test.ts` asserts `prompt.prompt.body` global-fragment assembly includes `global.no-hard-wrap` after `global.terse`; fails against the pre-fix `.toBe` join.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures.
-- [ ] `v1/docs/prompt-governance.md` catalogs `global.no-hard-wrap` and documents shrink layering as `global.terse` → `global.no-hard-wrap`.
-- [ ] Mutation checkpoint: the `includes governed layering, file output, and optional step rules` test in `shared/prompts/intent-split.test.ts` (extended to assert the no-hard-wrap fragment after `global.terse`) carries `// @mutate prompts/global/no-hard-wrap.md "behavior: global" -> "behavior: archived"`; applying it turns that test red.
-- [ ] `bun run typecheck` and touched test scope (`shared/**` → `test:v1` + `test:v2` + `test:integration:v2`) pass.
+- [x] `shared/prompts/registry.test.ts` asserts `global.no-hard-wrap` is in the loaded artifact set; fails against the pre-fix registry.
+- [x] `shared/prompts/intent-split.test.ts` asserts `buildIntentSplitPrompt` includes the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix assembly.
+- [x] `v2/src/execution/write-prompt.test.ts` asserts `write.execute` and `plan.prompt.draft` renders include the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix assembly.
+- [x] `v2/src/execution/write-prompt.test.ts` asserts `patch.prompt.shrink` render includes the no-hard-wrap fragment text after `global.terse` and omits `global.documentation` / `global.naming` body text; fails against the pre-fix assembly.
+- [x] `v1/test/prompt.test.ts` asserts `buildPrompt` includes the no-hard-wrap fragment text after `global.terse`; fails against the pre-fix output.
+- [x] `v1/test/modes/prompt/prompt.test.ts` asserts `prompt.prompt.body` global-fragment assembly includes `global.no-hard-wrap` after `global.terse`; fails against the pre-fix `.toBe` join.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures.
+- [x] `v1/docs/prompt-governance.md` catalogs `global.no-hard-wrap` and documents shrink layering as `global.terse` → `global.no-hard-wrap`.
+- [x] Mutation checkpoint: the `includes governed layering, file output, and optional step rules` test in `shared/prompts/intent-split.test.ts` (extended to assert the no-hard-wrap fragment after `global.terse`) carries `// @mutate prompts/global/no-hard-wrap.md "behavior: global" -> "behavior: archived"`; applying it turns that test red.
+- [x] `bun run typecheck` and touched test scope (`shared/**` → `test:v1` + `test:v2` + `test:integration:v2`) pass.
 
 ## Documentation updates
 

@@ -21,6 +21,7 @@ describe("prompt registry load validation", () => {
     const ids = registry.all().map((artifact) => artifact.metadata.id);
 
     expect(ids).toContain("global.terse");
+    expect(ids).toContain("global.no-hard-wrap");
     expect(ids).toContain("global.documentation");
     expect(ids).toContain("global.naming");
     expect(ids).toContain("patch.prompt.body");

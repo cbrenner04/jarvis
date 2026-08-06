@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Conventions for working in this repo — humans and coding agents alike. **BE TERSE** everywhere (specs, intents, commits, comments, PRs): verbosity costs review effort and money.
+Conventions for working in this repo — humans and coding agents alike. **BE TERSE** everywhere (specs, intents, commits, comments, PRs): verbosity costs review effort and money. **Do not hard-wrap authored markdown** (specs, ready-intents, seeds, docs, PR bodies) — one physical line per paragraph and list item.
 
 ## What this repo is
 

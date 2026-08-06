@@ -101,6 +101,11 @@ override syntax, and the rendered-prompt snapshot test standard (a prompt edit
 can shift `jarvis1` output, so changes are kept visible via revision-keyed
 snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
 
+**v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.**
+It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`).
+This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments.
+Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
+
 ## Workflows & orchestration
 
 Composability is paramount. A workflow is a linear (with loops) array of steps.

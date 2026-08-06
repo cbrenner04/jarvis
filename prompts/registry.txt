@@ -1,4 +1,5 @@
 global/terse.md
+global/no-hard-wrap.md
 global/documentation.md
 global/naming.md
 shared/pr-description.md

@@ -2,7 +2,7 @@
 id: plan.prompt.review.adversary
 behavior: plan
 kind: step
-revision: 3
+revision: 4
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---

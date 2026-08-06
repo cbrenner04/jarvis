@@ -537,6 +537,35 @@ describe("createCompletionCommitter", () => {
     expect(committed).toBe(FORMATTED_TS);
   });
 
+  test("commits a markdown-only changed set without failing on biome-ineligible paths", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    // Only a markdown change — biome cannot process it; the formatter must skip, not throw.
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const committed = execFileSync("git", ["show", "HEAD:v2/spec/test/index.md"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toContain("Updated body.");
+  });
+
+  test("commits a deletion-only changed set without failing on the removed path", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    // A deleted path is not biome-processable; the formatter must skip, not throw.
+    execFileSync("git", ["rm", "-q", "src/example.ts"], { cwd: worktreePath, stdio: "pipe" });
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    expect(existsSync(join(worktreePath, "src/example.ts"))).toBe(false);
+  });
+
   test("throws before staging when formatter exits non-zero", async () => {
     const { worktreePath, seedHead } = initRealGitWorktree();
     writeUnformattedExample(worktreePath);

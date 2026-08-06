@@ -59,16 +59,42 @@ function pathFromPorcelainLine(line: string): string | undefined {
   return path.length > 0 ? path : undefined;
 }
 
+/** Biome only processes a fixed set of extensions. A changed set that is markdown-only or
+ * deletion-only yields no eligible files, and `biome check` would exit non-zero ("No files
+ * were processed") — that is a skip, not a completion-commit failure. */
+const BIOME_FORMATTABLE_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".jsonc",
+]);
+
+function biomeEligiblePaths(cwd: string, paths: readonly string[]): string[] {
+  return paths.filter((path) => {
+    const dot = path.lastIndexOf(".");
+    if (dot < 0) return false;
+    if (!BIOME_FORMATTABLE_EXTENSIONS.has(path.slice(dot).toLowerCase())) return false;
+    return existsSync(join(cwd, path));
+  });
+}
+
 /** Scoped format-only pass on enumerated changed paths; distinct from ready-gate `fixCommand` autofix. */
 async function runCompletionFormat(
   opts: CompletionFormatOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<void> {
-  if (opts.paths.length === 0) return;
   if (!existsSync(join(opts.cwd, "biome.json"))) return;
-  const displayCmd = `bun biome check --write ${opts.paths.join(" ")}`;
+  const eligible = biomeEligiblePaths(opts.cwd, opts.paths);
+  if (eligible.length === 0) return;
+  const displayCmd = `bun biome check --write ${eligible.join(" ")}`;
   try {
-    await runner.runAsync("bun", ["biome", "check", "--write", ...opts.paths], opts.cwd, {
+    await runner.runAsync("bun", ["biome", "check", "--write", ...eligible], opts.cwd, {
       timeoutMs: opts.timeoutMs,
       env: process.env,
     });

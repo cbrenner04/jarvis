@@ -1,4 +1,6 @@
 {
+  // no-hard-wrap: flags soft line breaks inside paragraph/list-item prose; block-level html_block tokens are exempt (inline tags within prose are not)
+  "customRules": ["scripts/markdownlint-no-hard-wrap-rule.ts"],
   "globs": [
     "v1/spec/**/*.md",
     "v1/docs/**/*.md",
@@ -28,6 +30,7 @@
     // Multiple headings with the same content: docs reuse heading names across distinct sections
     "MD024": false,
     // Link fragments: anchor references vary by context; some fragments reference non-heading content
-    "MD051": false
+    "MD051": false,
+    "no-hard-wrap": true
   }
 }

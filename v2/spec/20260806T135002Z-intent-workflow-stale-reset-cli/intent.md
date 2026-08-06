@@ -6,10 +6,7 @@ name: intent-workflow-stale-reset-cli
 
 ## Problem
 
-A killed or failed `jarvis run workflow intent` leaves a persistent branch, worktree, and
-ownership-stamped `.jarvis-intent-review-verdict.md`. `STALE_RESET_WORKFLOWS` excludes
-`intent`, so the next CLI re-run reuses that tree; review then refuses non-retryably with
-`boundaryViolation: verdict file .jarvis-intent-review-verdict.md is owned by a different
+A killed or failed `jarvis run workflow intent` leaves a persistent branch, worktree, and ownership-stamped `.jarvis-intent-review-verdict.md`. `STALE_RESET_WORKFLOWS` excludes `intent`, so the next CLI re-run reuses that tree; review then refuses non-retryably with `boundaryViolation: verdict file .jarvis-intent-review-verdict.md is owned by a different
 invocation`. Recovery today is manual `jarvis cleanup --abandon`.
 
 ## Decisions

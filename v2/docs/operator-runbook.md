@@ -1,17 +1,12 @@
 # v2 operator runbook
 
-Reference for the **operator** driving the primary v2 harness (`jarvis`) on the
-Jarvis repo. **Operator** is the single name for this role.
+Reference for the **operator** driving the primary v2 harness (`jarvis`) on the Jarvis repo. **Operator** is the single name for this role.
 
-Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, workflow
-presets, TUI observation, and cleanup. Cross-link the v1 runbook for the few
-surfaces v2 does not own yet.
+Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, workflow presets, TUI observation, and cleanup. Cross-link the v1 runbook for the few surfaces v2 does not own yet.
 
 ## Which binary
 
-`jarvis` (v2) is the daily driver: intent/plan/implement workflows, daemon, run
-control, TUI, and cleanup of v2 worktrees/specs. `jarvis1` (v1,
-maintenance-only) remains for:
+`jarvis` (v2) is the daily driver: intent/plan/implement workflows, daemon, run control, TUI, and cleanup of v2 worktrees/specs. `jarvis1` (v1, maintenance-only) remains for:
 
 | Concern | Binary | Notes |
 | --- | --- | --- |
@@ -19,13 +14,11 @@ maintenance-only) remains for:
 | Triage, review-feedback, prompt, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
 | v1 patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
 
-Orientation: [`onboarding.md`](./onboarding.md). Install path:
-[`install-and-config.md`](./install-and-config.md).
+Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-config.md`](./install-and-config.md).
 
 ## Where planning artifacts live
 
-Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project
-that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`.
+Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`.
 
 | Artifact | Typical path |
 | --- | --- |
@@ -35,63 +28,27 @@ that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`
 | Completed specs | `<targetDir>/completed/` |
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
-Prioritization for seeds and ready intents (operator-maintained):
-`v2/spec/implement-queue.md`.
+Prioritization for seeds and ready intents (operator-maintained): `v2/spec/implement-queue.md`.
 
-Successful publication consumes the queue input only after its durable output
-lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
+Successful publication consumes the queue input only after its durable output lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
 
 ## Status
 
-**v2 is the primary harness.** `intent`, `plan`, and `implement` are the
-first-class presets; `implement` launches only when its requested spec tree has
-unchecked automated work. **Configured pipelines** are supported for registered
-projects whose `~/.jarvis/config.json` entry includes `projects.<name>.pipeline`
-(admission resolves the named definition and `terminalAction` before
-`pipeline_start`). Step-by-step operator flow for `full-review` with approval
-gates, failure resume, and terminal `ready` settlement lives in
-[Configured pipeline (`jarvis pipeline start`)](./first-workflow-walkthrough.md#configured-pipeline-jarvis-pipeline-start).
-`intent-reviewed`, `plan-reviewed`, and
-`plan-reviewed-light` are **legacy aliases** (see
-[Workflow presets](#workflow-presets-registered-names)), not first-class
-presets.
+**v2 is the primary harness.** `intent`, `plan`, and `implement` are the first-class presets; `implement` launches only when its requested spec tree has unchecked automated work. **Configured pipelines** are supported for registered projects whose `~/.jarvis/config.json` entry includes `projects.<name>.pipeline` (admission resolves the named definition and `terminalAction` before `pipeline_start`). Step-by-step operator flow for `full-review` with approval gates, failure resume, and terminal `ready` settlement lives in [Configured pipeline (`jarvis pipeline start`)](./first-workflow-walkthrough.md#configured-pipeline-jarvis-pipeline-start). `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy aliases** (see [Workflow presets](#workflow-presets-registered-names)), not first-class presets.
 
-Intent-reviewed dispatch now resolves the registered layered critic and actuator
-artifacts at runtime, reading every staged Markdown file and spec guidance. The
-critic's stdout remains the verdict channel and is persisted at the reserved verdict
-path; empty verdicts skip the actuator. Completion requires that critic invocation
-and artifact; missing staged workspaces, unavailable bindings, boundary violations,
-and Git inspection errors now stop with named failures instead of silently completing.
-Boundary violation messages list unauthorized repo-relative paths verbatim.
+Intent-reviewed dispatch now resolves the registered layered critic and actuator artifacts at runtime, reading every staged Markdown file and spec guidance. The critic's stdout remains the verdict channel and is persisted at the reserved verdict path; empty verdicts skip the actuator. Completion requires that critic invocation and artifact; missing staged workspaces, unavailable bindings, boundary violations, and Git inspection errors now stop with named failures instead of silently completing. Boundary violation messages list unauthorized repo-relative paths verbatim.
 
-**Two diagnoses of this have already been wrong — do not cut a spec against a third
-without observing a run.** "The review step never invokes an agent" is refuted:
-telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`).
-Bare `intent` now runs one light review by default; pass `--review-passes 0` to
-recover split-only completion for scripts that relied on the prior zero-pass default.
-Bare `plan` now runs one debate review by default; pass `--review-passes 0` to
-recover draft-only completion for scripts that relied on the prior zero-pass default.
-Note an empty review log proves nothing either way: `runReviewStep` gets no `logSink`,
-so it logs nothing whether or not an agent ran. Both wrong diagnoses read that silence
-as evidence. Ready-intent: `review-step-emits-log-events`.
+**Two diagnoses of this have already been wrong — do not cut a spec against a third without observing a run.** "The review step never invokes an agent" is refuted: telemetry shows real critic *and* actuator invocations (21–83s, `exit_kind: ok`). Bare `intent` now runs one light review by default; pass `--review-passes 0` to recover split-only completion for scripts that relied on the prior zero-pass default. Bare `plan` now runs one debate review by default; pass `--review-passes 0` to recover draft-only completion for scripts that relied on the prior zero-pass default. Note an empty review log proves nothing either way: `runReviewStep` gets no `logSink`, so it logs nothing whether or not an agent ran. Both wrong diagnoses read that silence as evidence. Ready-intent: `review-step-emits-log-events`.
 
-**Do not trust a `completed` status on a P0 without re-running the preset.** Two of
-them (`implement-preflight-validates-spec-in-missing-worktree` #1417,
-`plan-draft-write-loop-prompt`) were marked complete while the operator-visible
-failure survived — the fix landed one layer away from the bug.
+**Do not trust a `completed` status on a P0 without re-running the preset.** Two of them (`implement-preflight-validates-spec-in-missing-worktree` #1417, `plan-draft-write-loop-prompt`) were marked complete while the operator-visible failure survived — the fix landed one layer away from the bug.
 
 ## North star
 
-Same as [v1 operator runbook § North star](../../v1/docs/operator-runbook.md#north-star):
-minimize manual steps; fold fixes into existing commands rather than new subcommands.
-Gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` for genuine v1
-maintenance fixes).
+Same as [v1 operator runbook § North star](../../v1/docs/operator-runbook.md#north-star): minimize manual steps; fold fixes into existing commands rather than new subcommands. Gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` for genuine v1 maintenance fixes).
 
 ## Operator feedback cadence
 
-Same two-point rule as v1: report when you launch a `jarvis` command and when it
-lands. After a landed intent (implemented and on `main`), one short session
-paragraph. Interrupt only for a decision you cannot make.
+Same two-point rule as v1: report when you launch a `jarvis` command and when it lands. After a landed intent (implemented and on `main`), one short session paragraph. Interrupt only for a decision you cannot make.
 
 ## Operator responsibilities
 
@@ -143,25 +100,17 @@ Template for a new gotcha:
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**
 
-**Issue comments are not returned by default.** `gh issue list` gives titles only, and
-`gh issue view <n>` omits comments unless you ask for them. The owner routinely adds
-decisive context as a comment after filing, so triaging from the body alone will get
-it wrong:
+**Issue comments are not returned by default.** `gh issue list` gives titles only, and `gh issue view <n>` omits comments unless you ask for them. The owner routinely adds decisive context as a comment after filing, so triaging from the body alone will get it wrong:
 
 ```sh
 gh issue view <n> --repo cbrenner04/jarvis --comments
 ```
 
-Observed 2026-07-12 on intake #1453: the body proposed a full sandbox-policy
-architecture; the owner's comment said *"written with no familiarity with the harness
-— confirm assumptions prior to creating a seed."* Three core assumptions then failed
-against the code, and the resulting seed was a fraction of what the body asked for.
-See [v1 runbook § Triage](../../v1/docs/operator-runbook.md#triage-jarvis-on-jarvis-operator).
+Observed 2026-07-12 on intake #1453: the body proposed a full sandbox-policy architecture; the owner's comment said *"written with no familiarity with the harness — confirm assumptions prior to creating a seed."* Three core assumptions then failed against the code, and the resulting seed was a fraction of what the body asked for. See [v1 runbook § Triage](../../v1/docs/operator-runbook.md#triage-jarvis-on-jarvis-operator).
 
 ## Core operator paths
 
-Full happy-path detail: [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md).
-Preset contracts: [`workflow-runner.md`](./workflow-runner.md).
+Full happy-path detail: [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md). Preset contracts: [`workflow-runner.md`](./workflow-runner.md).
 
 ### Daemon lifecycle
 
@@ -171,8 +120,7 @@ jarvis daemon status    # running → exit 0
 jarvis daemon stop      # when intentionally shutting down
 ```
 
-Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
-`jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
+Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no `jarvis daemon log` subcommand yet — ready intent `daemon-process-log-read`).
 
 ### Workflow presets (registered names)
 
@@ -182,10 +130,7 @@ Socket: `~/.jarvis/daemon.sock`. Process log: `~/.jarvis/daemon.log` (no
 | `plan` | Draft spec tree from ready-intent (one debate review by default; `--review-passes 0` opts out) |
 | `implement` | Index-routed implementation + shrink (+ review by default; `--review-passes 0` to skip) |
 
-`intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy
-aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`) that
-resolve to `intent`/`plan` and emit a migration hint. `intent-reviewed` and
-`plan-reviewed` are redundant with bare `intent` and `plan`.
+`intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are **legacy aliases** (`LEGACY_WORKFLOW_ALIASES`, `v2/src/commands/workflow-args.ts`) that resolve to `intent`/`plan` and emit a migration hint. `intent-reviewed` and `plan-reviewed` are redundant with bare `intent` and `plan`.
 
 Examples:
 
@@ -210,8 +155,7 @@ jarvis pipeline start <project> --seed path/to/seed.md
 jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return after admission; track via printed pipeline ID
 ```
 
-`--seed <path>` matches standalone intent `--seed` (slug, `landing.inputs.paths`, worktree consumption);
-`--seed-text` is inline-only (`seedText`, no seed-file deletion).
+`--seed <path>` matches standalone intent `--seed` (slug, `landing.inputs.paths`, worktree consumption); `--seed-text` is inline-only (`seedText`, no seed-file deletion).
 
 Plan completion records a bare spec **directory** on the stage artifact; chained implement resolution normalizes that to `<dir>/index.md` in `resolveImplementStage` before any workflow run row exists. A directory without `index.md` on the plan worktree fails at stage resolution (`failure_detail` with `pipeline-stage-resolve:` prefix, worktree-relative path, index-expected wording) — not later as `Non-index spec requires --artifact` from the implement builder.
 
@@ -253,45 +197,15 @@ Use **`pipeline resume`** (not `pipeline start` or `jarvis run resume`) when a p
 
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
-`--spec` is resolved from the caller's cwd, then checked at its resolved
-project-relative path in `--base` before daemon contact. If it is unavailable,
-commit or select a base ref that contains the spec and retry; launching from a
-project subdirectory is supported.
+`--spec` is resolved from the caller's cwd, then checked at its resolved project-relative path in `--base` before daemon contact. If it is unavailable, commit or select a base ref that contains the spec and retry; launching from a project subdirectory is supported.
 
-Before linked routing, the daemon materializes and validates the managed
-worktree. If that fails, it returns `worktree_materialization_failed`; the
-message names the managed path and the underlying Git or validation reason. Fix
-the checkout problem and retry: no routing read, run row, or agent invocation
-occurred. A later routing index read returns `routing_read_failed`; its message
-names the resolved index path and underlying read reason.
+Before linked routing, the daemon materializes and validates the managed worktree. If that fails, it returns `worktree_materialization_failed`; the message names the managed path and the underlying Git or validation reason. Fix the checkout problem and retry: no routing read, run row, or agent invocation occurred. A later routing index read returns `routing_read_failed`; its message names the resolved index path and underlying read reason.
 
-Remote branch presence for materialization uses `git ls-remote --heads origin
-<branch>` (`branchExistsOnOriginAsync` in `shared/git.ts`), not a local
-`origin/<branch>` tracking ref alone. `ls-remote` errors or empty output are
-treated as absent on the remote (fail-closed false), so offline or auth failure
-can bias recreation toward `--base` even when a remote branch still exists.
+Remote branch presence for materialization uses `git ls-remote --heads origin <branch>` (`branchExistsOnOriginAsync` in `shared/git.ts`), not a local `origin/<branch>` tracking ref alone. `ls-remote` errors or empty output are treated as absent on the remote (fail-closed false), so offline or auth failure can bias recreation toward `--base` even when a remote branch still exists.
 
-Before daemon contact, `jarvis run workflow implement` reads the requested spec
-tree. If all non-human-only criteria are checked, it exits `1` with
-`implement.already_complete`; no worktree, agent invocation, or run row exists.
-Linked-index checkboxes are not the completion source of truth. Subspec
-*routing* (which link runs next) now keys off the same unticked-criteria rule,
-so a hand-finished-and-merged subspec with a lagging index box is skipped
-automatically on re-run rather than needing its box hand-ticked first.
+Before daemon contact, `jarvis run workflow implement` reads the requested spec tree. If all non-human-only criteria are checked, it exits `1` with `implement.already_complete`; no worktree, agent invocation, or run row exists. Linked-index checkboxes are not the completion source of truth. Subspec *routing* (which link runs next) now keys off the same unticked-criteria rule, so a hand-finished-and-merged subspec with a lagging index box is skipped automatically on re-run rather than needing its box hand-ticked first.
 
-On an incomplete re-run with git enabled, preflight evaluates four gates in order
-before retiring a stale workspace for the resolved `(project, branch)` after daemon
-connect and before the write step starts. The same path applies to incomplete
-git-enabled `jarvis run workflow implement`, `plan`, `intent`, and `intent-reviewed`
-re-runs (`intent-reviewed` shares the intent preset). Intent has no
-`--reset-despite-dirty` or `--reset-despite-landed-criteria` flags; implement and
-plan retain those overrides. Untracked `.jarvis-*` harness sidecars (for example
-intent review verdict files) do not count toward the dirty gate. When intent's
-write step carries a directory `specPath` (for example `spec/ready-intents`), the
-landed-criteria gate is N/A; only readable spec files and `index.md` trees participate.
-When automatic re-run reset is refused (live-held, PR, descendant, operator dirty
-work beyond harness sidecars), `jarvis cleanup --abandon` remains the manual fallback
-— re-run alone does not always clear a poisoned intent verdict tree.
+On an incomplete re-run with git enabled, preflight evaluates four gates in order before retiring a stale workspace for the resolved `(project, branch)` after daemon connect and before the write step starts. The same path applies to incomplete git-enabled `jarvis run workflow implement`, `plan`, `intent`, and `intent-reviewed` re-runs (`intent-reviewed` shares the intent preset). Intent has no `--reset-despite-dirty` or `--reset-despite-landed-criteria` flags; implement and plan retain those overrides. Untracked `.jarvis-*` harness sidecars (for example intent review verdict files) do not count toward the dirty gate. When intent's write step carries a directory `specPath` (for example `spec/ready-intents`), the landed-criteria gate is N/A; only readable spec files and `index.md` trees participate. When automatic re-run reset is refused (live-held, PR, descendant, operator dirty work beyond harness sidecars), `jarvis cleanup --abandon` remains the manual fallback — re-run alone does not always clear a poisoned intent verdict tree.
 
 1. **Descendant check** — managed worktree `HEAD` must be a descendant of the
    resolved `--base` (implement) or repository base (plan). Refusal names the base
@@ -310,10 +224,7 @@ work beyond harness sidecars), `jarvis cleanup --abandon` remains the manual fal
    from its resolved repository base. The sequence aborts at the first failing step.
    First runs with no existing worktree skip this path.
 
-When gates (2) and (3) both apply, stderr names landed-criteria drift before dirty
-reuse. When gate (1) refuses with `--reset-despite-dirty` set, stderr still names
-dirty paths for context. Neither `--reset-despite-dirty` nor
-`--reset-despite-landed-criteria` overrides the descendant check.
+When gates (2) and (3) both apply, stderr names landed-criteria drift before dirty reuse. When gate (1) refuses with `--reset-despite-dirty` set, stderr still names dirty paths for context. Neither `--reset-despite-dirty` nor `--reset-despite-landed-criteria` overrides the descendant check.
 
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
@@ -352,11 +263,7 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
 
 ### Ad-hoc write loop (live pause/kill)
 
-`jarvis run start` with explicit worktree fields — supports `pause` / `kill` /
-`resume` on the active run. Workflow-started implement supports live `kill` only;
-`pause` / `resume` remain write-loop-only. See
-[first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement)
-and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
+`jarvis run start` with explicit worktree fields — supports `pause` / `kill` / `resume` on the active run. Workflow-started implement supports live `kill` only; `pause` / `resume` remain write-loop-only. See [first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement) and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
 
 ### Observe
 
@@ -376,27 +283,7 @@ and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workfl
 | `jarvis run log <run-id> --follow` | Same replay, then keeps tailing new records until the daemon closes the stream — which happens automatically once the followed run settles — or the client disconnects |
 | `jarvis tui log <run-id>` | Interactive tail; reads across live keyed daemons (auto-discovers owner) |
 
-The dock always occupies four physical rows: status, cursor-bearing input, input
-continuation (kept even when empty), and contextual hints. Status counts distinct
-retained pipelines as active when any retained observation is non-terminal, including
-contradictory terminal/non-terminal observations for one pipeline ID. It also shows the
-invoking `profile@socket-digest`, refresh label, and both retained feedback channels at
-once — `· error: <rpc-error>` first, then `· result: <command-result>`, in that fixed
-order after the prefix. Neither hides the other, and at narrow widths the composed line
-truncates from the right, keeping the active/profile/refresh prefix. Discovery, connection, `list`, and
-`pipeline_list` failures retain last-good rows and snapshots; only a fully successful
-refresh clears the error, and refresh never clears a retained command result. Retained
-rows without a live client cannot be killed or waited on until ownership reconnects.
-Input is sanitized and windowed across its two display-width-bounded rows so the cursor
-stays visible without changing the buffer. From tree focus, `:` or `/` focuses the
-retained buffer without inserting the shortcut. Printable input inserts at its grapheme
-cursor; Left/Right move it, Backspace/Delete remove whole graphemes, and `Esc` restores
-tree focus without clearing or moving it. Enter parses and dispatches the buffer (see
-[Dock commands](#dock-commands)). Shift+Enter
-is ignored, and pasted CR/LF are removed rather than creating newlines. Ctrl-C always
-quits. Other Ctrl/Meta input is ignored. While command-focused, tree navigation,
-expansion, divider, kill, and `q` bindings are suppressed. Tree hints add expansion or
-kill only when supported; command hints advertise only `Esc` and Enter.
+The dock always occupies four physical rows: status, cursor-bearing input, input continuation (kept even when empty), and contextual hints. Status counts distinct retained pipelines as active when any retained observation is non-terminal, including contradictory terminal/non-terminal observations for one pipeline ID. It also shows the invoking `profile@socket-digest`, refresh label, and both retained feedback channels at once — `· error: <rpc-error>` first, then `· result: <command-result>`, in that fixed order after the prefix. Neither hides the other, and at narrow widths the composed line truncates from the right, keeping the active/profile/refresh prefix. Discovery, connection, `list`, and `pipeline_list` failures retain last-good rows and snapshots; only a fully successful refresh clears the error, and refresh never clears a retained command result. Retained rows without a live client cannot be killed or waited on until ownership reconnects. Input is sanitized and windowed across its two display-width-bounded rows so the cursor stays visible without changing the buffer. From tree focus, `:` or `/` focuses the retained buffer without inserting the shortcut. Printable input inserts at its grapheme cursor; Left/Right move it, Backspace/Delete remove whole graphemes, and `Esc` restores tree focus without clearing or moving it. Enter parses and dispatches the buffer (see [Dock commands](#dock-commands)). Shift+Enter is ignored, and pasted CR/LF are removed rather than creating newlines. Ctrl-C always quits. Other Ctrl/Meta input is ignored. While command-focused, tree navigation, expansion, divider, kill, and `q` bindings are suppressed. Tree hints add expansion or kill only when supported; command hints advertise only `Esc` and Enter.
 
 #### Dock commands
 
@@ -408,26 +295,11 @@ Three verbs. Enter parses the buffer exactly once and switches on the result.
 | `expand` | `expand` (no arguments) | Adds the selected pipeline or stage to the expanded set |
 | `collapse` | `collapse` (no arguments) | Removes the selected pipeline or stage from the expanded set |
 
-`expand` and `collapse` are **explicit, not toggles** — unlike the `e` key, which
-toggles. A command that matches the current state succeeds and changes nothing, so
-`expand` twice is safe. Both are local state edits; neither contacts the daemon.
-Argument-bearing `expand foo` is rejected as `unexpected_arguments`.
+`expand` and `collapse` are **explicit, not toggles** — unlike the `e` key, which toggles. A command that matches the current state succeeds and changes nothing, so `expand` twice is safe. Both are local state edits; neither contacts the daemon. Argument-bearing `expand foo` is rejected as `unexpected_arguments`.
 
-**`start` is detached.** The TUI issues one `pipeline_start` and no `pipeline_wait`, so
-it never attaches to completion — admitted means admitted, not finished. Track progress
-in the tree, or with `jarvis pipeline list` / `jarvis pipeline wait`. At most one
-admission is in flight; a second Enter while pending is ignored and issues no second
-parse or admission. Buffer edits and tree navigation stay available while it is pending,
-and a settlement that arrives after you have typed or navigated does not clobber the
-newer state.
+**`start` is detached.** The TUI issues one `pipeline_start` and no `pipeline_wait`, so it never attaches to completion — admitted means admitted, not finished. Track progress in the tree, or with `jarvis pipeline list` / `jarvis pipeline wait`. At most one admission is in flight; a second Enter while pending is ignored and issues no second parse or admission. Buffer edits and tree navigation stay available while it is pending, and a settlement that arrives after you have typed or navigated does not clobber the newer state.
 
-**Outcomes.** An admitted `start` reports the pipeline id in `result:`, clears the buffer
-and cursor, and restores tree focus; a successful `expand`/`collapse` likewise clears the
-buffer and cursor. Failures — parse errors, pre-admission
-failures, daemon refusals, and ineligible expansion selections — **retain command focus,
-buffer, and cursor** so the
-input is repairable, and report their named code; a daemon refusal preserves the daemon's
-`detail` verbatim.
+**Outcomes.** An admitted `start` reports the pipeline id in `result:`, clears the buffer and cursor, and restores tree focus; a successful `expand`/`collapse` likewise clears the buffer and cursor. Failures — parse errors, pre-admission failures, daemon refusals, and ineligible expansion selections — **retain command focus, buffer, and cursor** so the input is repairable, and report their named code; a daemon refusal preserves the daemon's `detail` verbatim.
 
 **Expansion feedback codes** (nothing changes when one fires):
 
@@ -438,8 +310,7 @@ input is repairable, and report their named code; a daemon refusal preserves the
 | `unattributed` | The selected row is an unattributed run |
 | `stale_non_expandable` | The selected id is absent from the current expandable tree |
 
-**CLI fallbacks.** Steering verbs are recognized but not implemented in the dock; each
-reports `recognized_unavailable` naming its exact CLI equivalent:
+**CLI fallbacks.** Steering verbs are recognized but not implemented in the dock; each reports `recognized_unavailable` naming its exact CLI equivalent:
 
 | Typed | Use instead |
 | --- | --- |
@@ -448,11 +319,7 @@ reports `recognized_unavailable` naming its exact CLI equivalent:
 | `kill` / `pause` | `jarvis run kill` / `jarvis run pause` |
 | `log` | `jarvis tui log` |
 
-An empty or whitespace-only buffer reports `malformed_input`; any other verb reports
-`unknown_verb`. Malformed `start` input reports the specific
-code — `missing_project`, `missing_seed_choice`, `missing_seed_value`, `both_seed_flags`,
-`duplicate_seed_flag`, `unknown_option`, `extra_positional` — and unbalanced quoting
-reports `unterminated_quote`.
+An empty or whitespace-only buffer reports `malformed_input`; any other verb reports `unknown_verb`. Malformed `start` input reports the specific code — `missing_project`, `missing_seed_choice`, `missing_seed_value`, `both_seed_flags`, `duplicate_seed_flag`, `unknown_option`, `extra_positional` — and unbalanced quoting reports `unterminated_quote`.
 
 `list` / `wait` operator errors: [`daemon-host.md` § Operator error](./daemon-host.md#operator-error-on-list-and-wait). `contract_miss` rows also expose `error.contractMissDetail` when the run log's chronologically last `contract_miss_detail` event carries `failureReason` (plan-draft normalizer text, for example); `jarvis run log` remains the full excerpt. Omitted when the log tail cannot be read (store-only / no `logReader`).
 
@@ -470,22 +337,11 @@ Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)
 
 ### Worktrees and branches
 
-v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not
-`<repo>/.worktree/`. Intent branches: `intent/<slug>`. Plan branches: `plan/<name>`.
-Implement branch defaults to the spec directory basename.
+v2 git-enabled workflows use `~/.jarvis/worktrees/<project>/<branch>/`, not `<repo>/.worktree/`. Intent branches: `intent/<slug>`. Plan branches: `plan/<name>`. Implement branch defaults to the spec directory basename.
 
-Merged worktrees and eligible merged local branch refs are retired by `jarvis cleanup` (see
-[Cleanup: eligibility gate](#cleanup-eligibility-gate)). A leaked worktree from a **failed/unmerged** run
-is reset automatically on the next incomplete `jarvis run workflow implement` or `plan` re-run (see above);
-for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
+Merged worktrees and eligible merged local branch refs are retired by `jarvis cleanup` (see [Cleanup: eligibility gate](#cleanup-eligibility-gate)). A leaked worktree from a **failed/unmerged** run is reset automatically on the next incomplete `jarvis run workflow implement` or `plan` re-run (see above); for manual cleanup when guards pass, use `jarvis cleanup --abandon <branch>`.
 
-If a failed materialization leaves an ordinary directory at its managed path, retry the workflow:
-v2 removes that proven unregistered non-Git husk and rematerializes it under the same branch lock.
-It refuses and leaves the path intact when Git recognizes it as a worktree, the target repository
-still registers it, or Git ownership/validation is inconclusive; inspect that state before manual removal.
-Incomplete implement and plan re-dispatches defer this non-Git husk to locked materialization,
-with or without `--reset-despite-dirty`. Other `git status` listing failures still refuse before
-any retirement; the override applies only to a successful dirty listing.
+If a failed materialization leaves an ordinary directory at its managed path, retry the workflow: v2 removes that proven unregistered non-Git husk and rematerializes it under the same branch lock. It refuses and leaves the path intact when Git recognizes it as a worktree, the target repository still registers it, or Git ownership/validation is inconclusive; inspect that state before manual removal. Incomplete implement and plan re-dispatches defer this non-Git husk to locked materialization, with or without `--reset-despite-dirty`. Other `git status` listing failures still refuse before any retirement; the override applies only to a successful dirty listing.
 
 ## Implementation on jarvis specs
 
@@ -498,205 +354,53 @@ Two valid paths:
 
 Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
 
-A review step whose role invocation exceeds its per-role wall-clock bound escalates
-internally to the next configured rung (agent/model binding) in the flat list — same
-as a quota fallback — before settling anything on the run row. The wall clock and
-idle budget are armed once per escalation **segment** (one `executeWithQuotaFallback`
-call over the remaining binding suffix), not once per rung: a rung reached by
-in-segment quota advancement shares the rest of that segment's clock rather than
-starting a fresh timer; only a rung that starts a new segment (after a prior segment
-timed out) gets a full fresh `roleTimeoutMs`. Worst-case wall time for one role
-invocation is bounded by segment count and is N × bound across N configured rungs
-only when every rung times out with no in-segment quota advancement between them.
+A review step whose role invocation exceeds its per-role wall-clock bound escalates internally to the next configured rung (agent/model binding) in the flat list — same as a quota fallback — before settling anything on the run row. The wall clock and idle budget are armed once per escalation **segment** (one `executeWithQuotaFallback` call over the remaining binding suffix), not once per rung: a rung reached by in-segment quota advancement shares the rest of that segment's clock rather than starting a fresh timer; only a rung that starts a new segment (after a prior segment timed out) gets a full fresh `roleTimeoutMs`. Worst-case wall time for one role invocation is bounded by segment count and is N × bound across N configured rungs only when every rung times out with no in-segment quota advancement between them.
 
-Only after **every** configured rung times out (including a single-binding list) does
-the step settle `invocation_failure` with `failureKind: "timeout"`, `exhaustedRoleTimeout: true`,
-and `bindingAttempts` naming every rung tried in profile order (`bindingId`, `agent`,
-`model`, and `resultKind` — the rung(s) actually aborted by the wall clock report
-`"timeout"`; a rung consumed by quota before the abort reports its real result kind,
-e.g. `"quota"`). A mixed quota/timeout outcome keeps `exhaustedRoleTimeout: false`
-and the retryable `role_timeout`/`retry_later` mapping instead — the deterministic-wall
-argument for `stop` only holds when every rung genuinely timed out; a quota-consumed
-rung may succeed on re-dispatch. An exhausted settle is terminal: `resumable: false`,
-`jarvis run list` / `wait` report `error.reason: "role_timeout"`, `retryable: false`,
-`nextAction: "stop"` (distinct from write-loop `iteration_timeout`). It reproduces
-deterministically — a re-dispatch just spends the same N × bound to reach the same wall
-again — so recovery is changing the rung config (raise the bound, add/reorder rungs) and
-starting a fresh run, **not** re-dispatching the same workflow and **not** `jarvis run
-resume` (which hard-errors on a `failed` run that is not publication-retry-eligible).
-Inspect the worktree first — the aborted actuator's partial edits are still on disk, and
-they are **not** swept into any later completion commit: the dirty-worktree gate refuses
-a fresh run over the same worktree, and `--reset-despite-dirty` discards them. Salvage
-anything worth keeping before starting fresh.
+Only after **every** configured rung times out (including a single-binding list) does the step settle `invocation_failure` with `failureKind: "timeout"`, `exhaustedRoleTimeout: true`, and `bindingAttempts` naming every rung tried in profile order (`bindingId`, `agent`, `model`, and `resultKind` — the rung(s) actually aborted by the wall clock report `"timeout"`; a rung consumed by quota before the abort reports its real result kind, e.g. `"quota"`). A mixed quota/timeout outcome keeps `exhaustedRoleTimeout: false` and the retryable `role_timeout`/`retry_later` mapping instead — the deterministic-wall argument for `stop` only holds when every rung genuinely timed out; a quota-consumed rung may succeed on re-dispatch. An exhausted settle is terminal: `resumable: false`, `jarvis run list` / `wait` report `error.reason: "role_timeout"`, `retryable: false`, `nextAction: "stop"` (distinct from write-loop `iteration_timeout`). It reproduces deterministically — a re-dispatch just spends the same N × bound to reach the same wall again — so recovery is changing the rung config (raise the bound, add/reorder rungs) and starting a fresh run, **not** re-dispatching the same workflow and **not** `jarvis run resume` (which hard-errors on a `failed` run that is not publication-retry-eligible). Inspect the worktree first — the aborted actuator's partial edits are still on disk, and they are **not** swept into any later completion commit: the dirty-worktree gate refuses a fresh run over the same worktree, and `--reset-despite-dirty` discards them. Salvage anything worth keeping before starting fresh.
 
-That review re-dispatch path does not re-resolve implement write-step bindings — only
-write-loop `resume`, recovery, queue promotion, and fresh write admission pick up a rung
-edit (confirm via attempt telemetry until `jarvis run list` reports binding).
+That review re-dispatch path does not re-resolve implement write-step bindings — only write-loop `resume`, recovery, queue promotion, and fresh write admission pick up a rung edit (confirm via attempt telemetry until `jarvis run list` reports binding).
 
-An idle-output watchdog on the same review-role invocation times out when a role
-produces no output for the machine-wide `idleOutputTimeoutMs` budget: a configured
-positive value arms it, an absent key uses the 90_000 ms fallback, and `0` disables
-it. A stall settles `invocation_failure` with `failureKind: "stall"` on the durable
-successor row (`review` / `review-debate`); `jarvis run list` / `wait` on that row's
-`runId` report `error.reason: "role_stalled"`. Entry step-0 `runId` wait/list does not
-project sibling review `role_stalled` — use `list` filtered by branch and `stepId` (or
-wait on the successor `runId`) to read stall detail and `retry_later`.
-Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output,
-does not escalate through rungs, and is retryable (`retry_later`); recovery is
-re-dispatching the same workflow (see [Gate trust](#gate-trust)) — unlike an exhausted
-`role_timeout`, which is not. The write path's own idle-output watchdog settles a
-distinct, non-retryable `idle_output_timeout` (`error.reason: "idle_output_timeout"`,
-`nextAction: "stop"`) on write-step/reprompt invocations; see the 2026-07-25 entry
-above.
+An idle-output watchdog on the same review-role invocation times out when a role produces no output for the machine-wide `idleOutputTimeoutMs` budget: a configured positive value arms it, an absent key uses the 90_000 ms fallback, and `0` disables it. A stall settles `invocation_failure` with `failureKind: "stall"` on the durable successor row (`review` / `review-debate`); `jarvis run list` / `wait` on that row's `runId` report `error.reason: "role_stalled"`. Entry step-0 `runId` wait/list does not project sibling review `role_stalled` — use `list` filtered by branch and `stepId` (or wait on the successor `runId`) to read stall detail and `retry_later`. Unlike `role_timeout` (wall-clock from start), `role_stalled` reflects hung output, does not escalate through rungs, and is retryable (`retry_later`); recovery is re-dispatching the same workflow (see [Gate trust](#gate-trust)) — unlike an exhausted `role_timeout`, which is not. The write path's own idle-output watchdog settles a distinct, non-retryable `idle_output_timeout` (`error.reason: "idle_output_timeout"`, `nextAction: "stop"`) on write-step/reprompt invocations; see the 2026-07-25 entry above.
 
-**Actuator-only retry (`review-debate` patch review):** admitted only for a
-post-commit retryable failure kind — today that is exhausted-rung-exempt `role_stalled`;
-an exhausted `role_timeout` is not retryable, so it never reaches this path (it settles
-`resumable: false` and falls through to a full debate replay on re-dispatch, same as any
-other non-retryable failure). When the failed role was specifically the **actuator** on a
-`review-debate` step and the failure kind is admitted — the debate roles already
-settled a verdict at `verdictPath` before the actuator ran — re-dispatch does not
-replay the adversary/advocate/adjudicator chain or the hidden `~shrink` pass. It
-reuses the same review run row and re-invokes only the actuator against the
-persisted verdict, so recovery is a single role invocation. This is distinct from a
-debate-role failure (adversary, advocate, or adjudicator), which always re-dispatches
-the full debate cycle on a fresh run row. If `verdictPath` is missing or empty at retry time (e.g.
-a worktree reset removed it), the re-dispatch settles a named, non-retryable
-error instead of silently falling back to a full debate or full workflow re-run.
-That settled failure carries no actuator role, so the *next* re-dispatch is no
-longer actuator-only eligible — it replays the full debate cycle on a fresh run
-row, which regenerates the verdict itself. No manual verdict recreation is
-needed; just re-dispatch (or abandon and start fresh).
+**Actuator-only retry (`review-debate` patch review):** admitted only for a post-commit retryable failure kind — today that is exhausted-rung-exempt `role_stalled`; an exhausted `role_timeout` is not retryable, so it never reaches this path (it settles `resumable: false` and falls through to a full debate replay on re-dispatch, same as any other non-retryable failure). When the failed role was specifically the **actuator** on a `review-debate` step and the failure kind is admitted — the debate roles already settled a verdict at `verdictPath` before the actuator ran — re-dispatch does not replay the adversary/advocate/adjudicator chain or the hidden `~shrink` pass. It reuses the same review run row and re-invokes only the actuator against the persisted verdict, so recovery is a single role invocation. This is distinct from a debate-role failure (adversary, advocate, or adjudicator), which always re-dispatches the full debate cycle on a fresh run row. If `verdictPath` is missing or empty at retry time (e.g. a worktree reset removed it), the re-dispatch settles a named, non-retryable error instead of silently falling back to a full debate or full workflow re-run. That settled failure carries no actuator role, so the *next* re-dispatch is no longer actuator-only eligible — it replays the full debate cycle on a fresh run row, which regenerates the verdict itself. No manual verdict recreation is needed; just re-dispatch (or abandon and start fresh).
 
-Multi-cycle review (`reviewPasses` > 1) never takes the actuator-only path,
-even when the last attempt failed at the actuator — an intermediate cycle's
-actuator failure would otherwise retry that one actuator and report the step
-complete, silently dropping the remaining cycles. Recovery for multi-cycle
-review is always the full debate cycle described above.
+Multi-cycle review (`reviewPasses` > 1) never takes the actuator-only path, even when the last attempt failed at the actuator — an intermediate cycle's actuator failure would otherwise retry that one actuator and report the step complete, silently dropping the remaining cycles. Recovery for multi-cycle review is always the full debate cycle described above.
 
-The reused run row keeps the workflow snapshot from the original dispatch, so
-a config edit between dispatches is not picked up by actuator-only retry —
-same trap as the "review re-dispatch does not re-resolve implement write-step
-bindings" caveat above.
+The reused run row keeps the workflow snapshot from the original dispatch, so a config edit between dispatches is not picked up by actuator-only retry — same trap as the "review re-dispatch does not re-resolve implement write-step bindings" caveat above.
 
 ## Gate trust
 
-**Plan-authored `@mutate` directives quote call syntax the implementer later writes differently → reprompt within `maxIterations` (not terminal hard-block).**
-When every blocking unparseable in opened pinning files is `target_absent` or `target_ambiguous`
-(no hollow checkpoint, no `unresolved_pinning_test`, no other unparseable reasons), the write loop
-reprompts via `write.mutation-directive-reprompt` instead of settling `resumable: false` on the
-first miss. Budget exhaustion, mixed failure, hollow checkpoints, and other unparseable reasons
-still hard-block with harness `## Blocker`. Resume replays the last `mutation_directive_reprompt`
-log event. Seed: `v2/spec/20260806T030357Z-mutation-directive-target-absent-reprompts`.
+**Plan-authored `@mutate` directives quote call syntax the implementer later writes differently → reprompt within `maxIterations` (not terminal hard-block).** When every blocking unparseable in opened pinning files is `target_absent` or `target_ambiguous` (no hollow checkpoint, no `unresolved_pinning_test`, no other unparseable reasons), the write loop reprompts via `write.mutation-directive-reprompt` instead of settling `resumable: false` on the first miss. Budget exhaustion, mixed failure, hollow checkpoints, and other unparseable reasons still hard-block with harness `## Blocker`. Resume replays the last `mutation_directive_reprompt` log event. Seed: `v2/spec/20260806T030357Z-mutation-directive-target-absent-reprompts`.
 
-**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement runs scoped format-only Biome on enumerated changed paths before staging (not full `fix` / semantic lint autofix); a new branchy function (preflight-gate sequence, per-outcome mapper) still trips
-`lint/complexity/noExcessiveCognitiveComplexity` (max 24). `bun run fix` / `check:fix:unsafe` cannot repair it, so
-the ready gate settles `completion_commit_failed`. Recovery: add a `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>`
-above the function (or extract helpers preserving guard text so `@mutate` pins still match), then finalize. Recurs
-across sessions (#2591, #2595 prior session; all three subspecs here).
+**Agent-written cognitive complexity fails the ready gate and is NOT autofixable (2026-08-05).** Implement runs scoped format-only Biome on enumerated changed paths before staging (not full `fix` / semantic lint autofix); a new branchy function (preflight-gate sequence, per-outcome mapper) still trips `lint/complexity/noExcessiveCognitiveComplexity` (max 24). `bun run fix` / `check:fix:unsafe` cannot repair it, so the ready gate settles `completion_commit_failed`. Recovery: add a `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>` above the function (or extract helpers preserving guard text so `@mutate` pins still match), then finalize. Recurs across sessions (#2591, #2595 prior session; all three subspecs here).
 
-**A second hollow mutation checkpoint on a different guard in the same subspec is a premise smell,
-not a proof-form problem (2026-08-03).** A guard against a condition that cannot occur has no
-killable failure state, so repeatedly-unkillable guards mean the spec is defending against a
-non-problem. Do **not** amend the criterion to accommodate the unprovable guard — that is the wrong
-repair, and it lets the next attempt ship inert code that passes its own tests.
+**A second hollow mutation checkpoint on a different guard in the same subspec is a premise smell, not a proof-form problem (2026-08-03).** A guard against a condition that cannot occur has no killable failure state, so repeatedly-unkillable guards mean the spec is defending against a non-problem. Do **not** amend the criterion to accommodate the unprovable guard — that is the wrong repair, and it lets the next attempt ship inert code that passes its own tests.
 
-Verify the premise instead, which takes minutes: revert the change's core semantics (not the whole
-diff — new tests import new exports and you get a compile error) and re-run its new regressions. If
-they still pass on that revert, the change is inert and the spec needs rescoping, not another run.
+Verify the premise instead, which takes minutes: revert the change's core semantics (not the whole diff — new tests import new exports and you get a compile error) and re-run its new regressions. If they still pass on that revert, the change is inert and the spec needs rescoping, not another run.
 
-Observed on `fan-out-stage-dispatch-preserves-workflow-ownership`: two blocked runs on hollow
-checkpoints, two operator spec amendments treating them as a proof-form problem, a third run, and a
-hand fold-in — all before review disproved the premise by reverting `resolvePlanStage` and watching
-both ownership regressions stay green. Seed: `v2/spec/seeds/plan-review-must-falsify-guard-premises.md`.
-Cleanup: delete this bullet when that seed ships and the plan review falsifies premises itself.
+Observed on `fan-out-stage-dispatch-preserves-workflow-ownership`: two blocked runs on hollow checkpoints, two operator spec amendments treating them as a proof-form problem, a third run, and a hand fold-in — all before review disproved the premise by reverting `resolvePlanStage` and watching both ownership regressions stay green. Seed: `v2/spec/seeds/plan-review-must-falsify-guard-premises.md`. Cleanup: delete this bullet when that seed ships and the plan review falsifies premises itself.
 
-**A `completed` implement row is not proof a run committed anything (2026-08-03).** Run `eabc39a7`
-settled `runStatus: "completed"` with `outcomeKind: "no-work"` and
-`iteration_commit skipReason: "no_file_changes"` — no commit, no push, no PR, no gate. It had
-executed in the pre-existing managed worktree (HEAD three commits behind the resolved `--base`, four
-modified tracked paths on disk) which `resetStaleWorkspace` neither retired nor refused, and it read
-that dirty tree's already-ticked spec copy as truth. Confirm a `completed` implement row by its PR,
-not its status. Seed: `v2/spec/seeds/implement-completion-honesty.md` (absorbed the rerun seed).
-Cleanup: delete this bullet when that seed ships.
+**A `completed` implement row is not proof a run committed anything (2026-08-03).** Run `eabc39a7` settled `runStatus: "completed"` with `outcomeKind: "no-work"` and `iteration_commit skipReason: "no_file_changes"` — no commit, no push, no PR, no gate. It had executed in the pre-existing managed worktree (HEAD three commits behind the resolved `--base`, four modified tracked paths on disk) which `resetStaleWorkspace` neither retired nor refused, and it read that dirty tree's already-ticked spec copy as truth. Confirm a `completed` implement row by its PR, not its status. Seed: `v2/spec/seeds/implement-completion-honesty.md` (absorbed the rerun seed). Cleanup: delete this bullet when that seed ships.
 
-**Dirty `no-work` no longer settles `completed`.** A write step resolving `no-work` over
-uncommitted tracked paths settles `completion_commit_failed` (or an equivalent non-`completed`
-failure) naming those paths in durable `loop_finished` output — including workflow steps with
-`publishCompletion: false`. A `completed` implement row over a dirty tree is not trustworthy.
+**Dirty `no-work` no longer settles `completed`.** A write step resolving `no-work` over uncommitted tracked paths settles `completion_commit_failed` (or an equivalent non-`completed` failure) naming those paths in durable `loop_finished` output — including workflow steps with `publishCompletion: false`. A `completed` implement row over a dirty tree is not trustworthy.
 
-**`iteration_timeout` is conditionally resumable.** When at least one linked subspec's non-human-only
-acceptance criteria are fully ticked, terminal `loop_finished` carries `resumable: true`,
-`completedSubspecPaths`, and `remainingSubspecPaths`; recovery is `jarvis run resume` on the
-retained workspace. A timeout with no completed subspec keeps `resumable: false`.
+**`iteration_timeout` is conditionally resumable.** When at least one linked subspec's non-human-only acceptance criteria are fully ticked, terminal `loop_finished` carries `resumable: true`, `completedSubspecPaths`, and `remainingSubspecPaths`; recovery is `jarvis run resume` on the retained workspace. A timeout with no completed subspec keeps `resumable: false`.
 
-**Successor-shell idle bounds** fence pre-agent stalls on durable `review` and `review-debate`
-steps (including actuator-only `review-debate` retry). The shell arms from `idleOutputMs`
-immediately after `iteration_started`; absent key → 90 s, `0` disables. The shell hands off
-to role-layer idle bounds at first `invokeReviewRole` entry. Shell idle exhaustion settles
-`invocation_failure` with `failureKind: "stall"` (no `agent`/`model` when no role ran),
-`loop_finished` with `resumable: true`, and releases the `(project, branch)` claim. On the
-**successor row** (`review` / `review-debate`), `run list` / `wait` report
-`error.reason: "role_stalled"`, `retryable: true`, `nextAction: "retry_later"` — not on the
-step-0 entry `runId`; find the failed successor via branch + `stepId` or wait on its `runId`.
+**Successor-shell idle bounds** fence pre-agent stalls on durable `review` and `review-debate` steps (including actuator-only `review-debate` retry). The shell arms from `idleOutputMs` immediately after `iteration_started`; absent key → 90 s, `0` disables. The shell hands off to role-layer idle bounds at first `invokeReviewRole` entry. Shell idle exhaustion settles `invocation_failure` with `failureKind: "stall"` (no `agent`/`model` when no role ran), `loop_finished` with `resumable: true`, and releases the `(project, branch)` claim. On the **successor row** (`review` / `review-debate`), `run list` / `wait` report `error.reason: "role_stalled"`, `retryable: true`, `nextAction: "retry_later"` — not on the step-0 entry `runId`; find the failed successor via branch + `stepId` or wait on its `runId`.
 
-Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and
-adjudicated verdict on disk; recovery is re-dispatching the same workflow, not
-`jarvis run resume`. An exhausted `role_timeout` also preserves the completion commit and
-verdict, but is not resumable and not worth re-dispatching — see above.
+Post-commit review `role_stalled` (`failureKind: "stall"`) preserves the completion commit and adjudicated verdict on disk; recovery is re-dispatching the same workflow, not `jarvis run resume`. An exhausted `role_timeout` also preserves the completion commit and verdict, but is not resumable and not worth re-dispatching — see above.
 
-`jarvis run list` / `wait` project `resumable` from the same admission predicate as `jarvis run resume`
-(`nextAction: "resume"` on the composed operator error). A row advertising `resumable: true` is admitted;
-a `terminal_run` refusal names the owning recovery for the composed `error.reason`, not only the durable
-status.
+`jarvis run list` / `wait` project `resumable` from the same admission predicate as `jarvis run resume` (`nextAction: "resume"` on the composed operator error). A row advertising `resumable: true` is admitted; a `terminal_run` refusal names the owning recovery for the composed `error.reason`, not only the durable status.
 
-The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally,
-overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2
-markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`,
-`**/verdict-*.md`). The test step is base-scoped: a diff of `<baseRef>...HEAD` (three-dot, merge-base
-relative) is classified via the shared classifier, and the resolved scope is passed as
-`JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2` when only v2 changed, or `full` for root
-tooling/shared changes). When the diff fails (unresolvable base ref), the test scope falls back to `full`
-and finalization proceeds rather than erroring. Non-test steps (`check`, `typecheck`, `lint:md`) and the
-`full` tier remain unchanged.
+The v2 ready gate runs the `full` tier (`check`, `typecheck`, tests, `lint:md`) unconditionally, overriding any `JARVIS_READY_TIER` in the parent environment. The `lint:md` step covers all v2 markdown: `v2/docs/**/*.md` and `v2/spec/**/*.md`, subject to the shared ignores (`**/completed/**`, `**/verdict-*.md`), and enforces the `no-hard-wrap` custom rule on that corpus. Repair soft-wrapped prose with `bun run reflow:md` (same globs and ignores as `.markdownlint-cli2.jsonc`). The test step is base-scoped: a diff of `<baseRef>...HEAD` (three-dot, merge-base relative) is classified via the shared classifier, and the resolved scope is passed as `JARVIS_READY_TEST_SCOPE` (e.g., `test:v2 test:integration:v2` when only v2 changed, or `full` for root tooling/shared changes). When the diff fails (unresolvable base ref), the test scope falls back to `full` and finalization proceeds rather than erroring. Non-test steps (`check`, `typecheck`, `lint:md`) and the `full` tier remain unchanged.
 
-`jarvis1 run` must not report success when the ready gate is red (seed
-`run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as
-insufficient without a green gate on the branch head.
+`jarvis1 run` must not report success when the ready gate is red (seed `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as insufficient without a green gate on the branch head.
 
-The full aggregate `bun run test` wall clock is currently 326s (mean, 321-330s range, measured
-2026-07-26) — down from a 697s pre-change baseline — because the runner now executes independent
-test files concurrently instead of serially. A gate run's test steps see this figure only when
-`JARVIS_READY_TEST_SCOPE` resolves to `full`; a scoped run (see above) executes a slice subset and
-runs faster. That concurrency means the gate deliberately saturates the machine it runs on by
-design; on an already-loaded operator machine, a gate failure is worth one re-run before trusting
-it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is the suspected cause
-(see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
+The full aggregate `bun run test` wall clock is currently 326s (mean, 321-330s range, measured 2026-07-26) — down from a 697s pre-change baseline — because the runner now executes independent test files concurrently instead of serially. A gate run's test steps see this figure only when `JARVIS_READY_TEST_SCOPE` resolves to `full`; a scoped run (see above) executes a slice subset and runs faster. That concurrency means the gate deliberately saturates the machine it runs on by design; on an already-loaded operator machine, a gate failure is worth one re-run before trusting it, and `JARVIS_TEST_CONCURRENCY` is the lever to lower if load contention is the suspected cause (see [test-writing.md § Bounded concurrency pool](./test-writing.md#bounded-concurrency-pool)).
 
-A red ready gate first runs project autofix once per repair entry (after the repair fence freezes, before any repair agent): configured `fixCommand` or built-in `bun run fix`, fence-validated commit with `Jarvis-Ready-Gate: autofix`, republish, and re-gate — without charging repair iterations or the iteration budget. Autofix failure settles retryable `completion_commit_failed` without agent repair; a still-red gate after successful autofix enters up to three bounded repair iterations. Each repair consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair attempt stays red, the run settles `failed` with `ready_gate_failed`, `resumable: true`, and terminal
-`loop_finished` evidence `readyGateOrigin: repair_budget_exhausted` plus `readyGateRepairCount: 3`.
-That row retains its publication checkpoint (completion attribution and draft-PR evidence) and admits
-`jarvis run resume` on a gate-only finalization tail — no write-agent re-entry and no additional
-`ready_gate_repair` events. Other `ready_gate_failed` rows (blocked repair, iteration-limit
-suppression, deadline timeout, or missing/mismatched checkpoint) keep their existing resume paths or
-refusals. A deadline-killed gate (exit code 124 or
-`ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair,
-logs `ready_gate_timeout`, and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate:
-the gate passed locally and timed out against either a per-step budget or the overall run ceiling (see
-[test-writing.md § Ready-gate step budgets](./test-writing.md#ready-gate-step-budgets); `shared/**` changes can hit
-this from running all three test slices). Because per-step budgets are fixed constants in `scripts/ready.ts`
-(no per-step env knob), a step-budget kill needs that constant raised, not a resume — resume only helps when the
-**run ceiling** (`JARVIS_READY_TIMEOUT_MS`) bound instead. Flip failures are not repaired; resume a
-`ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage. For `ready_flip_failed`, manually fix
-the PR draft → ready transition (see [Publication / completion failures](#publication--completion-failures)); do
-not `jarvis run resume`.
+A red ready gate first runs project autofix once per repair entry (after the repair fence freezes, before any repair agent): configured `fixCommand` or built-in `bun run fix`, fence-validated commit with `Jarvis-Ready-Gate: autofix`, republish, and re-gate — without charging repair iterations or the iteration budget. Autofix failure settles retryable `completion_commit_failed` without agent repair; a still-red gate after successful autofix enters up to three bounded repair iterations. Each repair consumes the iteration budget and republishes before the gate is rerun. When every non-timeout repair attempt stays red, the run settles `failed` with `ready_gate_failed`, `resumable: true`, and terminal `loop_finished` evidence `readyGateOrigin: repair_budget_exhausted` plus `readyGateRepairCount: 3`. That row retains its publication checkpoint (completion attribution and draft-PR evidence) and admits `jarvis run resume` on a gate-only finalization tail — no write-agent re-entry and no additional `ready_gate_repair` events. Other `ready_gate_failed` rows (blocked repair, iteration-limit suppression, deadline timeout, or missing/mismatched checkpoint) keep their existing resume paths or refusals. A deadline-killed gate (exit code 124 or `ready: deadline exceeded after Nms (step budget|run ceiling, step: <name>)` in the captured output) skips repair, logs `ready_gate_timeout`, and settles immediately for `jarvis run resume`. This is a budget kill, not a red gate: the gate passed locally and timed out against either a per-step budget or the overall run ceiling (see [test-writing.md § Ready-gate step budgets](./test-writing.md#ready-gate-step-budgets); `shared/**` changes can hit this from running all three test slices). Because per-step budgets are fixed constants in `scripts/ready.ts` (no per-step env knob), a step-budget kill needs that constant raised, not a resume — resume only helps when the **run ceiling** (`JARVIS_READY_TIMEOUT_MS`) bound instead. Flip failures are not repaired; resume a `ready_gate_failed` or `surviving_mutation_failed` run after fixing coverage. For `ready_flip_failed`, manually fix the PR draft → ready transition (see [Publication / completion failures](#publication--completion-failures)); do not `jarvis run resume`.
 
-When every attributable failing path lies outside the run's touched set (spec tree plus base-to-HEAD
-diff and untracked inventory), finalization settles `ready_gate_out_of_scope` instead of entering
-bounded repair. `list` / `wait` name `error.reason: ready_gate_out_of_scope`, preserve
-`error.readyGateOutsidePaths` and `error.readyGateOutOfScopeDetail`, and guide retry finalization via
-`jarvis run resume` — not source-file repair. Review every repair commit's file list before merging;
-bounded repair can still touch in-scope paths when a mixed or in-scope gate failure triggered it.
+When every attributable failing path lies outside the run's touched set (spec tree plus base-to-HEAD diff and untracked inventory), finalization settles `ready_gate_out_of_scope` instead of entering bounded repair. `list` / `wait` name `error.reason: ready_gate_out_of_scope`, preserve `error.readyGateOutsidePaths` and `error.readyGateOutOfScopeDetail`, and guide retry finalization via `jarvis run resume` — not source-file repair. Review every repair commit's file list before merging; bounded repair can still touch in-scope paths when a mixed or in-scope gate failure triggered it.
 
 Mutation verification inspects production diff paths only; test-file changes (basename contains `.test.`, e.g. `*.test.tsx`, `*.sandbox-unrunnable.test.ts`) are not mutation candidates and will not surface `surviving_mutation_failed`.
 
@@ -708,74 +412,17 @@ A `surviving_mutation_failed` outcome whose site is a timer callback in a determ
 
 Inspect `jarvis run log <id>` for `runtime_smoke_outcome` after a successful completion. `observed-clean` records an executed smoke probe: the CLI help command succeeded, or the daemon lifecycle handshake (start → status → stop) succeeded with status reporting running state. `not-runnable` records every inspected production path and a non-empty discovery reason; it certifies discovery found no loadable CLI or daemon probe, not that runtime execution occurred. The handshake uses an isolated temporary daemon (not the operator's) and cleans up all IPC artifacts on all outcome paths.
 
-A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's
-non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit
-exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate
-is green, and (5) if the active subspec's acceptance criteria reference `bun run test:integration:v2`,
-that command exits zero. Rows that exhausted the repair budget instead remain `failed` /
-`ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds.
+A v2 implement run reporting `runStatus: "completed"` implies (1) the active subspec's non-human-only acceptance criteria are all ticked at the boundary, (2) a completion commit exists, (3) confirmed PR evidence (a pushed commit linked to an open PR), (4) the ready gate is green, and (5) if the active subspec's acceptance criteria reference `bun run test:integration:v2`, that command exits zero. Rows that exhausted the repair budget instead remain `failed` / `ready_gate_failed` / resumable and do not imply a green gate until a gate-only resume succeeds.
 
-A ticked non-human-only acceptance criterion is selected when its assembled bullet block
-(newline-joined first checklist line plus continuation lines) contains `Mutation
-checkpoint:` or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" ->
-"<replacement>"`). Pinning-test resolution and directive linking read that same full block,
-aligned with selection — wrapped pinning-test references and enclosing-test names on
-continuation lines resolve. Bare `@mutate` prose mentions no longer select. Verification still requires
-the harness to **apply** a valid linked directive and watch the scoped suite go red. The machine
-contract is a directive in the pinning test file — `// @mutate <path> "<original>" ->
-"<replacement>"` — located by exact source text that must occur exactly once. A ticked
-mutation-checkpoint criterion with no linked directive is refused; so is one whose directive
-leaves the scoped suite green, with `path:line: directive` coordinates in the blocker. Prose
-`Mutation checkpoint:` comments still read fine to a human but no longer satisfy the contract on
-their own. A comment-leading unparseable directive in a pinning file opened by a selected criterion
-(malformed, unresolvable path, target text absent or ambiguous) now blocks completion at
-`spec.criteria-ticked`, naming pinning file, line, raw reference, and reason — superseding the
-prior stderr-only policy for those cases. Unparseables still reach stderr for operator visibility.
-Note what this does **not** cover: criteria that make no mutation claim, and mutations the
-directive form cannot express (it is single-line text replacement, so a multi-line edit must be
-reduced to one unique line).
+A ticked non-human-only acceptance criterion is selected when its assembled bullet block (newline-joined first checklist line plus continuation lines) contains `Mutation checkpoint:` or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`). Pinning-test resolution and directive linking read that same full block, aligned with selection — wrapped pinning-test references and enclosing-test names on continuation lines resolve. Bare `@mutate` prose mentions no longer select. Verification still requires the harness to **apply** a valid linked directive and watch the scoped suite go red. The machine contract is a directive in the pinning test file — `// @mutate <path> "<original>" -> "<replacement>"` — located by exact source text that must occur exactly once. A ticked mutation-checkpoint criterion with no linked directive is refused; so is one whose directive leaves the scoped suite green, with `path:line: directive` coordinates in the blocker. Prose `Mutation checkpoint:` comments still read fine to a human but no longer satisfy the contract on their own. A comment-leading unparseable directive in a pinning file opened by a selected criterion (malformed, unresolvable path, target text absent or ambiguous) now blocks completion at `spec.criteria-ticked`, naming pinning file, line, raw reference, and reason — superseding the prior stderr-only policy for those cases. Unparseables still reach stderr for operator visibility. Note what this does **not** cover: criteria that make no mutation claim, and mutations the directive form cannot express (it is single-line text replacement, so a multi-line edit must be reduced to one unique line).
 
-Two operational caveats. Verification runs the scoped suites **once per directive**, serially, with
-a production file mutated — a subspec with several checkpoints multiplies the write step's wall
-clock accordingly. Each scoped run is wired to the write iteration's `AbortSignal` and bounded by
-the remaining write-iteration wall budget at the time the directive starts; on abort or timeout the
-harness aborts the scoped `bun` subprocess (SIGTERM, then SIGKILL if needed) before restoring
-from a pre-mutation snapshot taken before the first edit to that file. Abnormal settle (abort,
-timeout, or throw) restores via that snapshot path rather than relying solely on the per-directive
-`finally` restore. If a write step stalls with no agent output and a directive is in play, check
-whether scoped verification is waiting on a hung subprocess before assuming agent silence. After any
-abnormal verification settle, directives applied during that verify run and not confirmed restored
-stay tracked; the completion boundary refuses pre-commit when staged or `HEAD` blob content for such
-a directive still carries its replacement text while the original is absent, naming target path and
-`path:line: directive` coordinates — distinct from `surviving_mutation_failed` at ready finalization.
-Working-copy-only comparison is insufficient: a mutation present in `HEAD` but absent from the
-working tree is still refused.
+Two operational caveats. Verification runs the scoped suites **once per directive**, serially, with a production file mutated — a subspec with several checkpoints multiplies the write step's wall clock accordingly. Each scoped run is wired to the write iteration's `AbortSignal` and bounded by the remaining write-iteration wall budget at the time the directive starts; on abort or timeout the harness aborts the scoped `bun` subprocess (SIGTERM, then SIGKILL if needed) before restoring from a pre-mutation snapshot taken before the first edit to that file. Abnormal settle (abort, timeout, or throw) restores via that snapshot path rather than relying solely on the per-directive `finally` restore. If a write step stalls with no agent output and a directive is in play, check whether scoped verification is waiting on a hung subprocess before assuming agent silence. After any abnormal verification settle, directives applied during that verify run and not confirmed restored stay tracked; the completion boundary refuses pre-commit when staged or `HEAD` blob content for such a directive still carries its replacement text while the original is absent, naming target path and `path:line: directive` coordinates — distinct from `surviving_mutation_failed` at ready finalization. Working-copy-only comparison is insufficient: a mutation present in `HEAD` but absent from the working tree is still refused.
 
-The spec.criteria-ticked contract prevents `done` / `no-work` completions when
-unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and
-blocking before any completion commit or PR publication. The completion boundary enforces (2):
-when the committer returns no new commit and the worktree is dirty, the run records
-`completion_commit_failed` and names the uncommitted paths instead of masking them as `complete`.
-The publication boundary enforces (3): when the publisher returns a `pushSha` but no PR evidence
-(no `prNumber`), the run records `completion_commit_failed` (retryable) and skips ready finalization,
-preventing silent publication gaps where code is pushed but no PR exists. A red gate demotes the
-run to `failed` and blocks completion; resume the run after fixing the gate. If (5) applies and the
-required integration test exits non-zero, finalization records `ready_gate_failed` with the integration
-test command and output, blocks the draft-to-ready flip, and allows bounded repair iterations.
-Until `implement-completion-requires-adversarial-mutation-verification` ships, mutation-review validation
-remains a stopgap in addition to explicit required integration scope.
+The spec.criteria-ticked contract prevents `done` / `no-work` completions when unticked non-human-only criteria exist, re-reading the subspec from the run's worktree and blocking before any completion commit or PR publication. The completion boundary enforces (2): when the committer returns no new commit and the worktree is dirty, the run records `completion_commit_failed` and names the uncommitted paths instead of masking them as `complete`. The publication boundary enforces (3): when the publisher returns a `pushSha` but no PR evidence (no `prNumber`), the run records `completion_commit_failed` (retryable) and skips ready finalization, preventing silent publication gaps where code is pushed but no PR exists. A red gate demotes the run to `failed` and blocks completion; resume the run after fixing the gate. If (5) applies and the required integration test exits non-zero, finalization records `ready_gate_failed` with the integration test command and output, blocks the draft-to-ready flip, and allows bounded repair iterations. Until `implement-completion-requires-adversarial-mutation-verification` ships, mutation-review validation remains a stopgap in addition to explicit required integration scope.
 
-Implement PR bodies now carry an agent-authored review-altitude narrative in the PR marker block
-(see [PR body narrative markers](./workflow-runner.md#pr-body-narrative-markers)). The shrink pass
-authors this narrative after implementation; on re-publication, human edits inside the marker block
-are preserved and clobber-protected by precedence rules.
+Implement PR bodies now carry an agent-authored review-altitude narrative in the PR marker block (see [PR body narrative markers](./workflow-runner.md#pr-body-narrative-markers)). The shrink pass authors this narrative after implementation; on re-publication, human edits inside the marker block are preserved and clobber-protected by precedence rules.
 
-v2 TUI tests can pass while ink rendering is broken when assertions only walk production
-monitor state or the injected input hook without inspecting the ink element tree — see
-[`test-writing.md` § TUI test strategy](./test-writing.md#tui-test-strategy). A test that drives
-real ink painting into a fake stdout is green locally and red on CI ([#2417](https://github.com/cbrenner04/jarvis/issues/2417),
-[#2418](https://github.com/cbrenner04/jarvis/issues/2418)); prefer region-local ink tree walks via
-`createMonitorDisplay` and the injected input hook instead.
+v2 TUI tests can pass while ink rendering is broken when assertions only walk production monitor state or the injected input hook without inspecting the ink element tree — see [`test-writing.md` § TUI test strategy](./test-writing.md#tui-test-strategy). A test that drives real ink painting into a fake stdout is green locally and red on CI ([#2417](https://github.com/cbrenner04/jarvis/issues/2417), [#2418](https://github.com/cbrenner04/jarvis/issues/2418)); prefer region-local ink tree walks via `createMonitorDisplay` and the injected input hook instead.
 
 ## Recovery
 
@@ -783,72 +430,34 @@ Documented gaps and operator workarounds. Remove entries when seeds merge.
 
 ### Stale managed worktree preflight gates
 
-Incomplete git-enabled `jarvis run workflow implement` or `plan` re-runs evaluate
-descendant → preserve landed criteria → dirty reuse → retirement (see [Gate
-trust](#gate-trust) pre-mutation refusal). When the worktree `HEAD` lags or
-diverges from `--base`, or carries criteria ticks absent from base, preflight
-refuses without retirement — re-dispatch does not silently reuse a stale copy.
-`--reset-despite-landed-criteria` skips only the preserve gate;
-`--reset-despite-dirty` skips only the dirty gate; neither overrides the
-descendant check.
+Incomplete git-enabled `jarvis run workflow implement` or `plan` re-runs evaluate descendant → preserve landed criteria → dirty reuse → retirement (see [Gate trust](#gate-trust) pre-mutation refusal). When the worktree `HEAD` lags or diverges from `--base`, or carries criteria ticks absent from base, preflight refuses without retirement — re-dispatch does not silently reuse a stale copy. `--reset-despite-landed-criteria` skips only the preserve gate; `--reset-despite-dirty` skips only the dirty gate; neither overrides the descendant check.
 
-Pipeline intent-stage re-dispatch (reopen/resume after a failed-stage
-continuation, including daemon-restart continuation) now auto-clears a
-poisoned intent worktree and review-verdict sidecar the same way, when the
-same gates pass — no manual step. When a gate refuses (dirty tree, criteria
-drift), the stage fails with the CLI's refusal text instead of dispatching;
-run `jarvis cleanup --abandon` to retire the worktree by hand, same as any
-other refused-guard or non-pipeline case.
+Pipeline intent-stage re-dispatch (reopen/resume after a failed-stage continuation, including daemon-restart continuation) now auto-clears a poisoned intent worktree and review-verdict sidecar the same way, when the same gates pass — no manual step. When a gate refuses (dirty tree, criteria drift), the stage fails with the CLI's refusal text instead of dispatching; run `jarvis cleanup --abandon` to retire the worktree by hand, same as any other refused-guard or non-pipeline case.
 
 ### `iteration_timeout` with completed subspecs
 
-When a write step times out after at least one linked subspec's non-human-only
-acceptance criteria are fully ticked, the run settles `iteration_timeout` with
-`resumable: true` and terminal `loop_finished` lists `completedSubspecPaths` /
-`remainingSubspecPaths`. Recovery is `jarvis run resume` on the retained
-workspace — not `resetStaleWorkspace`, not a full workflow re-dispatch. A timeout
-with no completed subspec stays non-resumable; re-dispatch the workflow after
-inspecting the stall in `jarvis run log`.
+When a write step times out after at least one linked subspec's non-human-only acceptance criteria are fully ticked, the run settles `iteration_timeout` with `resumable: true` and terminal `loop_finished` lists `completedSubspecPaths` / `remainingSubspecPaths`. Recovery is `jarvis run resume` on the retained workspace — not `resetStaleWorkspace`, not a full workflow re-dispatch. A timeout with no completed subspec stays non-resumable; re-dispatch the workflow after inspecting the stall in `jarvis run log`.
 
 ### Stale `origin/<branch>` after hand-merge
 
-Hand-pushed or hand-merged run branches often leave `refs/remotes/origin/<branch>` on disk
-after GitHub deletes the remote head. Incomplete git-enabled `jarvis run workflow implement`
-or `plan` re-runs (`resetStaleWorkspace` preflight) now prune that remote-tracking ref during
-retirement and print `Pruned stale remote-tracking ref: origin/<branch>` on success stdout when
-one was removed. `jarvis cleanup --abandon` uses the same retirement sequence.
+Hand-pushed or hand-merged run branches often leave `refs/remotes/origin/<branch>` on disk after GitHub deletes the remote head. Incomplete git-enabled `jarvis run workflow implement` or `plan` re-runs (`resetStaleWorkspace` preflight) now prune that remote-tracking ref during retirement and print `Pruned stale remote-tracking ref: origin/<branch>` on success stdout when one was removed. `jarvis cleanup --abandon` uses the same retirement sequence.
 
 ### Intent finalization failed with staged files remaining
 
-A reviewed intent workflow can fail after critic/actuator succeed but landing
-(promotion, commit, push, or PR) fails, leaving `.jarvis-intent-stage/` still
-populated. `jarvis run list` / `jarvis run wait <id>` show `landing_failed`
-(`nextAction: "resume"`).
+A reviewed intent workflow can fail after critic/actuator succeed but landing (promotion, commit, push, or PR) fails, leaving `.jarvis-intent-stage/` still populated. `jarvis run list` / `jarvis run wait <id>` show `landing_failed` (`nextAction: "resume"`).
 
-**Write row** (`runId` on the intent-split write step) settled `landing_failed`
-means the reprompt budget was already spent — hand-edit `.jarvis-intent-stage/`,
-then resume the **write step's** `runId` (the split row from `jarvis run list`,
-not the review row):
+**Write row** (`runId` on the intent-split write step) settled `landing_failed` means the reprompt budget was already spent — hand-edit `.jarvis-intent-stage/`, then resume the **write step's** `runId` (the split row from `jarvis run list`, not the review row):
 
 ```sh
 jarvis run list              # find the failed write-step row (intent-split / split)
 jarvis run resume <runId>    # write-step runId — re-enters the write loop
 ```
 
-`reconstructWriteResume` preserves stage bytes and restores any pending
-landing-contract reprompt context from the last `landing_contract_reprompt` log
-event (including after pause). For implement writes paused after a repromptable
-mutation-checkpoint miss, resume also restores the full directive list from the
-last `mutation_directive_reprompt` log event.
+`reconstructWriteResume` preserves stage bytes and restores any pending landing-contract reprompt context from the last `landing_contract_reprompt` log event (including after pause). For implement writes paused after a repromptable mutation-checkpoint miss, resume also restores the full directive list from the last `mutation_directive_reprompt` log event.
 
-**Review row** (`runId` on the review/finalization step) settled `landing_failed`
-with populated stage replays finalization only
-(`resolveIntentFinalizationResumeContext`), not the write loop.
+**Review row** (`runId` on the review/finalization step) settled `landing_failed` with populated stage replays finalization only (`resolveIntentFinalizationResumeContext`), not the write loop.
 
-Prerequisites: the failure must be git-enabled (git-disabled runs have nothing
-to commit/push and aren't covered by this recovery path) and the stage must
-still hold files — an empty/missing stage reports `unsupported_resume_context`
-instead and needs manual inspection.
+Prerequisites: the failure must be git-enabled (git-disabled runs have nothing to commit/push and aren't covered by this recovery path) and the stage must still hold files — an empty/missing stage reports `unsupported_resume_context` instead and needs manual inspection.
 
 Recover a **review row** with:
 
@@ -856,16 +465,11 @@ Recover a **review row** with:
 jarvis run resume <runId>   # the review step's runId from `run list`/`run wait`
 ```
 
-This replays only finalization — promoting `durableDir`, deleting the stage
-and verdict sidecars, committing, pushing, and opening/reusing the draft
-PR — from the persisted workflow snapshot. It never re-invokes split, critic,
-or actuator. `jarvis run wait <runId>` reports `completed` on success.
+This replays only finalization — promoting `durableDir`, deleting the stage and verdict sidecars, committing, pushing, and opening/reusing the draft PR — from the persisted workflow snapshot. It never re-invokes split, critic, or actuator. `jarvis run wait <runId>` reports `completed` on success.
 
 ### Workflow ends "complete" but produced no PR
 
-A workflow can die after its step runs settle (review step, publication) — step
-rows then all read `completed` while nothing was committed, pushed, or published.
-Diagnose with:
+A workflow can die after its step runs settle (review step, publication) — step rows then all read `completed` while nothing was committed, pushed, or published. Diagnose with:
 
 - `~/.jarvis/daemon.log` — `Workflow execution failed (<workflow>): <message>`
 - `jarvis run log <id>` — trailing `run_execution_failed` record with the message
@@ -873,16 +477,11 @@ Diagnose with:
 - `~/.jarvis/telemetry.jsonl` — per-role rows show which review roles actually ran; **filter by
   `run_id`, do not read the tail and assume** (see [Reading telemetry](#reading-telemetry))
 
-Plan debate review has its own durable `run list` and TUI row, identified by the
-authored workflow `stepId` alongside the plan draft row. During execution its
-workflow detail shows the active adversary, advocate, adjudicator, or actuator;
-after completion, failure, interruption, or daemon restart the retained row
-shows its terminal status. Telemetry remains the per-role audit trail.
+Plan debate review has its own durable `run list` and TUI row, identified by the authored workflow `stepId` alongside the plan draft row. During execution its workflow detail shows the active adversary, advocate, adjudicator, or actuator; after completion, failure, interruption, or daemon restart the retained row shows its terminal status. Telemetry remains the per-role audit trail.
 
 ### Reading telemetry
 
-`~/.jarvis/telemetry.jsonl` is the per-role audit trail: one JSON row per role invocation. Rows are
-**snake_case** and carry full attribution plus cost:
+`~/.jarvis/telemetry.jsonl` is the per-role audit trail: one JSON row per role invocation. Rows are **snake_case** and carry full attribution plus cost:
 
 ```text
 run_id  branch  project  step_id  attempt_id  invocation_id  workflow  spec_ref  worktree_path
@@ -890,8 +489,7 @@ role  agent  model  binding_id  binding_index  duration_ms  exit_kind  exit_reas
 cost_usd  cost_source  usage  usage_source  ts  operator_session_id  record_kind  schema_version
 ```
 
-Filter by `run_id`. Do **not** read the tail and attribute by recency — with two lanes running,
-rows from different runs interleave:
+Filter by `run_id`. Do **not** read the tail and attribute by recency — with two lanes running, rows from different runs interleave:
 
 ```sh
 python3 -c "
@@ -904,21 +502,9 @@ for l in open('$HOME/.jarvis/telemetry.jsonl'):
 "
 ```
 
-**Gotcha (2026-07-26): the keys are `run_id`, not `runId`.** Querying `runId` returns `None` on
-every row, which reads exactly like "telemetry has no run attribution" and invites recency-guessing.
-It cost one wrong conclusion this session. Print `sorted(d.keys())` on one row before concluding a
-field is absent.
+**Gotcha (2026-07-26): the keys are `run_id`, not `runId`.** Querying `runId` returns `None` on every row, which reads exactly like "telemetry has no run attribution" and invites recency-guessing. It cost one wrong conclusion this session. Print `sorted(d.keys())` on one row before concluding a field is absent.
 
-`cost_usd` is per-invocation agent cost, so agent-side spend is queryable per run and per spec —
-metered agents record billed or list-price dollars; codex and cursor rows from this change
-forward carry list-price `cost_usd` when usage and a priced `priceKey` settle
-(`cost_source: "computed"`). Codex `no-usage` means correlation missed, every matched
-`token_count` had `info: null`, or usage shape was unextractable; `no-price` means usage
-was mapped but the binding's `priceKey` is absent from `data/prices.json` or catalog load
-failed; `unavailable` on usage means no agent-reported counters were settled (distinct from
-`no-price`, which still carries mapped usage). Pre-computed cursor rows lack comparable
-`cost_usd` (`no-price` or `no-usage`). That is the source for the agent-cost column in a
-session report; the operator's own `/cost` is separate.
+`cost_usd` is per-invocation agent cost, so agent-side spend is queryable per run and per spec — metered agents record billed or list-price dollars; codex and cursor rows from this change forward carry list-price `cost_usd` when usage and a priced `priceKey` settle (`cost_source: "computed"`). Codex `no-usage` means correlation missed, every matched `token_count` had `info: null`, or usage shape was unextractable; `no-price` means usage was mapped but the binding's `priceKey` is absent from `data/prices.json` or catalog load failed; `unavailable` on usage means no agent-reported counters were settled (distinct from `no-price`, which still carries mapped usage). Pre-computed cursor rows lack comparable `cost_usd` (`no-price` or `no-usage`). That is the source for the agent-cost column in a session report; the operator's own `/cost` is separate.
 
 ### Workflow reports a stale worktree claim
 
@@ -942,28 +528,13 @@ Distinguish five cases:
    artifacts:` summary and [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback)
    remnants table; re-invoke is not always safe.
 
-The pre-mutation client probe uses the same admission predicate as workflow
-`start` (queued rows and registry claims, not `list` `isLive` alone). Stale
-in-memory workflow claims that `start` would reclaim at admission match the
-probe too — retirement may proceed when post-reclaim admission would succeed.
-The probe still refuses before retirement when `start` would refuse without
-reclaim (queued rows or a live registry-held claim), which prevents destruction.
-A missing claim probe or claim-check RPC error refuses with the generic
-incomplete-spec wrapper and performs no retirement (distinct from
-`worktree_claimed:` and from live-held’s tolerant `list` behavior).
+The pre-mutation client probe uses the same admission predicate as workflow `start` (queued rows and registry claims, not `list` `isLive` alone). Stale in-memory workflow claims that `start` would reclaim at admission match the probe too — retirement may proceed when post-reclaim admission would succeed. The probe still refuses before retirement when `start` would refuse without reclaim (queued rows or a live registry-held claim), which prevents destruction. A missing claim probe or claim-check RPC error refuses with the generic incomplete-spec wrapper and performs no retirement (distinct from `worktree_claimed:` and from live-held’s tolerant `list` behavior).
 
-If a workflow start returns `worktree_claimed` after its prior owner is no longer
-live and retirement did not run, invoke the workflow again. The daemon drops that
-in-memory workflow claim at admission and preserves all worktree and branch state;
-do not restart the daemon or remove a worktree for this case. A genuinely live
-owner remains protected and continues to reject the same `(project, branch)`.
+If a workflow start returns `worktree_claimed` after its prior owner is no longer live and retirement did not run, invoke the workflow again. The daemon drops that in-memory workflow claim at admission and preserves all worktree and branch state; do not restart the daemon or remove a worktree for this case. A genuinely live owner remains protected and continues to reject the same `(project, branch)`.
 
 ### v2 debris blocks the `jarvis1` fallback
 
-A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/`
-and holds the branch name. `jarvis1 plan`/`run` for the same name then dies with
-`fatal: '<branch>' is already used by worktree at …`, so **the v2 failure breaks the
-v1 recovery path**. Clear it before falling back:
+A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/` and holds the branch name. `jarvis1 plan`/`run` for the same name then dies with `fatal: '<branch>' is already used by worktree at …`, so **the v2 failure breaks the v1 recovery path**. Clear it before falling back:
 
 ```sh
 git worktree remove --force ~/.jarvis/worktrees/<project>/<branch>
@@ -971,8 +542,7 @@ git branch -D <branch>
 git worktree prune
 ```
 
-This is the **unmerged/failed** case; `jarvis cleanup` only retires *merged* workspaces, so it will
-not clear this debris. Use `jarvis cleanup --abandon <name>` to retire one named wedged workspace:
+This is the **unmerged/failed** case; `jarvis cleanup` only retires *merged* workspaces, so it will not clear this debris. Use `jarvis cleanup --abandon <name>` to retire one named wedged workspace:
 
 ```sh
 jarvis cleanup --abandon <name>  # preview planned removal
@@ -1002,73 +572,21 @@ Use `--dry-run` to preview without confirmation: `jarvis cleanup --abandon <name
 
 ### Blocked run: inspect and resume
 
-A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, branch, and
-`git worktree list` registration. `jarvis run list` and `jarvis run wait <run-id>` report
-`worktreePath` for blocked rows; inspect the spec and uncommitted work there and resolve the
-blocker.
+A `blocked` run (agent appended `## Blocker` to the spec) keeps its worktree, branch, and `git worktree list` registration. `jarvis run list` and `jarvis run wait <run-id>` report `worktreePath` for blocked rows; inspect the spec and uncommitted work there and resolve the blocker.
 
-**`jarvis run resume` does not work on a blocked run** — it refuses with
-`terminal_run` and names spec inspection / re-run recovery, and `run list` correctly reports the row as
-`resumable: false` with remediation `inspect_spec`. To continue the work, resolve the blocker and **re-run the spec**. An incomplete
-`jarvis run workflow implement`, `plan`, `intent`, or `intent-reviewed` re-run resets the stale worktree from `--base` (see
-[Implement workflow](#implement-workflow)). A managed ordinary non-Git directory is instead left for
-locked materialization to validate and replace; other status-listing failures still refuse. Uncommitted
-work in a prior worktree is not carried forward.
+**`jarvis run resume` does not work on a blocked run** — it refuses with `terminal_run` and names spec inspection / re-run recovery, and `run list` correctly reports the row as `resumable: false` with remediation `inspect_spec`. To continue the work, resolve the blocker and **re-run the spec**. An incomplete `jarvis run workflow implement`, `plan`, `intent`, or `intent-reviewed` re-run resets the stale worktree from `--base` (see [Implement workflow](#implement-workflow)). A managed ordinary non-Git directory is instead left for locked materialization to validate and replace; other status-listing failures still refuse. Uncommitted work in a prior worktree is not carried forward.
 
-When an agent emits a `blocked` token without appending a `## Blocker` section to the spec (or active
-subspec on the implement path), the harness reprompts for blocker text. If the agent still fails to
-provide it, the run reports as `missing_blocker` harness defect (`error.reason: "missing_blocker"`,
-`error.retryable: true`, `error.nextAction: "resume"`), not bare `agent_blocked`. This applies to
-both the write (run/plan) path and the implement workflow path.
+When an agent emits a `blocked` token without appending a `## Blocker` section to the spec (or active subspec on the implement path), the harness reprompts for blocker text. If the agent still fails to provide it, the run reports as `missing_blocker` harness defect (`error.reason: "missing_blocker"`, `error.retryable: true`, `error.nextAction: "resume"`), not bare `agent_blocked`. This applies to both the write (run/plan) path and the implement workflow path.
 
 **Blocker text persistence**: When a `blocked` outcome satisfies the blocker-text contract (agent appended non-empty `## Blocker`), the agent's blocker body is extracted and persisted as a durable `blocker_text_detail` log record. This allows you to retrieve the blocker reason from `jarvis run log <run-id>` without requiring access to the worktree spec file, which may not survive after the run completes. The persisted text is truncated to 500 characters for storage efficiency. Query the run log via `jarvis run log <run-id> | grep blocker_text_detail` to see the persisted blocker text inline, or parse the structured log for the `blocker_text_detail` event with its `blockerText` field.
 
 ### Orphaned non-terminal runs after daemon restart
 
-Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason
-`daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Once IPC is healthy, the
-daemon automatically resumes every reconciled row with a resolvable workflow write snapshot.
-The original run ID, snapshot, worktree, and branch are retained; check `jarvis run log <run-id>`
-for its `run_recovery` outcome. A failed automatic admission becomes `failed` with an actionable
-log diagnostic, without blocking other recoveries. Worktrees and branches survive.
-Committed iteration SHAs on the same branch also survive kill, daemon reconcile,
-and resume while the branch exists; only in-flight edits before that iteration's
-git commit may be lost.
+Durable non-terminal rows from a prior daemon are reconciled to `killed` with reason `daemon_restart` before IPC opens (#1430, race fixed by #1476–#1478). Once IPC is healthy, the daemon automatically resumes every reconciled row with a resolvable workflow write snapshot. The original run ID, snapshot, worktree, and branch are retained; check `jarvis run log <run-id>` for its `run_recovery` outcome. A failed automatic admission becomes `failed` with an actionable log diagnostic, without blocking other recoveries. Worktrees and branches survive. Committed iteration SHAs on the same branch also survive kill, daemon reconcile, and resume while the branch exists; only in-flight edits before that iteration's git commit may be lost.
 
-**In-flight iteration commits now cover every settled result (fixed 2026-07-27; previously corrected
-2026-07-26).** A `publishCompletion: false` workflow write step (and every other git-backed write
-loop) checkpoints before the SQLite boundary of *every* settled main-loop iteration — `progress`,
-`complete` (`done`/`no-work`), `blocked`, `contract_miss`, `invalid_token`, `missing_blocker`,
-`invocation_failure`, and `stall`/`idle_output_timeout` — not only `progress`. Previously
-`write-loop.ts` committed only when the agent returned `result.kind === "progress"`; an agent that
-finished its subspec on the first try returned `done` directly, so the committer was never called
-and a mid-iteration kill lost everything. That gap is closed: a single-iteration `done` run now
-emits an `iteration_commit` before `boundary_committed`, the same as a mid-loop `progress` step, so
-a kill or crash after the checkpoint retains that iteration's edits. Ready-gate repair iterations are
-the one exception — they keep their prior publish/recommit behavior, not this per-iteration
-checkpoint. See `v2/docs/write-behavior.md` § Per-iteration commits for the full contract. Seed
-`write-iteration-commits-never-engage` is resolved by this fix. **Implement re-run reset**
-(`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops
-the branch and unpushed commits; publication remains terminal-`complete` only.
+**In-flight iteration commits now cover every settled result (fixed 2026-07-27; previously corrected 2026-07-26).** A `publishCompletion: false` workflow write step (and every other git-backed write loop) checkpoints before the SQLite boundary of *every* settled main-loop iteration — `progress`, `complete` (`done`/`no-work`), `blocked`, `contract_miss`, `invalid_token`, `missing_blocker`, `invocation_failure`, and `stall`/`idle_output_timeout` — not only `progress`. Previously `write-loop.ts` committed only when the agent returned `result.kind === "progress"`; an agent that finished its subspec on the first try returned `done` directly, so the committer was never called and a mid-iteration kill lost everything. That gap is closed: a single-iteration `done` run now emits an `iteration_commit` before `boundary_committed`, the same as a mid-loop `progress` step, so a kill or crash after the checkpoint retains that iteration's edits. Ready-gate repair iterations are the one exception — they keep their prior publish/recommit behavior, not this per-iteration checkpoint. See `v2/docs/write-behavior.md` § Per-iteration commits for the full contract. Seed `write-iteration-commits-never-engage` is resolved by this fix. **Implement re-run reset** (`resetStaleWorkspace` before a new `jarvis run workflow implement`) still drops the branch and unpushed commits; publication remains terminal-`complete` only.
 
-**Controlled losses (kill, abort, watchdog) also checkpoint now (2026-07-27).** The gap above
-covered only a settled agent turn racing the loop's own settlement logic; a `jarvis run kill`,
-a plain `args.signal` abort, or an iteration watchdog (wall-segment or ceiling) firing
-*mid-invocation* previously declared the iteration lost without waiting to see whether the
-raced-away invocation had actually produced work. It now does: the loop waits for that
-invocation to quiesce (settle or throw, once its own cancellation unwinds it), and if it settled
-with a real step result, checkpoints that result before declaring the loss — before
-`loop_finished` on abort/kill, before the `iteration_timeout` boundary on watchdog. A kill
-acknowledgement (the RPC response) only records the kill; the checkpoint, and therefore full
-durability, is only guaranteed once the write loop itself settles — `run kill` returning success
-is not proof the checkpoint has landed, `run wait`/`run log` are. If a checkpoint after a kill
-fails, the already-recorded `killed` status is authoritative and is not clobbered; the error is
-logged for resume diagnostics instead. Ready-gate repair iterations are excluded from this floor
-too — same carve-out as above. Waiting for quiescence is bounded (30s by default,
-`quiescenceTimeoutMs`): an invocation that never quiesces at all (ignores its `AbortSignal`) still
-lets the loop settle once that bound expires, falling through to the un-checkpointed loss instead
-of hanging. Abrupt daemon/process death is outside this floor's guarantee — not a new limitation,
-the same one every checkpoint here has always had.
+**Controlled losses (kill, abort, watchdog) also checkpoint now (2026-07-27).** The gap above covered only a settled agent turn racing the loop's own settlement logic; a `jarvis run kill`, a plain `args.signal` abort, or an iteration watchdog (wall-segment or ceiling) firing *mid-invocation* previously declared the iteration lost without waiting to see whether the raced-away invocation had actually produced work. It now does: the loop waits for that invocation to quiesce (settle or throw, once its own cancellation unwinds it), and if it settled with a real step result, checkpoints that result before declaring the loss — before `loop_finished` on abort/kill, before the `iteration_timeout` boundary on watchdog. A kill acknowledgement (the RPC response) only records the kill; the checkpoint, and therefore full durability, is only guaranteed once the write loop itself settles — `run kill` returning success is not proof the checkpoint has landed, `run wait`/`run log` are. If a checkpoint after a kill fails, the already-recorded `killed` status is authoritative and is not clobbered; the error is logged for resume diagnostics instead. Ready-gate repair iterations are excluded from this floor too — same carve-out as above. Waiting for quiescence is bounded (30s by default, `quiescenceTimeoutMs`): an invocation that never quiesces at all (ignores its `AbortSignal`) still lets the loop settle once that bound expires, falling through to the un-checkpointed loss instead of hanging. Abrupt daemon/process death is outside this floor's guarantee — not a new limitation, the same one every checkpoint here has always had.
 
 **This trap observed live on 2026-07-14:**
 
@@ -1079,29 +597,15 @@ the same one every checkpoint here has always had.
 
 ### Wedged run, no agent activity
 
-Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls
-historically threw before agent invoke (fixed in shipped PRs); similar failures
-may still exit without `iteration_started` follow-up until
-`write-loop-iteration-timeout-on-stall` lands.
+Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls historically threw before agent invoke (fixed in shipped PRs); similar failures may still exit without `iteration_started` follow-up until `write-loop-iteration-timeout-on-stall` lands.
 
 ### Stopping a live workflow implement run
 
-`jarvis run kill <run-id>` (or `k` in `jarvis tui`) aborts a live workflow-started write step
-and records durable `killed`; `pause` / `resume` still refuse workflow rows
-([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
+`jarvis run kill <run-id>` (or `k` in `jarvis tui`) aborts a live workflow-started write step and records durable `killed`; `pause` / `resume` still refuse workflow rows ([`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs)).
 
-**A daemon restart does not orphan in-flight work** (corrected 2026-07-25). This entry previously
-said "stop the daemon only as a last resort — it orphans every in-flight run"; that predates the
-reconcile-and-resume work (#1430, #1476–#1478). Startup reconciliation settles every non-terminal
-row to `killed` / `daemon_restart` before IPC opens, then auto-resumes each one that has a
-resolvable workflow write snapshot, retaining the run ID, snapshot, worktree, and branch — see
-[Orphaned non-terminal runs after daemon restart](#orphaned-non-terminal-runs-after-daemon-restart).
+**A daemon restart does not orphan in-flight work** (corrected 2026-07-25). This entry previously said "stop the daemon only as a last resort — it orphans every in-flight run"; that predates the reconcile-and-resume work (#1430, #1476–#1478). Startup reconciliation settles every non-terminal row to `killed` / `daemon_restart` before IPC opens, then auto-resumes each one that has a resolvable workflow write snapshot, retaining the run ID, snapshot, worktree, and branch — see [Orphaned non-terminal runs after daemon restart](#orphaned-non-terminal-runs-after-daemon-restart).
 
-The exception is narrow and worth knowing: a row with **no** resolvable write snapshot is not
-auto-resumed and strands `unsupported_resume_context`. Review-step rows are exactly that shape, so a
-restart while a review step is live will strand that row; a restart during a write step will not.
-Observed 2026-07-25: four `unsupported_resume_context` rows in one session, all review steps, none
-of them caused by a restart.
+The exception is narrow and worth knowing: a row with **no** resolvable write snapshot is not auto-resumed and strands `unsupported_resume_context`. Review-step rows are exactly that shape, so a restart while a review step is live will strand that row; a restart during a write step will not. Observed 2026-07-25: four `unsupported_resume_context` rows in one session, all review steps, none of them caused by a restart.
 
 ### Branch / worktree collision
 
@@ -1109,87 +613,43 @@ of them caused by a restart.
 fatal: '<branch>' is already used by worktree at ...
 ```
 
-Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local
-branch if safe. (`jarvis cleanup` handles this automatically once the branch's PR is merged; hand-remove only for unmerged branches.)
+Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local branch if safe. (`jarvis cleanup` handles this automatically once the branch's PR is merged; hand-remove only for unmerged branches.)
 
 ### Publication / completion failures
 
-Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, `error.completionCommitError` (trailing `run list` column or `error` on `run wait` stdout; full context on `jarvis run log`) for completion-commit failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then
-`jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For a post-commit shrink `contract_miss` on `implement~shrink`, read `contract_miss_detail` on that row's log, then `jarvis run resume` on the `~shrink` row (not `inspect_spec` on the workflow entry). For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. When the owning row is instead a durable review-behavior step (e.g. `implement-review`, or a durable `review-debate` last step), resume that row's own id — the durable write step already committed, so resume replays only mutation re-verification, the ready gate, and publication, never a write-loop re-entry. Resuming the workflow entry id or a completed `~shrink` row for that scenario still refuses. Resume reuses the persisted write snapshot for step identity (rules, artifact path, outer agent order) before replaying publication without re-invoking the write-step agent; agent/model bindings come from the current machine profile at continuation time. Confirm the active rung from attempt telemetry until `jarvis run list` shows binding. Daemon-process logs are secondary for `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, and `surviving_mutation_failed`; for `completion_commit_failed`, rely on `error.completionCommitError` instead. Do not delete the worktree.
+Retryable `completion_commit_failed`, `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, or `surviving_mutation_failed` on `list` / `wait`: inspect `error.publicationFailure` first for publication failures, `error.completionCommitError` (trailing `run list` column or `error` on `run wait` stdout; full context on `jarvis run log`) for completion-commit failures, or `error.survivingMutation` / source file and line for mutation failures; then verify the completion commit/PR state, fix `git`/`gh`/`origin` access, publication target state, or test coverage, then `jarvis run resume <run-id>`. For `iteration_commit_failed`, the failing iteration never reached `boundary_committed`; resume retries that iteration (including its git commit) without advancing the loop. For a post-commit shrink `contract_miss` on `implement~shrink`, read `contract_miss_detail` on that row's log, then `jarvis run resume` on the `~shrink` row (not `inspect_spec` on the workflow entry). For an attached workflow whose entry reports a hidden shrink mutation failure, find and resume the owning `~shrink` row in `jarvis run list`, not the printed entry ID. When the owning row is instead a durable review-behavior step (e.g. `implement-review`, or a durable `review-debate` last step), resume that row's own id — the durable write step already committed, so resume replays only mutation re-verification, the ready gate, and publication, never a write-loop re-entry. Resuming the workflow entry id or a completed `~shrink` row for that scenario still refuses. Resume reuses the persisted write snapshot for step identity (rules, artifact path, outer agent order) before replaying publication without re-invoking the write-step agent; agent/model bindings come from the current machine profile at continuation time. Confirm the active rung from attempt telemetry until `jarvis run list` shows binding. Daemon-process logs are secondary for `iteration_commit_failed`, `ready_gate_failed`, `landing_failed`, and `surviving_mutation_failed`; for `completion_commit_failed`, rely on `error.completionCommitError` instead. Do not delete the worktree.
 
-**Store lock after a completed write step:** when `list` / `wait` report
-`error.reason: "state_store_lock_timeout"` (`retryable: true`, `nextAction: "resume"`)
-after the write loop already committed its `done` boundary, run
-`jarvis run resume <run-id>`. The finished write step is not re-run; resume continues
-from the persisted checkpoint. This differs from generic `harness_failure` on
-message-less `run_execution_failed` records.
+**Store lock after a completed write step:** when `list` / `wait` report `error.reason: "state_store_lock_timeout"` (`retryable: true`, `nextAction: "resume"`) after the write loop already committed its `done` boundary, run `jarvis run resume <run-id>`. The finished write step is not re-run; resume continues from the persisted checkpoint. This differs from generic `harness_failure` on message-less `run_execution_failed` records.
 
 **`ready_flip_failed` is terminal** — do not resume. The flip error identifies the PR by number (`error.prNumber`); inspect and manually fix the PR draft → ready transition. The fix does not require a daemon restart or `jarvis run resume`. The PR number is also available via `jarvis run list <run-id>` as the `readyFlipPrNumber` field; use it to identify the PR to fix. After manual fix, verify `gh pr view <prNumber> --json isDraft` reports `false`, then proceed with the next workflow step or close the run.
 
 ### Intent-reviewed operator checkout
 
-Review and landing must use the split external worktree, not the operator checkout.
-If review dirties the primary checkout, treat as a harness bug; seed
-`intent-reviewed-uses-external-worktree` (fold into `workflow-composable-collapse`).
+Review and landing must use the split external worktree, not the operator checkout. If review dirties the primary checkout, treat as a harness bug; seed `intent-reviewed-uses-external-worktree` (fold into `workflow-composable-collapse`).
 
 ### Daemon blocked on long git / ready subprocess
 
-Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
-subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run
-finalizes. Check for `bun run ready` or `git` children on the daemon PID.
+Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync subprocess on the daemon event loop. Symptom: `jarvis run list` hangs while a run finalizes. Check for `bun run ready` or `git` children on the daemon PID.
 
 ### Cleanup: eligibility gate
 
-`jarvis cleanup` runs four independent slices in one invocation: merged-worktree retirement,
-worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead
-daemon-socket reaping. Each slice previews in `--dry-run`, shares the apply confirmation prompt,
-and continues after partial failure in another slice unless noted below.
+`jarvis cleanup` runs four independent slices in one invocation: merged-worktree retirement, worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead daemon-socket reaping. Each slice previews in `--dry-run`, shares the apply confirmation prompt, and continues after partial failure in another slice unless noted below.
 
-**Local-only ref scope.** Bulk cleanup never deletes a branch on the remote repository. It may
-delete exact local refs only: `refs/heads/<branch>` and, when present, exact
-`refs/remotes/origin/<branch>`. `--abandon` is the path that deletes the remote branch.
+**Local-only ref scope.** Bulk cleanup never deletes a branch on the remote repository. It may delete exact local refs only: `refs/heads/<branch>` and, when present, exact `refs/remotes/origin/<branch>`. `--abandon` is the path that deletes the remote branch.
 
 #### Merged-worktree retirement
 
-`jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`.
-The eligibility gate decides whether a worktree is safe to remove.
+`jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`. The eligibility gate decides whether a worktree is safe to remove.
 
-After Git retires a workspace, cleanup resolves its durable workflow or ad-hoc spec
-identity and archives an eligible completed artifact to `completed/` in the same cleanup
-invocation; this path needs no rerun.
-It prunes `ready-intents/<spec-name>.md` only when it byte-matches `intent.md`.
-`--dry-run` lists the worktree, archive destination, and that proven prune without
-changing worktrees, branches, specs, intents, or run rows. A failed retirement does
-not inspect or move its artifact. If archival is refused (incomplete criteria, an
-open matching PR, or another materialized owner), retirement remains successful and
-stdout names the artifact and refusal; resolve that condition, then rerun cleanup.
+After Git retires a workspace, cleanup resolves its durable workflow or ad-hoc spec identity and archives an eligible completed artifact to `completed/` in the same cleanup invocation; this path needs no rerun. It prunes `ready-intents/<spec-name>.md` only when it byte-matches `intent.md`. `--dry-run` lists the worktree, archive destination, and that proven prune without changing worktrees, branches, specs, intents, or run rows. A failed retirement does not inspect or move its artifact. If archival is refused (incomplete criteria, an open matching PR, or another materialized owner), retirement remains successful and stdout names the artifact and refusal; resolve that condition, then rerun cleanup.
 
-Cleanup also scans immediate open directories in every registered `v2/spec/` home, even
-when no workspace is retired. It ignores `completed/`, `seeds/`, and `ready-intents/`.
-The same completeness, open-PR, ownership, intent-proof, and move/rollback checks apply;
-stdout (including `--dry-run`) names candidates and refusals for unchecked criteria, open
-matching PRs, and materialized owners. It never changes durable run rows.
+Cleanup also scans immediate open directories in every registered `v2/spec/` home, even when no workspace is retired. It ignores `completed/`, `seeds/`, and `ready-intents/`. The same completeness, open-PR, ownership, intent-proof, and move/rollback checks apply; stdout (including `--dry-run`) names candidates and refusals for unchecked criteria, open matching PRs, and materialized owners. It never changes durable run rows.
 
-When a completed open-home spec's owning worktree is retired in the same `jarvis cleanup`
-apply invocation, stranded archival runs after retirement against a freshly discovered
-materialized-worktree list (successful retirements only), so one pass archives the spec
-into `completed/` without a second cleanup.
+When a completed open-home spec's owning worktree is retired in the same `jarvis cleanup` apply invocation, stranded archival runs after retirement against a freshly discovered materialized-worktree list (successful retirements only), so one pass archives the spec into `completed/` without a second cleanup.
 
-**`--dry-run` stranded prediction (bounded).** For open-home stranded archival,
-`--dry-run` evaluates materialized-worktree ownership as if worktrees in the retire
-preview set were already gone, so stranded archive lines match apply for that slice when
-those owners are the only blockers and apply successfully retires those worktrees (the
-same assumption behind apply's post-retirement materialized list). If a previewed
-worktree is not removed, dry-run may still show stranded `archive:` while apply keeps
-an owner and refuses. This is not full-command dry-run ≡ apply: worktree
-retirement preview, dead sockets, post-confirm eligibility recheck, and merged-PR preview/apply
-races are unchanged.
+**`--dry-run` stranded prediction (bounded).** For open-home stranded archival, `--dry-run` evaluates materialized-worktree ownership as if worktrees in the retire preview set were already gone, so stranded archive lines match apply for that slice when those owners are the only blockers and apply successfully retires those worktrees (the same assumption behind apply's post-retirement materialized list). If a previewed worktree is not removed, dry-run may still show stranded `archive:` while apply keeps an owner and refuses. This is not full-command dry-run ≡ apply: worktree retirement preview, dead sockets, post-confirm eligibility recheck, and merged-PR preview/apply races are unchanged.
 
-**`--dry-run` is a plan, not an outcome** for other cleanup slices. It lists an archive
-destination based on the state it sees; the apply-time recheck runs again and can correctly
-refuse every archival the preview listed outside the bounded stranded case above. Do not read
-a dry-run listing as "these will be archived" — read it as "these are candidates". Confirm
-against the apply run's stdout.
+**`--dry-run` is a plan, not an outcome** for other cleanup slices. It lists an archive destination based on the state it sees; the apply-time recheck runs again and can correctly refuse every archival the preview listed outside the bounded stranded case above. Do not read a dry-run listing as "these will be archived" — read it as "these are candidates". Confirm against the apply run's stdout.
 
 A worktree is eligible iff:
 
@@ -1200,17 +660,13 @@ A worktree is eligible iff:
   until `jarvis cleanup --abandon`.
 - **No live daemon run**: the daemon reports no live run for the `(project, branch)`.
 
-Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.lock`. A live lock
-does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is
-held (see [§ `--abandon`](#v2-debris-blocks-the-jarvis1-fallback)).
+Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.lock`. A live lock does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is held (see [§ `--abandon`](#v2-debris-blocks-the-jarvis1-fallback)).
 
-Successful merged-worktree retirement removes the worktree, then prunes the same local head and
-local `origin` tracking ref through the shared ref-prune path below.
+Successful merged-worktree retirement removes the worktree, then prunes the same local head and local `origin` tracking ref through the shared ref-prune path below.
 
 #### Merged-branch ref pruning (worktree-independent)
 
-Every cleanup also scans each distinct registered project Git root for local heads whose merged
-PR authority is verifiable, even when no managed worktree exists for that branch.
+Every cleanup also scans each distinct registered project Git root for local heads whose merged PR authority is verifiable, even when no managed worktree exists for that branch.
 
 **Prunes** (apply, after confirmation):
 
@@ -1237,149 +693,47 @@ Successfully retired merged worktrees use this same path immediately after workt
 - Apply skip (revalidation or ineligibility): `Skipped ref prune: <project> refs/heads/<branch> — <reason>`.
 - Apply failure: stderr `Failed to prune ref <full-ref> (<project>): <message>`.
 
-Apply revalidates head OID, tracking-ref OID, merged-PR authority, checkout status, and
-durable/daemon run ownership immediately before each mutation; a ref that changed after preview
-is skipped, not deleted. Dry-run lists candidates from discovery; apply-time guards (including
-daemon reachability) can skip a previewed ref without deleting it.
+Apply revalidates head OID, tracking-ref OID, merged-PR authority, checkout status, and durable/daemon run ownership immediately before each mutation; a ref that changed after preview is skipped, not deleted. Dry-run lists candidates from discovery; apply-time guards (including daemon reachability) can skip a previewed ref without deleting it.
 
-**Partial failure.** A failed head or tracking-ref deletion is not reported as success, makes the
-invocation exit nonzero, and does not block later eligible ref candidates or the independent
-worktree-retirement, artifact-archival, and socket-reaping slices. Worktree retirement is
-reported successful only when both removal and its required ref prune succeed.
+**Partial failure.** A failed head or tracking-ref deletion is not reported as success, makes the invocation exit nonzero, and does not block later eligible ref candidates or the independent worktree-retirement, artifact-archival, and socket-reaping slices. Worktree retirement is reported successful only when both removal and its required ref prune succeed.
 
-Unusable registered project roots (missing, non-Git, or inaccessible) are reported on stderr as
-`Skipped project <project>: <reason> (<root>)` and make the invocation exit nonzero.
+Unusable registered project roots (missing, non-Git, or inaccessible) are reported on stderr as `Skipped project <project>: <reason> (<root>)` and make the invocation exit nonzero.
 
-**Fail closed**: if `gh` fails, or the daemon rejects or returns a malformed list probe, the
-worktree is marked ineligible and skipped. Daemon-unreachable merged worktrees appear in bulk preview as
-`Skipped merged worktree: <path>` with the stable reason
-`Daemon unreachable; run jarvis daemon start`. Head-only merged-branch ref pruning uses the same
-daemon-unreachable reason on apply skip (`Skipped ref prune: … — Daemon unreachable; run jarvis daemon start`)
-and the same exit contract: at least one daemon-unreachable skip in either slice makes dry-run,
-declined, and applied cleanup exit nonzero, including when nothing else is eligible, every head-only
-candidate is skipped at apply, or a post-confirmation recheck withholds retirement. PR-not-merged,
-non-terminal-run, live-run, and other ineligibility skips retain exit `0`. Cleanup does not impose a response timeout after a connection is established;
-an established connection that never responds is outside this behavior. If the run store is inaccessible
-(`listRuns()` throws), cleanup aborts with that error rather than skipping individual worktrees.
+**Fail closed**: if `gh` fails, or the daemon rejects or returns a malformed list probe, the worktree is marked ineligible and skipped. Daemon-unreachable merged worktrees appear in bulk preview as `Skipped merged worktree: <path>` with the stable reason `Daemon unreachable; run jarvis daemon start`. Head-only merged-branch ref pruning uses the same daemon-unreachable reason on apply skip (`Skipped ref prune: … — Daemon unreachable; run jarvis daemon start`) and the same exit contract: at least one daemon-unreachable skip in either slice makes dry-run, declined, and applied cleanup exit nonzero, including when nothing else is eligible, every head-only candidate is skipped at apply, or a post-confirmation recheck withholds retirement. PR-not-merged, non-terminal-run, live-run, and other ineligibility skips retain exit `0`. Cleanup does not impose a response timeout after a connection is established; an established connection that never responds is outside this behavior. If the run store is inaccessible (`listRuns()` throws), cleanup aborts with that error rather than skipping individual worktrees.
 
-The CLI queries every live daemon socket discovered under `JARVIS_HOME` plus the invoking
-digest's socket (same set as `jarvis run list`), issuing `list` on each and skipping sockets
-whose connect, `list`, or parse fails without aborting the command. A socket counts as
-answering only when connect + `list` + parse all succeed. Bulk cleanup unions `isLive` rows
-for each `(project, branch)` across answering daemons. When no socket in that query set
-answers, one stderr line recommends `jarvis daemon start`, then bulk cleanup still reaps dead
-sockets and scans stranded open-home specs. Merged worktrees remain fail-closed with the
-preview and exit behavior above. Timeout, permission, and unexpected connect failures on the
-invoking socket do not abort when another socket in the query set would answer; when no
-socket answers, non-`ENOENT`/`ECONNREFUSED` first errors still abort before those phases.
-`jarvis cleanup --abandon <name>` still connects only to the keyed digest socket and refuses
-before preview when that listener is absent. Worktrees ineligible for this session remain
-untouched; retry after restoring daemon reachability.
+The CLI queries every live daemon socket discovered under `JARVIS_HOME` plus the invoking digest's socket (same set as `jarvis run list`), issuing `list` on each and skipping sockets whose connect, `list`, or parse fails without aborting the command. A socket counts as answering only when connect + `list` + parse all succeed. Bulk cleanup unions `isLive` rows for each `(project, branch)` across answering daemons. When no socket in that query set answers, one stderr line recommends `jarvis daemon start`, then bulk cleanup still reaps dead sockets and scans stranded open-home specs. Merged worktrees remain fail-closed with the preview and exit behavior above. Timeout, permission, and unexpected connect failures on the invoking socket do not abort when another socket in the query set would answer; when no socket answers, non-`ENOENT`/`ECONNREFUSED` first errors still abort before those phases. `jarvis cleanup --abandon <name>` still connects only to the keyed digest socket and refuses before preview when that listener is absent. Worktrees ineligible for this session remain untouched; retry after restoring daemon reachability.
 
-Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket
-is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound;
-dead sockets are removed. All other probe results (connection succeeds, timeout, permission error,
-unexpected error) preserve the socket and are reported by reason. This allows `jarvis cleanup` to
-safely run while overlapping keyed daemons are live: each socket is classified independently, and
-only sockets whose daemons have exited are removed. If the jarvis home cannot be enumerated, no
-sockets are removed in that cleanup run.
+Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket is dead when its connect probe receives `ECONNREFUSED` or `ENOENT`, indicating no listener is bound; dead sockets are removed. All other probe results (connection succeeds, timeout, permission error, unexpected error) preserve the socket and are reported by reason. This allows `jarvis cleanup` to safely run while overlapping keyed daemons are live: each socket is classified independently, and only sockets whose daemons have exited are removed. If the jarvis home cannot be enumerated, no sockets are removed in that cleanup run.
 
 ## Choosing an actuator
 
-**Claude is usable as patch/implement primary again (2026-07-13).**
-`claude-streams-output-to-watchdog` shipped: claude is now spawned with
-`--output-format stream-json --verbose` (`v1/src/agents/claude.ts:68`), so the
-idle-output watchdog observes it mid-iteration and can escalate down `agentOrder`.
+**Claude is usable as patch/implement primary again (2026-07-13).** `claude-streams-output-to-watchdog` shipped: claude is now spawned with `--output-format stream-json --verbose` (`v1/src/agents/claude.ts:68`), so the idle-output watchdog observes it mid-iteration and can escalate down `agentOrder`.
 
-Before that fix, **33 of 33** claude patch records carried `last_output_age_ms: null`
-— the watchdog was structurally blind to claude, and a live claude run rode
-`iterationTimeoutMs` to exit 8. That produced two misdiagnoses now known to be false:
-"claude-haiku stalls to a zero-output iteration-timeout" and "claude-sonnet-5 is too
-slow to be patch primary." **Neither was about the model.** Zero output was a missing
-measurement, not a starved or slow agent.
+Before that fix, **33 of 33** claude patch records carried `last_output_age_ms: null` — the watchdog was structurally blind to claude, and a live claude run rode `iterationTimeoutMs` to exit 8. That produced two misdiagnoses now known to be false: "claude-haiku stalls to a zero-output iteration-timeout" and "claude-sonnet-5 is too slow to be patch primary." **Neither was about the model.** Zero output was a missing measurement, not a starved or slow agent.
 
-**The v1 runbook's "shared Claude pool contention" guidance rests on that same
-folklore and is contradicted** — two concurrent `claude-opus-4-8` *plan* runs
-completed cleanly during the very claude *patch* run that "stalled", same pool, same
-Claude operator session. `v1/src/modes/patch/pool-contention.ts` fires on process
-existence and measures no contention. Ready-intent:
-`retire-claude-pool-contention-folklore`. Cleanup: delete the v1 runbook's
-[Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning)
-section when it ships.
+**The v1 runbook's "shared Claude pool contention" guidance rests on that same folklore and is contradicted** — two concurrent `claude-opus-4-8` *plan* runs completed cleanly during the very claude *patch* run that "stalled", same pool, same Claude operator session. `v1/src/modes/patch/pool-contention.ts` fires on process existence and measures no contention. Ready-intent: `retire-claude-pool-contention-folklore`. Cleanup: delete the v1 runbook's [Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning) section when it ships.
 
-**v2's claude output now streams (shared adapter change, 2026-07-13).** `shared/invocation/`
-now spawns claude with `--output-format stream-json --verbose`, making claude output
-visible mid-invocation (not buffered until exit). This does not cover every shape of turn:
-a long no-tool turn (e.g. a review/critic role with the diff baked into the prompt) emits a
-`system init` line then nothing until the final `type:"result"` flush — the idle-output
-watchdog arms once at spawn and never re-arms, so a slow-but-live critic run can settle
-`stall` while claude is still working.
+**v2's claude output now streams (shared adapter change, 2026-07-13).** `shared/invocation/` now spawns claude with `--output-format stream-json --verbose`, making claude output visible mid-invocation (not buffered until exit). This does not cover every shape of turn: a long no-tool turn (e.g. a review/critic role with the diff baked into the prompt) emits a `system init` line then nothing until the final `type:"result"` flush — the idle-output watchdog arms once at spawn and never re-arms, so a slow-but-live critic run can settle `stall` while claude is still working.
 
-**Claude-first review/critic roles need `--include-partial-messages` (shared adapter change,
-2026-08-05).** `shared/invocation/agents.ts` now appends `--include-partial-messages` to the
-claude argv, streaming `thinking_delta`/`text_delta` partial frames ahead of the terminal
-result event. Any stdout chunk re-arms the idle timer, so a long no-tool turn now produces
-watchdog-visible progress instead of the silence described above. `parseClaudeJsonOutput`
-already skips non-`result` NDJSON lines, so parsed display text/usage/cost are unaffected.
-v1's local claude adapter (`v1/src/agents/claude.ts`) does not pass this flag and keeps the
-pre-2026-08-05 behavior; this is a shared-invocation-only (v2) change.
+**Claude-first review/critic roles need `--include-partial-messages` (shared adapter change, 2026-08-05).** `shared/invocation/agents.ts` now appends `--include-partial-messages` to the claude argv, streaming `thinking_delta`/`text_delta` partial frames ahead of the terminal result event. Any stdout chunk re-arms the idle timer, so a long no-tool turn now produces watchdog-visible progress instead of the silence described above. `parseClaudeJsonOutput` already skips non-`result` NDJSON lines, so parsed display text/usage/cost are unaffected. v1's local claude adapter (`v1/src/agents/claude.ts`) does not pass this flag and keeps the pre-2026-08-05 behavior; this is a shared-invocation-only (v2) change.
 
-**v2's write path now arms an idle-output watchdog (2026-07-25).** `resolveWritePathIterationBounds`
-resolves `idleOutputMs` from machine config `idleOutputTimeoutMs` (default 90 s; `0` disables)
-and threads it onto every write-behavior step, alongside the existing wall segment
-(`iterationTimeoutMs`) and hard ceiling (`iterationCeilingMs`). A silent invocation now settles
-`idle_output_timeout` well before the wall would fire; see
-[`write-behavior.md`](./write-behavior.md) for ordering and
-[`daemon-host.md`](./daemon-host.md) for the operator-facing outcome. Resumed write steps
-rehydrate the persisted `idleOutputMs` bound from the workflow snapshot, so a paused/resumed
-run stays armed.
+**v2's write path now arms an idle-output watchdog (2026-07-25).** `resolveWritePathIterationBounds` resolves `idleOutputMs` from machine config `idleOutputTimeoutMs` (default 90 s; `0` disables) and threads it onto every write-behavior step, alongside the existing wall segment (`iterationTimeoutMs`) and hard ceiling (`iterationCeilingMs`). A silent invocation now settles `idle_output_timeout` well before the wall would fire; see [`write-behavior.md`](./write-behavior.md) for ordering and [`daemon-host.md`](./daemon-host.md) for the operator-facing outcome. Resumed write steps rehydrate the persisted `idleOutputMs` bound from the workflow snapshot, so a paused/resumed run stays armed.
 
-**`idleOutputTimeoutMs` applies to workflow write and review roles (2026-07-26).**
-Configured positive values are passed to every workflow review role, while `0` disables
-the review-role watchdog. An absent key leaves the step unstamped and uses the 90 s
-review fallback. Pre-fix `role_stalled` records, including the `home.json` 240 s
-observation, used the hardcoded 90 s review budget even when configuration requested
-otherwise; interpret those historical records under the old behavior.
+**`idleOutputTimeoutMs` applies to workflow write and review roles (2026-07-26).** Configured positive values are passed to every workflow review role, while `0` disables the review-role watchdog. An absent key leaves the step unstamped and uses the 90 s review fallback. Pre-fix `role_stalled` records, including the `home.json` 240 s observation, used the hardcoded 90 s review budget even when configuration requested otherwise; interpret those historical records under the old behavior.
 
-**Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Review-role
-invocations (`v2/src/execution/review-role-invocation.ts`) have carried their own idle-output
-budget since before the write path did. Under `--output-format text` cursor emitted nothing
-until its final response, so a silently-editing review role produced zero stdout and settled
-`stall` at exactly the idle budget — observed 2026-07-24 at `dur=90003`, twice, with edits
-already on disk. This was the shared/v2 invocation path, not v1; `v1/src/agents/cursor.ts` is
-unchanged and still uses `text` mode.
+**Cursor is spawned with stream-json (shared adapter change, 2026-07-24).** Review-role invocations (`v2/src/execution/review-role-invocation.ts`) have carried their own idle-output budget since before the write path did. Under `--output-format text` cursor emitted nothing until its final response, so a silently-editing review role produced zero stdout and settled `stall` at exactly the idle budget — observed 2026-07-24 at `dur=90003`, twice, with edits already on disk. This was the shared/v2 invocation path, not v1; `v1/src/agents/cursor.ts` is unchanged and still uses `text` mode.
 
-What changed: `shared/invocation/agents.ts` now spawns cursor with `--output-format
-stream-json --stream-partial-output`, and `shared/invocation/cursor-json.ts` renders the
-terminal `result` event (or concatenated text frames) back into result text. Any stdout
-chunk re-arms the idle timer, so a cursor run that emits frames mid-invocation no longer
-trips the watchdog.
+What changed: `shared/invocation/agents.ts` now spawns cursor with `--output-format stream-json --stream-partial-output`, and `shared/invocation/cursor-json.ts` renders the terminal `result` event (or concatenated text frames) back into result text. Any stdout chunk re-arms the idle timer, so a cursor run that emits frames mid-invocation no longer trips the watchdog.
 
-**Confirmed by observation (2026-07-26).** This entry previously carried an "unverified premise —
-do not treat this as a confirmed fix" caveat, on the grounds that no real cursor stream-json
-transcript had been captured and it was not established that cursor emits frames during a silent
-edit phase. **It does.** A cursor `implement` role on a v2 workflow ran **948s** before settling
-`stall` — the idle timer was re-armed by cursor's frames for roughly 14 minutes before the fatal
-pause. A run that emitted nothing would have died at the idle budget, not fifteen minutes in.
+**Confirmed by observation (2026-07-26).** This entry previously carried an "unverified premise — do not treat this as a confirmed fix" caveat, on the grounds that no real cursor stream-json transcript had been captured and it was not established that cursor emits frames during a silent edit phase. **It does.** A cursor `implement` role on a v2 workflow ran **948s** before settling `stall` — the idle timer was re-armed by cursor's frames for roughly 14 minutes before the fatal pause. A run that emitted nothing would have died at the idle budget, not fifteen minutes in.
 
-The residual lesson is about the *budget*, not the adapter: `DEFAULT_IDLE_OUTPUT_TIMEOUT_MS` is
-90_000 (v1 patch-loop parity) and is too tight for v2 implement work, where an ordinary pause
-between frames exceeds it. `config/machines/home.json` now sets `idleOutputTimeoutMs: 240000`.
-Bounds resolve CLI-side per invocation (`v2/src/commands/workflow.ts:136`), so changing them needs
-no daemon bounce. Treat a `role_stalled` / `idle_output_timeout` on a long-running role as a budget
-question first and an agent question second.
+The residual lesson is about the *budget*, not the adapter: `DEFAULT_IDLE_OUTPUT_TIMEOUT_MS` is 90_000 (v1 patch-loop parity) and is too tight for v2 implement work, where an ordinary pause between frames exceeds it. `config/machines/home.json` now sets `idleOutputTimeoutMs: 240000`. Bounds resolve CLI-side per invocation (`v2/src/commands/workflow.ts:136`), so changing them needs no daemon bounce. Treat a `role_stalled` / `idle_output_timeout` on a long-running role as a budget question first and an agent question second.
 
 ### v2 takes its agent order from a different config key than v1
 
-**v1** reads `modes.<mode>.agentOrder` (ordered `{agent, model}` objects, per mode). **v2** reads
-the flat top-level **`agents`** array of bare names (`v2/src/cli.ts:236` → `loadMachineConfig`). It
-never reads `modes.*.agentOrder`.
+**v1** reads `modes.<mode>.agentOrder` (ordered `{agent, model}` objects, per mode). **v2** reads the flat top-level **`agents`** array of bare names (`v2/src/cli.ts:236` → `loadMachineConfig`). It never reads `modes.*.agentOrder`.
 
-So reordering `modes.*.agentOrder` — the lever `agents.md` and the v1 runbook document — changes v1
-and **nothing about v2**, silently. Observed 2026-07-14: codex was moved to the front of every
-`modes.*.agentOrder` and every subsequent v2 run still invoked claude. To change v2's order today
-you must also edit the top-level `agents` array. Seed:
-`v1-and-v2-read-agent-order-from-different-config-keys`. Cleanup: delete when it ships.
+So reordering `modes.*.agentOrder` — the lever `agents.md` and the v1 runbook document — changes v1 and **nothing about v2**, silently. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent v2 run still invoked claude. To change v2's order today you must also edit the top-level `agents` array. Seed: `v1-and-v2-read-agent-order-from-different-config-keys`. Cleanup: delete when it ships.
 
 Per-run overrides, rather than churning config — **v1 only**; v2 has no `--agent` flag:
 
@@ -1390,12 +744,9 @@ jarvis1 run --agent codex <spec>                   # paid, fast
 
 ## Concurrency
 
-Same throttle guidance as v1: ~1–2 concurrent `jarvis1 run` implement sessions;
-workflow implement runs full gates — avoid stacking many concurrent implement
-workflows on one machine.
+Same throttle guidance as v1: ~1–2 concurrent `jarvis1 run` implement sessions; workflow implement runs full gates — avoid stacking many concurrent implement workflows on one machine.
 
-Do not merge to `main` blindly during long in-flight runs; see v1 runbook
-[Integration-merge-then-retest](../../v1/docs/operator-runbook.md#integration-merge-then-retest-pattern).
+Do not merge to `main` blindly during long in-flight runs; see v1 runbook [Integration-merge-then-retest](../../v1/docs/operator-runbook.md#integration-merge-then-retest-pattern).
 
 **State store concurrency:** The durable run state store (`~/.jarvis/state/v2.sqlite`) opens with WAL journal mode and a 5-second busy timeout, enabling safe concurrent reader-vs-writer access on a single machine without additional coordination. Overlapping workflows and routine polling (daemon `list`, TUI status checks) against the store are safe and do not cause `database is locked` errors.
 

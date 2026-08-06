@@ -1,11 +1,8 @@
 # 2026-07-19 v2 review/refactor session
 
-Direct-work session (no jarvis runs, per operator): heavy review + refactor of v2, test
-pare-down, docs currency, spec-dir cleanup. Driven from five parallel code/docs/backlog
-audits, each claim re-verified in code before acting.
+Direct-work session (no jarvis runs, per operator): heavy review + refactor of v2, test pare-down, docs currency, spec-dir cleanup. Driven from five parallel code/docs/backlog audits, each claim re-verified in code before acting.
 
-**Net: 138 files, +4,771/−10,571 (−5,800 lines) across 13 PRs. Main green on every CI run
-since #1802 (was 5 red in the prior 11).**
+**Net: 138 files, +4,771/−10,571 (−5,800 lines) across 13 PRs. Main green on every CI run since #1802 (was 5 red in the prior 11).**
 
 ## PRs (all admin-merged on green)
 
@@ -27,9 +24,7 @@ since #1802 (was 5 red in the prior 11).**
 
 ## Seeds consumed by direct fixes
 
-closed-db race, review/shrink timeout, mutation bounds, plan stale-reset, cleanup
-abandon-flag parse, cleanup stdin hang. Backlog: 17 seeds + 3 ready-intents → 6 seeds +
-2 ready-intents (`.scratch/spec-priorities.md` is the fresh ranked list).
+closed-db race, review/shrink timeout, mutation bounds, plan stale-reset, cleanup abandon-flag parse, cleanup stdin hang. Backlog: 17 seeds + 3 ready-intents → 6 seeds + 2 ready-intents (`.scratch/spec-priorities.md` is the fresh ranked list).
 
 ## Deliberate keeps (against audit advice, each verified)
 

@@ -4,16 +4,9 @@ name: mutation-checkpoint-criterion-must-name-enclosing-test
 
 # Mutation-checkpoint criteria that don't name their enclosing test go hollow
 
-Since `mutation-checkpoint-verifier-trust` dropped the all-directives-in-file fallback,
-`linkDirectivesToCriterion` links a `// @mutate` directive to a criterion only when the
-criterion text contains the directive's enclosing test name (its pin title). A criterion
-that references the pin loosely — "on the pinned-argv test", "its regression" — links to
-**no** directive and the checkpoint is reported `hollow`, blocking completion, even
-though the directive is present and correct in the pinning file.
+Since `mutation-checkpoint-verifier-trust` dropped the all-directives-in-file fallback, `linkDirectivesToCriterion` links a `// @mutate` directive to a criterion only when the criterion text contains the directive's enclosing test name (its pin title). A criterion that references the pin loosely — "on the pinned-argv test", "its regression" — links to **no** directive and the checkpoint is reported `hollow`, blocking completion, even though the directive is present and correct in the pinning file.
 
-This is the stricter linker working as designed, but plans/authoring do not yet know to
-name the enclosing test verbatim, so implement runs block on hollow checkpoints for a
-purely referential reason.
+This is the stricter linker working as designed, but plans/authoring do not yet know to name the enclosing test verbatim, so implement runs block on hollow checkpoints for a purely referential reason.
 
 ## Evidence
 

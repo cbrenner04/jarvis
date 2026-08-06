@@ -1,7 +1,6 @@
 # Spec Guidance for Agents
 
-This file is stable guidance for agents that need to create or work from
-Jarvis specs.
+This file is stable guidance for agents that need to create or work from Jarvis specs.
 
 ## Spec location conventions
 
@@ -15,16 +14,9 @@ Specs authored with `jarvis1 plan` or `jarvis1 intent` under `modes.plan.commit:
 
 For repositories using the route-by-target pattern, `<targetDir>` is either `v2/spec` (the default) or `v1/spec` (maintenance fixes, explicit override). Repositories can also override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details); per-run `--target-dir` has highest precedence.
 
-The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
-example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older
-trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis1
-run`, resume, cleanup) — but **new specs should adopt the prefixed form so same-day
-trees sort and collide predictably.**
+The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis1 run`, resume, cleanup) — but **new specs should adopt the prefixed form so same-day trees sort and collide predictably.**
 
-Plan-generated specs under `commit: true` already use `spec/<timestamp>-<validated-plan-name>/`. The
-**plan branch and worktree** stay untimestamped: `plan/<plan-name>` with
-`.worktree/plan-<plan-name>/` even when files live under
-`spec/2026-05-17T22-14-03Z-<plan-name>/`.
+Plan-generated specs under `commit: true` already use `spec/<timestamp>-<validated-plan-name>/`. The **plan branch and worktree** stay untimestamped: `plan/<plan-name>` with `.worktree/plan-<plan-name>/` even when files live under `spec/2026-05-17T22-14-03Z-<plan-name>/`.
 
 ### External specs (no-commit)
 
@@ -52,8 +44,7 @@ spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/00-first-task.md
 spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/01-second-task.md
 ```
 
-The `index.md` file is the routing file. It contains a GitHub-style task list
-whose items link to atomic subspec files:
+The `index.md` file is the routing file. It contains a GitHub-style task list whose items link to atomic subspec files:
 
 ```md
 # <Feature>
@@ -92,28 +83,15 @@ Jarvis resolves the target repo at run time in this order:
    not persist anything to config).
 5. Otherwise jarvis prompts (or exits with a usage error in non-TTY runs).
 
-See [run-loop.md](./run-loop.md#iteration) for the authoritative description
-of resolution, the disambiguation prompt, completion semantics, and the
-`--cwd` flag.
+See [run-loop.md](./run-loop.md#iteration) for the authoritative description of resolution, the disambiguation prompt, completion semantics, and the `--cwd` flag.
 
-Legacy `repo: <absolute-local-path>` is still honored only when the path
-exactly equals a registered project's root; otherwise it is ignored. New
-specs should use the URL or slug form so they remain portable across
-machines and operators.
+Legacy `repo: <absolute-local-path>` is still honored only when the path exactly equals a registered project's root; otherwise it is ignored. New specs should use the URL or slug form so they remain portable across machines and operators.
 
-If the resolved target — whether selected via `repo:`, `--repo`, a registered
-project, or the ad-hoc git-checkout walk — points at a directory that no
-longer exists on disk, `jarvis1 run` exits 1 with a named preflight error
-identifying the missing path and the resolution source rather than the
-historical worktree-flavored "posix_spawn 'gh'" failure. See
-[run-loop.md](./run-loop.md#preflight-checks).
+If the resolved target — whether selected via `repo:`, `--repo`, a registered project, or the ad-hoc git-checkout walk — points at a directory that no longer exists on disk, `jarvis1 run` exits 1 with a named preflight error identifying the missing path and the resolution source rather than the historical worktree-flavored "posix_spawn 'gh'" failure. See [run-loop.md](./run-loop.md#preflight-checks).
 
 ## Land the spec before implementing it
 
-New specs must be merged to `main` before any implementation work on them
-begins. Jarvis runs against the spec file on disk, so a spec that only exists
-on a feature branch will drift from whatever the implementation branch
-eventually does. The workflow is:
+New specs must be merged to `main` before any implementation work on them begins. Jarvis runs against the spec file on disk, so a spec that only exists on a feature branch will drift from whatever the implementation branch eventually does. The workflow is:
 
 1. Create the spec on a branch and open a PR with **only** the spec files.
 2. Get the spec PR merged.
@@ -122,18 +100,11 @@ eventually does. The workflow is:
 
 Do not bundle spec authoring and implementation in the same PR.
 
-`jarvis1 plan` is one way to author specs; the merge-first
-rule applies to plan-generated specs the same as hand-written ones.
+`jarvis1 plan` is one way to author specs; the merge-first rule applies to plan-generated specs the same as hand-written ones.
 
 ## Plan same-seam siblings serially
 
-Sibling seeds/intents that edit the same code seam must be planned (and run) one
-at a time, each against the merged result of the previous one — never fanned out
-in parallel off a shared base. Parallel-planned siblings encode the pre-fix
-vocabulary and structure of that base; the first sibling to land renames or
-reshapes the seam and stales every other spec, which then has to be pruned and
-re-planned (observed on the publication/ready-finalize cluster, PR #1620).
-Parallel fan-out is fine across disjoint seams.
+Sibling seeds/intents that edit the same code seam must be planned (and run) one at a time, each against the merged result of the previous one — never fanned out in parallel off a shared base. Parallel-planned siblings encode the pre-fix vocabulary and structure of that base; the first sibling to land renames or reshapes the seam and stales every other spec, which then has to be pruned and re-planned (observed on the publication/ready-finalize cluster, PR #1620). Parallel fan-out is fine across disjoint seams.
 
 ## Authoring with `jarvis1 plan` or `jarvis1 intent`
 
@@ -145,33 +116,18 @@ The generated spec tree is opened as a draft PR for review and editing. After yo
 
 Plan-mode prompts forbid self-referential deliverables: do not write acceptance criteria that only grade prose inside the active spec directory. Criteria must verify target state outside that directory (code, tests, docs, operator behavior, or generated evidence).
 
-Fresh plan runs require a seed. File and inline seeds both enter the same flow:
-jarvis seeds `intent.md`, preserves the exact raw seed in a dedicated block,
-runs one non-interactive intent-draft pass to shape the editable draft and
-propose `name:`, then continues with the normal plan pipeline.
+Fresh plan runs require a seed. File and inline seeds both enter the same flow: jarvis seeds `intent.md`, preserves the exact raw seed in a dedicated block, runs one non-interactive intent-draft pass to shape the editable draft and propose `name:`, then continues with the normal plan pipeline.
 
-When a seed is too broad for one spec/PR, split it into authored intents first.
-Intents are split by touched module-boundary surface (persistence, daemon request
-handling, CLI admission, execution loop, comparable seams), not by symptom, one
-intent per surface in dependency order.
-Use these size boundaries:
+When a seed is too broad for one spec/PR, split it into authored intents first. Intents are split by touched module-boundary surface (persistence, daemon request handling, CLI admission, execution loop, comparable seams), not by symptom, one intent per surface in dependency order. Use these size boundaries:
 
 - A **subspec** is commit-sized: one atomic, independently testable change.
 - An **intent** is behavior-sized: one independently observable behavior that
   can later draft into one spec.
 - A **spec** is PR-sized: one reviewable unit made of one or more subspecs.
 
-Treat reviewability as a warning, not a hard cap: if one spec looks likely to
-land around ~1000 changed lines including tests and docs, split earlier into
-multiple behavior-sized intents/specs rather than stretching one PR.
+Treat reviewability as a warning, not a hard cap: if one spec looks likely to land around ~1000 changed lines including tests and docs, split earlier into multiple behavior-sized intents/specs rather than stretching one PR.
 
-For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is
-the open authored-intent queue. Successful promotion consumes a file seed:
-committed mode deletes its worktree copy in the split commit, while no-commit
-mode deletes it only after every ready-intent is written. Failed promotions
-leave it queued. Fan-out writes reviewed, one-per-surface intents to
-`ready-intents/`; later `jarvis1 plan` runs consume those intents one at a
-time.
+For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is the open authored-intent queue. Successful promotion consumes a file seed: committed mode deletes its worktree copy in the split commit, while no-commit mode deletes it only after every ready-intent is written. Failed promotions leave it queued. Fan-out writes reviewed, one-per-surface intents to `ready-intents/`; later `jarvis1 plan` runs consume those intents one at a time.
 
 ### Intent prerequisites
 
@@ -181,15 +137,7 @@ Prerequisites are validation gates, not just context: they ensure every work ite
 
 Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 
-When you iterate with
-`jarvis1 plan --resume <targetDir>/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
-`<targetDir>/<plan-name>/index.md`), resume review commits add an `r<n>` suffix
-(`plan: review 3 r1`, `plan: review 4 r1`, then `... r2` on a later resume
-invocation). The timestamp (when present) is **only** in the spec directory path;
-resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`.
-For a default repository this is `spec/…`; for a configured root this is e.g. `v1/spec/…`.
-From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are
-equivalent once merged to `main`.
+When you iterate with `jarvis1 plan --resume <targetDir>/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy `<targetDir>/<plan-name>/index.md`), resume review commits add an `r<n>` suffix (`plan: review 3 r1`, `plan: review 4 r1`, then `... r2` on a later resume invocation). The timestamp (when present) is **only** in the spec directory path; resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`. For a default repository this is `spec/…`; for a configured root this is e.g. `v1/spec/…`. From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are equivalent once merged to `main`.
 
 When operators start work from a structured index (such as a feature checklist or work queue), the workflow semantics are:
 
@@ -202,8 +150,7 @@ Do not frame work-start prompts as "draft a spec." Done is merged implementation
 
 ## Subspecs
 
-Each subspec should be independently implementable and testable. A good subspec
-has:
+Each subspec should be independently implementable and testable. A good subspec has:
 
 - the problem or behavior it covers
 - decisions needed to keep the work bounded
@@ -211,25 +158,19 @@ has:
 - acceptance criteria
 - required documentation updates
 
-Each subspec should own one module boundary. Use
-[`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts)
-for the canonical surface list and classification contract.
+Each subspec should own one module boundary. Use [`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts) for the canonical surface list and classification contract.
 
-Any spec that changes **existing functionality** (not purely net-new work) must
-include updating `v2/docs/v1-behaviors.md` in its documentation updates — that
-catalog is the v1 parity baseline v2 review reads, so a behavior change that
-skips it silently rots the baseline. Record what the behavior now is, so the v2
-plans can later be reconciled against it.
+Any spec that changes **existing functionality** (not purely net-new work) must include updating `v2/docs/v1-behaviors.md` in its documentation updates — that catalog is the v1 parity baseline v2 review reads, so a behavior change that skips it silently rots the baseline. Record what the behavior now is, so the v2 plans can later be reconciled against it.
 
-Keep subspecs atomic. If one unchecked item requires unrelated code paths,
-multiple product decisions, or verification that cannot run independently, split
-it into separate numbered subspec files and link each one from `index.md`.
+Keep subspecs atomic. If one unchecked item requires unrelated code paths, multiple product decisions, or verification that cannot run independently, split it into separate numbered subspec files and link each one from `index.md`.
+
+### Authored markdown style
+
+Do not hard-wrap authored markdown (specs, ready-intents, seeds, docs, PR bodies): one physical line per paragraph and per list item. Indented continuation lines within a single bullet are fine; do not break bullets or paragraphs at column limits. Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines. The ready gate's `lint:md` step enforces this via the `no-hard-wrap` custom rule on the lint-covered corpus; repair wrapped prose with `bun run reflow:md` (same globs and ignores as `.markdownlint-cli2.jsonc`).
 
 ### Mutation-checkpoint criteria
 
-A criterion asserting that inverting a guard turns a pinning test red is only
-satisfied when the harness **applies** that mutation and watches the suite go red.
-Write the checkpoint as a directive in the pinning test file, not as prose:
+A criterion asserting that inverting a guard turns a pinning test red is only satisfied when the harness **applies** that mutation and watches the suite go red. Write the checkpoint as a directive in the pinning test file, not as prose:
 
 ```ts
 test("selection stays inside the painted viewport", () => {
@@ -244,7 +185,7 @@ Rules the harness enforces:
   directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`).
   Bare `@mutate` prose mentions are safe and do not select. Successful verification still
   requires a valid linked directive.
-- Wrapping the pinning-test reference or enclosing-test name onto a continuation line is safe.
+- Wrapping a pinning-test reference or enclosing-test name onto a continuation line still parses, but authored markdown should keep `@mutate` directives on one physical line (see [Authored markdown style](#authored-markdown-style)).
 - The criterion names the pinning test file in backticks. When the basename is
   not unique in the worktree, use a repo-relative path (for example
   `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on
@@ -262,13 +203,11 @@ Rules the harness enforces:
   in the blocker. That outcome is often correct information: the guard may be dead code,
   in which case deleting it beats inventing a test for it.
 
-Prose `Mutation checkpoint:` comments remain useful context for a human reader; without
-a linked directive they are refused and are not the machine contract.
+Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.
 
 ### Behavioral acceptance criteria
 
-Acceptance criteria describe **observable operator or runtime behavior** — what
-an implementer or reviewer can verify without mandating incidental layout.
+Acceptance criteria describe **observable operator or runtime behavior** — what an implementer or reviewer can verify without mandating incidental layout.
 
 - **Product specs** (target-repo work): state outcomes ("quota exhaustion falls
   through to the next configured agent", "a failed ready gate leaves the PR
@@ -405,17 +344,13 @@ When an agent is asked to work from a Jarvis spec during a patch run:
 3. Run the verification required by the subspec and repo guidance.
 4. Tick only that subspec's acceptance criteria under `## Acceptance criteria`.
 
-The harness selects the active linked subspec for index-routed runs; patch
-agents do not pick the first unchecked subspec from `index.md`. Jarvis flips
-the index checkbox when all acceptance criteria in a subspec are checked.
+The harness selects the active linked subspec for index-routed runs; patch agents do not pick the first unchecked subspec from `index.md`. Jarvis flips the index checkbox when all acceptance criteria in a subspec are checked.
 
-Do not check unrelated index items. Do not keep working through the rest of the
-index after one subspec is complete.
+Do not check unrelated index items. Do not keep working through the rest of the index after one subspec is complete.
 
 ## Non-index spec handling
 
-Passing a non-index spec to `jarvis1 run`, such as `spec/2026-05-17T22-14-03Z-my-feature/01-task.md`,
-prompts for one of these actions:
+Passing a non-index spec to `jarvis1 run`, such as `spec/2026-05-17T22-14-03Z-my-feature/01-task.md`, prompts for one of these actions:
 
 - `s`: switch to a sibling `index.md` and run the normal loop from there (only
   offered when a sibling `index.md` exists)

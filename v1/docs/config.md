@@ -1,8 +1,6 @@
 # Configuration
 
-Jarvis keeps its state in `~/.jarvis/`. The directory and its config file are
-created automatically the first time jarvis runs — no manual setup is
-required.
+Jarvis keeps its state in `~/.jarvis/`. The directory and its config file are created automatically the first time jarvis runs — no manual setup is required.
 
 ```text
 ~/.jarvis/
@@ -11,12 +9,7 @@ required.
     <project-key>:<spec-name>-<timestamp>.log
 ```
 
-Session logs are keyed by the registered project name (the `projects` key in
-`config.json`) plus the spec display name, not by absolute filesystem path.
-Each `jarvis run` creates one session file and writes every log record for
-the lifetime of that process. See [run-loop.md](./run-loop.md#output-destinations)
-for the difference between the session log, the run terminal, and the log
-server.
+Session logs are keyed by the registered project name (the `projects` key in `config.json`) plus the spec display name, not by absolute filesystem path. Each `jarvis run` creates one session file and writes every log record for the lifetime of that process. See [run-loop.md](./run-loop.md#output-destinations) for the difference between the session log, the run terminal, and the log server.
 
 ## Schema (v2)
 
@@ -94,8 +87,7 @@ type Config = {
 
 **`installCommand`** (per-project, optional): the command the harness runs to install dependencies when `package.json` or `bun.lock` changes during an iteration (e.g. `bun install`, `npm ci`, `yarn install`). Defaults to `bun install` when unset. The command is run outside the agent sandbox with network access available, in the worktree directory. If the install fails, the failure is logged but does not halt the run. Value is tokenized on whitespace and run via shell (`sh -c`).
 
-All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
-configs are rejected with an error that names the offending file.
+All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid configs are rejected with an error that names the offending file.
 
 ## Prompt mode
 
@@ -149,39 +141,21 @@ The optional `targetDir` setting (default `"spec"`) specifies the relative path 
 
 With this configuration, `jarvis1 plan` creates commits under `v2/spec/<timestamp>-<plan-name>/` instead of `spec/<timestamp>-<plan-name>/`.
 
-`jarvis1 plan --target-dir <dir>` provides a per-run override with higher precedence than config:
-`--target-dir` > `projects[<name>].plan.targetDir` > `modes.plan.targetDir` > `"spec"`.
-The flag uses the same validation as config (`relative` path, no `..` traversal).
+`jarvis1 plan --target-dir <dir>` provides a per-run override with higher precedence than config: `--target-dir` > `projects[<name>].plan.targetDir` > `modes.plan.targetDir` > `"spec"`. The flag uses the same validation as config (`relative` path, no `..` traversal).
 
 **Hand-editing:** Edit `~/.jarvis/config.json` directly, or use `jarvis config edit` to open the config in `$EDITOR`.
 
 ## `Project.origin`
 
-`jarvis init` records each project's `origin` remote URL by running `git
-remote get-url origin` in the registered repo and storing the trimmed
-output in `projects[<name>].origin`. The string is stored verbatim — no URL
-normalization is performed at write time. If the repo has no `origin`
-remote, init still succeeds and the field is omitted with a one-line note.
+`jarvis init` records each project's `origin` remote URL by running `git remote get-url origin` in the registered repo and storing the trimmed output in `projects[<name>].origin`. The string is stored verbatim — no URL normalization is performed at write time. If the repo has no `origin` remote, init still succeeds and the field is omitted with a one-line note.
 
-Legacy configs without `origin` continue to load. On `jarvis run`, if the
-resolved project's record is missing `origin`, jarvis attempts to populate
-it from the project's `root` and persists the update. Failures here do not
-block the run.
+Legacy configs without `origin` continue to load. On `jarvis run`, if the resolved project's record is missing `origin`, jarvis attempts to populate it from the project's `root` and persists the update. Failures here do not block the run.
 
 ## Operator runbook scaffolding
 
-`jarvis init` scaffolds an `OPERATOR_RUNBOOK.md` file at the project root
-when the file is absent. The runbook is a persistent guide combining init-time
-facts (repo path, origin URL, inferred stack) with seeded config values
-(`readyCommand`, agent order, modes) and stubbed sections for operator
-fill-in (manual finalize procedures, recovery by exit reason, resume guidance,
-gate blind spots, cross-repo coordination).
+`jarvis init` scaffolds an `OPERATOR_RUNBOOK.md` file at the project root when the file is absent. The runbook is a persistent guide combining init-time facts (repo path, origin URL, inferred stack) with seeded config values (`readyCommand`, agent order, modes) and stubbed sections for operator fill-in (manual finalize procedures, recovery by exit reason, resume guidance, gate blind spots, cross-repo coordination).
 
-The runbook is not overwritten on re-run of `jarvis init` on the same
-project, preserving operator-authored customization. The file's existence
-is checked once per init run; the runbook is created only if absent. Fixed
-section headings (exact text and order) make the document structural contract:
-other tools and documentation may reference sections by name.
+The runbook is not overwritten on re-run of `jarvis init` on the same project, preserving operator-authored customization. The file's existence is checked once per init run; the runbook is created only if absent. Fixed section headings (exact text and order) make the document structural contract: other tools and documentation may reference sections by name.
 
 ## Default contents
 
@@ -231,11 +205,7 @@ Default contents on first bootstrap:
 }
 ```
 
-Both `modes.patch.agentOrder` and `modes.plan.agentOrder` default to
-`claude`, `codex`, and `cursor` — opencode is opt-in. To enable it, add an
-`opencode` entry to either order with a `provider/model` string as its
-`model`. See [agents.md](./agents.md#opencode-setup) for the one-time
-permission installer and the `provider/model` format.
+Both `modes.patch.agentOrder` and `modes.plan.agentOrder` default to `claude`, `codex`, and `cursor` — opencode is opt-in. To enable it, add an `opencode` entry to either order with a `provider/model` string as its `model`. See [agents.md](./agents.md#opencode-setup) for the one-time permission installer and the `provider/model` format.
 
 ## `modes.review.passes` and `modes.review.agentOrder`
 
@@ -263,8 +233,7 @@ Example configuration enabling review with a custom agent order:
 }
 ```
 
-The `--review-passes` CLI flag overrides config for both patch and plan review:
-`jarvis run --review-passes 0 <spec>` disables patch review without changing config, while `jarvis1 plan --review-passes 3 …` runs 3 plan self-review passes instead of the configured number.
+The `--review-passes` CLI flag overrides config for both patch and plan review: `jarvis run --review-passes 0 <spec>` disables patch review without changing config, while `jarvis1 plan --review-passes 3 …` runs 3 plan self-review passes instead of the configured number.
 
 Repeatable `--agent <name>[:<model>]` on `jarvis1 run`, `jarvis1 plan`, or `jarvis1 intent` replaces the in-memory mode `agentOrder` for that invocation only; persisted config is unchanged. See [agents.md](./agents.md#per-run---agent-override).
 
@@ -331,16 +300,11 @@ Example:
 
 ## Unknown top-level keys
 
-Top-level keys outside this schema (reserved for v2, e.g. `machineProfile`,
-`agents`) are preserved unchanged across v1 config writes — v1 does not
-validate or interpret them.
+Top-level keys outside this schema (reserved for v2, e.g. `machineProfile`, `agents`) are preserved unchanged across v1 config writes — v1 does not validate or interpret them.
 
 ## `worktreeSymlinks`
 
-The optional `worktreeSymlinks` field allows sharing build artifacts or
-`node_modules` across worktrees without duplication. Each entry is a relative
-path from the repo root. On each run, symlinks are created inside the
-worktree pointing to the same paths in the main checkout.
+The optional `worktreeSymlinks` field allows sharing build artifacts or `node_modules` across worktrees without duplication. Each entry is a relative path from the repo root. On each run, symlinks are created inside the worktree pointing to the same paths in the main checkout.
 
 Example:
 
@@ -350,30 +314,19 @@ Example:
 }
 ```
 
-This prevents redundant `bun install` or rebuild operations when re-running
-specs.
+This prevents redundant `bun install` or rebuild operations when re-running specs.
 
 ## `git` toggle
 
-The top-level `git` boolean controls whether jarvis manages git and GitHub
-on behalf of a run — creating a worktree, committing per subspec, pushing,
-and opening a draft PR. It defaults to `true` to preserve historic behavior.
+The top-level `git` boolean controls whether jarvis manages git and GitHub on behalf of a run — creating a worktree, committing per subspec, pushing, and opening a draft PR. It defaults to `true` to preserve historic behavior.
 
-Each project may override the top-level value with an optional
-`projects[<name>].git` boolean. The effective value is the project override
-when defined, otherwise the top-level value, otherwise `true` for configs
-written before this field existed.
+Each project may override the top-level value with an optional `projects[<name>].git` boolean. The effective value is the project override when defined, otherwise the top-level value, otherwise `true` for configs written before this field existed.
 
-The behavior that flips when `git` is `false` (no worktree, no commits, no
-PR, alternative completion semantics, `--cwd`) is implemented separately and
-documented alongside `jarvis run`.
+The behavior that flips when `git` is `false` (no worktree, no commits, no PR, alternative completion semantics, `--cwd`) is implemented separately and documented alongside `jarvis run`.
 
 ## `Project.siblings`
 
-The optional `siblings` field declares sibling repositories that are part of
-the same unit of work as the primary project. When a spec routed through one
-repository needs changes in another, siblings make those directories accessible
-to agents during `jarvis run`.
+The optional `siblings` field declares sibling repositories that are part of the same unit of work as the primary project. When a spec routed through one repository needs changes in another, siblings make those directories accessible to agents during `jarvis run`.
 
 ### Validation rules
 
@@ -413,10 +366,7 @@ Register `groceries_features` with:
 }
 ```
 
-When `jarvis run` executes a spec for the `groceries` project, all agents
-receive the sibling paths in their prompt and as accessible workspace roots.
-Agents can read from and edit files in any sibling directory as if they were
-part of the primary project.
+When `jarvis run` executes a spec for the `groceries` project, all agents receive the sibling paths in their prompt and as accessible workspace roots. Agents can read from and edit files in any sibling directory as if they were part of the primary project.
 
 ### Hand-editing `~/.jarvis/config.json`
 
@@ -433,8 +383,7 @@ To add siblings to an existing project, edit `~/.jarvis/config.json` directly:
 }
 ```
 
-Paths must be absolute. Non-absolute paths cause validation to fail with a
-clear error message.
+Paths must be absolute. Non-absolute paths cause validation to fail with a clear error message.
 
 ## Common misconfigurations
 
@@ -494,7 +443,4 @@ If you accidentally place `specTimestamp` or `commit` flat on a project, `loadCo
   edited file is re-validated on save and a non-zero exit is returned if it
   is invalid.
 
-Per-agent models live inline on each `agentOrder` entry. Use the
-`set-patch-order` / `set-plan-order` subcommands above to replace the whole
-order with new `agent:model` pairs, or `jarvis config edit` to adjust an
-individual `model` field by hand.
+Per-agent models live inline on each `agentOrder` entry. Use the `set-patch-order` / `set-plan-order` subcommands above to replace the whole order with new `agent:model` pairs, or `jarvis config edit` to adjust an individual `model` field by hand.

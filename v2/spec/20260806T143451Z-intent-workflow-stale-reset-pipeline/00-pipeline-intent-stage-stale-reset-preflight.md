@@ -2,17 +2,11 @@
 
 ## Problem
 
-Pipeline intent-stage dispatch resolves preset steps and calls `start` without
-`maybeResetStaleWorkspace` (`daemon-host.md` documents the gap). After failed-stage continuation
-(git-enabled intent stage re-dispatch), the daemon reuses the same poisoned worktree/branch/verdict
-as a standalone `run workflow intent` re-run; review fails non-retryably with foreign verdict
-ownership. Stranded `running` stages with a dead linked run are out of scope — that path returns
-`stop` today and does not reach pre-dispatch stale reset.
+Pipeline intent-stage dispatch resolves preset steps and calls `start` without `maybeResetStaleWorkspace` (`daemon-host.md` documents the gap). After failed-stage continuation (git-enabled intent stage re-dispatch), the daemon reuses the same poisoned worktree/branch/verdict as a standalone `run workflow intent` re-run; review fails non-retryably with foreign verdict ownership. Stranded `running` stages with a dead linked run are out of scope — that path returns `stop` today and does not reach pre-dispatch stale reset.
 
 ## Surface
 
-Primary: `v2/src/daemon/pipeline-execution.ts` (`advanceWorkflowStage` path before
-`dispatchPipelineStage`). In-scope support: `pipeline-execution.test.ts`, durable docs.
+Primary: `v2/src/daemon/pipeline-execution.ts` (`advanceWorkflowStage` path before `dispatchPipelineStage`). In-scope support: `pipeline-execution.test.ts`, durable docs.
 
 ## Prerequisites
 

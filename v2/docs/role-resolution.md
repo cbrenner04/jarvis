@@ -1,15 +1,10 @@
 # Role resolution
 
-Canonical home for the v2 **role** taxonomy and how roles bind to workflow
-steps. The layered
-model and orchestration context live in [`v2-architecture.md`](v2-architecture.md).
-The `AgentModelConfig` schema and inner rung resolution are documented in
-[`agent-model-config.md`](agent-model-config.md).
+Canonical home for the v2 **role** taxonomy and how roles bind to workflow steps. The layered model and orchestration context live in [`v2-architecture.md`](v2-architecture.md). The `AgentModelConfig` schema and inner rung resolution are documented in [`agent-model-config.md`](agent-model-config.md).
 
 ## Closed `Role` union
 
-Model resolution keys are concrete **roles**, not coarse categories. The closed
-union:
+Model resolution keys are concrete **roles**, not coarse categories. The closed union:
 
 | Role | Purpose |
 | --- | --- |
@@ -25,12 +20,7 @@ union:
 
 ## Step binding and resolution
 
-A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt**
-(task text), and **role** (model-resolution key). Behaviors are orchestration
-primitives (`write`, `review`, `review-debate`); they are not renamed to
-match roles.
-Workflow-step authoring and named preset resolution for this behavior vocabulary
-live in [`workflow-runner.md`](workflow-runner.md#authoring-helper-and-presets).
+A workflow **step** binds three inputs: **behavior** (loop primitive), **prompt** (task text), and **role** (model-resolution key). Behaviors are orchestration primitives (`write`, `review`, `review-debate`); they are not renamed to match roles. Workflow-step authoring and named preset resolution for this behavior vocabulary live in [`workflow-runner.md`](workflow-runner.md#authoring-helper-and-presets).
 
 At invocation the runner:
 
@@ -38,8 +28,7 @@ At invocation the runner:
 2. Resolves **`(agent, role) → rungs`** from the role→model store for the
    landed agent and walks the inner rung list.
 
-Inner rung detail (consumption modes, flattening, terminal outcomes):
-[`agent-model-config.md`](agent-model-config.md).
+Inner rung detail (consumption modes, flattening, terminal outcomes): [`agent-model-config.md`](agent-model-config.md).
 
 ## Role ↔ behavior reference
 

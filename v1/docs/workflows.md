@@ -1,24 +1,12 @@
 # Workflows: intent, plan, and patch
 
-Visual reference for how `jarvis1 intent`, `jarvis1 plan`, and `jarvis1 run`
-(patch mode) execute. Each diagram distinguishes deterministic harness steps
-from LLM-driven agent calls, and shows where the harness loops vs. takes
-distinct paths.
+Visual reference for how `jarvis1 intent`, `jarvis1 plan`, and `jarvis1 run` (patch mode) execute. Each diagram distinguishes deterministic harness steps from LLM-driven agent calls, and shows where the harness loops vs. takes distinct paths.
 
-The three modes chain: `jarvis1 intent` fans one seed out into authored
-ready-intents, `jarvis1 plan` drafts a spec tree from one ready-intent, and
-`jarvis1 run` implements that spec. Each stage opens its own PR for a human to
-review and merge before the next stage runs.
+The three modes chain: `jarvis1 intent` fans one seed out into authored ready-intents, `jarvis1 plan` drafts a spec tree from one ready-intent, and `jarvis1 run` implements that spec. Each stage opens its own PR for a human to review and merge before the next stage runs.
 
-Authoritative behavior lives in [intent-mode.md](./intent-mode.md),
-[plan-mode.md](./plan-mode.md), and [run-loop.md](./run-loop.md); this document
-only summarises control flow.
+Authoritative behavior lives in [intent-mode.md](./intent-mode.md), [plan-mode.md](./plan-mode.md), and [run-loop.md](./run-loop.md); this document only summarises control flow.
 
-`jarvis1 review-feedback <worktree-name>` runs one patch-mode agent pass against
-actionable open PR feedback (unresolved inline review threads plus top-level
-review-round comments). The target patch worktree must start clean; on success
-the harness creates one commit (`address PR review comments`) and pushes it.
-v1 does not auto-resolve threads, post replies, or edit PR metadata.
+`jarvis1 review-feedback <worktree-name>` runs one patch-mode agent pass against actionable open PR feedback (unresolved inline review threads plus top-level review-round comments). The target patch worktree must start clean; on success the harness creates one commit (`address PR review comments`) and pushes it. v1 does not auto-resolve threads, post replies, or edit PR metadata.
 
 ## Legend
 
@@ -103,22 +91,11 @@ flowchart TD
   classDef neutral fill:#eef1f5,stroke:#4a5566,color:#1a1f29;
 ```
 
-Intent is a **single split call** that sizes work before planning. Plan is a
-**fixed pipeline**: draft → review, with the review iteration count set up front
-by `--review-passes`. Patch is a **single implementation loop** that terminates
-when the spec's checklist is empty, followed by optional post-completion shrink
-and review phases. All three modes produce a PR that a human reviews and
-merges. Intent never drafts spec directories; plan never writes outside its
-spec tree; patch is free to edit anywhere in its worktree. Blocker exits, quota
-fallback, the prerequisite gate, and the full set of patch exit codes are
-deferred to the detailed diagrams below.
+Intent is a **single split call** that sizes work before planning. Plan is a **fixed pipeline**: draft → review, with the review iteration count set up front by `--review-passes`. Patch is a **single implementation loop** that terminates when the spec's checklist is empty, followed by optional post-completion shrink and review phases. All three modes produce a PR that a human reviews and merges. Intent never drafts spec directories; plan never writes outside its spec tree; patch is free to edit anywhere in its worktree. Blocker exits, quota fallback, the prerequisite gate, and the full set of patch exit codes are deferred to the detailed diagrams below.
 
 ## Intent mode
 
-`jarvis1 intent` is a **single agent call** that sizes work before planning: one
-seed (inline text or a `seeds/<seed>.md` file) fans out into N
-behavior-level ready-intents, each of which later drafts into one spec / one PR.
-It does not refine, draft spec directories, or write `index.md`.
+`jarvis1 intent` is a **single agent call** that sizes work before planning: one seed (inline text or a `seeds/<seed>.md` file) fans out into N behavior-level ready-intents, each of which later drafts into one spec / one PR. It does not refine, draft spec directories, or write `index.md`.
 
 ```mermaid
 flowchart TD
@@ -141,20 +118,11 @@ flowchart TD
   classDef neutral fill:#eef1f5,stroke:#4a5566,color:#1a1f29;
 ```
 
-Splitter output is staged and validated **before** anything lands in
-`ready-intents/`; invalid output or a `name:` collision aborts the run without
-partial writes and without a PR. Intent mode reuses the same repo resolution,
-plan agent order, and quota fallback as plan mode. The operator reviews the
-split on the intent PR, then runs `jarvis1 plan` on one emitted ready-intent at
-a time.
+Splitter output is staged and validated **before** anything lands in `ready-intents/`; invalid output or a `name:` collision aborts the run without partial writes and without a PR. Intent mode reuses the same repo resolution, plan agent order, and quota fallback as plan mode. The operator reviews the split on the intent PR, then runs `jarvis1 plan` on one emitted ready-intent at a time.
 
 ## Plan mode
 
-`jarvis1 plan` **consumes a ready-intent** (`<targetDir>/ready-intents/<name>.md`)
-and is **phase-structured**: it starts at the **draft** phase (intent
-authoring/refinement now lives in intent mode), then runs a fixed number of
-**review** passes set up front by `--review-passes`. The agent does not decide
-when to stop.
+`jarvis1 plan` **consumes a ready-intent** (`<targetDir>/ready-intents/<name>.md`) and is **phase-structured**: it starts at the **draft** phase (intent authoring/refinement now lives in intent mode), then runs a fixed number of **review** passes set up front by `--review-passes`. The agent does not decide when to stop.
 
 ```mermaid
 flowchart TD
@@ -231,17 +199,11 @@ What loops vs. what's a distinct path:
   plan-mode call site is not wired to `readyCommand`; it runs the built-ins. If
   any gate step fails, the PR stays in draft.
 
-`--resume` re-enters the diagram at the review-loop, reusing the existing
-worktree, branch, and PR. With `modes.plan.commit: false` there is no
-branch/worktree/PR: specs are written under `~/.jarvis/specs/...` and no commit
-or readiness transition runs.
+`--resume` re-enters the diagram at the review-loop, reusing the existing worktree, branch, and PR. With `modes.plan.commit: false` there is no branch/worktree/PR: specs are written under `~/.jarvis/specs/...` and no commit or readiness transition runs.
 
 ## Patch mode (`jarvis1 run`)
 
-Patch mode is **iteration-structured**: a single loop that terminates when the
-spec has no unchecked checkboxes (or when an exit condition fires). The agent
-chooses what work to do each iteration; the harness picks the spec, picks the
-task, commits, and decides whether progress was made.
+Patch mode is **iteration-structured**: a single loop that terminates when the spec has no unchecked checkboxes (or when an exit condition fires). The agent chooses what work to do each iteration; the harness picks the spec, picks the task, commits, and decides whether progress was made.
 
 ```mermaid
 flowchart TD
@@ -382,8 +344,7 @@ What loops vs. what's a distinct path:
   gate always verifies before the draft→ready flip. If any step fails, the PR
   stays in draft for manual correction.
 
-Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire
-at the top of any iteration before the agent call.
+Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire at the top of any iteration before the agent call.
 
 ---
 
@@ -422,8 +383,4 @@ flowchart LR
   classDef stop fill:#fde0e0,stroke:#9c2a2a,color:#3d0d0d;
 ```
 
-Intent sizes the work into ready-intents; plan is a fixed pipeline of LLM steps
-(draft → review debate); patch is a single loop until the spec's checklist is
-empty, then a post-completion shrink + review. In all three, the LLM produces
-text and edits; the harness
-deterministically commits, pushes, updates the PR, and decides when to stop.
+Intent sizes the work into ready-intents; plan is a fixed pipeline of LLM steps (draft → review debate); patch is a single loop until the spec's checklist is empty, then a post-completion shrink + review. In all three, the LLM produces text and edits; the harness deterministically commits, pushes, updates the PR, and decides when to stop.

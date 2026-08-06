@@ -6,20 +6,7 @@ This document inventories user-observable v1 behavior and records each v2 parity
 
 ### v2 workflow CLI names
 
-The primary workflow commands are `intent`, `plan`, and `implement`. All accept
-`--review-passes <n>` and `--review-behavior debate|light`. For `intent`, omitted
-`--review-passes` defaults to one light pass; `--review-passes 0` opts out (v2
-consolidation — prior bare `intent` was split-only). For `plan`, omitted
-`--review-passes` defaults to one debate pass; `--review-passes 0` opts out (v2
-consolidation — prior bare `plan` was draft-only). For `implement`, omitted
-`--review-passes` defaults to one debate pass; `--review-passes 0` opts out.
-Legacy `intent-reviewed`, `plan-reviewed`, and
-`plan-reviewed-light` aliases remain accepted. `intent-reviewed` delegates to
-`intent` with identical defaults (one light pass); it differs only in CLI alias
-injection and a migration hint. `plan-reviewed` delegates to `plan` with identical
-defaults (one debate pass). `plan-reviewed-light` delegates to `plan` with
-`reviewBehavior` defaulting to light when omitted. Explicit
-review flags override alias defaults. Invalid values fail with usage before daemon contact.
+The primary workflow commands are `intent`, `plan`, and `implement`. All accept `--review-passes <n>` and `--review-behavior debate|light`. For `intent`, omitted `--review-passes` defaults to one light pass; `--review-passes 0` opts out (v2 consolidation — prior bare `intent` was split-only). For `plan`, omitted `--review-passes` defaults to one debate pass; `--review-passes 0` opts out (v2 consolidation — prior bare `plan` was draft-only). For `implement`, omitted `--review-passes` defaults to one debate pass; `--review-passes 0` opts out. Legacy `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` aliases remain accepted. `intent-reviewed` delegates to `intent` with identical defaults (one light pass); it differs only in CLI alias injection and a migration hint. `plan-reviewed` delegates to `plan` with identical defaults (one debate pass). `plan-reviewed-light` delegates to `plan` with `reviewBehavior` defaulting to light when omitted. Explicit review flags override alias defaults. Invalid values fail with usage before daemon contact.
 
 - This catalog describes behavior as shipped today under `v1/`, with v1 invoked via `jarvis1` in CLI usage and help text. Sources: `v1/src/cli.ts`
 - The `jarvis1` rename has landed, so this file intentionally records the renamed `jarvis1` behavior as the migration baseline for v2 review. Sources: `v1/src/cli.ts`, `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
@@ -534,6 +521,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - Historical outcome-sheet backfill keeps the same exact-identity, source-or-blank contract: legacy header-only sheets may use exact merged-squash git fallbacks only after recording the exact session namespace window or exact operator member set plus shared session base in standard-sheet `notes`; unrecoverable fields stay blank with a note. Sources: `v1/docs/operator-runbook.md`, `v2/docs/outcome-data-source-audit.md`, `reports/session-costs.csv`, `reports/operator-costs.csv`
 - `LogReader.follow` blocks only on a fixed `FOLLOW_POLL_MS` poll between `tail()` rescans; there is no `fs.watch`-backed wake and no watcher to leak or `.unref()`. Sources: `v2/src/persistence/log-stream.ts`
 - [v2 additive] `jarvis daemon log` reads the retained daemon stdout/stderr log directly from `~/.jarvis/daemon.log`, independent of PID/socket/IPC state; `--follow` replays then polls losslessly, resumes at the configured path after truncation or replacement, and reports removal or read failures on stderr. This is distinct from structured `jarvis run log <run-id>` and `jarvis tui log <run-id>` records. Sources: `v2/src/cli.ts`, `v2/src/daemon/daemon-process-log.ts`, `v2/docs/daemon-host.md`
+- `bun run lint:md` enforces the `no-hard-wrap` custom rule on the lint-covered corpus (`v1/spec/**`, `v1/docs/**`, `v2/docs/**`, `v2/spec/**`, `reports/**`, `README.md`, `AGENTS.md`, with `**/completed/**` and `**/verdict-*.md` ignored). Repair soft-wrapped prose with `bun run reflow:md` (same scope). Sources: `.markdownlint-cli2.jsonc`, `scripts/markdownlint-no-hard-wrap-rule.ts`, `scripts/reflow-markdown.ts`, `package.json`
 - `createRunControlHandlers` returns a `close()` method that aborts every in-flight `wait` request's own `follow()` loop, letting each unwind deterministically; not wired into IPC (`toIpcHandlers`/`startDaemon` strip it), used for direct-handler teardown (e.g. test `afterEach`). Each `wait` call runs its own `follow()` against the run's log rather than sharing a per-run subscriber loop. Sources: `v2/src/daemon/daemon.ts`, `v2/src/testing/run-control.ts`
 
 ## Completion, blockers, exit codes, and failure handling

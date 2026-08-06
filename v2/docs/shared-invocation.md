@@ -1,7 +1,6 @@
 # Shared invocation contract
 
-`shared/invocation/execute.ts` owns the behavior-agnostic, abortable
-agent-invocation fallback seam used by v2 write-step execution.
+`shared/invocation/execute.ts` owns the behavior-agnostic, abortable agent-invocation fallback seam used by v2 write-step execution.
 
 Contract:
 
@@ -34,9 +33,7 @@ Contract:
   `inbound_stderr`. A throwing `sessionLog.append` is swallowed and never fails
   the invocation. Callers that omit `sessionLog` stay unaffected.
 
-Fallback default is quota-only: `model_config` and other `error` kinds are
-terminal unless a binding's `shouldAdvance` opts in (review actuator adds
-idle-timeout advance on non-final rungs).
+Fallback default is quota-only: `model_config` and other `error` kinds are terminal unless a binding's `shouldAdvance` opts in (review actuator adds idle-timeout advance on non-final rungs).
 
 Bindings:
 
@@ -107,25 +104,11 @@ Bindings:
 
 ## Session log writer
 
-`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp,
-opts?)` opens a file-backed, unbuffered writer at
-`<sessionsDir>/<namespace>-<timestamp>.log` (sessions dir and clock are
-injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is
-the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format
-and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`).
-Multi-line text is split into one stamped line per source line. Appends are
-synchronous write-through, so a line is readable from another handle
-immediately after `append` returns. Appends after `close()` are dropped
-silently; `close()` is idempotent. Open, mkdir, and append failures are
-swallowed — the writer degrades to a no-op sink rather than blocking the
-invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it
-opens a session log per iteration. See `v2/docs/daemon-host.md` for the
-write-loop-level contract.
+`shared/invocation/session-log.ts`'s `openSessionLog(namespace, timestamp, opts?)` opens a file-backed, unbuffered writer at `<sessionsDir>/<namespace>-<timestamp>.log` (sessions dir and clock are injectable; default sessions dir is `~/.jarvis/sessions/`, default clock is the system clock), mirroring v1's `<ISO ts> [<tag>] <line>` transcript format and tag set (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`). Multi-line text is split into one stamped line per source line. Appends are synchronous write-through, so a line is readable from another handle immediately after `append` returns. Appends after `close()` are dropped silently; `close()` is idempotent. Open, mkdir, and append failures are swallowed — the writer degrades to a no-op sink rather than blocking the invocation it observes. `v2/src/execution/write-loop.ts` is the caller: it opens a session log per iteration. See `v2/docs/daemon-host.md` for the write-loop-level contract.
 
 ## Terminal `failureKind` (binding-chain stop)
 
-When the step runner classifies `kind: "invocation_failure"` after the binding
-chain stops, `failureKind` encodes why:
+When the step runner classifies `kind: "invocation_failure"` after the binding chain stops, `failureKind` encodes why:
 
 | `failureKind` | Meaning |
 | --- | --- |
@@ -135,10 +118,7 @@ chain stops, `failureKind` encodes why:
 | `error` | First non-quota result was `error`; chain stops (no advance) |
 | `no_binding` | No bindings configured (`final === null`), including an empty resolved binding list |
 
-Detail (`failureKind` plus ordered `bindingAttempts`) attaches only for
-binding-chain `invocation_failure`. Post-invocation token parse failure
-(`invalid_token`) maps to loop `kind: "invocation_failure"` but omits these
-fields. See [`write-behavior.md`](./write-behavior.md).
+Detail (`failureKind` plus ordered `bindingAttempts`) attaches only for binding-chain `invocation_failure`. Post-invocation token parse failure (`invalid_token`) maps to loop `kind: "invocation_failure"` but omits these fields. See [`write-behavior.md`](./write-behavior.md).
 
 Boundary:
 

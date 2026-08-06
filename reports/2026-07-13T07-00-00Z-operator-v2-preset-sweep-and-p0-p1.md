@@ -6,19 +6,11 @@ claude --resume ad5446e1-052b-4455-8705-237e3637bd63
 
 ## Summary
 
-Dogfooded all six v2 workflow presets against real work. **Every preset that drives
-the write loop was broken.** Fixing them surfaced a deeper v1 bug — Jarvis had never
-been able to see claude's output — which in turn exposed that the idle-escalation
-watchdog has never fired for any agent since it shipped.
+Dogfooded all six v2 workflow presets against real work. **Every preset that drives the write loop was broken.** Fixing them surfaced a deeper v1 bug — Jarvis had never been able to see claude's output — which in turn exposed that the idle-escalation watchdog has never fired for any agent since it shipped.
 
-Ended with: **P1 complete, all P0s landed, v2 able to plan and implement.** 46 PRs
-merged. P2 (the workflow collapse) is the remaining scope and is untouched.
+Ended with: **P1 complete, all P0s landed, v2 able to plan and implement.** 46 PRs merged. P2 (the workflow collapse) is the remaining scope and is untouched.
 
-The through-line worth keeping: **every one of these bugs was invisible to the test
-suite and fatal on first real launch.** Construction-level tests passed; runs died the
-moment they touched a real worktree, a real prompt, or a real agent. Two P0s were
-marked `completed` while the operator-visible failure they named still reproduced —
-their fixes had landed one layer away from the bug, with green tests.
+The through-line worth keeping: **every one of these bugs was invisible to the test suite and fatal on first real launch.** Construction-level tests passed; runs died the moment they touched a real worktree, a real prompt, or a real agent. Two P0s were marked `completed` while the operator-visible failure they named still reproduced — their fixes had landed one layer away from the bug, with green tests.
 
 ---
 
@@ -33,10 +25,7 @@ their fixes had landed one layer away from the bug, with green tests.
 | `plan-reviewed-light` | ❌ `invalid_token` |
 | `implement` | ❌ ENOENT on first launch; then a prompt-render failure before any agent was invoked |
 
-The `invalid_token` case was the worst: the agent did the job perfectly, wrote a
-correct spec tree, and the loop threw it away because the last line was a prose
-summary instead of a bare `done` token. The prompt asked for the token as an *enum
-description*, not an output-format rule.
+The `invalid_token` case was the worst: the agent did the job perfectly, wrote a correct spec tree, and the loop threw it away because the last line was a prose summary instead of a bare `done` token. The prompt asked for the token as an *enum description*, not an output-format rule.
 
 ---
 
@@ -50,16 +39,9 @@ Every implementation PR that landed, in merge order.
 | --- | --- |
 | [#1450](https://github.com/cbrenner04/jarvis/pull/1450) | **Claude streams output so the idle watchdog can see it.** `claude.ts` spawned with `--output-format json` — a batch envelope emitted once at exit — so `spawn.ts`'s `stdout.on("data")` activity bump never fired mid-iteration. Changed to `--output-format stream-json --verbose` with incremental line-wise parsing. |
 
-This is the session's most consequential fix. **Verified empirically:** every one of the
-34 prior claude patch *timeouts* recorded `last_output_age_ms: null`; the first
-post-fix timeout recorded `152704`. The watchdog can now see claude.
+This is the session's most consequential fix. **Verified empirically:** every one of the 34 prior claude patch *timeouts* recorded `last_output_age_ms: null`; the first post-fix timeout recorded `152704`. The watchdog can now see claude.
 
-It also invalidated two pieces of operator folklore that had been treated as fact —
-"claude-haiku stalls due to Claude-pool contention with the operator session" and
-"claude-sonnet-5 is too slow for patch". Neither is true. Two concurrent
-`claude-opus-4-8` *plan* runs completed cleanly during the very claude *patch* run that
-"stalled", on the same pool, under the same Claude operator session. **Zero output was a
-missing measurement, not a starved agent.**
+It also invalidated two pieces of operator folklore that had been treated as fact — "claude-haiku stalls due to Claude-pool contention with the operator session" and "claude-sonnet-5 is too slow for patch". Neither is true. Two concurrent `claude-opus-4-8` *plan* runs completed cleanly during the very claude *patch* run that "stalled", on the same pool, under the same Claude operator session. **Zero output was a missing measurement, not a starved agent.**
 
 ### v2 — `plan` preset (the `invalid_token` chain)
 
@@ -79,9 +61,7 @@ missing measurement, not a starved agent.**
 
 ### v2 — the reconciler race
 
-The orphan reconciler (#1430, shipped before this session) swept two runs the **current**
-daemon had itself admitted three minutes earlier, marking them `killed / daemon_restart`
-while their agents kept working. It cost both P1 runs — work done, stranded uncommitted.
+The orphan reconciler (#1430, shipped before this session) swept two runs the **current** daemon had itself admitted three minutes earlier, marking them `killed / daemon_restart` while their agents kept working. It cost both P1 runs — work done, stranded uncommitted.
 
 | PR | What |
 | --- | --- |
@@ -103,9 +83,7 @@ while their agents kept working. It cost both P1 runs — work done, stranded un
 | [#1465](https://github.com/cbrenner04/jarvis/pull/1465) | Unhandled run async failures become terminal structured-log events |
 | [#1464](https://github.com/cbrenner04/jarvis/pull/1464) | Each agent invocation writes a durable session log |
 
-PR #1465 is why my own failed v2 runs had surfaced as a bare `harness_failure`: an
-uncaught `executeWorkflow` rejection resolved a promise that had already resolved, so
-the failure vanished.
+PR #1465 is why my own failed v2 runs had surfaced as a bare `harness_failure`: an uncaught `executeWorkflow` rejection resolved a promise that had already resolved, so the failure vanished.
 
 ### Produced by the v2 harness itself
 
@@ -117,9 +95,7 @@ the failure vanished.
 
 ## Plan / intent / seed PRs (summarized)
 
-Intents: #1433, #1437, #1438, #1439, #1441, #1445, #1466, #1467.
-Plans: #1434, #1435, #1442, #1443, #1444, #1446, #1447, #1448, #1449, #1469, #1470, #1471, #1472, #1473.
-Seeds & docs: #1436, #1452, #1454, #1455, #1457, #1462, #1463, #1468, #1475.
+Intents: #1433, #1437, #1438, #1439, #1441, #1445, #1466, #1467. Plans: #1434, #1435, #1442, #1443, #1444, #1446, #1447, #1448, #1449, #1469, #1470, #1471, #1472, #1473. Seeds & docs: #1436, #1452, #1454, #1455, #1457, #1462, #1463, #1468, #1475.
 
 ---
 
@@ -149,40 +125,21 @@ Seeds & docs: #1436, #1452, #1454, #1455, #1457, #1462, #1463, #1468, #1475.
 
 ### 1. The idle watchdog had never fired — for any agent, ever
 
-`idleOutputTimeoutMs` defaulted to **600000ms**. `iterationTimeoutMs` was **600000ms**.
-Equal. For the idle timer to reach 600s of silence, the iteration must already have
-burned 600s of wall clock, so the hard timeout always won. **The idle-escalation ladder
-was structurally unreachable with shipped defaults**, while the runbook documented it as
-a live mechanism.
+`idleOutputTimeoutMs` defaulted to **600000ms**. `iterationTimeoutMs` was **600000ms**. Equal. For the idle timer to reach 600s of silence, the iteration must already have burned 600s of wall clock, so the hard timeout always won. **The idle-escalation ladder was structurally unreachable with shipped defaults**, while the runbook documented it as a live mechanism.
 
-This was invisible until #1450 made claude's output observable. The very next claude run
-recorded 152 seconds of measured silence — exactly the signal idle escalation exists to
-act on — and still rode the full wall to exit 8 with zero iterations, because 152s <
-600s. **Fixing the observation exposed that nothing consumed it.**
+This was invisible until #1450 made claude's output observable. The very next claude run recorded 152 seconds of measured silence — exactly the signal idle escalation exists to act on — and still rode the full wall to exit 8 with zero iterations, because 152s < 600s. **Fixing the observation exposed that nothing consumed it.**
 
-Config now: `iterationTimeoutMs: 1800000` (30 min), `idleOutputTimeoutMs: 300000` (5 min).
-The ladder fired for the first time during this session. Seed
-`idle-output-timeout-defaults-equal-to-the-iteration-wall` is open for the code fix.
+Config now: `iterationTimeoutMs: 1800000` (30 min), `idleOutputTimeoutMs: 300000` (5 min). The ladder fired for the first time during this session. Seed `idle-output-timeout-defaults-equal-to-the-iteration-wall` is open for the code fix.
 
 ### 2. Accumulated worktrees silently break every agent sandbox
 
-Each registered git worktree becomes a sandbox deny-path. At **67 worktrees** (~198 deny
-paths) the exec argument list exceeded the OS limit and **every** command inside an agent
-session failed with `E2BIG` — including a bare `pwd`. Two consecutive claude runs finished
-their implementation, could not run a single test, and blocked.
+Each registered git worktree becomes a sandbox deny-path. At **67 worktrees** (~198 deny paths) the exec argument list exceeded the OS limit and **every** command inside an agent session failed with `E2BIG` — including a bare `pwd`. Two consecutive claude runs finished their implementation, could not run a single test, and blocked.
 
-Silent until total. Looks like an agent failure. Hits *verification* specifically, so work
-gets done and then discarded unverified. `dangerouslyDisableSandbox` was also rejected —
-no escape hatch. Hand-pruning 54 merged worktrees (67 → 13) cleared it.
+Silent until total. Looks like an agent failure. Hits *verification* specifically, so work gets done and then discarded unverified. `dangerouslyDisableSandbox` was also rejected — no escape hatch. Hand-pruning 54 merged worktrees (67 → 13) cleared it.
 
 ### 3. `review-feedback` earned its keep
 
-The last P0 failed CI on two tests that passed locally (full v1 suite: 1830 pass, 0 fail).
-`jarvis1 review-feedback` collected the failing checks and found a **real production bug**
-in `v1/src/agents/spawn.ts`: a child that exits before consuming stdin closes the pipe, the
-subsequent write raises `EPIPE`, and with no `error` listener Node crashes the process.
-Linux CI exits fast enough to hit it; macOS timing hid it. Any agent crashing early would
-have taken Jarvis down with it.
+The last P0 failed CI on two tests that passed locally (full v1 suite: 1830 pass, 0 fail). `jarvis1 review-feedback` collected the failing checks and found a **real production bug** in `v1/src/agents/spawn.ts`: a child that exits before consuming stdin closes the pipe, the subsequent write raises `EPIPE`, and with no `error` listener Node crashes the process. Linux CI exits fast enough to hit it; macOS timing hid it. Any agent crashing early would have taken Jarvis down with it.
 
 ---
 
@@ -233,20 +190,11 @@ have taken Jarvis down with it.
 
 `total_tokens` (in + out) = **1,002,817**.
 
-Per-run costs where the agent reported them: the two completed runs with metered figures
-were `daemon-process-log-read` at **$2.17** (codex did the implementation for $0.41; the
-claude review side was $1.75) and `write-step-rules-state-terminal-token-as-output-format`
-at **$2.98**. Cursor implementations reported **$0.00** (free tier; its usage is not
-measurable from the CLI, so cursor cost is estimated from prompt + stdout tokens only).
+Per-run costs where the agent reported them: the two completed runs with metered figures were `daemon-process-log-read` at **$2.17** (codex did the implementation for $0.41; the claude review side was $1.75) and `write-step-rules-state-terminal-token-as-output-format` at **$2.98**. Cursor implementations reported **$0.00** (free tier; its usage is not measurable from the CLI, so cursor cost is estimated from prompt + stdout tokens only).
 
-**Waste worth naming:** three claude patch runs hit the iteration wall with **zero
-completed iterations**. The `daemon-process-log-read` first attempt alone burned 294k
-tokens in / 1.8k out for nothing. Cursor burned ~85 minutes across three attempts on
-`implement-prompt-states-terminal-tokens` before codex finished it in one iteration.
+**Waste worth naming:** three claude patch runs hit the iteration wall with **zero completed iterations**. The `daemon-process-log-read` first attempt alone burned 294k tokens in / 1.8k out for nothing. Cursor burned ~85 minutes across three attempts on `implement-prompt-states-terminal-tokens` before codex finished it in one iteration.
 
-Note the plan rows: every one is `plan-review-ok` on claude, and plan output tokens
-(20k–38k each) dwarf plan input. Plans are cheap and reliable; implementation is where
-the cost and the failure both live.
+Note the plan rows: every one is `plan-review-ok` on claude, and plan output tokens (20k–38k each) dwarf plan input. Plans are cheap and reliable; implementation is where the cost and the failure both live.
 
 ### Per-spec cost
 
@@ -283,15 +231,8 @@ the cost and the failure both live.
 | Cost per 1k tokens | $0.3708 |
 | Code changes | 1,973 added / 137 removed, 183 files |
 
-**Session total: $208.28** (Jarvis $105.71 + operator $102.57). The split is almost
-exactly even — orchestration cost as much as all the agent work it directed.
+**Session total: $208.28** (Jarvis $105.71 + operator $102.57). The split is almost exactly even — orchestration cost as much as all the agent work it directed.
 
-Recorded in `session-costs.csv`, `operator-costs.csv`, `session-outcomes.csv`,
-`operator-outcomes.csv`, and `efficiency.csv` per the
-[cost-reporting standard](../v1/docs/operator-runbook.md#cost-reporting-standard).
+Recorded in `session-costs.csv`, `operator-costs.csv`, `session-outcomes.csv`, `operator-outcomes.csv`, and `efficiency.csv` per the [cost-reporting standard](../v1/docs/operator-runbook.md#cost-reporting-standard).
 
-The two most expensive specs are the two that fought the harness hardest:
-`implement-prompt-states-terminal-tokens` ($14.01 — cursor burned ~85 min at zero
-iterations, codex finished in one, then a CI-only EPIPE bug) and
-`blocked-token-requires-blocker-text` ($11.53 — two claude runs died on E2BIG before
-the worktree prune).
+The two most expensive specs are the two that fought the harness hardest: `implement-prompt-states-terminal-tokens` ($14.01 — cursor burned ~85 min at zero iterations, codex finished in one, then a CI-only EPIPE bug) and `blocked-token-requires-blocker-text` ($11.53 — two claude runs died on E2BIG before the worktree prune).

@@ -10,18 +10,13 @@ No-argument `jarvis1 triage` combines `<repo>/.worktree/` and the registered pro
 
 ## Where seeds and intents live
 
-Seeds and ready-intents live under the configured `plan.targetDir`. For the
-jarvis project that is **`v2/spec`** (v2 is the primary surface), so the working
-dirs are:
+Seeds and ready-intents live under the configured `plan.targetDir`. For the jarvis project that is **`v2/spec`** (v2 is the primary surface), so the working dirs are:
 
 - Seeds: `v2/spec/seeds/`
 - Ready-intents: `v2/spec/ready-intents/`
 - Active/completed specs: `v2/spec/<UTC-timestamp>-<name>/` and `v2/spec/completed/`
 
-Genuine v1 maintenance fixes are the exception: authored with an explicit
-`--target-dir v1/spec` override, landing under `v1/spec/`. Check both trees when
-sweeping the backlog. Throughout this doc, `<targetDir>` means whatever
-`plan.targetDir` currently resolves to.
+Genuine v1 maintenance fixes are the exception: authored with an explicit `--target-dir v1/spec` override, landing under `v1/spec/`. Check both trees when sweeping the backlog. Throughout this doc, `<targetDir>` means whatever `plan.targetDir` currently resolves to.
 
 ## North star
 
@@ -99,11 +94,7 @@ One cost hole remains, a real finding to state rather than estimate around:
 
 Leave such cells blank with a note, per the missing-binding rule below.
 
-**Codex `cost_usd: null` is NOT a hole — recover it, do not write it off (2026-07-16).** Every codex
-invocation currently records `cost_usd: null` / `usage_source: "unavailable"`, and two consecutive
-reports wrote that spend off as unrecoverable (64 rows on `2026-07-16T06-45`, 5 more the same day).
-It was recoverable the whole time. The correlation the harness *tries* (mtime + marker + cwd) misses
-silently, but the data is exact and on disk:
+**Codex `cost_usd: null` is NOT a hole — recover it, do not write it off (2026-07-16).** Every codex invocation currently records `cost_usd: null` / `usage_source: "unavailable"`, and two consecutive reports wrote that spend off as unrecoverable (64 rows on `2026-07-16T06-45`, 5 more the same day). It was recoverable the whole time. The correlation the harness *tries* (mtime + marker + cwd) misses silently, but the data is exact and on disk:
 
 1. Compute each invocation's **start time** = `ts - duration_ms` from its `invocation_completed` row.
 2. Convert to **local** time — that is the rollout filename:
@@ -115,12 +106,9 @@ silently, but the data is exact and on disk:
 4. Price with the model's `data/prices.json` row (`grep -o '"model":"[^"]*"' <file> | head -1`):
    `uncached·input_per_mtok + cached·cache_read_per_mtok + output·output_per_mtok`, ÷ 1e6.
 
-Worked example: 5 codex invocations recovered $2.06 that telemetry recorded as null. Note this
-sums a *session file*, so it is only 1:1 with an invocation because jarvis spawns a fresh codex
-session per invocation — verify that assumption if it ever batches.
+Worked example: 5 codex invocations recovered $2.06 that telemetry recorded as null. Note this sums a *session file*, so it is only 1:1 with an invocation because jarvis spawns a fresh codex session per invocation — verify that assumption if it ever batches.
 
-Cleanup: delete this block when `codex-usage-from-invocation-stream` ships (amended in #1655 to keep
-this correlation as a labelled fallback, re-keyed on start time, rather than deleting it).
+Cleanup: delete this block when `codex-usage-from-invocation-stream` ships (amended in #1655 to keep this correlation as a labelled fallback, re-keyed on start time, rather than deleting it).
 
 **Sources:** spec/`session-*` figures come from `~/.jarvis/runs.jsonl` (the `namespace`, `mode`, `run_start_ts`/`run_end_ts`, `run_base`, and per-run cost/token fields). Operator/`operator-*` figures come from the operator's own session-cost source, which depends on the CLI the operator drove: Claude Code `/cost` for a Claude operator; the opencode SQLite db (`~/.local/share/opencode/opencode.db`, `session` table — `cost`, `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, filtered by session `id`) for an opencode/GLM operator; `opencode stats` gives lifetime aggregates, per-session attribution needs a direct SQL query. `api_time` is blank for opencode (no `/cost` equivalent field). The harness-fact vs operator-annotation classification lives in [v2/docs/telemetry-capture.md](../../v2/docs/telemetry-capture.md).
 
@@ -214,10 +202,7 @@ gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
 
 If the label is absent, fall back to searching the open-issue list manually.
 
-**Always read the comments — you will not get them by default.** `gh issue list`
-returns titles only, and `gh issue view <n>` omits comments unless you ask. The owner
-routinely adds decisive context as a comment *after* an issue is filed, and triaging
-from the body alone will get it wrong:
+**Always read the comments — you will not get them by default.** `gh issue list` returns titles only, and `gh issue view <n>` omits comments unless you ask. The owner routinely adds decisive context as a comment *after* an issue is filed, and triaging from the body alone will get it wrong:
 
 ```sh
 gh issue view <n> --repo cbrenner04/jarvis --comments      # body + comments
@@ -225,14 +210,7 @@ gh issue list --repo cbrenner04/jarvis --state open --json number,title,comments
   --jq '.[] | "#\(.number) \(.title) — comments: \(.comments|length)"'   # which have comments
 ```
 
-Observed 2026-07-12: intake #1453's body proposed a whole sandbox-policy architecture;
-the owner's comment said *"written with no familiarity with the harness — confirm
-assumptions prior to creating a seed."* Three of the issue's core assumptions then
-failed against the code (the "missing" execution abstraction already existed as
-`spawn.ts`; the CLI command shapes didn't exist; the role taxonomy was invented). The
-comment changed the seed from "build the proposed architecture" to "make the existing
-chokepoint's policy uniform." Triaging from the body alone would have produced the
-wrong spec.
+Observed 2026-07-12: intake #1453's body proposed a whole sandbox-policy architecture; the owner's comment said *"written with no familiarity with the harness — confirm assumptions prior to creating a seed."* Three of the issue's core assumptions then failed against the code (the "missing" execution abstraction already existed as `spawn.ts`; the CLI command shapes didn't exist; the role taxonomy was invented). The comment changed the seed from "build the proposed architecture" to "make the existing chokepoint's policy uniform." Triaging from the body alone would have produced the wrong spec.
 
 For each suggestion:
 
@@ -369,8 +347,7 @@ Specific case: `jarvis1 plan`/`run` aborting with `log server unreachable at htt
 1. Spec-backed implementation PRs must be complete before merge. Plan PRs (`plan/*` head) may have unchecked subspec AC for `--merge` only (`--mark-ready` still requires completeness). Seed, report, intent, and docs PRs with no spec use the same gated path.
 2. `jarvis1 triage <spec-path|pr-ref|worktree-name> --merge` — resolves targets in both `<repo>/.worktree/` and the registered project's `~/.jarvis/worktrees/<project-key>/` home, runs local `bun run ready`, marks draft PR ready if needed, polls CI green, then admin-squash-merges. Supports implementation, plan, and spec-less worktrees. For plan PRs, the worktree is searched in the Jarvis-owned `~/.jarvis/worktrees/<project-key>/plan/<name>` directory; markerless plan worktrees resolve specs from the registered project's v2-home spec directories (which use compact timestamps like `YYYYMMDDTHHmmssZ-<name>`). Refusal stderr uses `triage --merge (<class>):` with three classes: `unknown worktree` (resolution failures, including `unknown worktree: <name>` and `unable to get branch name`), `plan PR`, or `implementation PR` (post-resolution). A target found in both homes is refused with both paths. Refuses on gate-red or CI-red with the failing name; PR stays unmerged. Merge lands the spec PR only — no `jarvis1 run` or implementation worktree creation. Named drill-down (`jarvis1 triage <worktree-name>`) also resolves `<worktree-name>` across both homes and refuses cross-home ambiguity; `--mark-ready` and listing remain v1-home-only.
 
-**Manual fallback (last-resort):**
-When `--merge` is unavailable or gates cannot be rerun (e.g., an earlier session ran it and the worktree is gone), finalize by hand:
+**Manual fallback (last-resort):** When `--merge` is unavailable or gates cannot be rerun (e.g., an earlier session ran it and the worktree is gone), finalize by hand:
 
 1. Inspect: `git status && git diff`.
 2. Fix issues if needed, then run the gate explicitly: `bun run ready`.
@@ -388,7 +365,7 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` and only run **sandbox-off**.
 - **PR CI scopes the test steps inside the `checks` job by changed path** (`scripts/ci-test-scope.ts`): a `v1/**`-only diff runs `test:v1`, `v2/**`-only runs `test:v2` + `test:integration:v2`, `shared/**` runs all three (shared code must satisfy both v1 and v2 callers, so it validates via consumer suites rather than the isolated `test:shared` slice), and root-tooling/unmatched/unresolvable-base diffs fall back to the full `bun run test`. A diff touching only `v1/docs/**`, `v1/spec/**`, `v2/docs/**`, `v2/spec/**`, and/or `reports/**` skips tests entirely (no test steps run); mixed with code paths, those paths are ignored and scoping follows the code paths as usual; mixed with a root-tooling path, the full suite still wins. So a PR's CI may show only a subset of conditional `Test (...)` steps under the single `checks` job — that's expected, not a skipped check. Branch protection keys off the stable `checks` job name, not the individual steps. Pushes to `main` always run the full suite.
 - **CI ≠ `ready`, and the gap is wider than `lint:md`.** `bun run ready` runs `bun run test` — the **aggregate** suite (`scripts/run-tests.ts`), which routes every agent-mode file through `runV2TestFiles` and its `PER_FILE_TIMEOUT_MS` (180 seconds). **CI never runs the aggregate**: `scripts/ci-test-scope.ts` scopes to `test:v1`/`test:v2` by changed path. Roster equivalence (aggregate = union of six scoped slices) and policy parity (per-file timeout, isolation, failure handling) are protected by regression tests (`test/test-slices.test.ts`, `scripts/ci-test-scope.test.ts`); the permanent 180-second per-file timeout floor ensures no file's budget can be undercut. See [v2 behaviors § Test execution](../../v2/docs/v1-behaviors.md#test-execution-and-development-workflows) for the durable contract. When a gate goes red on a diff that cannot explain it, verify path classification is correct; if correct, the failure is environment-specific not a code issue.
-- **CI ≠ `ready` (`lint:md`).** PR CI does **not** run `lint:md`; `bun run ready` does. A green-CI markdown PR (plan/intent/seed/report/doc) can still carry lint-dirty generated markdown that, once merged, reddens **every** subsequent run's completion gate (`lint:md` globs `v1/spec/**`, `v1/docs/**`, `v2/docs/**`, `v2/spec/**`, `reports/**`, `README.md`, `AGENTS.md`). `jarvis1 triage <spec-path> --merge` (or PR ref / worktree name) closes this gap: it runs `bun run ready` (including `lint:md`) before waiting for CI to be green, so both gates are enforced before merge. For direct hand-merge paths that bypass `--merge`, run `bun run lint:md` locally before admin-merging any PR that adds/edits markdown under those globs; green CI alone is not sufficient.
+- **CI ≠ `ready` (`lint:md`).** PR CI does **not** run `lint:md`; `bun run ready` does. A green-CI markdown PR (plan/intent/seed/report/doc) can still carry lint-dirty generated markdown that, once merged, reddens **every** subsequent run's completion gate (`lint:md` globs `v1/spec/**`, `v1/docs/**`, `v2/docs/**`, `v2/spec/**`, `reports/**`, `README.md`, `AGENTS.md`). `no-hard-wrap` violations are repaired with `bun run reflow:md` over the same corpus scope. `jarvis1 triage <spec-path> --merge` (or PR ref / worktree name) closes this gap: it runs `bun run ready` (including `lint:md`) before waiting for CI to be green, so both gates are enforced before merge. For direct hand-merge paths that bypass `--merge`, run `bun run lint:md` locally before admin-merging any PR that adds/edits markdown under those globs; green CI alone is not sufficient.
 - **`Test (v2)` (agent mode) hangs are isolated per-file**, mirroring integration mode: a hung file's timeout message names the offending file and the run continues past it, instead of a bare global "test run timed out or was killed" with no file named.
 - The intermittent `daemon-wait-run-completion.test.ts` staller (#1170, #1171) was root-caused to a leaked Linux inotify `FSWatcher` in `FsAppendWake` (`v2/src/persistence/log-stream.ts`) and **reduced** by `.unref()`-ing every watcher and abort-poll timer it creates (#1191), then **resolved**: `FsAppendWake` and the `fs.watch`-backed wake seam are deleted; `LogReader.follow` (`v2/src/persistence/log-stream.ts`) now blocks only on a fixed `FOLLOW_POLL_MS` poll between `tail()` rescans, so no watcher exists to leak. `follow()`'s wake mechanism moved from `fs.watch` to poll, and the daemon's shared wait-fanout was later replaced with a per-waiter `follow()` (#1232) — either way no watcher handle remains to outlive teardown.
 

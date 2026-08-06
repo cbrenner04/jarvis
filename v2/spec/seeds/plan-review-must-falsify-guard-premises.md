@@ -6,21 +6,13 @@ name: plan-review-must-falsify-guard-premises
 
 ## Problem
 
-Plans routinely author criteria of the form *"rules out X"* / *"X may never equal Y"*. Such a
-criterion is only legitimate if X is reachable on `main` today. Nothing checks that. When the premise
-is wrong, the plan step's precision makes it worse — it converts a non-problem into exact, testable,
-confidently-worded criteria, and the error is only discovered after implementation, if at all.
+Plans routinely author criteria of the form *"rules out X"* / *"X may never equal Y"*. Such a criterion is only legitimate if X is reachable on `main` today. Nothing checks that. When the premise is wrong, the plan step's precision makes it worse — it converts a non-problem into exact, testable, confidently-worded criteria, and the error is only discovered after implementation, if at all.
 
-The failure is silent in a specific way: a guard against an unreachable condition **cannot be killed
-by any mutation**, because its failure state cannot be constructed. That surfaces as a hollow
-mutation checkpoint, which reads like a proof-form problem and invites amending the criterion —
-which is the wrong repair and lets the next attempt through.
+The failure is silent in a specific way: a guard against an unreachable condition **cannot be killed by any mutation**, because its failure state cannot be constructed. That surfaces as a hollow mutation checkpoint, which reads like a proof-form problem and invites amending the criterion — which is the wrong repair and lets the next attempt through.
 
 ## Evidence
 
-`20260803T002657Z-fan-out-stage-dispatch-preserves-workflow-ownership` (retired by #2562), subspec 00.
-Its criterion: *"Each sibling dispatch owns only its resolved destination `(project, branch)`
-worktree; neither destination may equal the predecessor worktree."*
+`20260803T002657Z-fan-out-stage-dispatch-preserves-workflow-ownership` (retired by #2562), subspec 00. Its criterion: *"Each sibling dispatch owns only its resolved destination `(project, branch)` worktree; neither destination may equal the predecessor worktree."*
 
 Cost before anyone questioned the premise:
 
@@ -30,17 +22,11 @@ Cost before anyone questioned the premise:
 | `f7d828bf` | blocked — hollow checkpoint, `ownershipKeysEqual` |
 | `3a4dea01` | subspec 00 completed, then `iteration_timeout` on 01 |
 
-Plus two operator spec amendments (#2552, #2553) that treated the hollow checkpoints as a proof-form
-problem, and a hand fold-in.
+Plus two operator spec amendments (#2552, #2553) that treated the hollow checkpoints as a proof-form problem, and a hand fold-in.
 
-Adversarial review then disproved the premise in minutes: reverting `resolvePlanStage` to baseline
-semantics left **both** ownership regressions green. Plan destinations are `plan/${ready.name}`,
-derived per downstream ready-intent, on `main` too — destination never equalled predecessor. The
-shipped `destinationDistinctFromPredecessor` predicate has no production call site; it asserts an
-invariant that already held.
+Adversarial review then disproved the premise in minutes: reverting `resolvePlanStage` to baseline semantics left **both** ownership regressions green. Plan destinations are `plan/${ready.name}`, derived per downstream ready-intent, on `main` too — destination never equalled predecessor. The shipped `destinationDistinctFromPredecessor` predicate has no production call site; it asserts an invariant that already held.
 
-The check that would have caught it costs seconds and requires no code: *can this condition occur on
-`main` right now?*
+The check that would have caught it costs seconds and requires no code: *can this condition occur on `main` right now?*
 
 ## Decisions
 

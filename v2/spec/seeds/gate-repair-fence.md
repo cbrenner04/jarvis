@@ -4,46 +4,19 @@ name: gate-repair-fence
 
 # Gate repair: scope by base-ref reproduction, fence writes to attributable paths, verify autofix
 
-One bundle: all three defects live in the same repair-entry pipeline (autofix → classify → repair),
-and the first two are halves of one fence — what the repair allowset *contains* and what the repair
-agent may *write*. Designed separately they yield two divergent notions of "attributable paths".
-Absorbs `out-of-scope-gate-classification-strands-caused-failures`,
-`gate-autofix-can-turn-a-green-tree-red`, and the repair-scope half of
-`plan-output-fails-lint-md-and-repair-edits-unrelated-source` (2026-08-04); that seed's write-step
-half is split out to `plan-intent-write-steps-lint-own-markdown`.
+One bundle: all three defects live in the same repair-entry pipeline (autofix → classify → repair), and the first two are halves of one fence — what the repair allowset *contains* and what the repair agent may *write*. Designed separately they yield two divergent notions of "attributable paths". Absorbs `out-of-scope-gate-classification-strands-caused-failures`, `gate-autofix-can-turn-a-green-tree-red`, and the repair-scope half of `plan-output-fails-lint-md-and-repair-edits-unrelated-source` (2026-08-04); that seed's write-step half is split out to `plan-intent-write-steps-lint-own-markdown`.
 
 ## Problem A — out-of-scope classification strands failures the run caused
 
-`ready_gate_out_of_scope` (#2313) classifies a red gate as out of scope when the failing paths are
-not in the run's diff. But a run routinely breaks a test in a file it never edited — that is what
-changing a public shape does — and the classifier calls those failures out of scope, refuses
-repair, and settles `resumable: true` over a condition no resume can change. Observed 2026-07-30 on
-`20260730T084815Z-list-row-step-honesty` (PR #2334): three resumes, all identical —
-`ready_gate_out_of_scope`, `readyGateOutsidePaths: ["v2/src/daemon/daemon.sandbox-unrunnable.test.ts"]`,
-`iterationsConsumed: 0`. That file passes on `main` and fails in the worktree because the run's
-added list-row fields changed the snapshotted frame; the fix is a one-line test update the fence
-forbids.
+`ready_gate_out_of_scope` (#2313) classifies a red gate as out of scope when the failing paths are not in the run's diff. But a run routinely breaks a test in a file it never edited — that is what changing a public shape does — and the classifier calls those failures out of scope, refuses repair, and settles `resumable: true` over a condition no resume can change. Observed 2026-07-30 on `20260730T084815Z-list-row-step-honesty` (PR #2334): three resumes, all identical — `ready_gate_out_of_scope`, `readyGateOutsidePaths: ["v2/src/daemon/daemon.sandbox-unrunnable.test.ts"]`, `iterationsConsumed: 0`. That file passes on `main` and fails in the worktree because the run's added list-row fields changed the snapshotted frame; the fix is a one-line test update the fence forbids.
 
 ## Problem B — repair answers a Markdown failure by editing unrelated production source
 
-Two plan runs on 2026-08-03, same shape: gate red on `lint:md` **only**, naming the spec file and
-rule (`f225849b` → `5fd45995`, `MD012` × 1; `77b741af` → `080e3d64`, `MD038` × 4). Both repair
-attempts applied a partial Markdown fix **and** rewrote `v2/src/tui/tui-entry.tsx` and
-`v2/src/tui/tui-monitor-lines.ts` — replacing non-null assertions flagged only as standing
-**warnings** in the gate output (`bun run fix` on `main` applies no such change). Both runs then
-settled `completion_commit_failed` with all three files uncommitted; both cost a hand-finish.
+Two plan runs on 2026-08-03, same shape: gate red on `lint:md` **only**, naming the spec file and rule (`f225849b` → `5fd45995`, `MD012` × 1; `77b741af` → `080e3d64`, `MD038` × 4). Both repair attempts applied a partial Markdown fix **and** rewrote `v2/src/tui/tui-entry.tsx` and `v2/src/tui/tui-monitor-lines.ts` — replacing non-null assertions flagged only as standing **warnings** in the gate output (`bun run fix` on `main` applies no such change). Both runs then settled `completion_commit_failed` with all three files uncommitted; both cost a hand-finish.
 
 ## Problem C — autofix can turn a green tree red, and the gate cannot self-repair it
 
-The ready gate runs project autofix once per repair entry before any repair agent. On current
-`main`, `bun run fix` rewrites `fullTreeRows.findIndex((entry) => entry === treeRow)` to
-`fullTreeRows.indexOf(treeRow)` in `v2/src/tui/tui-monitor-lines.ts`; `treeRow` is
-`T | undefined`, the callback form accepted that, `indexOf` does not — `bun run typecheck` goes
-red. Observed 2026-08-02 on `20260802T042601Z-tui-selection-detail-pane`, run `bc349efa`: autofix
-rewrote the line, the run settled `completion_commit_failed` with the edits uncommitted, resume
-settled `ready_gate_failed` on the red typecheck, and it landed only after a hand-edit. The gate
-cannot repair this class: every repair entry re-runs autofix, which re-applies the same break.
-Autofix output is committed (or left on disk) without being re-verified.
+The ready gate runs project autofix once per repair entry before any repair agent. On current `main`, `bun run fix` rewrites `fullTreeRows.findIndex((entry) => entry === treeRow)` to `fullTreeRows.indexOf(treeRow)` in `v2/src/tui/tui-monitor-lines.ts`; `treeRow` is `T | undefined`, the callback form accepted that, `indexOf` does not — `bun run typecheck` goes red. Observed 2026-08-02 on `20260802T042601Z-tui-selection-detail-pane`, run `bc349efa`: autofix rewrote the line, the run settled `completion_commit_failed` with the edits uncommitted, resume settled `ready_gate_failed` on the red typecheck, and it landed only after a hand-edit. The gate cannot repair this class: every repair entry re-runs autofix, which re-applies the same break. Autofix output is committed (or left on disk) without being re-verified.
 
 ## Decisions
 

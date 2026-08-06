@@ -1,7 +1,6 @@
 # Shared step-runner contract
 
-`v2/src/execution/step-runner.ts` owns the behavior-agnostic step execution seam above
-`shared/invocation/execute.ts`.
+`v2/src/execution/step-runner.ts` owns the behavior-agnostic step execution seam above `shared/invocation/execute.ts`.
 
 Contract:
 
@@ -64,5 +63,4 @@ Boundary:
   parses tokens or classifies `contract_miss` / `invalid_token`, so downstream
   non-success classification does not suppress a settled row.
 
-Operator flow for the first `write` consumer is documented in
-[`write-behavior.md`](./write-behavior.md).
+Operator flow for the first `write` consumer is documented in [`write-behavior.md`](./write-behavior.md).

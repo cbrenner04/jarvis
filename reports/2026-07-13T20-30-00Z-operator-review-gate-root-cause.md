@@ -23,9 +23,7 @@ Two implementation PRs landed: **#1484** and **#1485**.
 
 ## The review gate: root-caused, and it works
 
-The standing "the review step is a silent no-op" report was **three wrong diagnoses deep**.
-All three inferred "no agent ran" from an empty log. Telemetry always showed real 21–83s
-critic and actuator invocations.
+The standing "the review step is a silent no-op" report was **three wrong diagnoses deep**. All three inferred "no agent ran" from an empty log. Telemetry always showed real 21–83s critic and actuator invocations.
 
 Two real defects were hiding behind that empty log, and both are now fixed:
 
@@ -37,20 +35,13 @@ Two real defects were hiding behind that empty log, and both are now fixed:
    `jarvis run log <review-run-id>` returned nothing regardless of what ran. Fixed by #1485.
    Verified: the review row now logs `iteration_started` → `loop_finished`.
 
-Residual, backlogged: a workflow's run id goes terminal when only its **first step** is done
-(seed `workflow-completes-before-its-review-step`, #1488). Real, but the operator already
-knew to read the review row's own id.
+Residual, backlogged: a workflow's run id goes terminal when only its **first step** is done (seed `workflow-completes-before-its-review-step`, #1488). Real, but the operator already knew to read the review row's own id.
 
-**Debate works — and had never once run.** All-time telemetry showed zero `adversary`,
-`advocate`, `adjudicator` invocations. Exercised via `plan-reviewed`: adversary (11s) →
-advocate (47s) → adjudicator (29s) → actuator (7s), all claude, all `exit_kind: ok`,
-producing a well-formed spec plus `verdict-plan.md`. Caveat: the `review-debate` step has no
-durable run row at all, so it is invisible to `jarvis run log`.
+**Debate works — and had never once run.** All-time telemetry showed zero `adversary`, `advocate`, `adjudicator` invocations. Exercised via `plan-reviewed`: adversary (11s) → advocate (47s) → adjudicator (29s) → actuator (7s), all claude, all `exit_kind: ok`, producing a well-formed spec plus `verdict-plan.md`. Caveat: the `review-debate` step has no durable run row at all, so it is invisible to `jarvis run log`.
 
 ## The recurring failure class
 
-Every defect found this session is the same shape: **a terminal status asserted without the
-evidence that would substantiate it.**
+Every defect found this session is the same shape: **a terminal status asserted without the evidence that would substantiate it.**
 
 - `implement-reports-done-with-unticked-criteria` (#1491) — **the worst.** Run `f9d556ed`:
   7 minutes of work, `done`/`completed`, branch head still equal to `main`, **0/5 acceptance
@@ -69,11 +60,7 @@ evidence that would substantiate it.**
 - `v2-workflow-pr-stays-draft-and-untitled` (#1483) — every v2 PR publishes draft, titled
   `jarvis: complete run`. Hand `gh pr ready` + retitle each time.
 
-**Stop trusting `completed/` as a signal.** Four archived-complete specs still reproduced
-their bugs this session (`blocked-outcome-with-no-blocker-text`, `v2-pr-title-from-workflow`,
-`v2-pr-description-summarizes-change`, and the preflight pair). `v2-pr-title-from-workflow` is
-not a regression — it only ever wired the *intent* path; `plan` and `implement` never passed
-`creationTitle`, so they fall through to the hardcoded default.
+**Stop trusting `completed/` as a signal.** Four archived-complete specs still reproduced their bugs this session (`blocked-outcome-with-no-blocker-text`, `v2-pr-title-from-workflow`, `v2-pr-description-summarizes-change`, and the preflight pair). `v2-pr-title-from-workflow` is not a regression — it only ever wired the *intent* path; `plan` and `implement` never passed `creationTitle`, so they fall through to the hardcoded default.
 
 ## Corrections to the record
 
@@ -89,24 +76,12 @@ not a regression — it only ever wired the *intent* path; `plan` and `implement
 
 ## Cost
 
-Jarvis spend for v2 is **unattributable**: all **16** real v2 invocations this session carry
-`cost_usd: null` / `usage_source: unavailable`. The one v1 run recorded **$6.84** normally.
+Jarvis spend for v2 is **unattributable**: all **16** real v2 invocations this session carry `cost_usd: null` / `usage_source: unavailable`. The one v1 run recorded **$6.84** normally.
 
-**Correction.** This report originally said "139 invocations". That count was wrong: 93% of
-`~/.jarvis/telemetry.jsonl` was **test-fixture data** — the suite wrote `project: demo` rows
-into the operator's real home on every `bun run test`. Filtering them leaves 16 real
-invocations. The cost finding is unchanged (16 of 16 carry no cost); only the count was
-inflated. Seed `tests-write-telemetry-to-the-operator-home`; fixed by #1496; the file and
-`v2.sqlite` have been purged with backups.
+**Correction.** This report originally said "139 invocations". That count was wrong: 93% of `~/.jarvis/telemetry.jsonl` was **test-fixture data** — the suite wrote `project: demo` rows into the operator's real home on every `bun run test`. Filtering them leaves 16 real invocations. The cost finding is unchanged (16 of 16 carry no cost); only the count was inflated. Seed `tests-write-telemetry-to-the-operator-home`; fixed by #1496; the file and `v2.sqlite` have been purged with backups.
 
-**`runs.jsonl` is clean** (0 of 6,173 rows polluted), so no prior session's cost sheets are
-affected. It simply has no v2 rows at all — v2 writes only `telemetry.jsonl`. That, not the
-pollution, is why v2 cost is dark: seed `shared-invocation-loses-cost-and-claude-output`.
+**`runs.jsonl` is clean** (0 of 6,173 rows polluted), so no prior session's cost sheets are affected. It simply has no v2 rows at all — v2 writes only `telemetry.jsonl`. That, not the pollution, is why v2 cost is dark: seed `shared-invocation-loses-cost-and-claude-output`.
 
-Operator cost: **$27.09** (opus $27.08 + haiku $0.0017); api 0:33:54, wall 4:22:33.
-Observed total: **$33.93**.
+Operator cost: **$27.09** (opus $27.08 + haiku $0.0017); api 0:33:54, wall 4:22:33. Observed total: **$33.93**.
 
-`efficiency.csv`'s `tokens_per_completed_spec` is **blank** for this row on purpose:
-`session_active_tokens` covers only the v1 run, because v2 records no tokens at all. Dividing
-partial tokens across both completed specs would publish a trend point that is simply wrong.
-Blank until `shared-invocation-loses-cost-and-claude-output` ships.
+`efficiency.csv`'s `tokens_per_completed_spec` is **blank** for this row on purpose: `session_active_tokens` covers only the v1 run, because v2 records no tokens at all. Dividing partial tokens across both completed specs would publish a trend point that is simply wrong. Blank until `shared-invocation-loses-cost-and-claude-output` ships.

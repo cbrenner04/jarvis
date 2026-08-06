@@ -6,20 +6,11 @@ name: tui-waitstate-is-polled-but-no-longer-rendered
 
 ## Problem
 
-Slice 4 (#2521) moved run detail onto the selected `DaemonListRunRow` and deleted `outcomeLines`,
-so `waitState` has no reader left in the renderer. The producer side is untouched:
-`buildWaitStateForSelection` still runs and `waitState` still lives on `TuiMonitorState`
-(`v2/src/tui/tui-entry.tsx:66,188,195,207,241,415`; `v2/src/tui/tui-monitor-types.ts:21`).
+Slice 4 (#2521) moved run detail onto the selected `DaemonListRunRow` and deleted `outcomeLines`, so `waitState` has no reader left in the renderer. The producer side is untouched: `buildWaitStateForSelection` still runs and `waitState` still lives on `TuiMonitorState` (`v2/src/tui/tui-entry.tsx:66,188,195,207,241,415`; `v2/src/tui/tui-monitor-types.ts:21`).
 
-That is a live `wait` RPC per selection change, on the operator's daemon, feeding a field with zero
-consumers — cost and a boundary-blocking call for nothing.
+That is a live `wait` RPC per selection change, on the operator's daemon, feeding a field with zero consumers — cost and a boundary-blocking call for nothing.
 
-A second, smaller widening landed in the same slice and is worth deciding rather than inheriting:
-right-pane run resolution now falls back to `monitorSelectableRuns(state)`
-(`v2/src/tui/tui-monitor-lines.ts:464`), which does **not** apply the terminal-retention window the
-left pane uses. A run filtered out of the left pane — or hidden under a collapsed pipeline — now
-renders full detail on the right, while `monitorSelectableNodeIds` still cannot navigate to it. So
-selection and detail resolution disagree about which runs exist.
+A second, smaller widening landed in the same slice and is worth deciding rather than inheriting: right-pane run resolution now falls back to `monitorSelectableRuns(state)` (`v2/src/tui/tui-monitor-lines.ts:464`), which does **not** apply the terminal-retention window the left pane uses. A run filtered out of the left pane — or hidden under a collapsed pipeline — now renders full detail on the right, while `monitorSelectableNodeIds` still cannot navigate to it. So selection and detail resolution disagree about which runs exist.
 
 ## Decisions
 

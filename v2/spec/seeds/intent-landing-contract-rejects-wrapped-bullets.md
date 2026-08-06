@@ -12,8 +12,7 @@ Intent landing refuses a staged intent whose `## Prerequisites` bullet wraps acr
 intent: <file>.md must list prerequisites as one bullet per line; rerun to retry pre-publication
 ```
 
-The bullet is valid Markdown — a continuation line is the same list item — but the contract
-checks raw lines, so an indented continuation reads as a second, malformed bullet.
+The bullet is valid Markdown — a continuation line is the same list item — but the contract checks raw lines, so an indented continuation reads as a second, malformed bullet.
 
 Twice on 2026-08-01, both blocking:
 
@@ -22,13 +21,9 @@ Twice on 2026-08-01, both blocking:
 - `intent/pipeline-approval-releases-the-wrong-branch` — run `edc3e2de` settled `landing_failed`
   the same way.
 
-Both recovered only by hand-unwrapping the staged file and `jarvis run resume`. Agents wrap
-prose at the repo's ~110-column house style, so this fires on ordinary output, and `MD013` is
-disabled in `.markdownlint-cli2.jsonc` — nothing else in the repo asks bullets to be one line.
+Both recovered only by hand-unwrapping the staged file and `jarvis run resume`. Agents wrap prose at the repo's ~110-column house style, so this fires on ordinary output, and `MD013` is disabled in `.markdownlint-cli2.jsonc` — nothing else in the repo asks bullets to be one line.
 
-This is the same defect class as `human-only-marker-read-from-first-line-only` (shipped #2434):
-a line-oriented reader over wrapped Markdown. That fix assembled the full bullet block before
-classifying; this contract needs the same treatment.
+This is the same defect class as `human-only-marker-read-from-first-line-only` (shipped #2434): a line-oriented reader over wrapped Markdown. That fix assembled the full bullet block before classifying; this contract needs the same treatment.
 
 ## Decisions
 

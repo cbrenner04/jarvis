@@ -4,12 +4,7 @@ name: pipeline-plan-stage-orphans-ready-intent
 
 # Configured-pipeline plan stage does not consume its ready-intent, orphaning it on main
 
-Standalone `run workflow plan` deletes the ready-intent it planned from as part of its
-own PR (ready-intent in → spec tree out, ready-intent removed). The `full-review`
-pipeline plan stage does **not**: it branches from `main` and hands the ready-intent to
-plan via the durable stage artifact, but its plan PR only *adds* the spec tree. Merging
-the intent PR (which adds the ready-intent) and then the plan PR leaves the ready-intent
-file orphaned on `main` — a consumed input that nothing removed.
+Standalone `run workflow plan` deletes the ready-intent it planned from as part of its own PR (ready-intent in → spec tree out, ready-intent removed). The `full-review` pipeline plan stage does **not**: it branches from `main` and hands the ready-intent to plan via the durable stage artifact, but its plan PR only *adds* the spec tree. Merging the intent PR (which adds the ready-intent) and then the plan PR leaves the ready-intent file orphaned on `main` — a consumed input that nothing removed.
 
 ## Evidence
 
@@ -22,10 +17,7 @@ file orphaned on `main` — a consumed input that nothing removed.
 
 ## Root cause
 
-Stages hand off through durable stage artifacts recorded on each stage's entry-run
-worktree; the plan stage rematerializes from its resolved repository base (`main`), which
-at branch time has no ready-intent to delete. Standalone plan, by contrast, runs against
-a base that already carries the ready-intent and deletes it in-PR.
+Stages hand off through durable stage artifacts recorded on each stage's entry-run worktree; the plan stage rematerializes from its resolved repository base (`main`), which at branch time has no ready-intent to delete. Standalone plan, by contrast, runs against a base that already carries the ready-intent and deletes it in-PR.
 
 ## Decisions
 

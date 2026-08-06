@@ -6,10 +6,7 @@ name: intent-workflow-stale-reset-pipeline
 
 ## Problem
 
-Pipeline intent-stage dispatch resolves preset steps and calls `start` without
-`maybeResetStaleWorkspace` (`daemon-host.md` documents the gap). A killed intent stage leaves the
-same poisoned worktree/branch/verdict as standalone `run workflow intent`; pipeline re-dispatch
-reuses it and review fails non-retryably with foreign verdict ownership.
+Pipeline intent-stage dispatch resolves preset steps and calls `start` without `maybeResetStaleWorkspace` (`daemon-host.md` documents the gap). A killed intent stage leaves the same poisoned worktree/branch/verdict as standalone `run workflow intent`; pipeline re-dispatch reuses it and review fails non-retryably with foreign verdict ownership.
 
 ## Decisions
 

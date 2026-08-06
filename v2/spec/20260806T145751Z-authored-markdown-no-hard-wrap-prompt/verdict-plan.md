@@ -1,0 +1,18 @@
+Validating key claims against the codebase before issuing the verdict.
+## Verdict: required refinements
+
+1. **Cover `v1/test/modes/prompt/prompt.test.ts`.** That file pins exact global-fragment assembly with `.toBe([documentation, …, terse, …].join("\n"))` for `prompt.prompt.body`. It is absent from tasks and acceptance criteria but will fail when a fourth global fragment auto-composes. The spec must name this test alongside the other assembly pins so implement is not surprised and the failing-test requirement is satisfied for every affected consumer.
+
+2. **Pin shrink assembly explicitly.** The subspec decides `patch.prompt.shrink` keeps its existing `remove` list and therefore receives `global.no-hard-wrap` after `global.terse`, but no task or AC verifies shrink output. Add a pre-fix-failing assembly assertion (v1 `buildShrinkPrompt` or v2 `renderStepPrompt("patch.prompt.shrink", …)`) that the no-hard-wrap text appears and that shrink layering remains `global.terse` → `global.no-hard-wrap` without `global.documentation` / `global.naming`. Rationale: load-bearing behavior stated in decisions must be test-backed per spec guidance; “correct by construction” is not an AC.
+
+3. **Specify stable fragment body prose.** Decisions state the rule (one physical line per paragraph and list item) but tests will substring-pin rendered output. The spec must include exemplar body text (or a quoted draft) so implementers and pins agree on wording, following the `global.terse` pattern. Optionally clarify that continuation lines within a single bullet are allowed while column-width breaks across bullets/paragraphs are not.
+
+4. **Promote ordering from task to AC.** `order: 3` after `global.terse` is load-bearing; presence-only checks pass wrong ordering. At least one AC must assert `global.no-hard-wrap` follows `global.terse` in assembled output (or equivalent registry-order metadata), not merely that the text appears.
+
+5. **Align `intent.md` with the subspec.** For plan-review clarity, reconcile drift: `patch.prompt.shrink` behavior, mutation-checkpoint AC, ordering requirement, explicit `registry.txt` registration, and precise test scope (`shared/**` → all three suites). Either mirror subspec decisions/ACs in intent or state unambiguously that the subspec supersedes intent for implement.
+
+6. **Add documentation verification and `run-loop.md`.** Doc updates are listed as tasks only. Add at least one AC that `v1/docs/prompt-governance.md` catalogs `global.no-hard-wrap` and documents shrink layering as `global.terse` → `global.no-hard-wrap`. Include `v1/docs/run-loop.md` in documentation updates — it still documents shrink as `patch.prompt.shrink` + `global.terse` only, which will rot when shrink gains the new global.
+
+7. **Clarify revision-bump policy.** Task wording conflicts on whether `intent.prompt.split` and `write.execute` need revision bumps when assembly tests use `toContain` only and neither appears in `rendered-snapshots.test.ts`. State explicitly: revision bumps and fixture regen apply only to snapshot-covered steps; non-snapshot steps are proved by assembly tests without revision changes. Likewise state that `patch.prompt.shrink` needs assembly verification but not a revision bump absent a snapshot consumer.
+
+**Not required:** splitting the single subspec (global fragment registration, fixture regen, and assembly pins are one atomic, coupled change); an AC that agents actually stop hard-wrapping (prompt-directive scope, same as `global.terse`); broadening auto-compose beyond global discovery (intentional mechanism).

@@ -14,7 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
+import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
+import type { LogEvent, LogSink, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
@@ -264,6 +265,7 @@ async function runLoop(args: {
   freshDispatch?: boolean;
   fixCommand?: WriteLoopInput["fixCommand"];
   runFixCommand?: WriteLoopInput["runFixCommand"];
+  runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
   iterationTimeoutMs?: number;
   mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
@@ -307,6 +309,7 @@ async function runLoop(args: {
     ...(args.freshDispatch === true ? { freshDispatch: true } : {}),
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
+    ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
     ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
   };
@@ -2370,6 +2373,108 @@ describe("write loop", () => {
         expect(observedFixCommand).toBe("npm run lint-fix");
         expect(gateCalls).toBe(2);
       });
+
+      test("autofix output failing typecheck is reverted before the fence commit", async () => {
+        // @mutate v2/src/execution/write-loop.ts "typecheckResult.exitCode !== 0" -> "false"
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
+        const branchName = "repair-autofix-typecheck-discard";
+        let gateCalls = 0;
+        let invocations = 0;
+        let autofixCommits = 0;
+        const typecheckOutput = "error TS2322: Type 'string' is not assignable to type 'number'.";
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), invocations === 1 ? "ok" : "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          completionCommitter: async (input) => {
+            if (input.readyGateAttribution === "autofix") {
+              autofixCommits += 1;
+            }
+            return completionHooks.completionCommitter();
+          },
+          runAutofixTypecheck: async () => ({ exitCode: 1, output: typecheckOutput }),
+          runFixCommand: async ({ cwd }) => {
+            fixProofFormatting(cwd);
+            writeFileSync(join(cwd, "broken.ts"), "const x: number = 'bad'\n", "utf8");
+          },
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
+            gateCalls += 1;
+          }),
+        });
+
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        expect(result.kind).toBe("complete");
+        expect(autofixCommits).toBe(0);
+        expect(gateCalls).toBe(2);
+        expect(invocations).toBe(2);
+        expect(existsSync(join(worktreePath, "broken.ts"))).toBe(false);
+        expect(readFileSync(join(worktreePath, "proof.txt"), "utf8")).toBe("ok\n");
+        expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+          kind: "ready_gate_autofix_discarded",
+          typecheckExitCode: 1,
+          typecheckOutput,
+        });
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([
+          { kind: "ready_gate_repair", attempt: 1, gateExitCode: 1 },
+        ]);
+      });
+
+      test("autofix output that typechecks is fence-committed and re-gated without discard", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
+        let gateCalls = 0;
+        let fixCalls = 0;
+        let typecheckCalls = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          runAutofixTypecheck: async () => {
+            typecheckCalls += 1;
+            return { exitCode: 0, output: "" };
+          },
+          runFixCommand: proofFormattingFixCommand(() => {
+            fixCalls += 1;
+          }),
+          readyFinalizer: proofFormattingReadyFinalizer(() => {
+            gateCalls += 1;
+          }),
+        });
+
+        expect(result.kind).toBe("complete");
+        expect(typecheckCalls).toBe(1);
+        expect(fixCalls).toBe(1);
+        expect(gateCalls).toBe(2);
+        expect(
+          logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_autofix_discarded"),
+        ).toEqual([]);
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([]);
+      });
     });
 
     describe("untouched-path gate settlement", () => {
@@ -2397,7 +2502,7 @@ describe("write loop", () => {
         });
 
         expect(outOfScope.kind).toBe("ready_gate_out_of_scope");
-        expect(outOfScope.resumable).toBe(true);
+        expect(outOfScope.resumable).toBe(false);
         expect(outOfScope.iterationsConsumed).toBe(1);
         expect(logSink.getEventsForRun(outOfScope.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual(
           [],
@@ -2406,7 +2511,7 @@ describe("write loop", () => {
           kind: "loop_finished",
           loopOutcomeKind: "ready_gate_out_of_scope",
           iterationsConsumed: 1,
-          resumable: true,
+          resumable: false,
         });
 
         const inScopeBranch = `${branchName}-in-scope`;
@@ -2485,7 +2590,7 @@ describe("write loop", () => {
         });
 
         expect(result.kind).toBe("ready_gate_out_of_scope");
-        expect(result.resumable).toBe(true);
+        expect(result.resumable).toBe(false);
         expect(gateCalls).toBe(3);
         expect(invocations).toBe(2);
         expect(result.iterationsConsumed).toBe(2);
@@ -2497,7 +2602,55 @@ describe("write loop", () => {
           kind: "loop_finished",
           loopOutcomeKind: "ready_gate_out_of_scope",
           iterationsConsumed: 2,
-          resumable: true,
+          resumable: false,
+        });
+      });
+
+      test("unchanged-path out-of-scope settlement is terminal non-resumable", async () => {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "gate-out-of-scope-non-resumable";
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { baseRef } = initGateScopeWorktree(jarvisRoot, branchName);
+        const logSink = new TestLogSink();
+
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+          ...completionHooks,
+          logSink,
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, gateFailureOutput(outsidePath));
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        expect(result.resumable).toBe(false);
+        const loopEvent = logSink.getEventsForRun(result.runId).at(-1);
+        expect(loopEvent).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          resumable: false,
+          readyGateOutsidePaths: [outsidePath],
+        });
+        const run = openStateStore(stateDbPath).loadRun(result.runId);
+        expect(run).toBeDefined();
+        if (!run) return;
+        expect(
+          composeRunOperatorError(run, {
+            runId: result.runId,
+            seq: 1,
+            ts: "",
+            event: loopEvent as LoopFinishedEvent,
+          }),
+        ).toMatchObject({
+          reason: "ready_gate_out_of_scope",
+          nextAction: "stop",
+          retryable: false,
+          readyGateOutsidePaths: [outsidePath],
         });
       });
 
@@ -2943,8 +3096,7 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair refuses a staged path outside the attributable allowset", async () => {
-        // Mutation checkpoint: remove the `!allowedPaths.has(normalized)` rejection in
-        // `findRepairFenceViolations`.
+        // @mutate v2/src/execution/write-loop.ts "!allowedPaths.has(normalized)" -> "false"
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";
         const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {

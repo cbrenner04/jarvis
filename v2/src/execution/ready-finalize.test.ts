@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
 import { FAILING_TEST_FILE_MARKER, failingTestFileRecord } from "../../../scripts/run-v2-tests.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   classifyReadyGateError,
@@ -13,6 +14,7 @@ import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
   formatReadyGateOutOfScopeDetail,
+  outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   ReadyGateError,
   type ReadyGateScopeSeams,
@@ -945,5 +947,40 @@ index 1234567..abcdefg 100644
 
     const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3);
     expect(single.message).toBe("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+  });
+});
+
+describe("outOfScopeSettlementResumable", () => {
+  const outOfScopeRecord = (paths: string[], resumable = false): PersistedRecord => ({
+    runId: "run-1",
+    seq: 1,
+    ts: "",
+    event: {
+      kind: "loop_finished",
+      loopOutcomeKind: "ready_gate_out_of_scope",
+      iterationsConsumed: 1,
+      resumable,
+      readyGateOutsidePaths: paths,
+    },
+  });
+
+  it("returns false for first settlement with no prior out-of-scope record", () => {
+    expect(outOfScopeSettlementResumable(["v2/src/a.test.ts"], [])).toBe(false);
+  });
+
+  it("returns false when outside paths match the first settlement", () => {
+    const path = "v2/src/untouched.test.ts";
+    expect(outOfScopeSettlementResumable([path], [outOfScopeRecord([path])])).toBe(false);
+  });
+
+  it("returns true when outside paths differ from the first settlement", () => {
+    const prior = [outOfScopeRecord(["v2/src/a.test.ts"])];
+    expect(outOfScopeSettlementResumable(["v2/src/b.test.ts"], prior)).toBe(true);
+    expect(outOfScopeSettlementResumable(["v2/src/a.test.ts", "v2/src/b.test.ts"], prior)).toBe(true);
+  });
+
+  it("returns false for missing or empty outside-path evidence", () => {
+    expect(outOfScopeSettlementResumable(undefined, [outOfScopeRecord(["v2/src/a.test.ts"])])).toBe(false);
+    expect(outOfScopeSettlementResumable([], [outOfScopeRecord(["v2/src/a.test.ts"])])).toBe(false);
   });
 });

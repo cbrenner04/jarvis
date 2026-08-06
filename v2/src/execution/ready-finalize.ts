@@ -14,6 +14,7 @@ import {
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
+import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
@@ -676,6 +677,34 @@ export type ReadyGateOutOfScopeLogFields = {
 
 export function formatReadyGateOutOfScopeDetail(paths: readonly string[], baseRef = "baseRef"): string {
   return `ready gate failing paths also reproduce on ${baseRef}: ${paths.join(", ")}`;
+}
+
+/** Resumable when outside paths differ from the row's first `ready_gate_out_of_scope` settlement. */
+export function outOfScopeSettlementResumable(
+  currentPaths: readonly string[] | undefined,
+  priorRecords: readonly PersistedRecord[],
+): boolean {
+  if (currentPaths === undefined || currentPaths.length === 0) return false;
+  for (const record of priorRecords) {
+    const event = record.event;
+    if (
+      event.kind === "loop_finished" &&
+      event.loopOutcomeKind === "ready_gate_out_of_scope" &&
+      event.readyGateOutsidePaths !== undefined
+    ) {
+      const firstPaths = event.readyGateOutsidePaths;
+      if (firstPaths.length !== currentPaths.length) return true;
+      const firstSet = new Set(firstPaths);
+      return !currentPaths.every((path) => firstSet.has(path));
+    }
+  }
+  return false;
+}
+
+export function isResumableOutOfScopeTerminalEvidence(
+  event: Pick<LoopFinishedEvent, "loopOutcomeKind" | "resumable" | "readyGateOutsidePaths"> | undefined,
+): boolean {
+  return event?.loopOutcomeKind === "ready_gate_out_of_scope" && event.resumable === true;
 }
 
 export function readyGateOutOfScopeLogFields(

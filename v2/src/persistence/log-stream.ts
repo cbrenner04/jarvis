@@ -32,6 +32,12 @@ type ReadyGateTimeoutEvent = {
   gateExitCode: number | undefined;
 };
 
+type ReadyGateAutofixDiscardedEvent = {
+  kind: "ready_gate_autofix_discarded";
+  typecheckExitCode: number;
+  typecheckOutput: string;
+};
+
 export type LoopFinishedEvent = {
   kind: "loop_finished";
   loopOutcomeKind: WriteLoopOutcomeKind;
@@ -203,6 +209,7 @@ type LogEventWithoutLoopFinished =
   | ReadyGateRepairEvent
   | ReadyGateBaseRefProbeEvent
   | ReadyGateTimeoutEvent
+  | ReadyGateAutofixDiscardedEvent
   | RuntimeSmokeOutcomeEvent
   | IterationCommitEvent
   | RunExecutionFailedEvent
@@ -355,6 +362,13 @@ export function openLogSink(storagePath: string): LogSink {
 /** Open a log reader for querying events. Optionally override `follow`'s poll interval for testing. */
 export function openLogReader(storagePath: string, pollMs?: number): LogReader {
   return new FileLogStream(storagePath, pollMs);
+}
+
+export function priorLogRecordsFromSink(logSink: LogSink | undefined, runId: string): PersistedRecord[] {
+  if (logSink !== undefined && "tail" in logSink && typeof logSink.tail === "function") {
+    return (logSink as unknown as LogReader).tail(runId);
+  }
+  return [];
 }
 
 /** Resolve after `ms`, or immediately if `signal` is already aborted. */

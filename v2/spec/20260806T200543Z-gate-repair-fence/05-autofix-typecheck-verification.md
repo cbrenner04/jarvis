@@ -20,10 +20,10 @@ Ready-gate repair autofix can turn a green tree red; every repair entry re-appli
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that when autofix produces a tree failing `typecheck`, the gate reverts autofix edits, emits `ready_gate_autofix_discarded` with the failing typecheck output visible in `jarvis run log` tail, and enters repair against the pre-autofix tree instead of committing the broken edits.
-- [ ] `write-loop.test.ts` adds a pre-fix-failing regression that a run whose autofix output typechecks is unaffected: fence commit, republish, and re-gate match pre-change behavior; it fails against the pre-fix code if verification is missing but autofix would have committed broken output.
-- [ ] In `v2/src/execution/write-loop.test.ts` `ready-gate repair autofix` describe block, the test titled `autofix output failing typecheck is reverted before the fence commit` carries a `// @mutate` directive inverting the post-autofix typecheck guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test.ts` adds a pre-fix-failing regression that when autofix produces a tree failing `typecheck`, the gate reverts autofix edits, emits `ready_gate_autofix_discarded` with the failing typecheck output visible in `jarvis run log` tail, and enters repair against the pre-autofix tree instead of committing the broken edits.
+- [x] `write-loop.test.ts` adds a pre-fix-failing regression that a run whose autofix output typechecks is unaffected: fence commit, republish, and re-gate match pre-change behavior; it fails against the pre-fix code if verification is missing but autofix would have committed broken output.
+- [x] In `v2/src/execution/write-loop.test.ts` `ready-gate repair autofix` describe block, the test titled `autofix output failing typecheck is reverted before the fence commit` carries a `// @mutate` directive inverting the post-autofix typecheck guard; the mutation turns that test RED. (Criterion names the enclosing `test()` title verbatim so `linkDirectivesToCriterion` resolves the directive.)
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

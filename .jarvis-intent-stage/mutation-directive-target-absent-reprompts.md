@@ -60,8 +60,6 @@ correct. Observed on all three `implement-completion-honesty` subspecs (2026-08-
 
 ## Prerequisites
 
-- `verifyMutationCheckpoints` reports `unparseable` entries with `target_absent`/`target_ambiguous`
-  reasons and `pinningFile:line` coordinates.
-- The write-loop `spec.criteria-ticked` boundary settles `contract_miss` / `resumable: false` on
-  unparseable checkpoints in opened pinning files.
+- `verifyMutationCheckpoints` reports `unparseable` entries with `target_absent`/`target_ambiguous` reasons and `pinningFile:line` coordinates.
+- The write-loop `spec.criteria-ticked` boundary settles `contract_miss` / `resumable: false` on unparseable checkpoints in opened pinning files.
 - The write loop has a bounded iteration budget consumed by ordinary step iterations.

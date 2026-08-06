@@ -73,6 +73,12 @@ import {
 } from "./review-role-invocation.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
+import {
+  armSuccessorShellIdleWatchdog,
+  isSuccessorShellStallOutcome,
+  raceSuccessorShellIdle,
+  type SuccessorShellStallOutcome,
+} from "./successor-step-idle-watchdog.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
@@ -1724,6 +1730,29 @@ function buildReviewRoleTelemetryFields(
   };
 }
 
+async function raceStepSuccessorShellIdle<T>(
+  step: { idleOutputMs?: number; signal?: AbortSignal },
+  ctx: { runId: string; attemptId: string; store: StateStore; logSink?: LogSink },
+  run: (handoff: { signal: AbortSignal | undefined; onRoleStart: () => void }) => Promise<T>,
+): Promise<T | SuccessorShellStallOutcome> {
+  const stallAbort = new AbortController();
+  const shellIdleWatchdog = armSuccessorShellIdleWatchdog({
+    ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+    ...(step.signal !== undefined ? { signal: step.signal } : {}),
+    onStall: () => stallAbort.abort(),
+  });
+  return raceSuccessorShellIdle(
+    {
+      ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+      ...(step.signal !== undefined ? { signal: step.signal } : {}),
+      ...ctx,
+    },
+    shellIdleWatchdog,
+    stallAbort,
+    run,
+  );
+}
+
 /**
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. The fixed cycle is one durable attempt; mid-cycle resume remains deferred.
@@ -1787,6 +1816,7 @@ async function runReviewDebateStep(
   });
   const attemptId = store.recordAttemptStart(runId);
   onStepRunCreated?.(stepIndex, runId);
+  logSink?.append(runId, { kind: "iteration_started", attemptId });
 
   const bindings = Object.fromEntries(
     REVIEW_DEBATE_ROLES.map((role) => [
@@ -1805,24 +1835,31 @@ async function runReviewDebateStep(
   });
 
   let invocationCount = 0;
-  const onRoleStart =
-    onProgress !== undefined
-      ? {
-          onRoleStart: (role: ReviewDebateRole) => {
-            invocationCount += 1;
-            onProgress(invocationId, stepId, { status: "in_progress", role });
-          },
-        }
-      : {};
+  const debateOutcome = await raceStepSuccessorShellIdle(
+    step,
+    { runId, attemptId, store, ...(logSink !== undefined ? { logSink } : {}) },
+    async ({ signal, onRoleStart }) => {
+      const profile = rehydrateReviewPromptProfile(serializedProfile);
+      return executeReviewDebate({
+        ...debateInput,
+        ...(profile !== undefined ? { profile } : {}),
+        bindings,
+        ...(signal !== undefined ? { signal } : {}),
+        ...telemetryFields,
+        onRoleStart: (role: ReviewDebateRole) => {
+          onRoleStart();
+          invocationCount += 1;
+          onProgress?.(invocationId, stepId, { status: "in_progress", role });
+        },
+      });
+    },
+  );
 
-  const profile = rehydrateReviewPromptProfile(serializedProfile);
-  const result = await executeReviewDebate({
-    ...debateInput,
-    ...(profile !== undefined ? { profile } : {}),
-    bindings,
-    ...telemetryFields,
-    ...onRoleStart,
-  });
+  if (isSuccessorShellStallOutcome(debateOutcome)) {
+    return debateOutcome;
+  }
+
+  const result = debateOutcome;
 
   const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
 
@@ -1981,69 +2018,81 @@ async function tryActuatorOnlyReviewDebateRetry(
   const runId = existingRun.id;
   onStepRunCreated?.(stepIndex, runId);
   const attemptId = store.recordAttemptStart(runId);
+  logSink?.append(runId, { kind: "iteration_started", attemptId });
 
-  const verdict = existsSync(step.verdictPath) ? readFileSync(step.verdictPath, "utf8") : "";
-  if (verdict.trim().length === 0) {
-    const message = `review-debate actuator retry: missing or empty verdict at ${step.verdictPath}`;
-    store.commitCompletionBoundary({
-      attemptId,
-      runStatus: "failed",
-      outcomeKind: "invocation_failure",
-      invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
-    });
+  let invocationCount = 0;
+  const shellOutcome = await raceStepSuccessorShellIdle(
+    step,
+    { runId, attemptId, store, ...(logSink !== undefined ? { logSink } : {}) },
+    async ({ signal, onRoleStart }) => {
+      const verdict = existsSync(step.verdictPath) ? readFileSync(step.verdictPath, "utf8") : "";
+      if (verdict.trim().length === 0) {
+        const message = `review-debate actuator retry: missing or empty verdict at ${step.verdictPath}`;
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+        });
+        return { kind: "missing_verdict" as const, message };
+      }
+
+      const bindings = resolveInvocationBindings(
+        resolveExecutableRole("actuator"),
+        step.agents.actuator,
+        step.agentModelConfig,
+        resolveBindings,
+      );
+
+      const profile = rehydrateReviewPromptProfile(step.profile);
+      const profileContext = cycleProfileContext(step.profileContext, 1, undefined);
+      const prompt = profile?.render.actuator ? await profile.render.actuator(profileContext, verdict) : verdict;
+
+      const telemetryFields = buildReviewRoleTelemetryFields(telemetry, {
+        runId,
+        attemptId,
+        project: step.project,
+        stepId: step.stepId,
+        cwd: step.cwd,
+        branch: step.branch,
+      });
+
+      const execution = await invokeReviewRole(
+        {
+          cwd: step.cwd,
+          ...(signal !== undefined ? { signal } : {}),
+          ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
+          ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+          ...telemetryFields,
+          onRoleStart: () => {
+            onRoleStart();
+            invocationCount += 1;
+            onProgress?.(invocationId, step.stepId, { status: "in_progress", role: "actuator" });
+          },
+        },
+        "actuator",
+        prompt,
+        bindings,
+      );
+      return { kind: "execution" as const, execution };
+    },
+  );
+
+  if (isSuccessorShellStallOutcome(shellOutcome)) {
+    return shellOutcome;
+  }
+
+  if (shellOutcome.kind === "missing_verdict") {
     return {
       kind: "invocation_failure",
       runId,
       iterationsConsumed: 0,
       resumable: false,
-      invocationFailureMessage: message,
+      invocationFailureMessage: shellOutcome.message,
     };
   }
 
-  const bindings = resolveInvocationBindings(
-    resolveExecutableRole("actuator"),
-    step.agents.actuator,
-    step.agentModelConfig,
-    resolveBindings,
-  );
-
-  const profile = rehydrateReviewPromptProfile(step.profile);
-  const profileContext = cycleProfileContext(step.profileContext, 1, undefined);
-  const prompt = profile?.render.actuator ? await profile.render.actuator(profileContext, verdict) : verdict;
-
-  const telemetryFields = buildReviewRoleTelemetryFields(telemetry, {
-    runId,
-    attemptId,
-    project: step.project,
-    stepId: step.stepId,
-    cwd: step.cwd,
-    branch: step.branch,
-  });
-
-  let invocationCount = 0;
-  const onRoleStart =
-    onProgress !== undefined
-      ? {
-          onRoleStart: () => {
-            invocationCount += 1;
-            onProgress(invocationId, step.stepId, { status: "in_progress", role: "actuator" });
-          },
-        }
-      : {};
-
-  const execution = await invokeReviewRole(
-    {
-      cwd: step.cwd,
-      ...(step.signal !== undefined ? { signal: step.signal } : {}),
-      ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
-      ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
-      ...telemetryFields,
-      ...onRoleStart,
-    },
-    "actuator",
-    prompt,
-    bindings,
-  );
+  const execution = shellOutcome.execution;
 
   const failureKind = reviewRoleFailureKind(execution);
 
@@ -3550,14 +3599,18 @@ function buildReviewStepOnRoleStart(
   stepId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   invocationCount: { value: number },
+  disarmShellIdle?: () => void,
 ) {
-  if (onProgress === undefined) {
+  if (onProgress === undefined && disarmShellIdle === undefined) {
     return {};
   }
   return {
     onRoleStart: (role: ReviewCycleRole) => {
-      invocationCount.value += 1;
-      onProgress(invocationId, stepId, { status: "in_progress", role });
+      disarmShellIdle?.();
+      if (onProgress !== undefined) {
+        invocationCount.value += 1;
+        onProgress(invocationId, stepId, { status: "in_progress", role });
+      }
     },
   };
 }
@@ -3914,6 +3967,7 @@ async function runStandardReviewStep(
   telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
   logSink?: LogSink,
+  shellIdle?: { signal?: AbortSignal; onRoleStart?: () => void },
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
   const workspaceFailureOutcome = standardReviewWorkspaceFailureOutcome(step, landing, ids, store);
@@ -3928,8 +3982,9 @@ async function runStandardReviewStep(
     ...(profile !== undefined ? { profile } : {}),
     ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
     bindings,
+    ...(shellIdle?.signal !== undefined ? { signal: shellIdle.signal } : {}),
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
-    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress, invocationCount),
+    ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress, invocationCount, shellIdle?.onRoleStart),
   };
 
   const { result, boundaryViolation: boundaryViolationMsg } = await runStandardReviewCycle(
@@ -4030,22 +4085,45 @@ async function runReviewDispatch(
     logSink?.append(ids.runId, { kind: "iteration_started", attemptId: ids.attemptId });
   }
 
-  const outcome = await (isDurableWorkflowStep(step)
-    ? runStandardReviewStep(
-        step,
-        reviewInput,
-        step.landing,
-        ids,
-        bindings,
-        invocationId,
-        onProgress,
-        telemetry,
-        store,
-        logSink,
-      )
-    : runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry));
-
+  let outcome: ReviewStepOutcome | SuccessorShellStallOutcome;
   if (isDurableWorkflowStep(step)) {
+    const stallAbort = new AbortController();
+    const shellIdleWatchdog = armSuccessorShellIdleWatchdog({
+      ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+      ...(step.signal !== undefined ? { signal: step.signal } : {}),
+      onStall: () => stallAbort.abort(),
+    });
+    outcome = await raceSuccessorShellIdle(
+      {
+        ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+        ...(step.signal !== undefined ? { signal: step.signal } : {}),
+        runId: ids.runId,
+        attemptId: ids.attemptId,
+        store,
+        ...(logSink !== undefined ? { logSink } : {}),
+      },
+      shellIdleWatchdog,
+      stallAbort,
+      ({ signal, onRoleStart }) =>
+        runStandardReviewStep(
+          step,
+          reviewInput,
+          step.landing,
+          ids,
+          bindings,
+          invocationId,
+          onProgress,
+          telemetry,
+          store,
+          logSink,
+          { ...(signal !== undefined ? { signal } : {}), onRoleStart },
+        ),
+    );
+  } else {
+    outcome = await runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry);
+  }
+
+  if (isDurableWorkflowStep(step) && !isSuccessorShellStallOutcome(outcome)) {
     logSink?.append(ids.runId, {
       kind: "loop_finished",
       loopOutcomeKind: outcome.kind,

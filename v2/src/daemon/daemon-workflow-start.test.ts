@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
@@ -865,5 +866,59 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     if (previousHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousHome;
     rmSync(profileHome, { recursive: true, force: true });
+  }
+});
+
+test("terminal successor shell stall releases the branch claim for a fresh start", async () => {
+  const branch = "successor-shell-stall-claim";
+  const writeStep = createWriteStep("step-1", branch, doneWithArtifactBindingFactory);
+  const worktreePath = join(writeStep.worktree.jarvisRoot ?? "", "worktrees", writeStep.worktree.projectName, branch);
+  // Rehydration restores the executable render from the domain registry, so the hang must live on
+  // the registry profile itself — a per-step render override is dropped and the debate would then
+  // run the real render (real git/agent subprocesses), whose timing is what made this flaky.
+  const originalDebateRole = implementReviewPromptProfile.render.debateRole;
+  if (originalDebateRole === undefined) throw new Error("implement review profile must bind a debateRole render");
+  implementReviewPromptProfile.render.debateRole = async () => new Promise<string>(() => {});
+  try {
+    const debate: ReviewDebateWorkflowStep = {
+      ...createDebateStep("implement-review", branch),
+      cwd: worktreePath,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      idleOutputMs: 20,
+      profile: implementReviewPromptProfile as NonNullable<ReviewDebateWorkflowStep["profile"]>,
+      profileContext: {
+        specPath: "index.md",
+        cwd: worktreePath,
+        baseBranch: "HEAD",
+        passNumber: 1,
+        totalPasses: 1,
+      },
+    };
+    const steps: AnyWorkflowStep[] = [writeStep, debate];
+
+    const response = await handlers.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+    expect(response.kind).toBe("response");
+
+    await waitFor(async () => {
+      await flushBackgroundRuns();
+      const debateRun = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "implement-review" });
+      return debateRun?.status === "failed" && debateRun.attempts.at(-1)?.invocationFailureDetail != null;
+    });
+
+    const debateRunId = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "implement-review" })?.id;
+    const debateRun = debateRunId ? stateStore.loadRun(debateRunId) : null;
+    expect(debateRun?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
+      failureKind: "stall",
+      boundMs: 20,
+      bindingAttempts: [],
+    });
+
+    const claimed = await handlers.check_workflow_start_claim(
+      requestFrame("probe-shell-stall", "check_workflow_start_claim", { project: "demo", branch }),
+      new AbortController().signal,
+    );
+    expect(claimed).toEqual({ kind: "response", result: { ok: true } });
+  } finally {
+    implementReviewPromptProfile.render.debateRole = originalDebateRole;
   }
 });

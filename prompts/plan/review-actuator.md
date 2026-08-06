@@ -2,7 +2,7 @@
 id: plan.prompt.review-actuator
 behavior: plan
 kind: step
-revision: 4
+revision: 5
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, VERDICT:string!]
 remove: [global.naming]
 ---

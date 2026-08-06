@@ -549,8 +549,9 @@ Shrink phase flow:
    result, runs **`fast`**; when changed or no green was recorded, runs **`full`**
    and refreshes the carrier on green. Failure logs a warning and skips shrink
    (review and/or `maybeMarkReady` still proceed).
-2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
-   (not `patch.rules`). Prompt includes the completed spec tree (read-only), a
+2. **Shrink invocation**: one agent call with `patch.prompt.shrink` +
+   `global.terse` -> `global.no-hard-wrap` (not `patch.rules`). Prompt includes
+   the completed spec tree (read-only), a
    branch change summary for orientation, an explicit allowlist of files touched
    during implementation iterations, and a run-scoped unified diff (allowlisted
    files only, not the full branch). The agent may edit only allowlisted paths.

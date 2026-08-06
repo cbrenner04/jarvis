@@ -43,6 +43,18 @@ describe("buildPrompt", () => {
     expect(prompt).toContain(rules);
   });
 
+  test("includes no-hard-wrap fragment after global.terse", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      activeSubspecPath: "spec/example/00-task.md",
+      activeSubspecBody: "# Task\n\n## Acceptance criteria\n\n- [ ] done",
+    });
+    const terseIndex = prompt.indexOf("Be terse in communication artifacts");
+    const noHardWrapIndex = prompt.indexOf("Do not hard-wrap authored markdown");
+
+    expect(terseIndex).toBeGreaterThan(-1);
+    expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
+  });
+
   test("omits sibling subspec bodies and index checklist prose", () => {
     const prompt = buildPrompt("spec/example/index.md", undefined, {
       activeSubspecPath: "spec/example/00-task.md",

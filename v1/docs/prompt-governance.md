@@ -16,6 +16,10 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `global.naming` (`prompts/global/naming.md`) — shared naming fragment layered
   into patch-mode prompts; forbids planning labels in code identifiers,
   filenames, types, and public API
+- `global.no-hard-wrap` (`prompts/global/no-hard-wrap.md`) — shared fragment
+  layered into agent-facing prompts after `global.terse`; forbids hard-wrapping
+  authored markdown (specs, ready-intents, seeds, docs, PR bodies) and splitting
+  `@mutate` directives or acceptance-criterion checkboxes across physical lines
 - `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
   plan-only deferral fragment layered into plan draft/review prompts to
   avoid inventing precision before a first caller exists
@@ -29,7 +33,7 @@ artifacts that shape agent behavior in patch mode and plan draft/review:
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
-- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
+- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `patch.rules`)
 - `patch.prompt.review` (`prompts/patch/review.md`) — legacy patch review step prompt for a writing agent; registered but unwired (subtractive critique-and-refactor contract)
 - `patch.prompt.review.critic` (`prompts/patch/review-critic.md`) — read-only light patch review critic; emits an actionable verdict or empty output when the branch needs no changes; layered with standard patch globals (`global.documentation -> global.naming -> global.terse`); registered but unwired — v2 implement review renders `implement.prompt.review.critic` instead
 - `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; frozen for v1 (maintenance-only engine) with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff)
@@ -94,10 +98,10 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- Patch layering is `global.documentation -> global.naming -> global.terse -> patch.prompt.body`.
-- Plan draft/review layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
+- Patch layering is `global.documentation -> global.naming -> global.terse -> global.no-hard-wrap -> patch.prompt.body`.
+- Plan draft/review layering is `global.documentation -> global.terse -> global.no-hard-wrap -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
 - `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
-- `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
+- `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse -> global.no-hard-wrap` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

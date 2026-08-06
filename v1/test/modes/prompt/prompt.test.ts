@@ -9,11 +9,12 @@ describe("buildPrompt", () => {
     const documentation = loadPromptRegistry().getById("global.documentation").body.trim();
     const naming = loadPromptRegistry().getById("global.naming").body.trim();
     const terse = loadPromptRegistry().getById("global.terse").body.trim();
+    const noHardWrap = loadPromptRegistry().getById("global.no-hard-wrap").body.trim();
     const rules = loadPromptRegistry().getById("prompt.rules").body.trim();
 
     expect(prompt).toContain("Fix the bug in lib/foo.ts");
     expect(prompt).toContain("Prompt Mode");
-    expect(prompt).toBe([documentation, "", naming, "", terse, "", rules, "", promptText].join("\n"));
+    expect(prompt).toBe([documentation, "", naming, "", terse, "", noHardWrap, "", rules, "", promptText].join("\n"));
   });
 
   test("preserves multi-line prompt text", () => {

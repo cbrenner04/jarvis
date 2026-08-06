@@ -1,0 +1,64 @@
+Before editing code, read the relevant durable docs/specs for the behavior you are changing.
+When behavior, architecture, workflow, prompt, or operator-facing semantics change, update docs/specs in the same subspec in the durable home required by `v2/docs/documentation-standard.md`; do not defer doc alignment to a follow-up.
+If the active subspec explicitly says docs are not required for a purely internal change, do not create speculative doc churn.
+
+No planning labels in code.
+Phase/milestone/slice names are sequencing artifacts; never put them in identifiers, filenames, types, or public API.
+If a spec says "Phase 1 <thing>", the code should name the <thing>.
+
+Be terse in communication artifacts (specs, PRs, commits, intents).
+Verbosity costs money and review effort. Minimize it.
+This does not authorize under-documenting code or omitting required docs.
+
+Do not hard-wrap authored markdown (specs, ready-intents, seeds, docs, PR bodies).
+Use one physical line per paragraph and per list item.
+Indented continuation lines within a single bullet are fine; do not break bullets or paragraphs at column limits.
+Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines.
+
+Read the spec at v1/spec/example/index.md.
+Additional project sibling directories are available for this run:
+- ../shared-lib
+- ../infra
+Treat these directories as part of the target project when the active spec requires cross-repo edits.
+Follow these Jarvis rules:
+# Patch Mode
+
+Execute active spec only.
+
+## Scope
+- Modify only files named by spec.
+- Do listed steps only. No add/remove/reorder/reinterpret.
+- Read only files needed for spec.
+- No unrelated refactors/abstractions.
+- One repo per iteration.
+- Match style. No unrelated formatting.
+
+## Iteration
+- Work the harness-injected active subspec only.
+- Subspec acceptance criteria must be under an exact `## Acceptance criteria` heading (case-sensitive, level-2).
+- Blockers must be under an exact `## Blocker` heading (case-sensitive, level-2).
+- Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else. Tick every confirmed-satisfied criterion as a mandatory final step; if criteria are already `- [ ]` on entry but their work is already complete, re-verify and then tick—never report "already done" and stop without ticking.
+- Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
+- Do not run `git commit` or otherwise create commits. Jarvis owns staging and committing.
+- Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
+- Use commands from target repo `AGENTS.md`; no equivalents.
+- Acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement them, run the automated gate, leave them unchecked, and do not attempt in-sandbox visual verification (no dev-server port bind). Do not append a `## Blocker` for human-only criteria.
+- Run tests strategically: skip `bun run test` only when the iteration changed nothing under tested paths (no source files, test files, prompt fragments, or fixtures — only human-facing prose). Run `bun run typecheck` only when any typed source changed. This avoids flake exposure on docs-only iterations with zero signal.
+- If `bun run test` fails, re-run once serially as `bun test` (without `--parallel`, no path/filter args) before treating the failure as real or grounding a blocker; only a serially-reproducing failure is real. This recovers from parallel-load flakes without hiding genuine breakage.
+- Tests reaching machine/user-config resolution must inject an explicit config fixture/path and mocked profile; never read the ambient machine config. Use explicit profiles/fixtures so tests pass in CI and remain hermetic across machines.
+- When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.
+- Leave tree compiling.
+
+## Stop
+- Unclear: append `## Blocker` to spec; stop. Jarvis will detect it, commit any progress, and exit with code 7. Appending `## Blocker` means the final line must be `blocked`.
+- Mid-edit red (before all edits complete): not pre-existing breakage; finish edits and re-run.
+- Mid-edit red: do not raise pre-existing/unrelated/baseline-failures blockers; harness validates and rejects unconfirmed claims.
+- Repeated failure (after edits complete): record failure in spec; stop.
+- No TODOs. Put follow-up in spec.
+- New dependency? Edit `package.json`/lockfile, record the decision in spec, and continue. Dependency installs are harness-managed and run outside the sandbox after the iteration. In-sandbox install failures are expected and not grounds for a `## Blocker`.
+
+Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.
+Guard-inversion criteria require a source mutation on the real guard and a comment checkpoint on the pinning test that names that mutation — production invert hooks are forbidden.
+Do not add `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, or `invert*ForTest` type members in production code.
+The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.
+done and no-work end the step. Use progress when work remains and you are not stuck. Use blocked when stuck; record the blocker where your mode's rules require.

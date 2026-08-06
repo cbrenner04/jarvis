@@ -63,14 +63,14 @@ describe("rendered prompt snapshots", () => {
   const registry = loadPromptRegistry();
 
   test("shared snapshots are keyed by id and revision", () => {
-    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("11");
-    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("12");
-    expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
-    expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("3");
-    expect(registry.getById("plan.prompt.review.advocate").metadata.revision).toBe("2");
-    expect(registry.getById("plan.prompt.review.critic").metadata.revision).toBe("1");
-    expect(registry.getById("plan.prompt.review.adjudicator").metadata.revision).toBe("2");
-    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("4");
+    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("12");
+    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("13");
+    expect(registry.getById("plan.prompt.review").metadata.revision).toBe("7");
+    expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("4");
+    expect(registry.getById("plan.prompt.review.advocate").metadata.revision).toBe("3");
+    expect(registry.getById("plan.prompt.review.critic").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.review.adjudicator").metadata.revision).toBe("3");
+    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("5");
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;
     const draftKey = `${registry.getById("plan.prompt.draft").metadata.id}@r${registry.getById("plan.prompt.draft").metadata.revision}.shared.txt`;
@@ -146,7 +146,7 @@ describe("rendered prompt snapshots", () => {
   });
 
   test("patch review snapshots are keyed by id and revision", () => {
-    expect(registry.getById("patch.prompt.review.adversary").metadata.revision).toBe("2");
+    expect(registry.getById("patch.prompt.review.adversary").metadata.revision).toBe("3");
 
     const adversaryKey = `${registry.getById("patch.prompt.review.adversary").metadata.id}@r${registry.getById("patch.prompt.review.adversary").metadata.revision}.pass-1.shared.txt`;
     const adversaryPassTwoKey = `${registry.getById("patch.prompt.review.adversary").metadata.id}@r${registry.getById("patch.prompt.review.adversary").metadata.revision}.pass-2.shared.txt`;
@@ -193,11 +193,11 @@ describe("rendered prompt snapshots", () => {
   });
 
   test("patch and plan PR-description prompts include shared fragment", () => {
-    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("2");
-    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("2");
+    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("3");
+    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("3");
 
-    const patchKey = `patch.prompt.pr-description@r2.shared.txt`;
-    const planKey = `plan.prompt.pr-description@r2.shared.txt`;
+    const patchKey = `patch.prompt.pr-description@r3.shared.txt`;
+    const planKey = `plan.prompt.pr-description@r3.shared.txt`;
 
     const patch = buildPatchPrDescriptionPrompt({
       specPath: "v1/spec/example/index.md",

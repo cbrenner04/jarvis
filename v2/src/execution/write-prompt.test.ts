@@ -24,6 +24,70 @@ describe("write prompt", () => {
     expect(rendered).toContain("Follow the contract.");
   });
 
+  // Mutation checkpoint: inverting the global-fragment filter or sort in
+  // globalFragmentBodies must turn this test red.
+  // @mutate v2/src/execution/write-prompt.ts "artifact.metadata.behavior === \"global\"" -> "false"
+  // @mutate v2/src/execution/write-prompt.ts "return ao - bo || a.metadata.id.localeCompare(b.metadata.id);" -> "return bo - ao;"
+  test("write.execute and plan.prompt.draft include no-hard-wrap after global.terse", () => {
+    const writeRendered = renderStepPrompt("write.execute", {
+      SPEC_PATH: "spec/example/index.md",
+      PRINCIPLES: "",
+      STEP_RULES: "Follow the contract.",
+    });
+    const planRendered = renderStepPrompt("plan.prompt.draft", {
+      WORKDIR: "/tmp/work",
+      NAME: "example-spec",
+      INTENT: "Do the thing.",
+      SPEC_GUIDANCE: "Follow the guidance.",
+    });
+
+    for (const rendered of [writeRendered, planRendered]) {
+      const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+      const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
+      expect(terseIndex).toBeGreaterThanOrEqual(0);
+      expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
+    }
+  });
+
+  test("patch.prompt.body includes no-hard-wrap after global.terse", () => {
+    const rendered = renderStepPrompt("patch.prompt.body", {
+      SPEC_PATH: "spec/example/index.md",
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: "Follow repo guidance.",
+      ACTIVE_SUBSPEC_PATH: "spec/example/00-sub.md",
+      ACTIVE_SUBSPEC_BODY: "Body.",
+      PATCH_RULES: "Rules.",
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: "Follow the contract.",
+    });
+
+    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
+    expect(terseIndex).toBeGreaterThanOrEqual(0);
+    expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
+  });
+
+  // Mutation checkpoint: inverting the `remove` exclusion in globalFragmentBodies
+  // must turn this test red.
+  // @mutate v2/src/execution/write-prompt.ts "!remove.has(artifact.metadata.id)" -> "true"
+  test("patch.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
+    const rendered = renderStepPrompt("patch.prompt.shrink", {
+      SPEC_PATH: "spec/example/index.md",
+      SPEC_TREE: "tree",
+      ALLOWLIST: "allow",
+      BRANCH_DIFF: "diff",
+      RUN_SCOPED_DIFF: "diff",
+      STEP_RULES: "Follow the contract.",
+    });
+
+    const terseIndex = rendered.indexOf("Be terse in communication artifacts");
+    const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
+    expect(terseIndex).toBeGreaterThanOrEqual(0);
+    expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
+    expect(rendered).not.toContain("Before editing code, read the relevant durable docs/specs");
+    expect(rendered).not.toContain("No planning labels in code.");
+  });
+
   test("write.execute isolates the shared human-only step rules", () => {
     const principles = "MARKER_FREE_PRINCIPLES";
     const rendered = renderStepPrompt("write.execute", {

@@ -1,16 +1,28 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-08-06 (cluster session).
+Authority: operator priorities. Updated 2026-08-06 (stale-reset sibling + no-hard-wrap session).
 
 ## Goal
 
-**The implement-blocker cluster is fully landed** (all three seeds, 2026-08-06 cluster session): `target_absent`/`ambiguous` `@mutate` directives now reprompt in-run instead of hard-blocking; the completion commit now formats changed files before staging; and successor steps are now idle-watchdog-bounded so a pre-agent stall settles `role_stalled` and releases the branch claim. These three hand-blocked every subspec of prior sessions. Next session: `intent-workflow-lacks-stale-workspace-reset`, then the remaining seeds (bump `gate-repair-fence` — its Problem A bit finalization this session), then TUI slice 6.
+**Stale-reset siblings + author-facing no-hard-wrap landed** (2026-08-06). `intent-workflow-lacks-stale-workspace-reset` shipped as two subspecs (CLI `#2639` + pipeline `#2644`): an interrupted `run workflow intent` — and pipeline intent-stage re-dispatch — now retires its poisoned worktree/branch/verdict before the write step. An operator-requested `authored-markdown-no-hard-wrap` change landed the `global.no-hard-wrap` prompt fragment (`#2645`) plus a custom markdownlint rule + `bun run reflow:md` + a 107-file corpus reflow (`#2647`). Next: `gate-repair-fence`, then the remaining seeds, then TUI slice 6.
 
 ## Start here next (in order)
 
-1. `seeds/intent-workflow-lacks-stale-workspace-reset` — killed intent strands a verdict marker; next intent run fails non-retryably.
-2. `seeds/gate-repair-fence` — **bumped.** Its Problem A (`ready_gate_out_of_scope` refuses repair and settles `resumable:true` over a condition no resume can change) recurred this session: `#2633`'s publication finalization failed three identical resumes on out-of-scope `v1/test/run.test.ts` (a slow v1 test pulled into scope by a `v1/docs` edit; passes in CI). Merged on 3× green CI + clean review.
+1. `seeds/gate-repair-fence` — **bumped, recurred again.** Its Problem A (`ready_gate_out_of_scope` refuses repair and settles `resumable:true` over a condition no resume can change) blocked `#2645` finalization this session on the slow out-of-scope `v1/test/run.test.ts` under machine load. Also: repair write fence, autofix-turns-tree-red.
+2. `seeds/mutation-checkpoint-criterion-must-name-enclosing-test` — **recurred 3× this session.** The linker (`linkDirectivesToCriterion`) requires the criterion to contain its enclosing `test()` title verbatim; plans keep authoring descriptive references, so the operator hand-pre-fixed every mutation criterion at plan time. High value before more implements.
 3. The other open seeds below, then TUI slice 6.
+
+## Landed 2026-08-06 (session — stale-reset sibling + no-hard-wrap)
+
+| Thread | intent → plan → implement PRs |
+| --- | --- |
+| **`intent-workflow-stale-reset-cli`** (add `intent` to `STALE_RESET_WORKFLOWS`; relocate shared seam; `.jarvis-*` dirty exclusion) | #2637 → #2638 → #2639 |
+| **`intent-workflow-stale-reset-pipeline`** (daemon pipeline intent-stage re-dispatch preflight) | #2637 (shared) → #2641 → #2644 |
+| **`authored-markdown-no-hard-wrap` prompt** (`global.no-hard-wrap` fragment + AGENTS.md convention) | #2642 → #2643 → #2645 |
+| **`authored-markdown-no-hard-wrap` lint** (custom rule + `reflow:md` + 107-file corpus reflow) | #2642 (shared) → #2646 → #2647 |
+| Operator docs + queue reconciliation | this session's close PR |
+
+Notes: seed `#2640` for the operator wrapping request. Pipeline implement (#2644) shipped a **production no-op** — the daemon never constructed the injection bundle; the tests injected it directly and passed. A subagent review caught it; hand-wired the real construction + a regression test through the real deps builder, then a 3-lens **review-debate** added fail-open + bounded-read robustness fixes. Both agents hit the deterministic cognitive-complexity wall (`biome-ignore` fix; clean on main). Every mutation-checkpoint criterion was pre-fixed at plan time to name its enclosing `test()` (the linker gap). A **GitHub Actions runner outage** forced operator-approved local-ready merges for #2644–#2647. The corpus reflow degraded one malformed table (`write-behavior.md`, missing delimiter row) — fixed; the new rule conflicts with v1's autofix-repair contract (v1 runtime unaffected) — the v1 fixture was made to conform.
 
 ## Landed 2026-08-06 (cluster session — implement-blocker cluster)
 
@@ -48,14 +60,13 @@ Notes: each seed ran the full intent→plan→implement pipeline (cursor-first, 
 
 | Order | Seed | Notes |
 | --- | --- | --- |
-| 1 | `seeds/intent-workflow-lacks-stale-workspace-reset` | Killed intent strands a verdict marker; next intent run fails non-retryably. |
-| 2 | `seeds/gate-repair-fence` | **Bumped** — Problem A (`ready_gate_out_of_scope` refuses repair, resume can't clear it) blocked `#2633` finalization this session (3 identical resumes on slow out-of-scope `v1/test/run.test.ts`). Also: repair write fence, autofix-turns-tree-red. |
+| 1 | `seeds/gate-repair-fence` | **Bumped, recurred again** — Problem A (`ready_gate_out_of_scope` refuses repair, resume can't clear it) blocked `#2645` finalization this session (slow out-of-scope `v1/test/run.test.ts` under load). Also: repair write fence, autofix-turns-tree-red. |
+| 2 | `seeds/mutation-checkpoint-criterion-must-name-enclosing-test` | **Recurred 3× this session** — the strict linker needs the criterion to name its enclosing `test()` verbatim; operator hand-pre-fixed each plan. High value. |
 | 3 | `seeds/pipeline-stage-settlement-honesty` | pipeline marks implement `failed` while the run is still live. |
-| 4 | `seeds/mutation-checkpoint-criterion-must-name-enclosing-test` | strict linker needs the criterion to name its enclosing test. |
-| 5 | `seeds/pipeline-plan-stage-orphans-ready-intent` | Pipeline plan stage doesn't consume its ready-intent. |
-| 6 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
-| 7 | `seeds/plan-intent-write-steps-lint-own-markdown` | Small, standalone. |
-| 8 | `seeds/intent-landing-contract-rejects-wrapped-bullets` | Small, standalone. |
+| 4 | `seeds/pipeline-plan-stage-orphans-ready-intent` | Pipeline plan stage doesn't consume its ready-intent. |
+| 5 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
+| 6 | `seeds/plan-intent-write-steps-lint-own-markdown` | Small, standalone. |
+| 7 | `seeds/intent-landing-contract-rejects-wrapped-bullets` | Small, standalone. |
 
 `seeds/tui-waitstate-is-polled-but-no-longer-rendered` rides TUI slice 6.
 

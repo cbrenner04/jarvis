@@ -19,9 +19,9 @@ Standalone `run workflow plan` deletes the ready-intent it planned from in its o
 
 ## Acceptance criteria
 
-- [ ] After a full-review pipeline plan stage completes landing, the plan worktree's committed file set no longer includes the consumed ready-intent at its project-relative path; a regression in `pipeline-execution.test.ts` (or an equivalent pipeline plan landing test) asserts the deletion and fails against pre-fix code.
+- [ ] `pipeline-execution.test.ts` — `"pipeline plan stage landing deletes consumed ready-intent from plan worktree"` asserts the plan worktree's committed file set no longer includes the consumed ready-intent at its project-relative path; fails against pre-fix code.
 - [ ] `workflow-runner.test.ts` test `"lands the byte-identical ready intent before consuming plan inputs"` stays green (standalone plan ready-intent consumption unchanged).
-- [ ] Mutation checkpoint: a `// @mutate` directive removing the pipeline plan ready-intent-deletion step from the landing path turns the pipeline regression RED; pin via a unique-basename test.
+- [ ] Mutation checkpoint: the `pipeline plan stage landing deletes consumed ready-intent from plan worktree` test in `pipeline-execution.test.ts` carries a `// @mutate` directive that skips pipeline plan ready-intent deletion on landing; applying it turns that test RED.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

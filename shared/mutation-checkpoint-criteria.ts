@@ -6,7 +6,8 @@ export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"
 const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
 const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
 
-function acceptanceCriterionBlocks(content: string): string[] {
+/** Assembled `## Acceptance criteria` checklist blocks (first line text only, continuations included). */
+export function acceptanceCriterionBlocks(content: string): string[] {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
   const start = lines.indexOf("## Acceptance criteria");
   if (start === -1) return [];

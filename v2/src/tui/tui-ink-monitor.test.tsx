@@ -508,7 +508,7 @@ describe("createMonitorDisplay", () => {
     ]);
   });
 
-  test("createMonitorDisplay uses terminalWindowNowMs for tree filtering and display nowMs for elapsed", () => {
+  test("createMonitorDisplay retains unattributed orphans regardless of display clock", () => {
     const freshFinishedAt = TREE_NOW_MS - 60_000;
     const orphanRun: DaemonListRunRow = {
       runId: "run-fresh-orphan",
@@ -523,22 +523,17 @@ describe("createMonitorDisplay", () => {
         steps: [{ stepId: "x", role: "implement", status: "completed", attemptCount: 1 }],
       },
     };
-    const state = shellState([orphanRun], "run-fresh-orphan", { terminalWindowNowMs: TREE_NOW_MS });
+    const state = shellState([orphanRun], "run-fresh-orphan");
     const farFutureMs = TREE_NOW_MS + TUI_TERMINAL_WINDOW_MS + 60_000;
 
     const inWindowTree = createMonitorDisplay(state, stubText, undefined, TREE_NOW_MS);
-    const outOfWindowTree = createMonitorDisplay(
-      shellState([orphanRun], "run-fresh-orphan", { terminalWindowNowMs: farFutureMs }),
-      stubText,
-      undefined,
-      farFutureMs,
-    );
+    const outOfWindowTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
     const displayTickTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
 
     expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).not.toContain("runId: run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("No run selected.");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("run-fresh-orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("─ Unattributed (1) ─");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
     expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
   });
 });

@@ -15,7 +15,9 @@ import {
   isActiveRunStatus,
   type WorkflowTableRow,
   workflowCollapsedContextSuffix,
+  workflowGroupHasActiveMember,
   workflowRoleLabel,
+  workflowRollupFinishedAtMs,
 } from "./tui-monitor-workflow-collapse.ts";
 import type { ShellLayout } from "./tui-shell-layout.ts";
 import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
@@ -41,11 +43,6 @@ export function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[
   return buildWorkflowTableRows(selectable, state.runs, new Set()).map((row) =>
     row.kind === "workflow-collapsed" ? row.representative : row.run,
   );
-}
-
-/** Clock for unattributed terminal retention; pinned on refresh, not display tick. */
-export function monitorTerminalFilterNowMs(state: TuiMonitorState, displayNowMs: number): number {
-  return state.terminalWindowNowMs ?? displayNowMs;
 }
 
 /** Initial monitor selection: first selectable tree or unattributed row in pane order. */
@@ -397,6 +394,77 @@ function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
   return state.runs.some((run) => run.status === "queued") ? 1 : 0;
 }
 
+function workflowTableRowMembers(row: WorkflowTableRow): DaemonListRunRow[] {
+  switch (row.kind) {
+    case "standalone":
+    case "workflow-child":
+      return [row.run];
+    case "workflow-collapsed":
+      return row.members;
+  }
+}
+
+export function leftPaneUnattributedBodyRowBudget(
+  state: TuiMonitorState,
+  layout: ShellLayout,
+  treeRowsPainted: number,
+): number {
+  return Math.max(0, layout.paneHeight - treeRowsPainted - 1 - leftPaneQueueHeadingRowCount(state));
+}
+
+export function retainUnattributedSegmentFifo(
+  rows: readonly WorkflowTableRow[],
+  bodyBudget: number,
+): WorkflowTableRow[] {
+  const activeRows: WorkflowTableRow[] = [];
+  const finishlessTerminals: WorkflowTableRow[] = [];
+  const finishableTerminals: WorkflowTableRow[] = [];
+
+  for (const row of rows) {
+    const members = workflowTableRowMembers(row);
+    if (workflowGroupHasActiveMember(members)) {
+      activeRows.push(row);
+    } else if (workflowRollupFinishedAtMs(members) === undefined) {
+      finishlessTerminals.push(row);
+    } else {
+      finishableTerminals.push(row);
+    }
+  }
+
+  finishableTerminals.sort(
+    (left, right) =>
+      (workflowRollupFinishedAtMs(workflowTableRowMembers(left)) ?? 0) -
+      (workflowRollupFinishedAtMs(workflowTableRowMembers(right)) ?? 0),
+  );
+
+  const mustKeepCount = activeRows.length + finishlessTerminals.length;
+  const keptFinishable = [...finishableTerminals];
+  while (mustKeepCount + keptFinishable.length > bodyBudget && keptFinishable.length > 0) {
+    keptFinishable.shift();
+  }
+
+  activeRows.sort(
+    (left, right) =>
+      Math.min(...workflowTableRowMembers(left).map((run) => run.createdAt)) -
+      Math.min(...workflowTableRowMembers(right).map((run) => run.createdAt)),
+  );
+
+  return [...activeRows, ...keptFinishable, ...finishlessTerminals];
+}
+
+export function unattributedLeftPaneHeading(bodyCount: number): MonitorLineRow {
+  return row(untoned(`─ Unattributed (${bodyCount}) ─`));
+}
+
+export function monitorLeftPaneUnattributedSegmentRows(
+  state: TuiMonitorState,
+  layout: ShellLayout,
+  nowMs: number,
+): { heading: MonitorLineRow; bodyRows: readonly WorkflowTableRow[] } {
+  const { unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  return { heading: unattributedLeftPaneHeading(unattributedRows.length), bodyRows: unattributedRows };
+}
+
 function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout): number {
   return layout.paneHeight - leftPaneQueueHeadingRowCount(state);
 }
@@ -438,7 +506,7 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
 export function monitorLeftPaneTreeRows(
   state: TuiMonitorState,
   layout: ShellLayout,
-  nowMs: number,
+  _nowMs: number,
 ): {
   treeRows: readonly MonitorPipelineTreeDisplayNode[];
   fullTreeRows: readonly MonitorPipelineTreeDisplayNode[];
@@ -447,22 +515,23 @@ export function monitorLeftPaneTreeRows(
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
   const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
-  const filterNowMs = monitorTerminalFilterNowMs(state, nowMs);
-  const { displayNodes, unattributedRows } = buildMonitorPipelineTree(
+  const { displayNodes, unattributedRows: unattributedCandidates } = buildMonitorPipelineTree(
     snapshots,
     state.runs,
     expandedNodeIds,
     state.selectedNodeId,
     maxVisibleRows,
-    { filterNowMs },
   );
   const scrollOffset = reclampLeftPaneTreeScrollOffset(
     state.leftPaneTreeScrollOffset ?? 0,
     maxVisibleRows,
     displayNodes.length,
   );
+  const treeRows = displayNodes.slice(scrollOffset, scrollOffset + maxVisibleRows);
+  const bodyBudget = leftPaneUnattributedBodyRowBudget(state, layout, treeRows.length);
+  const unattributedRows = retainUnattributedSegmentFifo(unattributedCandidates, bodyBudget);
   return {
-    treeRows: displayNodes.slice(scrollOffset, scrollOffset + maxVisibleRows),
+    treeRows,
     fullTreeRows: displayNodes,
     unattributedRows,
   };

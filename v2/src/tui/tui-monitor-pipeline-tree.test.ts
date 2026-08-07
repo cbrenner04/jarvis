@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { leftPaneUnattributedBodyRowBudget, retainUnattributedSegmentFifo } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
@@ -13,8 +14,13 @@ import {
   monitorPipelineStageNodeId,
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
-import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
-import { buildMonitorTreeRow, monitorTreeRun, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
+import {
+  buildMonitorTreeRow,
+  computeShellLayout,
+  monitorTreeRun,
+  TREE_COLUMN_WIDTHS,
+  visibleColumns,
+} from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";
@@ -102,7 +108,7 @@ function pipelineWithStageAndRun(
 }
 
 function joinTree(snapshots: PipelineSnapshot[], runs: DaemonListRunRow[] = []): MonitorPipelineTreePipelineNode[] {
-  return buildMonitorPipelineTreeJoin(snapshots, runs, { filterNowMs: FILTER_NOW_MS }).pipelineNodes;
+  return buildMonitorPipelineTreeJoin(snapshots, runs).pipelineNodes;
 }
 
 function flattenJoined(
@@ -154,7 +160,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
     const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [workflowRun({ runId: "run-orphan", status: "completed", isLive: false }, INVOCATION_ORPHAN)],
-      { filterNowMs: FILTER_NOW_MS },
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs).toHaveLength(0);
@@ -272,16 +277,15 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(stages[1]?.runs).toEqual([]);
   });
 
-  test("excludes stage-matched and queued runs from unattributed while windowing orphans", () => {
+  test("excludes stage-matched and queued runs from unattributed candidates", () => {
     // Mutation checkpoint: negating matchedInvocationIds exclusion in isUnattributedCandidate must turn unattributed filtering RED.
-    const staleFinishedAt = FILTER_NOW_MS - TUI_TERMINAL_WINDOW_MS - 1;
     const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [
         workflowRun({ runId: "run-matched", status: "in-progress" }, INVOCATION_MATCHED),
         workflowRun({ runId: "run-queued", status: "queued", isLive: false }, "inv-queued"),
         workflowRun(
-          { runId: "run-stale-orphan", status: "completed", isLive: false, finishedAtMs: staleFinishedAt },
+          { runId: "run-stale-orphan", status: "completed", isLive: false, finishedAtMs: FILTER_NOW_MS - 3_600_001 },
           INVOCATION_ORPHAN,
         ),
         workflowRun(
@@ -289,14 +293,52 @@ describe("buildMonitorPipelineTreeJoin", () => {
           "inv-fresh",
         ),
       ],
-      { filterNowMs: FILTER_NOW_MS },
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs.some((node) => node.id === "run-matched")).toBe(true);
-    expect(unattributedRows.map((row) => monitorTreeRun(row).runId)).toEqual(["run-fresh-orphan"]);
+    expect(unattributedRows.map((row) => monitorTreeRun(row).runId)).toEqual(["run-stale-orphan", "run-fresh-orphan"]);
     expect(unattributedRows.some((row) => monitorTreeRun(row).runId === "run-matched")).toBe(false);
     expect(unattributedRows.some((row) => monitorTreeRun(row).runId === "run-queued")).toBe(false);
-    expect(unattributedRows.some((row) => monitorTreeRun(row).runId === "run-stale-orphan")).toBe(false);
+  });
+
+  test("unattributed segment FIFO retains active runs and drops oldest terminals first", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (workflowGroupHasActiveMember(members)) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "keptFinishable.shift()" -> "keptFinishable.pop()"
+    const layout = computeShellLayout(245, 9, 0);
+    const baseFinish = FILTER_NOW_MS - 3_600_000;
+    const orphanRuns = [
+      workflowRun({ runId: "run-active", status: "in-progress", createdAt: 100 }, "inv-active"),
+      workflowRun(
+        { runId: "run-term-oldest", status: "completed", isLive: false, finishedAtMs: baseFinish, createdAt: 10 },
+        "inv-term-oldest",
+      ),
+      workflowRun(
+        { runId: "run-term-old", status: "completed", isLive: false, finishedAtMs: baseFinish + 1_000, createdAt: 20 },
+        "inv-term-old",
+      ),
+      workflowRun(
+        { runId: "run-term-mid", status: "completed", isLive: false, finishedAtMs: baseFinish + 2_000, createdAt: 30 },
+        "inv-term-mid",
+      ),
+      workflowRun(
+        { runId: "run-term-new", status: "completed", isLive: false, finishedAtMs: baseFinish + 3_000, createdAt: 40 },
+        "inv-term-new",
+      ),
+    ];
+    const { unattributedRows: candidates } = buildMonitorPipelineTreeJoin([], orphanRuns);
+    const budget = leftPaneUnattributedBodyRowBudget(
+      { runs: orphanRuns, selectedNodeId: null, steeringFeedback: null },
+      layout,
+      0,
+    );
+    expect(budget).toBe(4);
+    const retained = retainUnattributedSegmentFifo(candidates, budget);
+    expect(retained.map((row) => monitorTreeRun(row).runId)).toEqual([
+      "run-active",
+      "run-term-old",
+      "run-term-mid",
+      "run-term-new",
+    ]);
   });
 });
 
@@ -437,9 +479,7 @@ describe("buildMonitorPipelineTree", () => {
     const { snapshot, run } = pipelineWithStageAndRun(PIPELINE_ID, INVOCATION_MATCHED, "run-implement");
     const expanded = new Set([PIPELINE_ID, monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default")]);
 
-    const { displayNodes } = buildMonitorPipelineTree([snapshot], [run], expanded, null, 10, {
-      filterNowMs: FILTER_NOW_MS,
-    });
+    const { displayNodes } = buildMonitorPipelineTree([snapshot], [run], expanded, null, 10);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id, depth: node.depth }))).toEqual([
       { kind: "pipeline", id: PIPELINE_ID, depth: 0 },

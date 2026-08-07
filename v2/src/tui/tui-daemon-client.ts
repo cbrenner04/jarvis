@@ -7,6 +7,7 @@ import {
   parseStatusResult,
   parseWaitCompletion,
 } from "../daemon/daemon-wire.ts";
+import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
@@ -23,6 +24,10 @@ type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string; loaded
 type TuiDaemonStartResult = { runId: string };
 
 export type PipelineListResult = { pipelines: readonly PipelineSnapshot[] };
+
+export type PipelineStageMutationParams = { pipelineId: string; stageId: string; branchKey: string };
+
+export type PipelineResumeParams = { pipelineId: string };
 
 /**
  * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
@@ -45,6 +50,9 @@ export type TuiDaemonClient = {
   resume(runId: string): Promise<TuiDaemonHealthResult>;
   /** Abort an active run immediately and record durable status `killed`; rejects with `unknown_run`/`run_not_active`. */
   kill(runId: string): Promise<TuiDaemonHealthResult>;
+  pipelineApprove(params: PipelineStageMutationParams): Promise<PipelineApprovalDecisionOutcome>;
+  pipelineReject(params: PipelineStageMutationParams): Promise<PipelineApprovalDecisionOutcome>;
+  pipelineResume(params: PipelineResumeParams): Promise<ResumePipelineOutcome>;
   wait(runId: string): Promise<WaitRunCompletionResult>;
   close(): void;
 };
@@ -131,6 +139,15 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
       );
     },
     kill: (runId) => okRunRpc("kill", runId),
+    async pipelineApprove(params) {
+      return (await transport.request("pipeline_approve", params)) as PipelineApprovalDecisionOutcome;
+    },
+    async pipelineReject(params) {
+      return (await transport.request("pipeline_reject", params)) as PipelineApprovalDecisionOutcome;
+    },
+    async pipelineResume(params) {
+      return (await transport.request("pipeline_resume", params)) as ResumePipelineOutcome;
+    },
     async wait(runId) {
       return parseWaitCompletion(
         await transport.request("wait", { runId }, { trackWait: true }),

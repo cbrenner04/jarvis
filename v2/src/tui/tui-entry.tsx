@@ -6,9 +6,19 @@ import type {
 import type { DaemonListResult } from "../daemon/daemon-wire.ts";
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
+import {
+  isPipelineTerminal,
+  type PipelineApprovalDecisionOutcome,
+  type ResumePipelineOutcome,
+} from "../daemon/pipeline-execution.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import { parseTuiCommand, type TuiCommandError, type TuiCommandParseResult } from "./tui-command-parser.ts";
-import { connectTuiDaemon, type PipelineListResult, type TuiDaemonClient } from "./tui-daemon-client.ts";
+import {
+  connectTuiDaemon,
+  type PipelineListResult,
+  type PipelineStageMutationParams,
+  type TuiDaemonClient,
+} from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import {
@@ -158,6 +168,169 @@ export function shouldApplyCommandSettlement(
 
 export type ExpansionCommandSelectionError = "no_selection" | "run_leaf" | "unattributed" | "stale_non_expandable";
 
+type PipelineSteeringSharedSelectionError = "no_selection" | "run_leaf" | "unattributed" | "stale_non_targetable";
+
+type ApproveRejectSelectionError = PipelineSteeringSharedSelectionError | "not_awaiting_stage";
+
+type ResumeSelectionError = PipelineSteeringSharedSelectionError | "not_pipeline" | "terminal_pipeline";
+
+function pipelineIdForSelection(
+  pipelineNodes: ReturnType<typeof pipelineNodesForState>,
+  selectedNodeId: string,
+): string | null {
+  for (const pipeline of pipelineNodes) {
+    if (pipeline.id === selectedNodeId) return pipeline.id;
+    for (const stage of pipeline.stages) {
+      if (stage.id === selectedNodeId) return pipeline.id;
+    }
+  }
+  return null;
+}
+
+function pipelineSteeringSharedSelectionError(
+  state: TuiMonitorState,
+  nowMs: number,
+  pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
+): PipelineSteeringSharedSelectionError | null {
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId === null) return "no_selection";
+
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
+  if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
+
+  const pipelineId = pipelineIdForSelection(pipelineNodesForState(state), selectedNodeId);
+  if (pipelineId === null || !pipelineOwners.has(pipelineId)) return "stale_non_targetable";
+  return null;
+}
+
+function approveRejectSelectionError(
+  state: TuiMonitorState,
+  nowMs: number,
+  pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
+): ApproveRejectSelectionError | null {
+  const shared = pipelineSteeringSharedSelectionError(state, nowMs, pipelineOwners);
+  if (shared !== null) return shared;
+
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId === null) return "no_selection";
+
+  const pipelineNodes = pipelineNodesForState(state);
+  for (const pipeline of pipelineNodes) {
+    if (pipeline.id === selectedNodeId) return "not_awaiting_stage";
+    for (const stage of pipeline.stages) {
+      if (stage.id !== selectedNodeId) continue;
+      // Mutation checkpoint: negating awaiting status check must turn approve/reject eligibility pin RED.
+      if (stage.status === "awaiting") return null;
+      return "not_awaiting_stage";
+    }
+  }
+  return "stale_non_targetable";
+}
+
+function resumeSelectionError(
+  state: TuiMonitorState,
+  nowMs: number,
+  pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
+): ResumeSelectionError | null {
+  const shared = pipelineSteeringSharedSelectionError(state, nowMs, pipelineOwners);
+  if (shared !== null) return shared;
+
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId === null) return "no_selection";
+
+  const pipelineNodes = pipelineNodesForState(state);
+  for (const pipeline of pipelineNodes) {
+    if (pipeline.id === selectedNodeId) {
+      // Mutation checkpoint: negating terminal pipeline check must turn resume eligibility pin RED.
+      if (isPipelineTerminal(pipeline.snapshot.state)) return "terminal_pipeline";
+      return null;
+    }
+    for (const stage of pipeline.stages) {
+      if (stage.id === selectedNodeId) return "not_pipeline";
+    }
+  }
+  return "stale_non_targetable";
+}
+
+function resolveAwaitingStageTarget(state: TuiMonitorState): PipelineStageMutationParams | null {
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId === null) return null;
+  const pipelineNodes = pipelineNodesForState(state);
+  for (const pipeline of pipelineNodes) {
+    for (const stage of pipeline.stages) {
+      if (stage.id === selectedNodeId && stage.status === "awaiting") {
+        return { pipelineId: pipeline.id, stageId: stage.stageId, branchKey: stage.branchKey };
+      }
+    }
+  }
+  return null;
+}
+
+type PipelineSteeringDispatch =
+  | { kind: "resume"; owner: TuiDaemonClient; pipelineId: string }
+  | {
+      kind: "stage-mutation";
+      owner: TuiDaemonClient;
+      params: PipelineStageMutationParams;
+      command: "approve" | "reject";
+    };
+
+function resolvePipelineSteeringDispatch(
+  state: TuiMonitorState,
+  command: "approve" | "reject" | "resume",
+  pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
+): PipelineSteeringDispatch | "stale_non_targetable" {
+  if (command === "resume") {
+    const selectedNodeId = state.selectedNodeId;
+    if (selectedNodeId === null) return "stale_non_targetable";
+    const owner = pipelineOwners.get(selectedNodeId);
+    if (owner === undefined) return "stale_non_targetable";
+    return { kind: "resume", owner, pipelineId: selectedNodeId };
+  }
+  const target = resolveAwaitingStageTarget(state);
+  if (target === null) return "stale_non_targetable";
+  const owner = pipelineOwners.get(target.pipelineId);
+  if (owner === undefined) return "stale_non_targetable";
+  return { kind: "stage-mutation", owner, params: target, command };
+}
+
+function steeringOutcomeFeedback(
+  outcome: PipelineApprovalDecisionOutcome | ResumePipelineOutcome,
+): { kind: "success"; pipelineId: string } | { kind: "failure"; feedback: string } {
+  if (outcome.kind === "applied" || outcome.kind === "resumed") {
+    return { kind: "success", pipelineId: outcome.pipelineId };
+  }
+  if (outcome.kind === "refused") {
+    return { kind: "failure", feedback: outcome.reason };
+  }
+  return { kind: "failure", feedback: `unexpected_outcome: ${(outcome as { kind: string }).kind}` };
+}
+
+function buildPipelineOwners(
+  livePipelineLists: ReadonlyArray<readonly [string, TuiDaemonClient, PipelineListResult]>,
+  invokingSocketPath: string,
+): Map<string, TuiDaemonClient> {
+  const owners = new Map<string, TuiDaemonClient>();
+  const sorted = [...livePipelineLists].sort(([left], [right]) => left.localeCompare(right));
+  for (const [, client, result] of sorted) {
+    for (const pipeline of result.pipelines) {
+      if (!owners.has(pipeline.pipelineId)) {
+        owners.set(pipeline.pipelineId, client);
+      }
+    }
+  }
+  const invoking = livePipelineLists.find(([socketPath]) => socketPath === invokingSocketPath);
+  if (invoking !== undefined) {
+    const [, invokingClient, invokingResult] = invoking;
+    for (const pipeline of invokingResult.pipelines) {
+      owners.set(pipeline.pipelineId, invokingClient);
+    }
+  }
+  return owners;
+}
+
 export function expansionCommandSelectionError(
   state: TuiMonitorState,
   nowMs: number,
@@ -233,6 +406,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   const clients: Map<string, TuiDaemonClient> = new Map();
   const lastGoodListBySocketPath = new Map<string, DaemonListResult>();
   let runOwners: Map<string, TuiDaemonClient> = new Map();
+  let pipelineOwners: Map<string, TuiDaemonClient> = new Map();
   let session: TuiMonitorSession | undefined;
   let refreshHandle: { close(): void } | undefined;
   let displayTickHandle: { close(): void } | undefined;
@@ -402,6 +576,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         };
 
         const liveListResults: Array<[TuiDaemonClient, DaemonListResult]> = [];
+        const livePipelineLists: Array<[string, TuiDaemonClient, PipelineListResult]> = [];
         let allClientsFailed = true;
         let firstError: unknown;
         for (const [socketPath, client] of [...clients.entries()]) {
@@ -422,7 +597,9 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           }
 
           try {
-            pipelineSnapshotsBySocketPath[socketPath] = await client.pipelineList();
+            const pipelineResult = await client.pipelineList();
+            pipelineSnapshotsBySocketPath[socketPath] = pipelineResult;
+            livePipelineLists.push([socketPath, client, pipelineResult]);
           } catch (error) {
             refreshError = error;
             // Retain last-good per-daemon snapshot on observation failure.
@@ -435,6 +612,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         const { rows: mergedRuns } = mergeRunLists(retainedListResults);
         const { owners } = mergeRunLists(liveListResults);
         runOwners = owners;
+        pipelineOwners = buildPipelineOwners(livePipelineLists, deps.socketPath);
         const actionableRunIds = [...owners.keys()];
 
         if (initial) {
@@ -582,6 +760,74 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               lastCommandResult: null,
             });
             bumpCommandEditorGeneration();
+            return;
+          }
+
+          if (parsed.kind === "approve" || parsed.kind === "reject" || parsed.kind === "resume") {
+            const command = parsed.kind;
+            const nowMs = nowMsFn();
+            const selectionError =
+              command === "resume"
+                ? resumeSelectionError(currentState, nowMs, pipelineOwners)
+                : approveRejectSelectionError(currentState, nowMs, pipelineOwners);
+            if (selectionError !== null) {
+              setState({
+                ...currentState,
+                lastCommandResult: selectionError,
+              });
+              return;
+            }
+
+            const dispatch = resolvePipelineSteeringDispatch(currentState, command, pipelineOwners);
+            if (dispatch === "stale_non_targetable") {
+              setState({
+                ...currentState,
+                lastCommandResult: "stale_non_targetable",
+              });
+              return;
+            }
+
+            const submissionEditorGeneration = commandEditorGeneration;
+            admissionPending = true;
+            void (async () => {
+              try {
+                const outcome =
+                  dispatch.kind === "resume"
+                    ? await dispatch.owner.pipelineResume({ pipelineId: dispatch.pipelineId })
+                    : dispatch.command === "approve"
+                      ? await dispatch.owner.pipelineApprove(dispatch.params)
+                      : await dispatch.owner.pipelineReject(dispatch.params);
+                if (!shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)) {
+                  return;
+                }
+                const settled = steeringOutcomeFeedback(outcome);
+                if (settled.kind === "success") {
+                  setState({
+                    ...currentState,
+                    lastCommandResult: settled.pipelineId,
+                    commandBuffer: "",
+                    commandCursor: 0,
+                    focus: "tree",
+                  });
+                  bumpCommandEditorGeneration();
+                  return;
+                }
+                setState({
+                  ...currentState,
+                  lastCommandResult: settled.feedback,
+                });
+              } catch (error) {
+                if (!shouldApplyCommandSettlement(submissionEditorGeneration, commandEditorGeneration, monitorOpen)) {
+                  return;
+                }
+                setState({
+                  ...currentState,
+                  lastCommandResult: steeringFeedbackFromError(error),
+                });
+              } finally {
+                admissionPending = false;
+              }
+            })();
             return;
           }
 

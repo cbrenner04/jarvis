@@ -23,11 +23,11 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-command-parser.test.ts` proves `approve`, `reject`, and `resume` parse as typed commands and no longer return `recognized_unavailable`.
-- [ ] `tui-command-parser.test.ts` proves `approve foo`, `reject foo`, and `resume foo` return `unexpected_arguments`.
-- [ ] `tui-entry.test.tsx` proves `approve foo` submits `unexpected_arguments` feedback and issues no pipeline RPC; fails against the pre-fix `recognized_unavailable` path.
-- [ ] Mutation checkpoint: in `tui-command-parser.test.ts`, the plain `test(...)` titled exactly `still-unavailable verbs classify as recognized_unavailable` carries `// @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "false"` inside its body; the mutation (a still-unavailable verb like `kill` no longer classifies as `recognized_unavailable`) turns that test RED. Use a plain `test`, not `test.each`, and name the test in this criterion so the directive links.
-- [ ] `bun run typecheck` passes.
+- [x] `tui-command-parser.test.ts` proves `approve`, `reject`, and `resume` parse as typed commands and no longer return `recognized_unavailable`.
+- [x] `tui-command-parser.test.ts` proves `approve foo`, `reject foo`, and `resume foo` return `unexpected_arguments`.
+- [x] `tui-entry.test.tsx` proves `approve foo` submits `unexpected_arguments` feedback and issues no pipeline RPC; fails against the pre-fix `recognized_unavailable` path.
+- [x] Mutation checkpoint: in `tui-command-parser.test.ts`, the plain `test(...)` titled exactly `still-unavailable verbs classify as recognized_unavailable` carries `// @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "false"` inside its body; the mutation (a still-unavailable verb like `kill` no longer classifies as `recognized_unavailable`) turns that test RED. Use a plain `test`, not `test.each`, and name the test in this criterion so the directive links.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

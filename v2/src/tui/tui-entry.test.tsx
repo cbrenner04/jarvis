@@ -4,10 +4,16 @@ import { createElement, type ReactElement } from "react";
 import type { PipelineStartAdmissionResult } from "../commands/pipeline-start-admission.ts";
 import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
 import * as tuiCommandParser from "./tui-command-parser.ts";
-import type { PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
+import type {
+  PipelineListResult,
+  PipelineResumeParams,
+  PipelineStageMutationParams,
+  TuiDaemonClient,
+} from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -145,6 +151,44 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
 };
 
 const PIPELINE_STAGE_ALPHA = monitorPipelineStageNodeId("pipe-alpha", "plan", "default");
+
+const PIPELINE_AWAITING_INVOCATION = "inv-await";
+const PIPELINE_SNAPSHOT_AWAITING: PipelineSnapshot = {
+  pipelineId: "pipe-await",
+  name: "await-pipeline",
+  state: "awaiting-approval",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  stages: [
+    {
+      id: "stage-await-gate",
+      stageId: "gate",
+      branchKey: "default",
+      position: 0,
+      status: "awaiting",
+      workflowInvocationId: PIPELINE_AWAITING_INVOCATION,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+const PIPELINE_STAGE_AWAITING = monitorPipelineStageNodeId("pipe-await", "gate", "default");
+const PIPELINE_RUN_AWAITING: DaemonListRunRow = {
+  runId: "run-await",
+  project: "demo",
+  branch: "main",
+  createdAt: 0,
+  status: "in-progress",
+  isLive: true,
+  workflow: {
+    invocationId: PIPELINE_AWAITING_INVOCATION,
+    steps: [{ stepId: "gate", role: "actuator", status: "in_progress", attemptCount: 1 }],
+  },
+};
 
 const PIPELINE_MULTI_INVOCATION = "inv-multi";
 const PIPELINE_MULTI_STEPS = [
@@ -318,6 +362,14 @@ const PIPELINE_RUN_ORPHAN: DaemonListRunRow = {
 
 function pipelineTreeListFixture(): DaemonListRunRow[] {
   return [PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN];
+}
+
+function awaitingPipelineListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_AWAITING, PIPELINE_RUN_ORPHAN];
+}
+
+function awaitingAndAlphaPipelineListFixture(): DaemonListRunRow[] {
+  return [PIPELINE_RUN_AWAITING, PIPELINE_RUN_MATCHED, PIPELINE_RUN_ORPHAN];
 }
 
 function pipelineTreeWithOutsideRunFixture(): DaemonListRunRow[] {
@@ -643,6 +695,107 @@ async function flushIntervalTick(scheduler: ReturnType<typeof createIntervalSche
   await flush();
 }
 
+async function expandPipelineAndSelect(
+  view: ReturnType<typeof createViewHost>,
+  pipelineId: string,
+  nodeId: string,
+): Promise<void> {
+  view.selectNode(pipelineId);
+  await flush();
+  const expanded = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+  if (!expanded.includes(pipelineId)) {
+    await view.toggleExpansion();
+  }
+  view.selectNode(nodeId);
+  await flush();
+}
+
+function wrapFailingSecondPipelineList(deps: RunTuiEntryDeps): void {
+  const originalConnect = deps.connectTuiDaemon;
+  let pipelineListCalls = 0;
+  deps.connectTuiDaemon = async (options) => {
+    if (originalConnect === undefined) throw new Error("missing connectTuiDaemon");
+    const client = await originalConnect(options);
+    const originalPipelineList = client.pipelineList.bind(client);
+    return {
+      ...client,
+      async pipelineList() {
+        pipelineListCalls += 1;
+        if (pipelineListCalls === 1) return originalPipelineList();
+        throw new RpcConnectionError("pipeline_list failed");
+      },
+    };
+  };
+}
+
+function steeringFailureAsserter(
+  view: ReturnType<typeof createViewHost>,
+  clientOptions: FakeClientOptions,
+  verb: string,
+  rpcMethod: string,
+): (feedback: string, setup?: () => void) => void {
+  return (feedback, setup = () => {}) => {
+    setup();
+    view.focusCommand();
+    while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+      view.deleteCommandBackward();
+    }
+    view.insertCommandText(verb);
+    const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod);
+    view.submitCommand(commandBuffer);
+    expect(countRpcMethod(clientOptions.methods, rpcMethod)).toBe(rpcBefore);
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer,
+      lastCommandResult: feedback,
+    });
+  };
+}
+
+async function runAwaitingStageSteeringRefusalTest(
+  verb: "approve" | "reject",
+  implKey: "pipelineApproveImpl" | "pipelineRejectImpl",
+): Promise<void> {
+  const refusalDetail = "status_not_awaiting\n";
+  const view = createViewHost();
+  const { deps } = entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: awaitingPipelineListFixture() }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+      [implKey]: async () =>
+        ({
+          kind: "refused",
+          pipelineId: "pipe-await",
+          stageId: "gate",
+          reason: refusalDetail,
+        }) as unknown as PipelineApprovalDecisionOutcome,
+    },
+    { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+  );
+  const pending = runTuiEntry(deps);
+
+  try {
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+    view.focusCommand();
+    view.insertCommandText(verb);
+    const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+    view.submitCommand(buffer);
+    await flush();
+    expect(view.monitorStates.at(-1)).toMatchObject({
+      focus: "command",
+      commandBuffer: buffer,
+      lastCommandResult: refusalDetail,
+    });
+  } finally {
+    view.quit();
+  }
+  expect(await pending).toBe(0);
+}
+
 function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
   let offset = 0;
   for (const entry of visibleColumns(leftPaneWidth)) {
@@ -703,6 +856,12 @@ type FakeClientOptions = {
   pauseImpl?: (runId: string) => Promise<{ ok: true }>;
   resumeImpl?: (runId: string) => Promise<{ ok: true }>;
   killImpl?: (runId: string) => Promise<{ ok: true }>;
+  pipelineApproveImpl?: (params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>;
+  pipelineApproveError?: Error;
+  pipelineRejectImpl?: (params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>;
+  pipelineRejectError?: Error;
+  pipelineResumeImpl?: (params: PipelineResumeParams) => Promise<ResumePipelineOutcome>;
+  pipelineResumeError?: Error;
 };
 
 function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
@@ -725,6 +884,27 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
     if (options.resumeError !== undefined) throw options.resumeError;
     return (options.resumeImpl ?? (async () => ({ ok: true as const })))(runId);
   };
+
+  const stageMutationRpc =
+    (
+      rpcMethod: "pipeline_approve" | "pipeline_reject",
+      decision: "approved" | "rejected",
+      error: Error | undefined,
+      impl: ((params: PipelineStageMutationParams) => Promise<PipelineApprovalDecisionOutcome>) | undefined,
+    ) =>
+    async (params: PipelineStageMutationParams) => {
+      methods.push(rpcMethod);
+      if (error !== undefined) throw error;
+      return (
+        impl ??
+        (async () => ({
+          kind: "applied" as const,
+          pipelineId: params.pipelineId,
+          stageId: params.stageId,
+          decision,
+        }))
+      )(params);
+    };
 
   return {
     async health() {
@@ -758,6 +938,25 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
     pause: steer("pause"),
     resume,
     kill: steer("kill"),
+    pipelineApprove: stageMutationRpc(
+      "pipeline_approve",
+      "approved",
+      options.pipelineApproveError,
+      options.pipelineApproveImpl,
+    ),
+    pipelineReject: stageMutationRpc(
+      "pipeline_reject",
+      "rejected",
+      options.pipelineRejectError,
+      options.pipelineRejectImpl,
+    ),
+    async pipelineResume(params) {
+      methods.push("pipeline_resume");
+      if (options.pipelineResumeError !== undefined) throw options.pipelineResumeError;
+      return (
+        options.pipelineResumeImpl ?? (async () => ({ kind: "resumed" as const, pipelineId: params.pipelineId }))
+      )(params);
+    },
     async wait(runId: string) {
       methods.push(`wait:${runId}`);
       return (options.waitImpl ?? (async () => ({ runStatus: "completed" })))(runId);
@@ -1139,7 +1338,7 @@ describe("runTuiEntry", () => {
       };
 
       submitParseFailure("wat", "unknown_verb");
-      submitParseFailure("approve foo", "recognized_unavailable · jarvis pipeline approve");
+      submitParseFailure("approve foo", "unexpected_arguments");
       submitParseFailure("start", "missing_project");
 
       view.focusCommand();
@@ -2772,6 +2971,15 @@ describe("runTuiEntry", () => {
       async kill() {
         return { ok: true };
       },
+      async pipelineApprove() {
+        throw new Error("unexpected pipelineApprove");
+      },
+      async pipelineReject() {
+        throw new Error("unexpected pipelineReject");
+      },
+      async pipelineResume() {
+        throw new Error("unexpected pipelineResume");
+      },
       async wait(runId) {
         return runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 };
       },
@@ -4204,5 +4412,540 @@ describe("runTuiEntry", () => {
 
     view.quit();
     await pending;
+  });
+
+  test("typed approve issues pipeline_approve for the selected awaiting stage", async () => {
+    const view = createViewHost();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("approve");
+      view.submitCommand("approve");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-await",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed reject issues pipeline_reject for the selected awaiting stage", async () => {
+    const view = createViewHost();
+    const rejectCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineRejectImpl: async (params) => {
+          rejectCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "rejected" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("reject");
+      view.submitCommand("reject");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
+      expect(rejectCalls).toEqual([{ pipelineId: "pipe-await", stageId: "gate", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-await",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume issues pipeline_resume for the selected non-terminal pipeline", async () => {
+    const view = createViewHost();
+    const resumeCalls: PipelineResumeParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineResumeImpl: async (params) => {
+          resumeCalls.push(params);
+          return { kind: "resumed", pipelineId: params.pipelineId };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      view.insertCommandText("resume");
+      view.submitCommand("resume");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_resume")).toBe(1);
+      expect(resumeCalls).toEqual([{ pipelineId: "pipe-alpha" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-alpha",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed approve on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (stage.status === \"awaiting\") return null;" -> "if (false) return null;"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("approve");
+    emptyView.submitCommand("approve");
+    expect(emptyView.monitorStates.at(-1)).toMatchObject({
+      selectedNodeId: null,
+      focus: "command",
+      commandBuffer: "approve",
+      lastCommandResult: "no_selection",
+    });
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [
+          { runs: awaitingAndAlphaPipelineListFixture() },
+          { runs: awaitingAndAlphaPipelineListFixture() },
+        ],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "approve", "pipeline_approve");
+
+      await expandPipelineAndSelect(view, "pipe-await", "run-await");
+      expectApproveFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectApproveFailure("unattributed");
+
+      view.selectNode("pipe-await");
+      expectApproveFailure("not_awaiting_stage");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectApproveFailure("not_awaiting_stage");
+
+      await flushIntervalTick(refresh);
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      expectApproveFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed reject on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (stage.status === \"awaiting\") return null;" -> "if (false) return null;"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("reject");
+    emptyView.submitCommand("reject");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [
+          { runs: awaitingAndAlphaPipelineListFixture() },
+          { runs: awaitingAndAlphaPipelineListFixture() },
+        ],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "reject", "pipeline_reject");
+
+      await expandPipelineAndSelect(view, "pipe-await", "run-await");
+      expectRejectFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectRejectFailure("unattributed");
+
+      view.selectNode("pipe-await");
+      expectRejectFailure("not_awaiting_stage");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectRejectFailure("not_awaiting_stage");
+
+      await flushIntervalTick(refresh);
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      expectRejectFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (isPipelineTerminal(pipeline.snapshot.state)) return \"terminal_pipeline\";" -> "if (false) return \"terminal_pipeline\";"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("resume");
+    emptyView.submitCommand("resume");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_BETA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectResumeFailure = steeringFailureAsserter(view, clientOptions, "resume", "pipeline_resume");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      expectResumeFailure("run_leaf");
+
+      view.selectNode("run-orphan");
+      expectResumeFailure("unattributed");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectResumeFailure("not_pipeline");
+
+      view.selectNode("pipe-beta");
+      expectResumeFailure("terminal_pipeline");
+
+      await flushIntervalTick(refresh);
+      view.selectNode("pipe-alpha");
+      expectResumeFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed approve daemon refusal retains command input and reports verbatim detail", async () => {
+    await runAwaitingStageSteeringRefusalTest("approve", "pipelineApproveImpl");
+  });
+
+  test("typed reject daemon refusal retains command input and reports verbatim detail", async () => {
+    await runAwaitingStageSteeringRefusalTest("reject", "pipelineRejectImpl");
+  });
+
+  test("typed resume daemon refusal retains command input and reports verbatim detail", async () => {
+    const refusalDetail = "pipeline_not_found\n";
+    const view = createViewHost();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineResumeImpl: async () =>
+          ({
+            kind: "refused",
+            pipelineId: "pipe-alpha",
+            reason: refusalDetail,
+          }) as unknown as ResumePipelineOutcome,
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      view.insertCommandText("resume");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        focus: "command",
+        commandBuffer: buffer,
+        lastCommandResult: refusalDetail,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("suppresses stale pipeline mutation settlements", async () => {
+    const view = createViewHost();
+    const approveGate = deferred<PipelineApprovalDecisionOutcome>();
+    const rejectGate = deferred<PipelineApprovalDecisionOutcome>();
+    const resumeGate = deferred<ResumePipelineOutcome>();
+    let approveCalls = 0;
+    let rejectCalls = 0;
+    let resumeCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }, { runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING, PIPELINE_SNAPSHOT_ALPHA] }],
+        pipelineApproveImpl: async () => {
+          approveCalls += 1;
+          return approveGate.promise;
+        },
+        pipelineRejectImpl: async () => {
+          rejectCalls += 1;
+          return rejectGate.promise;
+        },
+        pipelineResumeImpl: async () => {
+          resumeCalls += 1;
+          return resumeGate.promise;
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("approve");
+      const approveBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(approveBuffer);
+      expect(approveCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      approveGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "approved",
+      });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${approveBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("reject");
+      const rejectBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(rejectBuffer);
+      expect(rejectCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      rejectGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "rejected",
+      });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${rejectBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+
+      view.selectNode("pipe-alpha");
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("resume");
+      const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(resumeBuffer);
+      expect(resumeCalls).toBe(1);
+      view.insertCommandText("!");
+      await flush();
+      resumeGate.resolve({ kind: "resumed", pipelineId: "pipe-alpha" });
+      await flush();
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        commandBuffer: `${resumeBuffer}!`,
+        focus: "command",
+        lastCommandResult: null,
+      });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+
+    const closeView = createViewHost();
+    const closeGate = deferred<PipelineApprovalDecisionOutcome>();
+    let closeApproveCalls = 0;
+    const closePending = runTuiEntry(
+      entryDeps(
+        {
+          methods: [],
+          listResponses: [{ runs: awaitingPipelineListFixture() }],
+          pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+          pipelineApproveImpl: async () => {
+            closeApproveCalls += 1;
+            return closeGate.promise;
+          },
+        },
+        { viewHost: closeView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await closeView.waitUntilOpen();
+    await flush();
+    closeView.selectNode("pipe-await");
+    await flush();
+    const closeExpanded = closeView.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    if (!closeExpanded.includes("pipe-await")) {
+      await closeView.toggleExpansion();
+    }
+    closeView.selectNode(PIPELINE_STAGE_AWAITING);
+    await flush();
+    closeView.focusCommand();
+    closeView.insertCommandText("approve");
+    const closeBuffer = closeView.monitorStates.at(-1)?.commandBuffer ?? "";
+    closeView.submitCommand(closeBuffer);
+    expect(closeApproveCalls).toBe(1);
+    const statesBeforeClose = closeView.monitorStates.length;
+    closeView.quit();
+    closeGate.resolve({
+      kind: "applied",
+      pipelineId: "pipe-await",
+      stageId: "gate",
+      decision: "approved",
+    });
+    await flush();
+    expect(closeView.monitorStates).toHaveLength(statesBeforeClose);
+    expect(await closePending).toBe(0);
+  });
+
+  test("blocks second pipeline mutation while admission is pending", async () => {
+    const view = createViewHost();
+    const approveGate = deferred<PipelineApprovalDecisionOutcome>();
+    let approveCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: awaitingPipelineListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_AWAITING] }],
+        pipelineApproveImpl: async () => {
+          approveCalls += 1;
+          return approveGate.promise;
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-await", PIPELINE_STAGE_AWAITING);
+      view.focusCommand();
+      view.insertCommandText("approve");
+      const buffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(buffer);
+      expect(approveCalls).toBe(1);
+      view.submitCommand(buffer);
+      expect(approveCalls).toBe(1);
+      approveGate.resolve({
+        kind: "applied",
+        pipelineId: "pipe-await",
+        stageId: "gate",
+        decision: "approved",
+      });
+      await flush();
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
   });
 });

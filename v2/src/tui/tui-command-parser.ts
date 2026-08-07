@@ -1,6 +1,12 @@
 export type TuiSeed = { mode: "path"; value: string } | { mode: "text"; value: string };
 
-export type TuiCommand = { kind: "start"; project: string; seed: TuiSeed } | { kind: "expand" } | { kind: "collapse" };
+export type TuiCommand =
+  | { kind: "start"; project: string; seed: TuiSeed }
+  | { kind: "expand" }
+  | { kind: "collapse" }
+  | { kind: "approve" }
+  | { kind: "reject" }
+  | { kind: "resume" };
 
 export type TuiCommandErrorCode =
   | "malformed_input"
@@ -27,13 +33,12 @@ export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 export type TuiTokenizeResult = { kind: "tokens"; tokens: string[] } | { kind: "error"; code: "unterminated_quote" };
 
 const UNAVAILABLE_COMMANDS: Readonly<Record<string, string>> = {
-  approve: "jarvis pipeline approve",
-  reject: "jarvis pipeline reject",
-  resume: "jarvis pipeline resume",
   kill: "jarvis run kill",
   pause: "jarvis run pause",
   log: "jarvis tui log",
 };
+
+const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume"]);
 
 export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   const tokens: string[] = [];
@@ -131,10 +136,8 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
   if (unavailableCommand !== undefined) {
     return { kind: "error", code: "recognized_unavailable", command: unavailableCommand };
   }
-  if (verb !== "start" && verb !== "expand" && verb !== "collapse") return error("unknown_verb");
-  if (verb === "expand" || verb === "collapse") {
-    if (tokens.length > 1) return error("unexpected_arguments");
-    return { kind: verb };
-  }
-  return parseStart(tokens);
+  if (verb === "start") return parseStart(tokens);
+  if (!ZERO_ARG_VERBS.has(verb)) return error("unknown_verb");
+  if (tokens.length > 1) return error("unexpected_arguments");
+  return { kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" };
 }

@@ -17,6 +17,9 @@ describe("parseTuiCommand", () => {
     ],
     ["expand", { kind: "expand" }],
     ["collapse", { kind: "collapse" }],
+    ["approve", { kind: "approve" }],
+    ["reject", { kind: "reject" }],
+    ["resume", { kind: "resume" }],
   ] as const)("parses %s", (input, expected) => {
     expect(parseTuiCommand(input)).toEqual(expected);
   });
@@ -95,14 +98,14 @@ describe("parseTuiCommand", () => {
     "collapse operand",
     "collapse --all",
     'collapse ""',
+    "approve foo",
+    "reject foo",
+    "resume foo",
   ])("rejects trailing expand/collapse token: %s", (input) => {
     expectCode(input, "unexpected_arguments");
   });
 
   test.each([
-    ["approve", "jarvis pipeline approve"],
-    ["reject", "jarvis pipeline reject"],
-    ["resume", "jarvis pipeline resume"],
     ["kill", "jarvis run kill"],
     ["pause", "jarvis run pause"],
     ["log", "jarvis tui log"],
@@ -114,6 +117,15 @@ describe("parseTuiCommand", () => {
         command,
       });
     }
+  });
+
+  test("still-unavailable verbs classify as recognized_unavailable", () => {
+    // @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "false"
+    expect(parseTuiCommand("kill")).toEqual({
+      kind: "error",
+      code: "recognized_unavailable",
+      command: "jarvis run kill",
+    });
   });
 
   test.each(["constructor", "toString", "__proto__"])("rejects inherited unavailable-map property: %s", (verb) => {

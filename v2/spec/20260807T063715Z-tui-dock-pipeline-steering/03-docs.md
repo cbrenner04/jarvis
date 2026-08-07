@@ -23,8 +23,8 @@ Operator docs still list `approve`/`reject`/`resume` as unavailable dock verbs w
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` § Dock commands lists `approve`, `reject`, and `resume` as live verbs with eligibility, named ineligible codes, success (`pipelineId`), and verbatim refusal semantics; CLI-fallback rows for these verbs are removed; `stale_non_targetable` and awaiting-resume daemon refusal are documented; the Shift+Enter claim is corrected.
-- [ ] `v2/docs/v1-behaviors.md` records in-TUI `approve`/`reject`/`resume` pipeline steering.
+- [x] `v2/docs/operator-runbook.md` § Dock commands lists `approve`, `reject`, and `resume` as live verbs with eligibility, named ineligible codes, success (`pipelineId`), and verbatim refusal semantics; CLI-fallback rows for these verbs are removed; `stale_non_targetable` and awaiting-resume daemon refusal are documented; the Shift+Enter claim is corrected.
+- [x] `v2/docs/v1-behaviors.md` records in-TUI `approve`/`reject`/`resume` pipeline steering.
 
 ## Documentation updates
 

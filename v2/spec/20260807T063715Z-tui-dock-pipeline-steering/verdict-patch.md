@@ -1,0 +1,12 @@
+Reviewing the implementation against the spec to issue an outcome-focused verdict.
+## Verdict: required outcomes
+
+1. **Post-eligibility steering submits must not complete silently.** When `approve`, `reject`, or `resume` passes the synchronous eligibility gate, the harness must either issue the mutation RPC or set `lastCommandResult` to a stable operator-visible code. It must not clear `admissionPending` with no RPC and no status-row feedback because `pipelineOwners`, selection, or target resolution is re-read from live refresh state after the sync gate and no longer resolves. The spec pins named feedback for missing owners (`stale_non_targetable`) and requires operator-visible outcomes on the dock status row; a silent no-op after Enter contradicts that contract even though the ineligible matrix ACs only cover the synchronous path.
+
+2. **Steering RPC routing must be fixed at submit time after eligibility passes.** Owner client, `pipelineId` / `(stageId, branchKey)` parameters, and resume selection must be captured when the sync gate succeeds and used for dispatch. Mutations must not depend on a later lookup into refresh-rebuilt `pipelineOwners` or a second traversal that can disagree with the gate that already admitted the command. Rationale: subspec `02-entry-dispatch` defines `pipelineOwners` refresh semantics and requires eligible mutations to RPC through the resolved owner; re-resolving after refresh introduces wrong-socket dispatch or the silent failure above.
+
+3. **Unexpected daemon response shapes must surface operator-visible feedback.** If a steering RPC returns an outcome kind that is not `applied`, `resumed`, or `refused`, settlement must set `lastCommandResult` to operator-visible text and retain command focus/buffer/cursor — not exit the async handler without `setState`. Rationale: runbook documents verbatim refusal and transport-error projection; an unhandled `kind` that leaves the operator with no `result:` line breaks the documented outcome model.
+
+---
+
+**Not required for this actuator pass** (spec-satisfied or explicitly deferred): detached-RPC-without-settlement parity with `start`; duplicate-`pipelineId` owner-routing unit test (decision is implemented, ACs do not pin it); symmetric pending/submit/parser integration tests; `intent.md` checkbox bookkeeping; minor runbook note that `admissionPending` gates all dock verbs during steering.

@@ -663,10 +663,22 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   re-admits. An admitted settlement reports the pipeline id, clears the buffer and
   cursor, and restores tree focus; parse errors, pre-admission failures, and daemon
   refusals retain command focus, buffer, and cursor and report their named code,
-  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis pipeline
-  approve|reject|resume`, `jarvis run kill|pause`, `jarvis tui log`). Sources:
+  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis run
+  kill|pause`, `jarvis tui log`). Sources:
   `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
   `v2/src/daemon/pipeline-start-admission.ts`
+- [v2 additive] TUI dock pipeline steering: submitted `approve`, `reject`, and
+  `resume` (no arguments) reach `pipeline_approve`, `pipeline_reject`, and
+  `pipeline_resume` on the owning daemon — detached, with no `pipeline_wait`.
+  `approve` / `reject` require an awaiting stage selection; `resume` requires a
+  non-terminal pipeline row. Success reports `pipelineId` in `result:` and clears
+  the buffer; ineligible selections report stable codes (`not_awaiting_stage`,
+  `not_pipeline`, `terminal_pipeline`, `stale_non_targetable`, plus shared
+  `no_selection` / `run_leaf` / `unattributed`); daemon refusals retain command
+  input and report the `reason` verbatim. `resume` on `awaiting-approval`
+  pipelines is dock-eligible but does not substitute for gate `approve` / `reject`.
+  Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
+  `v2/src/tui/tui-daemon-client.ts`
 - [v2 additive] TUI local `expand` / `collapse` commands: unlike the **`e`** key,
   the dock verbs are explicit, not toggles — `expand` adds and `collapse` removes
   the selected pipeline or stage id from `expandedPipelineNodeIds`, and a command

@@ -21,8 +21,8 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-daemon-client.test.ts` proves `connectTuiDaemon` `pipelineApprove`, `pipelineReject`, and `pipelineResume` issue `pipeline_approve`, `pipeline_reject`, and `pipeline_resume` with the expected params; fails against the pre-fix client.
-- [ ] `bun run typecheck` passes.
+- [x] `tui-daemon-client.test.ts` proves `connectTuiDaemon` `pipelineApprove`, `pipelineReject`, and `pipelineResume` issue `pipeline_approve`, `pipeline_reject`, and `pipeline_resume` with the expected params; fails against the pre-fix client.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

@@ -85,6 +85,15 @@ function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient 
     pause: async () => ({ ok: true }),
     resume: async () => ({ ok: true }),
     kill: async () => ({ ok: true }),
+    pipelineApprove: async () => {
+      throw new Error("unexpected pipelineApprove");
+    },
+    pipelineReject: async () => {
+      throw new Error("unexpected pipelineReject");
+    },
+    pipelineResume: async () => {
+      throw new Error("unexpected pipelineResume");
+    },
     wait: async () => ({ runStatus: "completed", loopOutcomeKind: "complete" as const }),
     close() {},
   };

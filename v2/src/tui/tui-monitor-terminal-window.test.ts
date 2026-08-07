@@ -262,6 +262,15 @@ function fakeClient(listResponses: DaemonListResult[]): TuiDaemonClient {
     async kill() {
       return { ok: true };
     },
+    async pipelineApprove() {
+      throw new Error("unexpected pipelineApprove");
+    },
+    async pipelineReject() {
+      throw new Error("unexpected pipelineReject");
+    },
+    async pipelineResume() {
+      throw new Error("unexpected pipelineResume");
+    },
     async wait() {
       return { runStatus: "completed" };
     },

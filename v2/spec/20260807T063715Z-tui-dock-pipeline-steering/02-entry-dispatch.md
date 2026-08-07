@@ -38,19 +38,19 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` test `typed approve issues pipeline_approve for the selected awaiting stage` drives dispatch against a fake daemon client, asserts the RPC and `(stageId, branchKey)` args, and fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed reject issues pipeline_reject for the selected awaiting stage` drives dispatch against a fake daemon client, asserts the RPC and args, and fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed resume issues pipeline_resume for the selected non-terminal pipeline` drives dispatch against a fake daemon client, asserts one `pipeline_resume`, and fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed approve on ineligible selection reports feedback and issues no RPC` proves each named ineligible code for approve (`no_selection`, `run_leaf`, `unattributed`, `stale_non_targetable`, `not_awaiting_stage`) and issues no RPC; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed reject on ineligible selection reports feedback and issues no RPC` proves the same ineligible matrix as approve and issues no RPC; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed resume on ineligible selection reports feedback and issues no RPC` proves each named ineligible code for resume (`no_selection`, `run_leaf`, `unattributed`, `stale_non_targetable`, `not_pipeline`, `terminal_pipeline`) and issues no RPC; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed approve daemon refusal retains command input and reports verbatim detail` (and symmetric reject/resume titles) proves daemon refusal preserves buffer/cursor/command focus and projects refusal text verbatim on `lastCommandResult`; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `suppresses stale pipeline mutation settlements` proves `shouldApplyCommandSettlement` suppresses async approve/reject/resume completions after newer editor state or monitor teardown; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `blocks second pipeline mutation while admission is pending` proves shared `admissionPending` ignores a second focused Enter during an in-flight approve/reject/resume; fails against the pre-fix code.
-- [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed approve on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the approve eligibility guard turns that regression RED.
-- [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed reject on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the reject eligibility guard (or the shared approve/reject guard with both pin titles linked) turns that regression RED.
-- [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed resume on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the resume eligibility guard turns that regression RED.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass.
+- [x] `tui-entry.test.tsx` test `typed approve issues pipeline_approve for the selected awaiting stage` drives dispatch against a fake daemon client, asserts the RPC and `(stageId, branchKey)` args, and fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed reject issues pipeline_reject for the selected awaiting stage` drives dispatch against a fake daemon client, asserts the RPC and args, and fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed resume issues pipeline_resume for the selected non-terminal pipeline` drives dispatch against a fake daemon client, asserts one `pipeline_resume`, and fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed approve on ineligible selection reports feedback and issues no RPC` proves each named ineligible code for approve (`no_selection`, `run_leaf`, `unattributed`, `stale_non_targetable`, `not_awaiting_stage`) and issues no RPC; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed reject on ineligible selection reports feedback and issues no RPC` proves the same ineligible matrix as approve and issues no RPC; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed resume on ineligible selection reports feedback and issues no RPC` proves each named ineligible code for resume (`no_selection`, `run_leaf`, `unattributed`, `stale_non_targetable`, `not_pipeline`, `terminal_pipeline`) and issues no RPC; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed approve daemon refusal retains command input and reports verbatim detail` (and symmetric reject/resume titles) proves daemon refusal preserves buffer/cursor/command focus and projects refusal text verbatim on `lastCommandResult`; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `suppresses stale pipeline mutation settlements` proves `shouldApplyCommandSettlement` suppresses async approve/reject/resume completions after newer editor state or monitor teardown; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `blocks second pipeline mutation while admission is pending` proves shared `admissionPending` ignores a second focused Enter during an in-flight approve/reject/resume; fails against the pre-fix code.
+- [x] Mutation checkpoint: in `tui-entry.test.tsx` test `typed approve on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the approve eligibility guard turns that regression RED.
+- [x] Mutation checkpoint: in `tui-entry.test.tsx` test `typed reject on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the reject eligibility guard (or the shared approve/reject guard with both pin titles linked) turns that regression RED.
+- [x] Mutation checkpoint: in `tui-entry.test.tsx` test `typed resume on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the resume eligibility guard turns that regression RED.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -37,6 +37,9 @@ const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
 const RESUME_REQUEST_ID = "00000000-0000-4000-8000-000000000009";
 const KILL_REQUEST_ID = "00000000-0000-4000-8000-00000000000a";
 const PIPELINE_LIST_REQUEST_ID = "00000000-0000-4000-8000-00000000000b";
+const PIPELINE_APPROVE_REQUEST_ID = "00000000-0000-4000-8000-00000000000c";
+const PIPELINE_REJECT_REQUEST_ID = "00000000-0000-4000-8000-00000000000d";
+const PIPELINE_RESUME_REQUEST_ID = "00000000-0000-4000-8000-00000000000e";
 const CURRENT_REVISION = "abc123";
 
 function statusFrame(
@@ -480,6 +483,63 @@ test("pipelineList sends one correlated IPC request and parses ordered PipelineS
 
     await expect(client.pipelineList()).resolves.toEqual({ pipelines: [pipelineSnapshot] });
     expect(sent).toEqual([{ kind: "request", id: PIPELINE_LIST_REQUEST_ID, method: "pipeline_list" }]);
+    client.close();
+  });
+});
+
+test.each([
+  [
+    "pipelineApprove",
+    "pipeline_approve",
+    PIPELINE_APPROVE_REQUEST_ID,
+    { pipelineId: "pipe-1", stageId: "gate", branchKey: "alpha" },
+    { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" },
+  ],
+  [
+    "pipelineReject",
+    "pipeline_reject",
+    PIPELINE_REJECT_REQUEST_ID,
+    { pipelineId: "pipe-1", stageId: "gate", branchKey: "beta" },
+    { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" },
+  ],
+] as const)("%s sends one correlated IPC request with branch-keyed params", async (method, rpcMethod, requestId, params, result) => {
+  const sent: unknown[] = [];
+  await withFixedUuid([requestId], async () => {
+    const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
+      connectIpcClient: async () => makeGatedIpcClient([{ kind: "response", id: requestId, result }], { sent }),
+    });
+
+    await expect(client[method](params)).resolves.toEqual(result);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: rpcMethod, params }]);
+    client.close();
+  });
+});
+
+test("pipelineResume sends one correlated IPC request with pipelineId", async () => {
+  const sent: unknown[] = [];
+  await withFixedUuid([PIPELINE_RESUME_REQUEST_ID], async () => {
+    const client = await connectTuiDaemon({
+      socketPath: "/tmp/test.sock",
+      connectIpcClient: async () =>
+        makeGatedIpcClient(
+          [{ kind: "response", id: PIPELINE_RESUME_REQUEST_ID, result: { kind: "resumed", pipelineId: "pipe-1" } }],
+          { sent },
+        ),
+    });
+
+    await expect(client.pipelineResume({ pipelineId: "pipe-1" })).resolves.toEqual({
+      kind: "resumed",
+      pipelineId: "pipe-1",
+    });
+    expect(sent).toEqual([
+      {
+        kind: "request",
+        id: PIPELINE_RESUME_REQUEST_ID,
+        method: "pipeline_resume",
+        params: { pipelineId: "pipe-1" },
+      },
+    ]);
     client.close();
   });
 });

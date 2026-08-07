@@ -55,6 +55,22 @@ function writeImplementSubspec(jarvisRoot: string, criteria: string): string {
   return subspec;
 }
 
+const KEYSTONE_CRITERION_LINE =
+  "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n";
+
+function withKeystoneCriteria(criteria: string): string {
+  if (criteria.includes("Keystone checkpoint:")) return criteria;
+  return `${criteria}${KEYSTONE_CRITERION_LINE}`;
+}
+
+function seedKeystoneGuardPin(worktree: string): void {
+  writeFileSync(
+    join(worktree, "keystone.test.ts"),
+    'test("keystone pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
+    "utf8",
+  );
+}
+
 function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding {
   return {
     id: "agent",
@@ -216,7 +232,9 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      withKeystoneCriteria(
+        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      ),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
@@ -226,6 +244,7 @@ describe("write behavior", () => {
       'test("guard pin", () => {\n  // Mutation checkpoint: flipping `a > 0` turns this RED.\n});\n',
       "utf8",
     );
+    seedKeystoneGuardPin(worktree);
 
     const result = await runWrite({
       jarvisRoot,
@@ -247,7 +266,9 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      withKeystoneCriteria(
+        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      ),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
@@ -256,13 +277,20 @@ describe("write behavior", () => {
       'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
       "utf8",
     );
+    seedKeystoneGuardPin(worktree);
+    let scopedCalls = 0;
 
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
       promptId: "patch.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => true },
+      mutationCheckpointSeams: {
+        runScopedTests: async () => {
+          scopedCalls += 1;
+          return scopedCalls === 1;
+        },
+      },
     });
 
     expect(result.result.kind).toBe("contract_miss");
@@ -277,7 +305,7 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: two guards named on that pin.\n",
+      withKeystoneCriteria("- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: two guards named on that pin.\n"),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     writeFileSync(
@@ -296,6 +324,7 @@ describe("write behavior", () => {
       ].join("\n"),
       "utf8",
     );
+    seedKeystoneGuardPin(worktree);
     let call = 0;
 
     const result = await runWrite({
@@ -306,7 +335,7 @@ describe("write behavior", () => {
       mutationCheckpointSeams: {
         runScopedTests: async () => {
           call += 1;
-          return call === 2; // the second directive survives
+          return call === 2;
         },
       },
     });
@@ -322,7 +351,9 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      withKeystoneCriteria(
+        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      ),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
@@ -331,6 +362,7 @@ describe("write behavior", () => {
       'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
       "utf8",
     );
+    seedKeystoneGuardPin(worktree);
 
     const result = await runWrite({
       jarvisRoot,
@@ -348,23 +380,32 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `v2/src/execution/write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      withKeystoneCriteria(
+        "- [x] `v2/src/execution/write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: flipping the guard turns this RED.\n",
+      ),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
     writeFileSync(
       join(worktree, "v2/src/execution/write.test.ts"),
-      'test("unparseable in a referenced pinning file refuses completion", () => {\n  // @mutate nonsense\n});\n',
+      [
+        'test("unparseable in a referenced pinning file refuses completion", () => {',
+        '  // @mutate guard.ts "a > 0" -> "a >= 0"',
+        "  // @mutate nonsense",
+        "});",
+        "",
+      ].join("\n"),
       "utf8",
     );
+    seedKeystoneGuardPin(worktree);
 
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
       promptId: "patch.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => true },
+      mutationCheckpointSeams: { runScopedTests: async () => false },
     });
 
     expect(result.result.kind).toBe("contract_miss");
@@ -394,16 +435,18 @@ describe("write behavior", () => {
     const unresolvedSubspec = join(worktree, "unresolved-pin.md");
     writeFileSync(
       unresolvedSubspec,
-      "## Acceptance criteria\n\n- [x] `absent.test.ts` — `missing pin`; Mutation checkpoint: named.\n",
+      "## Acceptance criteria\n\n- [x] `absent.test.ts` — `missing pin`; Mutation checkpoint: named.\n- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
       "utf8",
     );
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    seedKeystoneGuardPin(worktree);
 
     const result = await runWrite({
       jarvisRoot,
       artifactPath: unresolvedSubspec,
       promptId: "patch.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => true },
+      mutationCheckpointSeams: { runScopedTests: async () => false },
     });
 
     expect(result.result.kind).toBe("contract_miss");
@@ -419,20 +462,22 @@ describe("write behavior", () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      "- [x] `write.test.ts` — `ambiguous pin`; Mutation checkpoint: ambiguous basename.\n",
+      withKeystoneCriteria("- [x] `write.test.ts` — `ambiguous pin`; Mutation checkpoint: ambiguous basename.\n"),
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     mkdirSync(join(worktree, "v2/src/a"), { recursive: true });
     mkdirSync(join(worktree, "v2/src/b"), { recursive: true });
     writeFileSync(join(worktree, "v2/src/a/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
     writeFileSync(join(worktree, "v2/src/b/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    seedKeystoneGuardPin(worktree);
 
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
       promptId: "patch.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => true },
+      mutationCheckpointSeams: { runScopedTests: async () => false },
     });
 
     expect(result.result.kind).toBe("contract_miss");

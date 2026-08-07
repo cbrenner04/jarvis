@@ -12,7 +12,7 @@ Guard mutation checkpoints prove inverting a guard turns a pinning test red; the
 - Keystone scoped-suite red after apply populates `caught` (same bucket as guard caught pins).
 - Keystone linker failures (missing directive, mislinked pin title, unparseable target) surface in keystone-flavored diagnostics (`unparseable` or a keystone-specific report bucket), not `hollow` with guard-oriented detail — rules out conflating authoring mistakes with inert headline or hollow guards.
 - Completion refusal uses a dedicated prefix distinct from `Hollow mutation checkpoints (` — e.g. `Inert headline change (` — rules out conflating inert headline with hollow guard diagnostics.
-- Missing keystone: when a subspec has ≥1 ticked guard mutation-checkpoint criterion and zero ticked `Keystone checkpoint:` criteria, completion refuses — rules out guard-only coverage of headline changes.
+- Keystones are opt-in: a subspec with guard mutation-checkpoint criteria and no `Keystone checkpoint:` criterion completes normally. A keystone is verified only when the subspec declares one — requiring a keystone on every guard-checkpoint subspec would refuse all such specs (plan-draft does not author keystones today), bricking the pipeline. Plan-draft keystone authoring + a require gate can land later as a separate change.
 - Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; >1 ticked keystone criteria refuses with blocker text distinct from hollow and inert-survival messaging — rules out ambiguous headline-revert targets.
 - Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors — rules out whole-subspec revert directives.
 - Plan draft authors the keystone criterion and pinning-test `// @mutate` when drafting runtime-behavior subspecs; this subspec's meta-keystone proves the headline change matters — reverting the inert-headline refusal turns its pin red (`caught`), not green — rules out the implement agent inventing or omitting the keystone silently.
@@ -48,27 +48,27 @@ Guard mutation checkpoints prove inverting a guard turns a pinning test red; the
 - Add `v2/src/execution/mutation-checkpoint-keystone.test.ts` driving the implement completion boundary (same harness patterns as `write.test.ts` mutation-checkpoint cases):
   - `refuses completion when keystone mutation survives` — embedded fixture subspec whose keystone directive leaves scoped suite green ⇒ `contract_miss` with inert-headline blocker text that does not contain `Hollow mutation checkpoints`; fails pre-fix.
   - `allows completion when keystone mutation turns its pin red` — keystone-only fixture; keystone caught ⇒ completion proceeds past mutation-checkpoint gate; fails pre-fix.
-  - `refuses when guard checkpoints exist but no keystone criterion` — ticked `Mutation checkpoint:` without ticked `Keystone checkpoint:` ⇒ refused; fails pre-fix.
+  - `completes when guard checkpoints exist without a keystone criterion (keystones are opt-in)` — ticked `Mutation checkpoint:` without ticked `Keystone checkpoint:` ⇒ completes; keystones are not required.
   - `refuses when more than one ticked keystone criterion` — >1 ticked `Keystone checkpoint:` ⇒ refused with blocker text distinct from hollow and inert-survival messaging; fails pre-fix.
 - Guard pin on `refuses completion when keystone mutation survives`: `// @mutate` removing the inert-headline refusal turns that test RED.
 - Meta-keystone on this subspec: `Keystone checkpoint:` reverting the inert-headline refusal turns its named pin red (`caught`) at completion verification — not green survival.
 
 ### Docs
 
-- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — keystone checkpoints alongside guard checkpoints: `Keystone checkpoint:` prefix required for selection, headline-revert directive shape, one per runtime-behavior subspec, plan-draft authoring obligation; guard-gated missing-keystone refusal at completion (defer headline-only enforcement).
+- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — keystone checkpoints alongside guard checkpoints: `Keystone checkpoint:` prefix for selection, headline-revert directive shape, one per subspec; keystones are opt-in (verified when present, not required on every guard-checkpoint subspec).
 - `v2/docs/operator-runbook.md` § Gate trust — surviving keystone means inert headline change; distinguish from hollow guard checkpoints and from premise-smell hollow (second hollow on a different guard); delete or demote the manual headline-revert bullet so keystone automation is the single operator path (no duplicate guidance).
-- `v2/docs/v1-behaviors.md` — implement completion refuses inert headline changes when a `Keystone checkpoint:` directive survives its mutation; missing keystone when guard checkpoints exist is refused; >1 ticked keystone criteria refused.
+- `v2/docs/v1-behaviors.md` — implement completion refuses inert headline changes when a `Keystone checkpoint:` directive survives its mutation, and refuses >1 ticked keystone criteria; keystones are opt-in (a guard-checkpoint subspec without one still completes).
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives` drives completion over an embedded fixture subspec whose keystone directive survives its mutation and asserts a named inert-headline blocker distinct from hollow guard checkpoint text; fails against the pre-fix completion boundary.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `allows completion when keystone mutation turns its pin red`, `refuses when guard checkpoints exist but no keystone criterion`, and `refuses when more than one ticked keystone criterion` prove caught keystone completes normally, guard-without-keystone is refused, and >1 ticked keystone criteria are refused with messaging distinct from hollow and inert-survival blockers; fail pre-fix.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives`; Mutation checkpoint: its pinning test carries `// @mutate` removing the inert-headline refusal; reverting that refusal turns the named pin red.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — Keystone checkpoint on this subspec: reverting the inert-headline refusal turns its named pin red (`caught`), proving the headline change matters; not green survival on that pin.
-- [ ] `bun run typecheck`, `bun run check`, `bun run test:shared`, and `bun run test:v2` exit zero.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives` drives completion over an embedded fixture subspec whose keystone directive survives its mutation and asserts a named inert-headline blocker distinct from hollow guard checkpoint text; fails against the pre-fix completion boundary.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `allows completion when keystone mutation turns its pin red`, `completes when guard checkpoints exist without a keystone criterion (keystones are opt-in)`, and `refuses when more than one ticked keystone criterion` prove caught keystone completes normally, guard-without-keystone completes (keystones opt-in), and >1 ticked keystone criteria are refused with messaging distinct from hollow and inert-survival blockers.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives`; Mutation checkpoint: its pinning test carries `// @mutate` removing the inert-headline refusal; reverting that refusal turns the named pin red.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — Keystone checkpoint on this subspec: reverting the inert-headline refusal turns its named pin red (`caught`), proving the headline change matters; not green survival on that pin.
+- [x] `bun run typecheck`, `bun run check`, `bun run test:shared`, and `bun run test:v2` exit zero.
 
 ## Documentation updates
 
-- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — keystone checkpoints alongside guard checkpoints for headline behavior changes; `Keystone checkpoint:` prefix required; guard-gated missing-keystone refusal (headline-only enforcement deferred).
+- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — keystone checkpoints alongside guard checkpoints for headline behavior changes; `Keystone checkpoint:` prefix; keystones are opt-in (verified when present, not required).
 - `v2/docs/operator-runbook.md` § Gate trust — a surviving keystone means an inert headline change; distinguish from hollow guard checkpoints and from premise-smell hollow (second hollow on a different guard); manual headline-revert bullet deleted or demoted so keystone automation is the single path.
-- `v2/docs/v1-behaviors.md` — implement completion refuses inert headline changes when a `Keystone checkpoint:` directive survives its mutation; missing keystone when guard checkpoints exist is refused; >1 ticked keystone criteria refused.
+- `v2/docs/v1-behaviors.md` — implement completion refuses inert headline changes when a `Keystone checkpoint:` directive survives its mutation, and refuses >1 ticked keystone criteria; keystones are opt-in (a guard-checkpoint subspec without one still completes).

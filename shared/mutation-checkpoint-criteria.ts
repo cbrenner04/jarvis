@@ -1,6 +1,7 @@
 import { parseSpec } from "./spec-parser.ts";
 
 export const CRITERION_MARKER = "Mutation checkpoint:";
+export const KEYSTONE_CRITERION_MARKER = "Keystone checkpoint:";
 export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
 
 const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
@@ -38,9 +39,9 @@ export type MutationCheckpointCriterion = {
   firstLine: string;
 };
 
-/** Mutation-checkpoint-shaped criteria from `## Acceptance criteria`, with full bullet blocks. */
-export function selectMutationCheckpointCriteria(
+function selectCheckpointCriteria(
   content: string,
+  kind: "guard" | "keystone",
   options: { requireChecked?: boolean } = {},
 ): MutationCheckpointCriterion[] {
   const requireChecked = options.requireChecked ?? false;
@@ -50,10 +51,31 @@ export function selectMutationCheckpointCriteria(
     if (criterion.humanOnly) continue;
     if (requireChecked && !criterion.checked) continue;
     const block = blocks[index] ?? criterion.text;
-    if (!block.includes(CRITERION_MARKER) && !DIRECTIVE_PATTERN.test(block)) continue;
+    const isKeystone = block.includes(KEYSTONE_CRITERION_MARKER);
+    if (kind === "keystone") {
+      if (!isKeystone) continue;
+    } else if (isKeystone || (!block.includes(CRITERION_MARKER) && !DIRECTIVE_PATTERN.test(block))) {
+      continue;
+    }
     selected.push({ block, firstLine: criterion.text });
   }
   return selected;
+}
+
+/** Mutation-checkpoint-shaped criteria from `## Acceptance criteria`, with full bullet blocks. */
+export function selectMutationCheckpointCriteria(
+  content: string,
+  options: { requireChecked?: boolean } = {},
+): MutationCheckpointCriterion[] {
+  return selectCheckpointCriteria(content, "guard", options);
+}
+
+/** Keystone-checkpoint-shaped criteria from `## Acceptance criteria`, with full bullet blocks. */
+export function selectKeystoneCheckpointCriteria(
+  content: string,
+  options: { requireChecked?: boolean } = {},
+): MutationCheckpointCriterion[] {
+  return selectCheckpointCriteria(content, "keystone", options);
 }
 
 function isTestFileReference(token: string): boolean {

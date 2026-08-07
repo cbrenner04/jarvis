@@ -568,13 +568,18 @@ describe("write loop", () => {
     mkdirSync(worktree, { recursive: true });
     writeFileSync(
       join(worktree, "00-subspec.md"),
-      "## Acceptance criteria\n\n- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: named on that pin.\n",
+      "## Acceptance criteria\n\n- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: named on that pin.\n- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
       "utf8",
     );
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
     writeFileSync(
       join(worktree, "guard.test.ts"),
       'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+    writeFileSync(
+      join(worktree, "keystone.test.ts"),
+      'test("keystone pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
       "utf8",
     );
     const sink = new TestLogSink();
@@ -586,7 +591,15 @@ describe("write loop", () => {
       promptId: "patch.prompt.body",
       artifactPath: "00-subspec.md",
       bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
-      mutationCheckpointSeams: { runScopedTests: async () => true },
+      mutationCheckpointSeams: (() => {
+        let calls = 0;
+        return {
+          runScopedTests: async () => {
+            calls += 1;
+            return calls % 2 === 1;
+          },
+        };
+      })(),
     });
 
     expect(result.kind).toBe("contract_miss");
@@ -605,8 +618,24 @@ describe("write loop", () => {
       mutationCheckpointSeams: { runScopedTests: async () => false },
     };
 
-    const tickedMutationSubspec =
-      "## Acceptance criteria\n\n- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.\n";
+    const keystoneCriterionLine =
+      "- [x] `keystone.test.ts` — `keystone caught`; Keystone checkpoint: headline revert turns pin red.";
+    const tickedMutationSubspec = `## Acceptance criteria\n\n- [x] \`pin.test.ts\` — \`pin\`; Mutation checkpoint: named on that pin.\n${keystoneCriterionLine}\n`;
+
+    function seedKeystonePin(worktree: string, directive: string): void {
+      writeFileSync(
+        join(worktree, "keystone.test.ts"),
+        `test("keystone caught", () => {\n  ${directive}\n});\n`,
+        "utf8",
+      );
+    }
+
+    function appendKeystoneCriterion(subspec: string): string {
+      if (subspec.includes("Keystone checkpoint:")) return subspec;
+      const lines = subspec.trimEnd().split("\n");
+      lines.splice(lines.length - 1, 0, keystoneCriterionLine);
+      return `${lines.join("\n")}\n`;
+    }
 
     function createRepromptWorktree(jarvisRoot: string): string {
       const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
@@ -619,10 +648,12 @@ describe("write loop", () => {
       target: string,
       pin: string,
       subspec: string = tickedMutationSubspec,
+      keystoneDirective = '// @mutate target.ts "a > 0" -> "a >= 0"',
     ): void {
-      writeFileSync(join(worktree, "00-subspec.md"), subspec, "utf8");
+      writeFileSync(join(worktree, "00-subspec.md"), appendKeystoneCriterion(subspec), "utf8");
       writeFileSync(join(worktree, "target.ts"), target, "utf8");
       writeFileSync(join(worktree, "pin.test.ts"), pin, "utf8");
+      seedKeystonePin(worktree, keystoneDirective);
     }
 
     function seedTargetAbsentFixture(worktree: string): void {
@@ -700,6 +731,8 @@ describe("write loop", () => {
         worktree,
         "const dup = 1;\nconst also = 'dup';\n",
         'test("pin", () => {\n  // @mutate target.ts "dup" -> "y"\n});\n',
+        tickedMutationSubspec,
+        '// @mutate target.ts "const dup" -> "const x"',
       );
       const sink = new TestLogSink();
       let invocations = 0;
@@ -845,13 +878,15 @@ describe("write loop", () => {
       const worktree = createRepromptWorktree(jarvisRoot);
       writeFileSync(
         join(worktree, "00-subspec.md"),
-        [
-          "## Acceptance criteria",
-          "",
-          "- [x] `pin-a.test.ts` — `pin a`; Mutation checkpoint: named on that pin.",
-          "- [x] `pin-b.test.ts` — `pin b`; Mutation checkpoint: named on that pin.",
-          "",
-        ].join("\n"),
+        appendKeystoneCriterion(
+          [
+            "## Acceptance criteria",
+            "",
+            "- [x] `pin-a.test.ts` — `pin a`; Mutation checkpoint: named on that pin.",
+            "- [x] `pin-b.test.ts` — `pin b`; Mutation checkpoint: named on that pin.",
+            "",
+          ].join("\n"),
+        ),
         "utf8",
       );
       writeFileSync(join(worktree, "target.ts"), "export const ok = true;\n", "utf8");
@@ -865,6 +900,7 @@ describe("write loop", () => {
         'test("pin b", () => {\n  // @mutate target.ts "missing-b" -> "y"\n});\n',
         "utf8",
       );
+      seedKeystonePin(worktree, '// @mutate target.ts "ok = true" -> "ok = false"');
       const sink = new TestLogSink();
       let invocations = 0;
 
@@ -924,13 +960,15 @@ describe("write loop", () => {
       const worktree = createRepromptWorktree(jarvisRoot);
       writeFileSync(
         join(worktree, "00-subspec.md"),
-        [
-          "## Acceptance criteria",
-          "",
-          "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.",
-          "- [x] `hollow.test.ts` — `hollow`; Mutation checkpoint: named on that pin.",
-          "",
-        ].join("\n"),
+        appendKeystoneCriterion(
+          [
+            "## Acceptance criteria",
+            "",
+            "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.",
+            "- [x] `hollow.test.ts` — `hollow`; Mutation checkpoint: named on that pin.",
+            "",
+          ].join("\n"),
+        ),
         "utf8",
       );
       writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
@@ -944,6 +982,7 @@ describe("write loop", () => {
         'test("hollow", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
         "utf8",
       );
+      seedKeystonePin(worktree, '// @mutate target.ts "a > 0" -> "a >= 0"');
       const sink = new TestLogSink();
 
       const result = await runLoop({
@@ -952,7 +991,15 @@ describe("write loop", () => {
         logSink: sink,
         promptId: mutationRepromptLoopBase.promptId,
         artifactPath: mutationRepromptLoopBase.artifactPath,
-        mutationCheckpointSeams: { runScopedTests: async () => true },
+        mutationCheckpointSeams: (() => {
+          let calls = 0;
+          return {
+            runScopedTests: async () => {
+              calls += 1;
+              return calls % 2 === 1;
+            },
+          };
+        })(),
         bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
       });
 

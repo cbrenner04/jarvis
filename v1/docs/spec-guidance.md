@@ -205,6 +205,15 @@ Rules the harness enforces:
   in the blocker. That outcome is often correct information: the guard may be dead code,
   in which case deleting it beats inventing a test for it.
 
+#### Keystone checkpoints
+
+Headline behavior changes need a keystone checkpoint alongside guard checkpoints. A `Keystone checkpoint:` criterion whose `// @mutate` directive reverts the subspec's headline to baseline semantics proves the shipped change is not inert: when the scoped suite stays green after apply, completion refuses with `Inert headline change` (distinct from hollow guard checkpoint messaging).
+
+- Selection requires the `Keystone checkpoint:` prefix on a ticked non-human-only criterion; `@mutate` in the block links the pinning test only — not alternate selection without the prefix.
+- Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
+- Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
+- Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.
+
 Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.
 
 ### Behavioral acceptance criteria

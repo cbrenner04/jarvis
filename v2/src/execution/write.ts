@@ -12,6 +12,7 @@ import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
+import { selectKeystoneCheckpointCriteria } from "../../../shared/mutation-checkpoint-criteria.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -28,9 +29,8 @@ import {
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
 import {
-  describeHollow,
+  describeCriterionCheckpoint,
   describeUnparseable,
-  type HollowCheckpoint,
   type MutationCheckpointSeams,
   type UnparseableDirective,
   verifyMutationCheckpoints,
@@ -378,14 +378,78 @@ function buildCriteriaTickedReason(unticked: string[]): string {
   return `Unticked non-human-only acceptance criteria:\n${lines}`;
 }
 
-function buildHollowCheckpointReason(hollow: readonly HollowCheckpoint[]): string {
-  const lines = hollow.map((checkpoint) => `- ${describeHollow(checkpoint)}`).join("\n");
-  return `Hollow mutation checkpoints (the named mutation left the scoped suite green):\n${lines}`;
+function buildListedReason<T>(header: string, items: readonly T[], describe: (item: T) => string): string {
+  const lines = items.map((item) => `- ${describe(item)}`).join("\n");
+  return `${header}\n${lines}`;
 }
 
-function buildUnparseableCheckpointReason(unparseable: readonly UnparseableDirective[]): string {
-  const lines = unparseable.map((entry) => `- ${describeUnparseable(entry)}`).join("\n");
-  return `Unparseable mutation checkpoints:\n${lines}`;
+type ContractCheck = { ok: true } | { ok: false; reason: string };
+
+async function checkMutationCheckpointsAtCompletion(
+  cwd: string,
+  expectedArtifactPath: string,
+  args: WriteExecuteInput,
+): Promise<ContractCheck> {
+  const subspecContent = readFileSync(expectedArtifactPath, "utf8");
+  // Keystones are verified when present; they are not required for guard-checkpoint subspecs.
+  const keystoneCriteria = selectKeystoneCheckpointCriteria(subspecContent, { requireChecked: true });
+  if (keystoneCriteria.length > 1) {
+    return {
+      ok: false,
+      reason: buildListedReason(
+        "Multiple keystone checkpoints (exactly one ticked Keystone checkpoint criterion per runtime-behavior subspec):",
+        keystoneCriteria,
+        (entry) => entry.firstLine,
+      ),
+    };
+  }
+
+  const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
+    ...args.mutationCheckpointSeams,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+    ...(args.remainingIterationWallMs !== undefined ? { remainingIterationWallMs: args.remainingIterationWallMs } : {}),
+  });
+  if (report.keystoneUnlinked.length > 0) {
+    return {
+      ok: false,
+      reason: buildListedReason(
+        "Unlinked keystone checkpoints (no directive linked on the named pin):",
+        report.keystoneUnlinked,
+        describeCriterionCheckpoint,
+      ),
+    };
+  }
+  if (report.inertHeadline.length > 0) {
+    return {
+      ok: false,
+      reason: buildListedReason(
+        "Inert headline change (headline revert left the scoped suite green):",
+        report.inertHeadline,
+        describeCriterionCheckpoint,
+      ),
+    };
+  }
+  if (report.hollow.length > 0) {
+    return {
+      ok: false,
+      reason: buildListedReason(
+        "Hollow mutation checkpoints (the named mutation left the scoped suite green):",
+        report.hollow,
+        describeCriterionCheckpoint,
+      ),
+    };
+  }
+  if (report.unparseable.length === 0) return { ok: true };
+  const blockingUnparseable = report.unparseable.filter(
+    (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
+  );
+  if (blockingUnparseable.length > 0) {
+    return {
+      ok: false,
+      reason: buildListedReason("Unparseable mutation checkpoints:", blockingUnparseable, describeUnparseable),
+    };
+  }
+  return { ok: true };
 }
 
 /** True when `spec.criteria-ticked` failed on mutation-checkpoint verification, not unticked rows. */
@@ -394,8 +458,16 @@ export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | u
   if (failureReason.startsWith("Unticked non-human-only acceptance criteria:")) return false;
   return (
     failureReason.startsWith("Unparseable mutation checkpoints:") ||
-    failureReason.startsWith("Hollow mutation checkpoints")
+    failureReason.startsWith("Hollow mutation checkpoints") ||
+    failureReason.startsWith("Inert headline change") ||
+    failureReason.startsWith("Unlinked keystone checkpoints") ||
+    failureReason.startsWith("Multiple keystone checkpoints")
   );
+}
+
+/** True when a mutation-checkpoint `spec.criteria-ticked` miss may reprompt instead of terminal settle. */
+export function isRepromptEligibleMutationCheckpointMiss(failureReason: string | undefined): boolean {
+  return failureReason?.startsWith("Unparseable mutation checkpoints:") ?? false;
 }
 
 export function formatMutationDirectiveRepromptListing(context: MutationDirectiveRepromptContext): string {
@@ -475,27 +547,7 @@ async function executeDefaultWrite(
     // ticked already is exactly where a hollow checkpoint hides.
     contracts.push({
       id: "spec.criteria-ticked",
-      check: async ({ cwd }) => {
-        const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
-          ...args.mutationCheckpointSeams,
-          ...(args.signal !== undefined ? { signal: args.signal } : {}),
-          ...(args.remainingIterationWallMs !== undefined
-            ? { remainingIterationWallMs: args.remainingIterationWallMs }
-            : {}),
-        });
-        if (report.unparseable.length === 0) {
-          if (report.hollow.length === 0) return { ok: true };
-          return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
-        }
-        const blockingUnparseable = report.unparseable.filter(
-          (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
-        );
-        if (blockingUnparseable.length > 0) {
-          return { ok: false, reason: buildUnparseableCheckpointReason(blockingUnparseable) };
-        }
-        if (report.hollow.length === 0) return { ok: true };
-        return { ok: false, reason: buildHollowCheckpointReason(report.hollow) };
-      },
+      check: ({ cwd }) => checkMutationCheckpointsAtCompletion(cwd, expectedArtifactPath, args),
     });
   }
 

@@ -3163,6 +3163,25 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
   });
 
+  test("running live-linked fan-out branch keeps its suffix un-skipped when adopt defers", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    // Non-completed rollup over the still-live alpha entry run makes adopt DEFER settlement,
+    // so the alpha plan row stays running+linked when settleFanOutBranch runs. Its
+    // `status === "running"` guard must keep the alpha implement suffix un-skipped; the
+    // `=== "running"` operator flip would skip the suffix of a still-running branch.
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => (entryRunId === "run-alpha-running" ? "in-progress" : "completed"),
+    });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("running");
+    expect(stageRecord(stages(), "implement", "alpha")?.status).not.toBe("skipped");
+  });
+
   test("fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
     setupFanOutAlphaLiveLinked(store);

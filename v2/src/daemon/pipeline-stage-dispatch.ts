@@ -31,6 +31,8 @@ export type PipelineStageArtifact = {
   downstreamInputs?: string[];
   prNumber?: number;
   prUrl?: string;
+  requestedBase?: string;
+  resolvedBase?: string;
 };
 
 /** Composite key for in-memory stage artifact maps: prefix stages use `default`, suffix stages use the branch key. */
@@ -50,14 +52,20 @@ export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
   return run !== null && !isTerminalRunStatus(run.status);
 }
 
+/** Linked entry run when a `running` stage row still needs adopt/settlement (live or pending re-settlement). */
+export function settlementLinkedEntryRunId(
+  _store: StateStore,
+  record: PipelineStageRecord | undefined,
+): string | undefined {
+  if (record?.status !== "running") return undefined;
+  const entryRunId = record.workflowInvocationId;
+  return entryRunId ?? undefined;
+}
+
 /** True when a post-dispatch stage row is still in flight and must not be terminalized. */
 export function shouldStopForInFlightStageRow(store: StateStore, record: PipelineStageRecord | undefined): boolean {
   if (record?.status === "pending") return true;
-  if (record?.status === "running") {
-    const entryRunId = record.workflowInvocationId;
-    if (entryRunId != null && isLiveEntryRun(store, entryRunId)) return true;
-  }
-  return false;
+  return settlementLinkedEntryRunId(store, record) !== undefined;
 }
 
 /** Best-effort failure write-back for an unexpected throw/rejection before entry-run admission. */
@@ -87,10 +95,25 @@ function writeRunningStageLinkage(store: StateStore, target: PipelineStageTarget
   });
 }
 
+function publicationBaseRetargetFromLogRecords(
+  records: PersistedRecord[],
+): { requestedBase: string; resolvedBase: string } | undefined {
+  for (let i = records.length - 1; i >= 0; i--) {
+    const record = records[i];
+    if (record?.event.kind !== "loop_finished") continue;
+    const { requestedBase, resolvedBase } = record.event;
+    if (typeof requestedBase === "string" && typeof resolvedBase === "string") {
+      return { requestedBase, resolvedBase };
+    }
+  }
+  return undefined;
+}
+
 function stageArtifactFromEntryRun(
   entryRunId: string,
   entryRun: NonNullable<ReturnType<StateStore["loadRun"]>>,
   invocationId?: string,
+  publicationBaseRetarget?: { requestedBase: string; resolvedBase: string },
 ): PipelineStageArtifact {
   return {
     entryRunId,
@@ -99,6 +122,7 @@ function stageArtifactFromEntryRun(
     ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
     ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
     ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
+    ...(publicationBaseRetarget ?? {}),
   };
 }
 
@@ -143,7 +167,26 @@ function applyEntryRunSettlement(args: {
       patch: {
         status: "succeeded",
         endedAt: Date.now(),
-        artifact: stageArtifactFromEntryRun(entryRunId, entryRun, invocationId),
+        artifact: stageArtifactFromEntryRun(
+          entryRunId,
+          entryRun,
+          invocationId,
+          publicationBaseRetargetFromLogRecords(loadLogRecords?.(entryRunId) ?? []),
+        ),
+      },
+    });
+    return;
+  }
+  if (isLiveEntryRun(store, entryRunId)) {
+    store.updateStage({
+      ...stageTarget,
+      patch: {
+        failureDetail: {
+          code: "settlement_deferred",
+          reason: "entry_run_still_live",
+          entryRunId,
+          rollupStatus,
+        },
       },
     });
     return;
@@ -188,14 +231,15 @@ export async function adoptAndSettlePipelineStage(args: {
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
 }): Promise<void> {
   const { store, stageTarget, entryRunId, invocationId, wait, loadLogRecords } = args;
-  if (!isLiveEntryRun(store, entryRunId)) return;
   const pipeline = store.loadPipeline(stageTarget.pipelineId);
   const record = pipeline?.stages.find(
     (stage) =>
       stage.stageId === stageTarget.stageId &&
       stage.branchKey === (stageTarget.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY),
   );
-  if (record?.workflowInvocationId !== entryRunId || record.status !== "running") {
+  const linkedRunning = record?.workflowInvocationId === entryRunId && record.status === "running";
+  if (!isLiveEntryRun(store, entryRunId) && !linkedRunning) return;
+  if (!linkedRunning) {
     writeRunningStageLinkage(store, stageTarget, entryRunId);
   }
   await settlePipelineStageFromEntryRun({
@@ -232,8 +276,8 @@ export async function dispatchPipelineStage(args: {
   if (claim.kind === "refused") {
     const pipeline = store.loadPipeline(pipelineId);
     const record = pipeline?.stages.find((stage) => stage.stageId === stageId && stage.branchKey === resolvedBranchKey);
-    const linkedEntryRunId = record?.workflowInvocationId;
-    if (record?.status === "running" && linkedEntryRunId != null && isLiveEntryRun(store, linkedEntryRunId)) {
+    const linkedEntryRunId = settlementLinkedEntryRunId(store, record);
+    if (linkedEntryRunId !== undefined) {
       await adoptAndSettlePipelineStage({
         store,
         stageTarget,

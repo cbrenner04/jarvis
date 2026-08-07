@@ -29,10 +29,10 @@ import {
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
-  isLiveEntryRun,
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  settlementLinkedEntryRunId,
   shouldStopForInFlightStageRow,
   stageArtifactKey,
 } from "./pipeline-stage-dispatch.ts";
@@ -200,6 +200,7 @@ export async function continuePipeline(
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),
       ...(deps.intentStaleReset !== undefined ? { intentStaleReset: deps.intentStaleReset } : {}),
+      ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
     },
     continuationBranchKey,
   );
@@ -1108,12 +1109,6 @@ type AdvanceWorkflowStageArgs = {
   intentStaleReset?: PipelineExecutionDeps["intentStaleReset"];
 };
 
-function liveLinkedEntryRunId(store: StateStore, record: PipelineStageRecord | undefined): string | undefined {
-  const entryRunId = record?.workflowInvocationId;
-  if (entryRunId != null && isLiveEntryRun(store, entryRunId)) return entryRunId;
-  return undefined;
-}
-
 function failWorkflowStageAt(
   store: StateStore,
   pipelineId: string,
@@ -1123,10 +1118,6 @@ function failWorkflowStageAt(
   skipFromPosition: number,
   message: string,
 ): StageStepOutcome {
-  const record = findStageRecord(stageRecords, stageId, branchKey);
-  if (record?.status === "running" && liveLinkedEntryRunId(store, record) !== undefined) {
-    return "stop";
-  }
   store.updateStage({
     pipelineId,
     stageId,
@@ -1390,7 +1381,7 @@ async function runFanOutBranchAction(
   const { targetBranchKey, targetRecord, pipeline, steps } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
 
-  const linkedEntryRun = liveLinkedEntryRunId(store, targetRecord);
+  const linkedEntryRun = settlementLinkedEntryRunId(store, targetRecord);
   if (linkedEntryRun !== undefined) {
     await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
       adoptAndSettlePipelineStage({
@@ -1435,7 +1426,7 @@ function settleFanOutBranch(args: AdvanceWorkflowStageArgs, targetBranchKey: str
     carryForwardArtifact(stageArtifacts, stage.stageId, targetBranchKey, settledRecord.artifact);
     return false;
   }
-  if (settledRecord?.status === "running" && liveLinkedEntryRunId(store, settledRecord) !== undefined) {
+  if (settledRecord?.status === "running" && settlementLinkedEntryRunId(store, settledRecord) !== undefined) {
     return true;
   }
   skipRemainingStages(store, pipelineId, store.loadPipeline(pipelineId)?.stages ?? [], index + 1, targetBranchKey);
@@ -1581,7 +1572,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       });
     }
     if (record?.status === "running") {
-      const entryRunId = liveLinkedEntryRunId(store, record);
+      const entryRunId = settlementLinkedEntryRunId(store, record);
       if (entryRunId === undefined) return "stop";
       return await adoptRunningWorkflowStage(args, entryRunId);
     }
@@ -1654,7 +1645,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     const afterThrow = store.loadPipeline(pipelineId);
     const afterThrowRecords = afterThrow?.stages ?? [];
     const afterThrowRecord = afterThrow ? findStageRecord(afterThrowRecords, stage.stageId, branchKey) : undefined;
-    if (afterThrowRecord?.status === "running" && liveLinkedEntryRunId(store, afterThrowRecord) !== undefined) {
+    if (afterThrowRecord?.status === "running" && settlementLinkedEntryRunId(store, afterThrowRecord) !== undefined) {
       return "stop";
     }
     try {
@@ -1690,7 +1681,7 @@ function failStrandedPipelineStage(
     if (authored?.kind !== "workflow") continue;
     const record = findStageRecord(pipeline.stages, stageRecord.stageId, stageRecord.branchKey);
     if (record?.status !== "pending" && record?.status !== "running") continue;
-    if (record?.status === "running" && liveLinkedEntryRunId(store, record) !== undefined) {
+    if (record?.status === "running" && settlementLinkedEntryRunId(store, record) !== undefined) {
       continue;
     }
     try {

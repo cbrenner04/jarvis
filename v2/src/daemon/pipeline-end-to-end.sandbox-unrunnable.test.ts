@@ -408,7 +408,11 @@ function createFakePipelineInvocation(
 
   const wait: PipelineWorkflowWait = async (entryRunId) => {
     await new Promise((resolve) => setTimeout(resolve, 25));
-    if (options.failFirstPlanWait && entryRunId === firstPlanRunId) return "failed";
+    if (options.failFirstPlanWait && entryRunId === firstPlanRunId) {
+      store.setRunStatus(entryRunId, "failed");
+      return "failed";
+    }
+    store.setRunStatus(entryRunId, "completed");
     return "completed";
   };
 

@@ -14,8 +14,9 @@ import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
+import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
-import { openLogReader } from "../persistence/log-stream.ts";
+import { openLogReader, type PersistedRecord } from "../persistence/log-stream.ts";
 import type {
   Pipeline,
   PipelineContext,
@@ -76,6 +77,8 @@ import {
   resolveStageWorkflowSteps,
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
+import type { TerminalLogRecord } from "./run-operator-error.ts";
+import { composeRunOperatorError } from "./run-operator-error.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -813,6 +816,73 @@ describe("continuePipeline", () => {
     expect(s1?.failureDetail).toBeNull();
     expect(s1?.workflowInvocationId).toBe("run-0");
     expect(s1?.artifact).toMatchObject({ entryRunId: "run-0", invocationId: "inv-0", specPath: "spec/s1.md" });
+  });
+
+  test("re-settles a deferred running stage when continuePipeline runs after the linked entry run terminals", async () => {
+    const entryRunId = "run-deferred-resettle";
+    const terminalRecord: PersistedRecord = {
+      runId: entryRunId,
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: {
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed" as WriteLoopOutcomeKind,
+        iterationsConsumed: 1,
+        resumable: true,
+      },
+    };
+    const singleStageDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const { store, stages } = fakeStore(
+      singleStageDefinition,
+      { [entryRunId]: { specPath: "spec/s1.md", status: "failed" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: {
+          code: "settlement_deferred",
+          reason: "entry_run_still_live",
+          entryRunId,
+          rollupStatus: "failed",
+        },
+      },
+    });
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+    const wait: PipelineWorkflowWait = async () => "failed";
+    const loadLogRecords = () => [terminalRecord];
+
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait,
+      resolveStage: resolveStageStub(),
+      loadLogRecords,
+    });
+
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(dispatchCalled).toBe(false);
+    const s1 = stages().find((stage) => stage.stageId === "s1");
+    expect(s1?.status).toBe("failed");
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) throw new Error("expected entry run");
+    expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
+    expect(s1?.failureDetail).not.toEqual({
+      reason: "harness_failure",
+      retryable: false,
+      nextAction: "stop",
+    });
   });
 
   test("refuses continuation when persisted context is absent and dispatches nothing", async () => {
@@ -3091,6 +3161,25 @@ describe("pipeline branch fan-out execution", () => {
       { stageId: "plan", branchKey: "beta" },
     ]);
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+  });
+
+  test("running live-linked fan-out branch keeps its suffix un-skipped when adopt defers", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, FAN_OUT_ALPHA_RUNNING_RUNS);
+    setupFanOutAlphaLiveLinked(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    // Non-completed rollup over the still-live alpha entry run makes adopt DEFER settlement,
+    // so the alpha plan row stays running+linked when settleFanOutBranch runs. Its
+    // `status === "running"` guard must keep the alpha implement suffix un-skipped; the
+    // `=== "running"` operator flip would skip the suffix of a still-running branch.
+    const deps = fanOutPipelineDeps(store, dispatchLog, {
+      wait: async (entryRunId) => (entryRunId === "run-alpha-running" ? "in-progress" : "completed"),
+    });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("running");
+    expect(stageRecord(stages(), "implement", "alpha")?.status).not.toBe("skipped");
   });
 
   test("fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles", async () => {

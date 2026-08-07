@@ -9,7 +9,8 @@ export type TuiCommand =
   | { kind: "resume" }
   | { kind: "kill" }
   | { kind: "pause" }
-  | { kind: "resume-run" };
+  | { kind: "resume-run" }
+  | { kind: "log" };
 
 export type TuiCommandErrorCode =
   | "malformed_input"
@@ -35,11 +36,17 @@ export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 
 export type TuiTokenizeResult = { kind: "tokens"; tokens: string[] } | { kind: "error"; code: "unterminated_quote" };
 
-const UNAVAILABLE_COMMANDS: Readonly<Record<string, string>> = {
-  log: "jarvis tui log",
-};
-
-const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume", "kill", "pause", "resume-run"]);
+const ZERO_ARG_VERBS = new Set([
+  "expand",
+  "collapse",
+  "approve",
+  "reject",
+  "resume",
+  "kill",
+  "pause",
+  "resume-run",
+  "log",
+]);
 
 export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   const tokens: string[] = [];
@@ -133,14 +140,10 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
   if (tokens.length === 0) return error("malformed_input");
 
   const verb = tokens[0] as string;
-  const unavailableCommand = Object.hasOwn(UNAVAILABLE_COMMANDS, verb) ? UNAVAILABLE_COMMANDS[verb] : undefined;
-  if (unavailableCommand !== undefined) {
-    return { kind: "error", code: "recognized_unavailable", command: unavailableCommand };
-  }
   if (verb === "start") return parseStart(tokens);
   if (!ZERO_ARG_VERBS.has(verb)) return error("unknown_verb");
   if (tokens.length > 1) return error("unexpected_arguments");
   return {
-    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "pause" | "resume-run",
+    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "pause" | "resume-run" | "log",
   };
 }

@@ -125,23 +125,12 @@ describe("parseTuiCommand", () => {
     expectCode(input, "unexpected_arguments");
   });
 
-  test.each([["log", "jarvis tui log"]] as const)("classifies unavailable %s", (verb, command) => {
-    for (const input of [verb, `${verb} ignored --tokens`]) {
-      expect(parseTuiCommand(input)).toEqual({
-        kind: "error",
-        code: "recognized_unavailable",
-        command,
-      });
-    }
+  test("parses log as a dock verb", () => {
+    expect(parseTuiCommand("log")).toEqual({ kind: "log" });
   });
 
-  test("still-unavailable verbs classify as recognized_unavailable", () => {
-    // @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "false"
-    expect(parseTuiCommand("log")).toEqual({
-      kind: "error",
-      code: "recognized_unavailable",
-      command: "jarvis tui log",
-    });
+  test.each(["log run-123", "log ignored --tokens"])("rejects trailing log tokens: %s", (input) => {
+    expectCode(input, "unexpected_arguments");
   });
 
   test.each(["constructor", "toString", "__proto__"])("rejects inherited unavailable-map property: %s", (verb) => {
@@ -167,8 +156,6 @@ describe("parseTuiCommand", () => {
     // @mutate v2/src/tui/tui-command-parser.ts "if (pathSeeds[0] !== undefined) {" -> "if (false) {"
     // @mutate v2/src/tui/tui-command-parser.ts "if (tokenized.kind === \"error\") return tokenized;" -> "if (false) return tokenized;"
     // @mutate v2/src/tui/tui-command-parser.ts "if (tokens.length === 0) return error(\"malformed_input\");" -> "if (false) return error(\"malformed_input\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "true"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (unavailableCommand !== undefined) {" -> "if (false) {"
     // @mutate v2/src/tui/tui-command-parser.ts "if (verb !== \"start\" && verb !== \"expand\" && verb !== \"collapse\") return error(\"unknown_verb\");" -> "if (false) return error(\"unknown_verb\");"
     // @mutate v2/src/tui/tui-command-parser.ts "if (verb === \"expand\" || verb === \"collapse\") {" -> "if (false) {"
     // @mutate v2/src/tui/tui-command-parser.ts "if (tokens.length > 1) return error(\"unexpected_arguments\");" -> "if (false) return error(\"unexpected_arguments\");"

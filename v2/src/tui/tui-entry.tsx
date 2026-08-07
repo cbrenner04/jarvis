@@ -21,6 +21,7 @@ import {
 } from "./tui-daemon-client.ts";
 import { showTuiInkFeedback } from "./tui-ink-feedback.tsx";
 import { openInkMonitor } from "./tui-ink-monitor.tsx";
+import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
 import {
   firstSelectableNodeId,
   mergePipelineSnapshots,
@@ -93,6 +94,12 @@ export function selectedRunIdFromState(state: TuiMonitorState): string | null {
   const nodeId = state.selectedNodeId;
   if (nodeId === null) return null;
   return state.runs.some((run) => run.runId === nodeId) ? nodeId : null;
+}
+
+function logCommandSelectionError(state: TuiMonitorState): "no_selection" | "not_a_run" | null {
+  if (state.selectedNodeId === null) return "no_selection";
+  if (selectedRunIdFromState(state) === null) return "not_a_run";
+  return null;
 }
 
 function keyedSocketDigest(socketPath: string): string {
@@ -442,10 +449,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let monitorOpen = false;
   let admissionPending = false;
   let commandEditorGeneration = 0;
+  let logFollowRunId: string | null = null;
+  let logFollowTarget: string | null = null;
+  let exitCode = 0;
   const quitPromise = new Promise<void>((resolve) => {
     resolveQuit = resolve;
   });
-
   const bumpCommandEditorGeneration = (): void => {
     commandEditorGeneration += 1;
   };
@@ -861,6 +870,23 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             return;
           }
 
+          if (parsed.kind === "log") {
+            const selectionError = logCommandSelectionError(currentState);
+            if (selectionError !== null) {
+              setState({
+                ...currentState,
+                lastCommandResult: selectionError,
+              });
+              return;
+            }
+            const runId = selectedRunIdFromState(currentState);
+            if (runId !== null) {
+              logFollowRunId = runId;
+              resolveQuit();
+            }
+            return;
+          }
+
           if (parsed.kind === "kill" || parsed.kind === "pause" || parsed.kind === "resume-run") {
             const method = parsed.kind === "resume-run" ? "resume" : parsed.kind;
             const selectionError = runSteeringCommandSelectionError(currentState, nowMsFn());
@@ -1027,13 +1053,16 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     });
 
     await Promise.race([quitPromise, session.waitUntilExit()]);
-    return 0;
+    if (logFollowRunId !== null) {
+      logFollowTarget = logFollowRunId;
+    }
   } catch (error) {
     if (error instanceof RpcError || error instanceof RpcConnectionError) {
       await presentFeedback(entryErrorFeedback(error), deps);
-      return 1;
+      exitCode = 1;
+    } else {
+      throw error;
     }
-    throw error;
   } finally {
     monitorOpen = false;
     refreshHandle?.close();
@@ -1043,4 +1072,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       client.close();
     }
   }
+
+  if (logFollowTarget !== null) {
+    return (deps.runTuiLogFollow ?? runTuiLogFollow)(logFollowTarget, {
+      socketPath: deps.socketPath,
+      ...(deps.socketDiscovery !== undefined ? { socketDiscovery: deps.socketDiscovery } : {}),
+    });
+  }
+  return exitCode;
 }

@@ -662,10 +662,16 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   admission is in flight; a second Enter while pending neither reparses nor
   re-admits. An admitted settlement reports the pipeline id, clears the buffer and
   cursor, and restores tree focus; parse errors, pre-admission failures, and daemon
-  refusals retain command focus, buffer, and cursor and report their named code,
-  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis tui log`).
+  refusals retain command focus, buffer, and cursor and report their named code.
   Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
   `v2/src/daemon/pipeline-start-admission.ts`
+- [v2 additive] TUI dock log follow: submitted `log` (no arguments) tears down the
+  monitor and enters in-process log follow for `selectedRunIdFromState` through the
+  same `runTuiLogFollow` path as `jarvis tui log <run-id>`; quitting follow exits
+  `jarvis tui` with no return to the monitor. Ineligible selections report
+  `no_selection` or `not_a_run` on `lastCommandResult` and retain command focus,
+  buffer, and cursor. Sources: `v2/src/tui/tui-entry.tsx`,
+  `v2/src/tui/tui-command-parser.ts`, `v2/src/tui/tui-log-follow-entry.tsx`
 - [v2 additive] TUI dock run steering: submitted `kill`, `pause`, and `resume-run`
   (no arguments) reach daemon `kill`, `pause`, and `resume` on the owning daemon for
   the selected attributed run leaf — detached, with no `wait` RPC. Pre-RPC

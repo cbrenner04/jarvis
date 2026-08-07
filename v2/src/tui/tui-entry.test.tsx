@@ -729,12 +729,9 @@ function wrapFailingSecondPipelineList(deps: RunTuiEntryDeps): void {
   };
 }
 
-function steeringFailureAsserter(
+function dockCommandFailureAsserter(
   view: ReturnType<typeof createViewHost>,
-  clientOptions: FakeClientOptions,
   verb: string,
-  rpcMethod: string,
-  rpcPrefix = false,
 ): (feedback: string, setup?: () => void) => void {
   return (feedback, setup = () => {}) => {
     setup();
@@ -744,14 +741,29 @@ function steeringFailureAsserter(
     }
     view.insertCommandText(verb);
     const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
-    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix);
+    const commandCursor = view.monitorStates.at(-1)?.commandCursor ?? 0;
     view.submitCommand(commandBuffer);
-    expect(countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix)).toBe(rpcBefore);
     expect(view.monitorStates.at(-1)).toMatchObject({
       focus: "command",
       commandBuffer,
+      commandCursor,
       lastCommandResult: feedback,
     });
+  };
+}
+
+function steeringFailureAsserter(
+  view: ReturnType<typeof createViewHost>,
+  clientOptions: FakeClientOptions,
+  verb: string,
+  rpcMethod: string,
+  rpcPrefix = false,
+): (feedback: string, setup?: () => void) => void {
+  const assertFailure = dockCommandFailureAsserter(view, verb);
+  return (feedback, setup = () => {}) => {
+    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix);
+    assertFailure(feedback, setup);
+    expect(countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix)).toBe(rpcBefore);
   };
 }
 
@@ -4414,6 +4426,154 @@ describe("runTuiEntry", () => {
 
     view.quit();
     await pending;
+  });
+
+  test("typed log opens log follow when selectedRunIdFromState is set", async () => {
+    const view = createViewHost();
+    let followedRunId: string | undefined;
+    let followDeps: { socketPath: string; socketDiscovery?: () => Promise<string[]> } | undefined;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        socketDiscovery: async () => ["/tmp/discovered.sock"],
+        runTuiLogFollow: async (runId, logDeps) => {
+          followedRunId = runId;
+          followDeps = logDeps;
+          return 0;
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+    view.focusCommand();
+    view.insertCommandText("log");
+    view.submitCommand("log");
+    await flush();
+
+    expect(view.isClosed()).toBe(true);
+    expect(await pending).toBe(0);
+    expect(followedRunId).toBe("run-matched");
+    expect(followDeps?.socketPath).toBe("/tmp/test.sock");
+    expect(followDeps?.socketDiscovery).toBe(deps.socketDiscovery);
+  });
+
+  test("typed log tears down monitor before entering log follow", async () => {
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const displayTick = createIntervalScheduler();
+    const followGate = deferred<void>();
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        refreshScheduler: refresh.scheduler,
+        displayTickScheduler: displayTick.scheduler,
+        runTuiLogFollow: async () => {
+          expect(view.isClosed()).toBe(true);
+          expect(refresh.isClosed()).toBe(true);
+          expect(displayTick.isClosed()).toBe(true);
+          await followGate.promise;
+          return 0;
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    await view.waitUntilOpen();
+    await flush();
+    await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+    view.focusCommand();
+    view.insertCommandText("log");
+    view.submitCommand("log");
+    await flush();
+
+    expect(view.isClosed()).toBe(true);
+    expect(refresh.isClosed()).toBe(true);
+    expect(displayTick.isClosed()).toBe(true);
+
+    followGate.resolve();
+    expect(await pending).toBe(0);
+  });
+
+  test("typed log with no run selected reports no_selection and does not enter log follow", async () => {
+    const view = createViewHost();
+    let logFollowCalls = 0;
+    const pending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        {
+          viewHost: view.host,
+          nowMs: () => WORKFLOW_FILTER_NOW_MS,
+          runTuiLogFollow: async () => {
+            logFollowCalls += 1;
+            return 0;
+          },
+        },
+      ).deps,
+    );
+    await view.waitUntilOpen();
+    await flush();
+    dockCommandFailureAsserter(view, "log")("no_selection");
+    expect(logFollowCalls).toBe(0);
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("typed log on pipeline or stage selection reports not_a_run and does not enter log follow", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (selectedRunIdFromState(state) === null) return \"not_a_run\";" -> "if (selectedRunIdFromState(state) !== null) return \"not_a_run\";"
+    const view = createViewHost();
+    let logFollowCalls = 0;
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        runTuiLogFollow: async () => {
+          logFollowCalls += 1;
+          return 0;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      const expectLogFailure = dockCommandFailureAsserter(view, "log");
+
+      expectLogFailure("not_a_run", () => {
+        view.selectNode("pipe-alpha");
+      });
+      expect(logFollowCalls).toBe(0);
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectLogFailure("not_a_run");
+      expect(logFollowCalls).toBe(0);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
   });
 
   test("typed kill pause and resume-run steer the selected live run", async () => {

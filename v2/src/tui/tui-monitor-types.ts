@@ -6,6 +6,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { ConnectTuiDaemonOptions, PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi } from "./tui-ink-runtime.ts";
+import type { RunTuiLogFollowDeps } from "./tui-log-follow-types.ts";
 
 /** Detached pipeline-start admission bound at the TUI command entry boundary. */
 export type DetachedPipelineStartAdmission = (
@@ -138,4 +139,6 @@ export type RunTuiEntryDeps = {
   nowMs?: () => number;
   /** Injectable terminal size; defaults to `process.stdout` columns/rows. */
   terminalSize?: () => { columns?: number; rows?: number };
+  /** Injectable log-follow entry. */
+  runTuiLogFollow?: (runId: string, deps: RunTuiLogFollowDeps) => Promise<number>;
 };

@@ -289,7 +289,7 @@ The dock always occupies four physical rows: status, cursor-bearing input, input
 
 #### Dock commands
 
-Nine live verbs. Enter parses the buffer exactly once and switches on the result.
+Ten live verbs. Enter parses the buffer exactly once and switches on the result.
 
 | Command | Form | Effect |
 | --- | --- | --- |
@@ -302,12 +302,15 @@ Nine live verbs. Enter parses the buffer exactly once and switches on the result
 | `kill` | `kill` (no arguments) | `kill` on the selected live attributed run leaf |
 | `pause` | `pause` (no arguments) | `pause` on the selected live attributed run leaf |
 | `resume-run` | `resume-run` (no arguments) | `resume` on the selected attributed run leaf |
+| `log` | `log` (no arguments) | In-process log follow for the selected run (`selectedRunIdFromState`); tears down the monitor and does not return |
 
 `expand` and `collapse` are **explicit, not toggles** — unlike the `e` key, which toggles. A command that matches the current state succeeds and changes nothing, so `expand` twice is safe. Both are local state edits; neither contacts the daemon. Argument-bearing `expand foo` is rejected as `unexpected_arguments`.
 
 **`approve` / `reject` / `resume` are detached pipeline steering.** Each issues one daemon RPC with no `pipeline_wait`. `approve` and `reject` require an **awaiting** stage selection and send `(pipelineId, stageId, branchKey)` from that row. `resume` requires a **non-terminal pipeline** selection (not a stage or run leaf). On `awaiting-approval` pipelines, `resume` is dock-eligible but only claims continuation — it does not approve the gate or dispatch later stages; use `approve` / `reject` on the awaiting stage, then `pipeline wait`. Track progress in the tree or with `jarvis pipeline list` / `jarvis pipeline wait`.
 
 **`kill` / `pause` / `resume-run` are detached run steering.** Each issues one daemon `kill`, `pause`, or `resume` RPC on the selected attributed run leaf through its owning daemon — same path as the `k` key and other keybind steering, with no `wait` RPC. `kill` and `pause` require a live steerable run (`isLive`, active status, and `actionableRunIds` when present). `resume-run` maps to daemon `resume` and shares keybind resume eligibility — no kill-hint pre-gate, so killed or paused retained rows remain eligible. Pre-RPC selection failures report on `lastCommandResult`; RPC outcomes and daemon refusals report on `steeringFeedback`.
+
+**`log` opens in-process log follow.** Eligible `log` tears down the monitor and enters the same `runTuiLogFollow` path as `jarvis tui log <run-id>` (owner discovery across live keyed daemons, tail resume, operator quit exits `jarvis tui`). Requires a selected run row (`selectedRunIdFromState`); pipeline, stage, and stale or evicted run ids absent from `state.runs` are ineligible. Ineligible `log` reports on `lastCommandResult` and retains command focus, buffer, and cursor.
 
 **`start` is detached.** The TUI issues one `pipeline_start` and no `pipeline_wait`, so it never attaches to completion — admitted means admitted, not finished. Track progress in the tree, or with `jarvis pipeline list` / `jarvis pipeline wait`. At most one admission is in flight; a second Enter while pending is ignored and issues no second parse or admission. Buffer edits and tree navigation stay available while it is pending, and a settlement that arrives after you have typed or navigated does not clobber the newer state.
 
@@ -343,11 +346,12 @@ Nine live verbs. Enter parses the buffer exactly once and switches on the result
 | `stale_non_expandable` | The selected id is absent from the current tree or is a pipeline/stage row |
 | `not_live_run` | `kill` / `pause` require a live steerable attributed run leaf |
 
-**CLI fallbacks.** Some verbs are recognized but not implemented in the dock; each reports `recognized_unavailable` naming its exact CLI equivalent:
+**Log follow feedback codes** (nothing changes when one fires; reported on `lastCommandResult`):
 
-| Typed | Use instead |
+| Code | Meaning |
 | --- | --- |
-| `log` | `jarvis tui log` |
+| `no_selection` | No selectable row is selected |
+| `not_a_run` | `selectedNodeId` is set but `selectedRunIdFromState` is null (pipeline, stage, or stale/evicted run id absent from `state.runs`) |
 
 An empty or whitespace-only buffer reports `malformed_input`; any other verb reports `unknown_verb`. Malformed `start` input reports the specific code — `missing_project`, `missing_seed_choice`, `missing_seed_value`, `both_seed_flags`, `duplicate_seed_flag`, `unknown_option`, `extra_positional` — and unbalanced quoting reports `unterminated_quote`.
 

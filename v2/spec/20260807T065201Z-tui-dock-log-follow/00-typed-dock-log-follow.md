@@ -29,13 +29,13 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` test `typed log opens log follow when selectedRunIdFromState is set` drives dispatch through injected `runTuiLogFollow` with the selected run id and the same tail deps `jarvis tui log <run-id>` uses; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed log with no run selected reports no_selection and does not enter log follow` asserts `lastCommandResult: "no_selection"`, retains command focus/buffer/cursor, and does not call `runTuiLogFollow`; fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed log on pipeline or stage selection reports not_a_run and does not enter log follow` asserts `lastCommandResult: "not_a_run"`, retains command focus/buffer/cursor, and does not call `runTuiLogFollow`; fails against the pre-fix code.
-- [ ] `tui-command-parser.test.ts` test `parses log as a dock verb` fails against the pre-fix code and passes after implementation: bare `log` returns `{ kind: "log" }` (no longer `recognized_unavailable`); trailing tokens (e.g. `log <run-id>`) yield `unexpected_arguments`.
-- [ ] The parser no longer maps `log` to `recognized_unavailable`; the runbook Dock-commands table lists `log` as a live verb and drops its CLI-fallback row.
-- [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed log on pipeline or stage selection reports not_a_run and does not enter log follow`, a `// @mutate` directive inverting the run-leaf eligibility guard turns that regression RED.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
+- [x] `tui-entry.test.tsx` test `typed log opens log follow when selectedRunIdFromState is set` drives dispatch through injected `runTuiLogFollow` with the selected run id and the same tail deps `jarvis tui log <run-id>` uses; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed log with no run selected reports no_selection and does not enter log follow` asserts `lastCommandResult: "no_selection"`, retains command focus/buffer/cursor, and does not call `runTuiLogFollow`; fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed log on pipeline or stage selection reports not_a_run and does not enter log follow` asserts `lastCommandResult: "not_a_run"`, retains command focus/buffer/cursor, and does not call `runTuiLogFollow`; fails against the pre-fix code.
+- [x] `tui-command-parser.test.ts` test `parses log as a dock verb` fails against the pre-fix code and passes after implementation: bare `log` returns `{ kind: "log" }` (no longer `recognized_unavailable`); trailing tokens (e.g. `log <run-id>`) yield `unexpected_arguments`.
+- [x] The parser no longer maps `log` to `recognized_unavailable`; the runbook Dock-commands table lists `log` as a live verb and drops its CLI-fallback row.
+- [x] Mutation checkpoint: in `tui-entry.test.tsx` test `typed log on pipeline or stage selection reports not_a_run and does not enter log follow`, a `// @mutate` directive inverting the run-leaf eligibility guard turns that regression RED.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 

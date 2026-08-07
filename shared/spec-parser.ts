@@ -306,27 +306,50 @@ export function isHumanOnlyCriterion(text: string): boolean {
   return ["(manual)", "visual inspection only", "no automated guard"].some((marker) => lower.includes(marker));
 }
 
-/** Parse acceptance criteria from section lines. */
-function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
-  const acceptanceCriteria: AcceptanceCriterion[] = [];
+/**
+ * Assemble bullet blocks from section lines: each block is a marker line plus continuation
+ * lines until the next bullet-start line or level-2 `##` heading. Continuation lines are
+ * appended with `.trim()` (blank lines inside a block are preserved).
+ */
+export function assembleBulletBlocks(sectionLines: string[], isBulletStart: (line: string) => boolean): string[] {
+  const blocks: string[] = [];
   let i = 0;
   while (i < sectionLines.length) {
     const line = sectionLines[i] ?? "";
-    const taskMatch = line.match(taskPattern);
-    if (!taskMatch?.[2]) {
+    if (!isBulletStart(line)) {
       i += 1;
       continue;
     }
-    const text = taskMatch[2].trim();
-    let blockText = text;
+    let blockText = line;
     i += 1;
     while (i < sectionLines.length) {
       const nextLine = sectionLines[i] ?? "";
-      if (taskPattern.test(nextLine) || nextLine.match(headingPattern)?.[1] === "##") {
+      if (isBulletStart(nextLine) || nextLine.match(headingPattern)?.[1] === "##") {
         break;
       }
       blockText += `\n${nextLine.trim()}`;
       i += 1;
+    }
+    blocks.push(blockText);
+  }
+  return blocks;
+}
+
+/** Parse acceptance criteria from section lines. */
+function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
+  const blocks = assembleBulletBlocks(sectionLines, (line) => taskPattern.test(line));
+  const acceptanceCriteria: AcceptanceCriterion[] = [];
+  for (const block of blocks) {
+    const firstLine = block.split("\n")[0] ?? "";
+    const taskMatch = firstLine.match(taskPattern);
+    if (!taskMatch?.[2]) {
+      continue;
+    }
+    const text = taskMatch[2].trim();
+    let blockText = text;
+    const continuationLines = block.split("\n").slice(1);
+    for (const continuationLine of continuationLines) {
+      blockText += `\n${continuationLine.trim()}`;
     }
     acceptanceCriteria.push({
       checked: (taskMatch[1] ?? " ").toLowerCase() === "x",

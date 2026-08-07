@@ -29,12 +29,12 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across two lines` stages an intent whose `## Prerequisites` holds one bullet wrapped across two lines and asserts `validateIntentStageContent` passes; it fails against the pre-fix per-line contract.
-- [ ] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across three or more lines` stages `- prerequisite uses \`shared/spec-\nparser.ts\` helper\n  and a third continuation line` and asserts validation passes; it fails against the pre-fix per-line contract.
-- [ ] `shared/intent-stage.test.ts` — `rejects malformed frontmatter and prerequisite prose` prerequisites-prose case refuses with error containing `must list prerequisites as one bullet per line`; a regression that accepts prose fails.
-- [ ] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across two lines`; Mutation checkpoint: `// @mutate` in that test neuters block assembly at a stable post-refactor anchor in `validPrerequisites` and turns the pin red.
-- [ ] `shared/spec-parser.test.ts` — `classifies human-only markers anywhere in the criterion bullet block` stays green (behavior-preserving `parseAcceptanceCriteria` extraction).
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across two lines` stages an intent whose `## Prerequisites` holds one bullet wrapped across two lines and asserts `validateIntentStageContent` passes; it fails against the pre-fix per-line contract.
+- [x] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across three or more lines` stages `- prerequisite uses \`shared/spec-\nparser.ts\` helper\n  and a third continuation line` and asserts validation passes; it fails against the pre-fix per-line contract.
+- [x] `shared/intent-stage.test.ts` — `rejects malformed frontmatter and prerequisite prose` prerequisites-prose case refuses with error containing `must list prerequisites as one bullet per line`; a regression that accepts prose fails.
+- [x] `shared/intent-stage.test.ts` — `accepts prerequisites bullet wrapped across two lines`; Mutation checkpoint: `// @mutate` in that test neuters block assembly at a stable post-refactor anchor in `validPrerequisites` and turns the pin red.
+- [x] `shared/spec-parser.test.ts` — `classifies human-only markers anywhere in the criterion bullet block` stays green (behavior-preserving `parseAcceptanceCriteria` extraction).
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

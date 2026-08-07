@@ -310,6 +310,40 @@ describe("verifyMutationCheckpoints", () => {
     expectSingleCatch(report);
   });
 
+  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "CONTINUATION_TITLE_PATTERN.exec(lines[j] ?? \"\")" -> "undefined"
+  test("multiline test.each continuation title links directive", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.ts", GUARD_SOURCE);
+    writeAt(
+      root,
+      "v2/src/guard.test.ts",
+      [
+        "test.each([",
+        '  ["case"],',
+        '])("multiline each pin", () => {',
+        '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"',
+        "});",
+      ].join("\n"),
+    );
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("guard.test.ts", "multiline each pin"));
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
+    expect(report.caught[0]?.pinTitle).toBe("multiline each pin");
+  });
+
+  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (primary.length !== 0) return primary;" -> "return primary;"
+  test("pinning test extension mismatch resolves", async () => {
+    const root = makeWorktree();
+    writeGuardMutatePin(root, "v2/src/foo.test.ts", "extension pin");
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("foo.test.tsx", "extension pin"));
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
+  });
+
   // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "PIN_TITLE_PATTERN.exec(lines[lineIndex + 1] ?? \"\")" -> "undefined"
   test("directive immediately above test declaration links to that pin title", async () => {
     const root = makeWorktree();

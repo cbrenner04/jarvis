@@ -53,8 +53,10 @@ import { getExternalWorktreePath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import {
+  blockingUnparseableEntries,
   describeUnparseable,
   type MutationCheckpointReport,
+  repoRelativeChangedPathsFromBaseRef,
   type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
@@ -296,12 +298,6 @@ export type WriteLoopInput = WriteExecuteInput & {
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
-}
-
-function blockingUnparseableEntries(report: MutationCheckpointReport) {
-  return report.unparseable.filter(
-    (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
-  );
 }
 
 function repromptableMutationDirectiveBlocking(
@@ -1489,6 +1485,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           const subspecPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
           const report = await verifyMutationCheckpoints(worktreePath, subspecPath, {
             ...args.mutationCheckpointSeams,
+            changedPaths:
+              args.mutationCheckpointSeams?.changedPaths ??
+              (await repoRelativeChangedPathsFromBaseRef(worktreePath, args.worktree.baseRef)),
             ...(args.signal !== undefined ? { signal: args.signal } : {}),
           });
           // Mutation checkpoint: inverting isRepromptOnlyMutationDirectiveMiss must turn

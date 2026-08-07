@@ -74,6 +74,25 @@ function expectSingleCatch(report: MutationCheckpointReport) {
   expect(report.caught).toHaveLength(1);
 }
 
+function expectAmbiguousBasenameUnparseable(
+  entry: UnparseableDirective | undefined,
+  candidates: readonly string[],
+  rawReference?: string,
+) {
+  if (entry === undefined) throw new Error("expected unparseable entry");
+  expect(entry.reason).toBe("ambiguous_pinning_basename");
+  expect(entry.candidates).toEqual([...candidates]);
+  const described = describeUnparseable(entry);
+  expect(described).toContain("reason: ambiguous_pinning_basename");
+  expect(described).toContain("candidates:");
+  for (const path of candidates) expect(described).toContain(path);
+  if (rawReference !== undefined) {
+    expect(entry.rawReference).toBe(rawReference);
+    expect(described).toContain(`reference: ${rawReference}`);
+    expect(described).toContain("criterion:");
+  }
+}
+
 /** Records the scoped-suite calls and answers with a caller-supplied verdict. */
 function scopedRunner(passes: boolean): {
   run: (cwd: string, scope: string[]) => Promise<boolean>;
@@ -738,13 +757,38 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(report.hollow).toEqual([]);
     const entry = report.unparseable[0];
-    expect(entry?.reason).toBe("unresolved_pinning_test");
     expect(entry?.criterionText).toContain("guard.test.ts");
-    expect(entry?.rawReference).toBe("guard.test.ts");
-    if (entry === undefined) throw new Error("expected unparseable entry");
-    expect(describeUnparseable(entry)).toContain("criterion:");
-    expect(describeUnparseable(entry)).toContain("reference: guard.test.ts");
-    expect(describeUnparseable(entry)).toContain("reason: unresolved_pinning_test");
+    expectAmbiguousBasenameUnparseable(entry, ["v2/src/a/guard.test.ts", "v2/src/b/guard.test.ts"], "guard.test.ts");
+  });
+
+  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "changedParents.has(parentDirectoryOfRepoRelativePath(repoRelativePath(worktreeRoot, absPath)))" -> "!changedParents.has(parentDirectoryOfRepoRelativePath(repoRelativePath(worktreeRoot, absPath)))"
+  test("bare basename disambiguates via changed-path parent directory", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/execution/guard.ts", GUARD_SOURCE);
+    writeAt(
+      root,
+      "v2/src/execution/write.test.ts",
+      ['test("disambig pin", () => {', '  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
+    );
+    writeAt(root, "v2/src/commands/write.test.ts", 'test("commands pin", () => {});');
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("write.test.ts", "disambig pin"));
+    const runner = scopedRunner(false);
+
+    const disambiguated = await verifyMutationCheckpoints(root, subspec, {
+      runScopedTests: runner.run,
+      changedPaths: ["v2/src/execution/guard.ts"],
+    });
+    expectSingleCatch(disambiguated);
+
+    const ambiguous = await verifyMutationCheckpoints(root, subspec, {
+      runScopedTests: scopedRunner(true).run,
+      changedPaths: ["v2/docs/only-spec.md"],
+    });
+    expect(ambiguous.caught).toEqual([]);
+    expectAmbiguousBasenameUnparseable(ambiguous.unparseable[0], [
+      "v2/src/commands/write.test.ts",
+      "v2/src/execution/write.test.ts",
+    ]);
   });
 
   test("path-qualified pinning test resolves exactly", async () => {

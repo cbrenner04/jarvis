@@ -186,14 +186,19 @@ Rules the harness enforces:
 - The criterion names the pinning test file in backticks. When the basename is
   not unique in the worktree, use a repo-relative path (for example
   `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on
-  basename search. A bare basename must resolve to exactly one file. When the
-  criterion names a bare basename whose extension differs from the on-disk file
-  (for example `foo.test.tsx` when the file is `foo.test.ts`), basename lookup
-  retries `.test.ts`/`.test.tsx`/`.test.js`/`.test.jsx` only when the primary
-  name matches zero files and exactly one file matches across the primary name
-  plus alternates; path-qualified references do not fall back to alternate
-  extensions; `.test.mts`/`.test.cts` are outside the tolerance set; ambiguous
-  basename or multiple alternates matching still refuse with
+  basename search. A bare basename must resolve to exactly one file; when
+  multiple on-disk files share the basename, implement completion disambiguates
+  via parent-directory overlap with repo-relative `git diff --name-only <baseRef>`
+  changed paths (untracked excluded). When overlap cannot pick exactly one
+  candidate, completion refuses `ambiguous_pinning_basename` with `candidates:`
+  listing every matching repo-relative path (not `unresolved_pinning_test`).
+  When the criterion names a bare basename whose extension differs from the
+  on-disk file (for example `foo.test.tsx` when the file is `foo.test.ts`),
+  basename lookup retries `.test.ts`/`.test.tsx`/`.test.js`/`.test.jsx` only
+  when the primary name matches zero files and exactly one file matches across
+  the primary name plus alternates; path-qualified references do not fall back
+  to alternate extensions; `.test.mts`/`.test.cts` are outside the tolerance
+  set; zero primary matches with zero or multiple alternates still refuse with
   `unresolved_pinning_test`.
 - Place `// @mutate` inside the enclosing test body (below the `test("…", …) => {` line). A directive on the line immediately above the `test`/`it` declaration (next physical line, no blank line or intervening comment) is verifier-tolerated but inside-the-body is preferred. Multiline `test.each([...])("title", …)` continuation titles on the `])("title", …)` line above the callback are resolvable via opener-anchored forward scan; the criterion must still name that title.
 - Every mutation-checkpoint criterion must include the enclosing `test()` title (pin title / `directive.pinTitle`). Linker matching is case-sensitive `criterionText.includes(directive.pinTitle)` with no all-directives-in-file fallback — a substring of the full title suffices; different casing does not match. Loose references go `hollow`. Bad: "on the pinned-argv test in `write.test.ts`". Good: embed `pinned argv passes through unchanged` from `test("pinned argv passes through unchanged", …)`.

@@ -29,9 +29,11 @@ import {
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
 import {
+  blockingUnparseableEntries,
   describeCriterionCheckpoint,
   describeUnparseable,
   type MutationCheckpointSeams,
+  repoRelativeChangedPathsFromBaseRef,
   type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
@@ -406,6 +408,9 @@ async function checkMutationCheckpointsAtCompletion(
 
   const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
     ...args.mutationCheckpointSeams,
+    changedPaths:
+      args.mutationCheckpointSeams?.changedPaths ??
+      (await repoRelativeChangedPathsFromBaseRef(cwd, args.worktree.baseRef)),
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.remainingIterationWallMs !== undefined ? { remainingIterationWallMs: args.remainingIterationWallMs } : {}),
   });
@@ -440,9 +445,7 @@ async function checkMutationCheckpointsAtCompletion(
     };
   }
   if (report.unparseable.length === 0) return { ok: true };
-  const blockingUnparseable = report.unparseable.filter(
-    (entry) => entry.reason === "unresolved_pinning_test" || report.openedPinningFiles.includes(entry.sourceFile),
-  );
+  const blockingUnparseable = blockingUnparseableEntries(report);
   if (blockingUnparseable.length > 0) {
     return {
       ok: false,

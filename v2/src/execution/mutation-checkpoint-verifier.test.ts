@@ -259,7 +259,7 @@ describe("verifyMutationCheckpoints", () => {
       root,
       "spec/00.md",
       subspecWithCriteria([
-        "- [x] `guard.test.ts` — `guard pin` is checked.",
+        "- [x] `guard.test.ts` — `guard pin`;",
         "  Mutation checkpoint: continuation evidence.",
         "- [x] `guard.test.ts` — `guard pin` is checked.",
         '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0" continuation evidence.',
@@ -283,8 +283,8 @@ describe("verifyMutationCheckpoints", () => {
       root,
       "spec/00.md",
       subspecWithCriteria([
-        "- [x] Mutation checkpoint: pinning test on continuation.",
-        "  `wrapped-pin.test.ts` — `wrapped pin`",
+        "- [x] `wrapped-pin.test.ts` — `wrapped pin`;",
+        "  Mutation checkpoint: pinning test on continuation.",
       ]),
     );
 
@@ -300,8 +300,8 @@ describe("verifyMutationCheckpoints", () => {
       root,
       "spec/00.md",
       subspecWithCriteria([
-        "- [x] `guard.test.ts` — Mutation checkpoint: pin name on continuation.",
-        "  `wrapped pin`",
+        "- [x] `guard.test.ts` — `wrapped pin`;",
+        "  Mutation checkpoint: pin name on continuation.",
       ]),
     );
 
@@ -533,6 +533,47 @@ describe("verifyMutationCheckpoints", () => {
 
     expect(report.hollow).toEqual([]);
     expect(report.caught).toHaveLength(1);
+  });
+
+  test("prefix-first intent-style guard checkpoints still select and verify", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.ts", GUARD_SOURCE);
+    writeAt(
+      root,
+      "v2/src/guard.test.ts",
+      ['test("guard pin", () => {', '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
+    );
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        '- [x] Mutation checkpoint: in `v2/src/guard.test.ts` test `guard pin` carries // @mutate v2/src/guard.ts "a > 0" -> "a >= 0".',
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expect(report.unparseable).toEqual([]);
+    expect(report.hollow).toEqual([]);
+    expect(report.caught).toHaveLength(1);
+  });
+
+  test("canonical suffix template quoted as contract prose does not select", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.test.ts", 'test("guard pin", () => {});');
+    const subspec = writeAt(
+      root,
+      "spec/00.md",
+      subspecWithCriteria([
+        "- [x] Spec guidance documents the template `file` — `title`; Mutation checkpoint: as contract prose.",
+      ]),
+    );
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(true).run });
+
+    expect(report.hollow).toEqual([]);
+    expect(report.caught).toEqual([]);
+    expect(report.unparseable).toEqual([]);
   });
 
   test("no pin match inherits no directives", async () => {

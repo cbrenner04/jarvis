@@ -181,10 +181,7 @@ test("selection stays inside the painted viewport", () => {
 
 Rules the harness enforces:
 
-- A ticked non-human-only criterion is selected by `Mutation checkpoint:` or a
-  directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`).
-  Bare `@mutate` prose mentions are safe and do not select. Successful verification still
-  requires a valid linked directive.
+- A ticked non-human-only guard criterion is selected by canonical suffix `` `pinFile` — `pinTitle`; Mutation checkpoint:`` (preferred authoring contract), prefix-first shape `` Mutation checkpoint: in `pinFile` test `pinTitle` ``, or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`). Functional AC may mention `@mutate`, `Mutation checkpoint:`, or `Keystone checkpoint:` descriptively without selecting. Bare `@mutate` prose mentions are safe and do not select. Successful verification still requires a valid linked directive.
 - Wrapping a pinning-test reference or enclosing-test name onto a continuation line still parses, but authored markdown should keep `@mutate` directives on one physical line (see [Authored markdown style](#authored-markdown-style)).
 - The criterion names the pinning test file in backticks. When the basename is
   not unique in the worktree, use a repo-relative path (for example
@@ -217,7 +214,7 @@ Rules the harness enforces:
 
 Headline behavior changes need a keystone checkpoint alongside guard checkpoints. A `Keystone checkpoint:` criterion whose `// @mutate` directive reverts the subspec's headline to baseline semantics proves the shipped change is not inert: when the scoped suite stays green after apply, completion refuses with `Inert headline change` (distinct from hollow guard checkpoint messaging).
 
-- Selection requires the `Keystone checkpoint:` prefix on a ticked non-human-only criterion; `@mutate` in the block links the pinning test only — not alternate selection without the prefix.
+- Selection requires the canonical suffix `` `pinFile` — `pinTitle`; Keystone checkpoint:`` on a ticked non-human-only criterion; `@mutate` in the block links the pinning test only — not alternate selection without the suffix. Functional AC may mention `Keystone checkpoint:` descriptively without selecting.
 - Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
 - Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
 - Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.

@@ -19,11 +19,16 @@ Follow-up to landed `gate-repair-fence` (#2665/#2666). Subspec 01 wired base-ref
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/ready-finalize.test.ts` — test titled `base-ref probe invokes the terminal ready-step scoped command` drives the default base-ref probe for a failing path with `terminalCommand` `bun run test:v2` and with `bun run test:integration:v2` (parameterized or paired cases) and primarily asserts scoped-runner shape: `runV2TestFiles` with a single-file `[failingPath]` roster and mode `agent` vs `integration` derived from `terminalCommand`, not raw `bun test <path>` and not full-roster `bun run test:*` argv; secondarily asserts ready-gate child env (`JARVIS_READY_TIER`, `JARVIS_READY_TEST_SCOPE` derived from the run worktree against `scope.baseRef`) when the probe uses a subprocess fallback; fails against the current dead-branch raw invocation.
-- [ ] In `v2/src/execution/ready-finalize.test.ts`, the test titled `base-ref probe invokes the terminal ready-step scoped command` carries a machine-parseable `// @mutate v2/src/execution/ready-finalize.ts "<unique v2 scoped-runner anchor>" -> "<raw bun test subprocess anchor>"` reverting v2 probe execution to raw `bun test <path>`; the mutation turns that test RED.
-- [ ] `ready-finalize.test.ts` tests titled `base-ref reproduction classifies a base-passing worktree-failing path as in scope`, `base-ref probe failure classifies in scope`, and `classifies fully attributed terminal failures outside the allowed set as out of scope` stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/execution/ready-finalize.test.ts` — test titled `base-ref probe invokes the terminal ready-step scoped command` drives the default base-ref probe for a failing path with `terminalCommand` `bun run test:v2` and with `bun run test:integration:v2` (parameterized or paired cases) and primarily asserts scoped-runner shape: `runV2TestFiles` with a single-file `[failingPath]` roster and mode `agent` vs `integration` derived from `terminalCommand`, not raw `bun test <path>` and not full-roster `bun run test:*` argv; secondarily asserts ready-gate child env (`JARVIS_READY_TIER`, `JARVIS_READY_TEST_SCOPE` derived from the run worktree against `scope.baseRef`) when the probe uses a subprocess fallback; fails against the current dead-branch raw invocation.
+- [x] In `v2/src/execution/ready-finalize.test.ts`, the test titled `base-ref probe invokes the terminal ready-step scoped command` carries a machine-parseable `// @mutate v2/src/execution/ready-finalize.ts "<unique v2 scoped-runner anchor>" -> "<raw bun test subprocess anchor>"` reverting v2 probe execution to raw `bun test <path>`; the mutation turns that test RED.
+- [x] `ready-finalize.test.ts` tests titled `base-ref reproduction classifies a base-passing worktree-failing path as in scope`, `base-ref probe failure classifies in scope`, and `classifies fully attributed terminal failures outside the allowed set as out of scope` stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - Optional clarification only: `v2/docs/write-behavior.md` already states the probe re-runs the terminal step's scoped test command; align wording to exclude raw `bun test` if touched. No `v1-behaviors.md` change (bugfix-to-docs alignment).
+
+## Blocker
+
+Artifact contract check failed: Unparseable mutation checkpoints:
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260807T042949Z-gate-repair-baseref-probe-runs-scoped-command/v2/src/execution/ready-finalize.test.ts:487: malformed: // @mutate invert `outcome === "pass"` to `outcome !== "pass"` in `probeOutsidePathsAtBaseRef` (ready-finalize.ts)

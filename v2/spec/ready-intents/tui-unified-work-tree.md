@@ -4,6 +4,8 @@ name: tui-unified-work-tree
 
 # One work tree: ad-hoc runs are top-level nodes
 
+*Lands after `tui-work-tree-top-level-ordering`; before `tui-intent-branch-subtree` and `tui-work-row-anatomy`.*
+
 ## Problem
 
 Ad-hoc `run workflow …` launches are a permanent, roughly half-the-volume flow, but they render in a second-class `─ Unattributed (N) ─` segment below the pipeline tree. The segment has two structural bugs. Selection is windowed to painted rows: `monitorSelectableNodeIds` consumes the post-eviction `unattributedRows`, so expanding a pipeline shrinks the segment budget and silently deletes runs from navigation. And `retainUnattributedSegmentFifo` treats finishless terminals as unevictable must-keeps, so at small budgets they crowd out everything else. The pipeline tree solved this exact class of bug with full-flatten + scroll viewport (#2485); the segment reintroduced it (#2693).
@@ -21,6 +23,7 @@ Ad-hoc `run workflow …` launches are a permanent, roughly half-the-volume flow
 ## Acceptance criteria
 
 - [ ] A pure builder maps `(pipeline snapshots, run rows, expansion set, selection)` to one ordered top-level node list holding pipelines and ad-hoc work items, and a run matching a pipeline stage's `workflowInvocationId` appears only under that stage: `tui-monitor-pipeline-tree.test.ts` test `pipelines and ad-hoc work items share one ordered top-level list` fails against the pre-fix code.
+- [ ] Ad-hoc items sort into the same running/gated/terminal buckets as pipelines by the same comparator — a running ad-hoc item interleaves among running pipelines by `createdAt`, a terminal ad-hoc item interleaves among terminal pipelines by finish descending, and no ad-hoc item ever sorts into the gated bucket: `tui-monitor-pipeline-tree.test.ts` test `ad-hoc items interleave into the running and terminal buckets alongside pipelines` fails against the pre-fix code.
 - [ ] Selectable node ids equal the full flattened row list — an ad-hoc run painted in no viewport is still reachable by navigation: `tui-monitor-lines.test.ts` test `selectable node ids equal the full flattened row list` pins more rows than the pane height and fails against the pre-fix code.
 - [ ] `retainUnattributedSegmentFifo`, `leftPaneUnattributedBodyRowBudget`, `unattributedLeftPaneHeading`, and `monitorLeftPaneUnattributedSegmentRows` are absent from the source, and their tests are deleted rather than retargeted.
 - [ ] Right-pane detail for a selected ad-hoc run renders run detail with no pipeline context even when the item sorts below a pipeline: `tui-monitor-lines.test.ts` test `ad-hoc run detail carries no pipeline context` fails against the pre-fix code.
@@ -37,7 +40,6 @@ Ad-hoc `run workflow …` launches are a permanent, roughly half-the-volume flow
 
 - Top-level rows sort running → awaiting gate → terminal, with terminals newest finish first and finishless terminals by `createdAt`.
 - The top-level comparator keys off per-item derived fields rather than `PipelineSnapshot` fields, so non-pipeline items can be ordered by the same rule.
-- Fan-out order: lands after `tui-work-tree-top-level-ordering`, before `tui-intent-branch-subtree` and `tui-work-row-anatomy`.
 - `buildWorkflowTableRows` collapses one workflow invocation into a single row carrying its constituent members.
 - `isUnattributedCandidate` identifies non-queued runs whose invocation matches no pipeline stage.
 - The left-pane tree flattens fully and scrolls a viewport over it (`withLeftPaneTreeScrollFollow`), independent of pane height.

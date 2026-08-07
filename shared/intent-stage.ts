@@ -56,12 +56,14 @@ function validPrerequisites(text: string): boolean {
   if (body.length === 0) return true;
   const lines = body.split("\n");
   const blocks = assembleBulletBlocks(lines, isPrerequisiteBulletStart);
-  if (blocks.length === 0) {
-    return !lines.some((line) => line.trim().length > 0);
-  }
-  const firstNonEmpty = lines.findIndex((line) => line.trim().length > 0);
-  if (firstNonEmpty === -1) return true;
-  return isPrerequisiteBulletStart(lines[firstNonEmpty] ?? "");
+  const nonEmpty = lines.filter((line) => line.trim().length > 0);
+  if (nonEmpty.length === 0) return true;
+  const firstLine = nonEmpty[0] ?? "";
+  if (!isPrerequisiteBulletStart(firstLine)) return false;
+  return (
+    blocks.length > 0 &&
+    (blocks.length === 1 || blocks.every((block) => isPrerequisiteBulletStart(block.split("\n")[0] ?? "")))
+  );
 }
 
 function normalizePrerequisitesSpacing(text: string): string {

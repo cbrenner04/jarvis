@@ -306,11 +306,7 @@ export function isHumanOnlyCriterion(text: string): boolean {
   return ["(manual)", "visual inspection only", "no automated guard"].some((marker) => lower.includes(marker));
 }
 
-/**
- * Assemble bullet blocks from section lines: each block is a marker line plus continuation
- * lines until the next bullet-start line or level-2 `##` heading. Continuation lines are
- * appended with `.trim()` (blank lines inside a block are preserved).
- */
+/** Marker line plus continuations until the next bullet-start or `##` heading; continuation lines trimmed. */
 export function assembleBulletBlocks(sectionLines: string[], isBulletStart: (line: string) => boolean): string[] {
   const blocks: string[] = [];
   let i = 0;
@@ -337,27 +333,14 @@ export function assembleBulletBlocks(sectionLines: string[], isBulletStart: (lin
 
 /** Parse acceptance criteria from section lines. */
 function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
-  const blocks = assembleBulletBlocks(sectionLines, (line) => taskPattern.test(line));
-  const acceptanceCriteria: AcceptanceCriterion[] = [];
-  for (const block of blocks) {
+  return assembleBulletBlocks(sectionLines, (line) => taskPattern.test(line)).flatMap((block) => {
     const firstLine = block.split("\n")[0] ?? "";
     const taskMatch = firstLine.match(taskPattern);
-    if (!taskMatch?.[2]) {
-      continue;
-    }
+    if (!taskMatch?.[2]) return [];
     const text = taskMatch[2].trim();
-    let blockText = text;
-    const continuationLines = block.split("\n").slice(1);
-    for (const continuationLine of continuationLines) {
-      blockText += `\n${continuationLine.trim()}`;
-    }
-    acceptanceCriteria.push({
-      checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
-      text,
-      humanOnly: isHumanOnlyCriterion(blockText),
-    });
-  }
-  return acceptanceCriteria;
+    const blockText = block.length > firstLine.length ? `${text}${block.slice(firstLine.length)}` : text;
+    return [{ checked: (taskMatch[1] ?? " ").toLowerCase() === "x", text, humanOnly: isHumanOnlyCriterion(blockText) }];
+  });
 }
 
 /** Detect if an acceptance criterion is a behavioral/preservation AC.

@@ -21,6 +21,19 @@ function writeIntent(dir: string, name: string, content: string): string {
   return path;
 }
 
+function expectValidPrerequisitesIntent(prerequisitesBody: string): void {
+  const dir = stage();
+  const path = writeIntent(
+    dir,
+    "one-thing",
+    `---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n${prerequisitesBody}`,
+  );
+  expect(validateIntentStageContent([{ slug: "one-thing", path }])).toEqual({
+    ok: true,
+    intents: [{ slug: "one-thing", path }],
+  });
+}
+
 describe("intent stage contract", () => {
   test("accepts valid flat intents", () => {
     const dir = stage();
@@ -103,28 +116,12 @@ describe("intent stage contract", () => {
 
   test("accepts prerequisites bullet wrapped across two lines", () => {
     // @mutate shared/intent-stage.ts "assembleBulletBlocks(lines, isPrerequisiteBulletStart)" -> "lines.filter((line) => line.trim().length > 0)"
-    const dir = stage();
-    const path = writeIntent(
-      dir,
-      "one-thing",
-      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n- prerequisite wraps across\n  two physical lines\n",
-    );
-    expect(validateIntentStageContent([{ slug: "one-thing", path }])).toEqual({
-      ok: true,
-      intents: [{ slug: "one-thing", path }],
-    });
+    expectValidPrerequisitesIntent("- prerequisite wraps across\n  two physical lines\n");
   });
 
   test("accepts prerequisites bullet wrapped across three or more lines", () => {
-    const dir = stage();
-    const path = writeIntent(
-      dir,
-      "one-thing",
-      "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n- prerequisite uses `shared/spec-\nparser.ts` helper\n  and a third continuation line\n",
+    expectValidPrerequisitesIntent(
+      "- prerequisite uses `shared/spec-\nparser.ts` helper\n  and a third continuation line\n",
     );
-    expect(validateIntentStageContent([{ slug: "one-thing", path }])).toEqual({
-      ok: true,
-      intents: [{ slug: "one-thing", path }],
-    });
   });
 });

@@ -43,13 +43,19 @@ describe("resolveCiTestScope", () => {
     expect(resolveCiTestScope(["README.md"], true)).toBe("full");
   });
 
-  test("unresolvable base runs full suite regardless of paths", () => {
+  test("unresolvable base with code-bearing diff runs full suite", () => {
     expect(resolveCiTestScope(["v1/src/index.ts"], false)).toBe("full");
+  });
+
+  test("spec-only diff with unresolvable base skips tests", () => {
+    // @mutate scripts/ci-test-scope.ts "if (classified.length === 0) {" -> "if (false) {"
+    expect(resolveCiTestScope(["v2/spec/some-spec/index.md"], false)).toEqual([]);
   });
 
   test.each([
     ["doc-only", ["v1/docs/run-loop.md"]],
     ["spec-only", ["v1/spec/some-spec/index.md"]],
+    ["ready-intent-only", ["ready-intents/feature.md"]],
     ["report-only", ["reports/2026-07-05-session.md"]],
     [
       "mixed v1/v2 docs+specs",

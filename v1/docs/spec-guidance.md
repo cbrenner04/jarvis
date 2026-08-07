@@ -255,6 +255,10 @@ Bad (refactor — paraphrases behavior the author didn't verify):
 
 This is **refactor-only** and must not be read as "every AC cites a test." New-behavior ACs are explicitly exempt — they keep the prose form above, backed by *new* tests; requiring them to cite a pre-existing test is nonsensical because the behavior is new. The plan-draft validator enforces this automatically: a preservation/continuation AC (verbs like `preserved`, `unchanged`, `stays`, `stops`, `continues`) that carries no path-like test/source anchor produces a non-blocking `missing-anchor-behavioral-ac` warning at draft time.
 
+#### Rule-out and invariant guards: cite reachability on the base
+
+A criterion that rules out a condition (invariant phrasing such as `may never`, `must not equal`, `rules out`, `neither … may equal`, or `cannot occur`) must cite how that forbidden condition is reachable on the repository base today — a regression or pinning test naming the failure scenario, a production source path with an explicit violation hook at that site, or prose such as `reachable on`, `fails against the pre-fix`, or `constructible on main`. Invariant guards without reachability evidence are plan-review findings under `## Unfalsifiable premises`, not implement-time proof-form fixes.
+
 #### Failing-test requirement for runtime-behavior subspecs
 
 Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change. This ensures every behavior change lands with a failing-test surface that motivates and validates the work. The test may be newly written or an existing test that was updated to expect new behavior; either way, the AC must name a test that would fail against the baseline and pass against the implementation. "Existing tests stay green" does not satisfy this requirement; that is a preservation criterion (cite it using the refactor AC pattern above), not evidence of new behavior. Docs-only and spec-only subspecs are exempt — only runtime-behavior changes require the failing-test AC.

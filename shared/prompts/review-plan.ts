@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { detectAtRiskHollowPinsInMarkdown, formatAtRiskHollowPinsSection } from "../mutation-checkpoint-criteria.ts";
+import { detectUnfalsifiablePremisesInMarkdown, formatUnfalsifiablePremisesSection } from "../premise-falsification.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import { bindReviewPromptProfile, planReviewProfile } from "./review-profile.ts";
@@ -28,13 +29,18 @@ function readSpecFiles(specPath: string): string {
 export function buildPlanReviewPassContext(context: PlanReviewPromptContext): string {
   const specPath = context.specPath;
   if (!existsSync(specPath)) return "";
-  const findings = readdirSync(specPath, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md" && entry.name !== "intent.md",
-    )
-    .flatMap((entry) => detectAtRiskHollowPinsInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name));
-  return formatAtRiskHollowPinsSection(findings);
+  const stagedFiles = readdirSync(specPath, { withFileTypes: true }).filter(
+    (entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "index.md" && entry.name !== "intent.md",
+  );
+  const premiseFindings = stagedFiles.flatMap((entry) =>
+    detectUnfalsifiablePremisesInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name),
+  );
+  const hollowFindings = stagedFiles.flatMap((entry) =>
+    detectAtRiskHollowPinsInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name),
+  );
+  return [formatUnfalsifiablePremisesSection(premiseFindings), formatAtRiskHollowPinsSection(hollowFindings)]
+    .filter((section) => section.length > 0)
+    .join("\n\n");
 }
 
 function renderPlanReviewPrompt(

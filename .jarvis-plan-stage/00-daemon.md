@@ -26,7 +26,6 @@
   - resume only: `not_pipeline`, `terminal_pipeline`
 - Parser regression coverage lives in `tui-command-parser.test.ts`; dispatch and eligibility coverage live in `tui-entry.test.tsx` — rules out ink-rendered assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
-
 ## Work
 
 - Extend `TuiCommand` / `parseTuiCommand` for `approve`, `reject`, and `resume`.
@@ -42,7 +41,6 @@
 - [ ] `tui-entry.test.tsx` test `typed resume issues pipeline_resume for the selected non-terminal pipeline` drives dispatch against a fake daemon client, asserts one `pipeline_resume`, and fails against the pre-fix code; ineligible selection reports named feedback and issues no RPC.
 - [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed approve on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the approve eligibility guard turns that regression RED; in test `typed resume on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the resume eligibility guard turns that regression RED.
 - [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
-
 
 ## Documentation updates
 

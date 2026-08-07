@@ -12,10 +12,7 @@ import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
-import {
-  selectKeystoneCheckpointCriteria,
-  selectMutationCheckpointCriteria,
-} from "../../../shared/mutation-checkpoint-criteria.ts";
+import { selectKeystoneCheckpointCriteria } from "../../../shared/mutation-checkpoint-criteria.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -394,15 +391,8 @@ async function checkMutationCheckpointsAtCompletion(
   args: WriteExecuteInput,
 ): Promise<ContractCheck> {
   const subspecContent = readFileSync(expectedArtifactPath, "utf8");
-  const guardCriteria = selectMutationCheckpointCriteria(subspecContent, { requireChecked: true });
+  // Keystones are verified when present; they are not required for guard-checkpoint subspecs.
   const keystoneCriteria = selectKeystoneCheckpointCriteria(subspecContent, { requireChecked: true });
-  if (guardCriteria.length > 0 && keystoneCriteria.length === 0) {
-    return {
-      ok: false,
-      reason:
-        "Missing keystone checkpoint (ticked guard mutation-checkpoint criteria require exactly one ticked Keystone checkpoint criterion)",
-    };
-  }
   if (keystoneCriteria.length > 1) {
     return {
       ok: false,
@@ -471,7 +461,6 @@ export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | u
     failureReason.startsWith("Hollow mutation checkpoints") ||
     failureReason.startsWith("Inert headline change") ||
     failureReason.startsWith("Unlinked keystone checkpoints") ||
-    failureReason.startsWith("Missing keystone checkpoint") ||
     failureReason.startsWith("Multiple keystone checkpoints")
   );
 }

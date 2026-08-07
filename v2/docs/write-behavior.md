@@ -442,9 +442,9 @@ The loop classifies and routes results:
      assembled bullet block contains `Mutation checkpoint:` or a directive-shaped `@mutate`
      occurrence, and **ticked** `Keystone checkpoint:` criteria (`Keystone checkpoint:` prefix
      required for selection; `@mutate` in the block links only). Guard criteria containing
-     `Keystone checkpoint:` are excluded from guard selection. When ticked guard mutation-checkpoint
-     criteria exist and zero ticked keystone criteria exist, completion refuses (`Missing keystone
-     checkpoint`); more than one ticked keystone criterion refuses (`Multiple keystone checkpoints`).
+     `Keystone checkpoint:` are excluded from guard selection. Keystones are opt-in — a subspec with
+     guard mutation-checkpoint criteria and no keystone criterion completes normally; more than one
+     ticked keystone criterion refuses (`Multiple keystone checkpoints`).
      Pinning-test resolution and directive linking read the assembled full bullet block (aligned
      with selection); wrapped pinning-test references and enclosing-test names on continuation
      lines resolve. Each linked `// @mutate` directive in the named pinning test (path-qualified
@@ -461,7 +461,7 @@ The loop classifies and routes results:
      hollow checkpoint, no inert-headline checkpoint, no unlinked keystone, and no mixed unparseable
      reasons) reprompt within `maxIterations` via `write.mutation-directive-reprompt` instead of
      terminal `contract_miss`; budget exhaustion still settles `contract_miss` with harness
-     `## Blocker`. Missing keystone, multiple keystone, unlinked keystone, inert headline, and hollow
+     `## Blocker`. Multiple keystone, unlinked keystone, inert headline, and hollow
      guard checkpoints hard-block without reprompt. Verify-run unrestored directives are tracked;
      completion refuses when staged or `HEAD` blob content still carries replacement text without
      the original (including pending-commit resume).
@@ -470,7 +470,7 @@ The loop classifies and routes results:
   (`target_absent`, `target_ambiguous` with no hollow checkpoint, no inert-headline checkpoint,
   no unlinked keystone, and no mixed unparseable reasons) reprompt within `maxIterations` via
   `write.mutation-directive-reprompt` instead of appending `## Blocker` and settling terminal
-  `contract_miss`; budget exhaustion still hard-blocks. Missing keystone, multiple keystone,
+  `contract_miss`; budget exhaustion still hard-blocks. Multiple keystone,
   unlinked keystone, inert headline, and hollow guard checkpoints hard-block without reprompt. Other
   contract failures append `## Blocker` to the artifact
   (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index

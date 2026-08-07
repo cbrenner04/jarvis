@@ -28,7 +28,7 @@ Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project 
 | Completed specs | `<targetDir>/completed/` |
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
-Prioritization for seeds and ready intents (operator-maintained): `v2/spec/implement-queue.md`.
+Open work lives in `v2/spec/seeds/` and `v2/spec/ready-intents/`; the operator prioritizes across them per-session (there is no standing queue file).
 
 Successful publication consumes the queue input only after its durable output lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
 
@@ -96,7 +96,7 @@ Template for a new gotcha:
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
 3. Register the jarvis repo if needed: `jarvis1 init` from the project root.
-4. Read `v2/spec/implement-queue.md` for current gates.
+4. Review open work in `v2/spec/seeds/` and `v2/spec/ready-intents/`.
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**
 

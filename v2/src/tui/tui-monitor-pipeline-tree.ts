@@ -1,4 +1,5 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { buildWorkflowTableRows, type WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
@@ -210,20 +211,32 @@ export function buildMonitorPipelineTreeJoin(
   return { pipelineNodes, unattributedRows, builderRuns };
 }
 
-function isTerminalPipelineNode(pipeline: MonitorPipelineTreePipelineNode): boolean {
-  return pipeline.snapshot.finishedAtMs !== null;
+type TopLevelOrderKey = { rank: "running" | "gated" | "terminal"; createdAt: number; finishedAtMs: number | null };
+
+const GATED_PIPELINE_STATE: PipelineDerivedState = "awaiting-approval";
+
+function pipelineNodeOrderKey(node: MonitorPipelineTreePipelineNode): TopLevelOrderKey {
+  const { state, createdAt, finishedAtMs } = node.snapshot;
+  const rank = isPipelineTerminal(state) ? "terminal" : state === GATED_PIPELINE_STATE ? "gated" : "running";
+  return { rank, createdAt, finishedAtMs };
+}
+
+const ORDER_RANK_WEIGHT: Record<TopLevelOrderKey["rank"], number> = { running: 0, gated: 1, terminal: 2 };
+
+function compareTopLevelOrderKeys(a: TopLevelOrderKey, b: TopLevelOrderKey): number {
+  if (a.rank !== b.rank) return ORDER_RANK_WEIGHT[a.rank] - ORDER_RANK_WEIGHT[b.rank];
+  if (a.rank !== "terminal") return a.createdAt - b.createdAt;
+  // Mutation checkpoint: swapping a/b here must turn newest-finish-first ordering RED.
+  return (b.finishedAtMs ?? b.createdAt) - (a.finishedAtMs ?? a.createdAt);
 }
 
 function orderPipelineNodes(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
 ): MonitorPipelineTreePipelineNode[] {
-  return [...pipelineNodes].sort((left, right) => {
-    const leftTerminal = isTerminalPipelineNode(left);
-    const rightTerminal = isTerminalPipelineNode(right);
-    if (leftTerminal !== rightTerminal) return leftTerminal ? 1 : -1;
-    if (!leftTerminal) return left.snapshot.createdAt - right.snapshot.createdAt;
-    return (left.snapshot.finishedAtMs ?? 0) - (right.snapshot.finishedAtMs ?? 0);
-  });
+  return pipelineNodes
+    .map((node) => ({ node, key: pipelineNodeOrderKey(node) }))
+    .sort((left, right) => compareTopLevelOrderKeys(left.key, right.key))
+    .map(({ node }) => node);
 }
 
 function resolveSelectedAncestors(

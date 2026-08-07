@@ -654,26 +654,75 @@ describe("flattenMonitorPipelineTree reveal-on-select", () => {
 });
 
 describe("flattenMonitorPipelineTree ordering", () => {
-  test("orders active pipelines above terminals by createdAt then finishedAtMs", () => {
-    // Mutation checkpoint: sorting terminals before actives or by createdAt among terminals must turn ordering RED.
+  test("top-level rows order running before gated before terminal", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "state === GATED_PIPELINE_STATE" -> "false"
     const snapshots = [
-      pipelineSnapshot({ pipelineId: "pipe-terminal-late", createdAt: 400, state: "succeeded", finishedAtMs: 500 }),
-      pipelineSnapshot({ pipelineId: "pipe-active-late", createdAt: 200, finishedAtMs: null }),
-      pipelineSnapshot({ pipelineId: "pipe-terminal-early", createdAt: 50, state: "succeeded", finishedAtMs: 300 }),
-      pipelineSnapshot({ pipelineId: "pipe-active-early", createdAt: 100, finishedAtMs: null }),
+      pipelineSnapshot({ pipelineId: "running-1000", createdAt: 1000, finishedAtMs: null }),
+      pipelineSnapshot({ pipelineId: "running-2000", createdAt: 2000, finishedAtMs: null }),
+      pipelineSnapshot({
+        pipelineId: "gated-100",
+        createdAt: 100,
+        state: "awaiting-approval",
+        finishedAtMs: null,
+      }),
+      pipelineSnapshot({
+        pipelineId: "gated-500",
+        createdAt: 500,
+        state: "awaiting-approval",
+        finishedAtMs: null,
+      }),
+      pipelineSnapshot({ pipelineId: "terminal", createdAt: 50, state: "succeeded", finishedAtMs: 900 }),
     ];
     const displayNodes = flattenJoined(
       joinTree(snapshots),
-      new Set(["pipe-active-early", "pipe-active-late", "pipe-terminal-early", "pipe-terminal-late"]),
+      new Set(["running-1000", "running-2000", "gated-100", "gated-500", "terminal"]),
       null,
       20,
     );
 
     expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
-      "pipe-active-early",
-      "pipe-active-late",
-      "pipe-terminal-early",
-      "pipe-terminal-late",
+      "running-1000",
+      "running-2000",
+      "gated-100",
+      "gated-500",
+      "terminal",
+    ]);
+  });
+
+  test("terminal rows order newest finish first", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (b.finishedAtMs ?? b.createdAt) - (a.finishedAtMs ?? a.createdAt);" -> "return (a.finishedAtMs ?? a.createdAt) - (b.finishedAtMs ?? b.createdAt);"
+    const snapshots = [
+      pipelineSnapshot({ pipelineId: "terminal-old", createdAt: 50, state: "succeeded", finishedAtMs: 300 }),
+      pipelineSnapshot({ pipelineId: "terminal-new", createdAt: 100, state: "succeeded", finishedAtMs: 500 }),
+    ];
+    const displayNodes = flattenJoined(joinTree(snapshots), new Set(["terminal-old", "terminal-new"]), null, 20);
+
+    expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
+      "terminal-new",
+      "terminal-old",
+    ]);
+  });
+
+  test("a finishless terminal row sorts by createdAt among terminals", () => {
+    // Defensive-fallback fixture: the daemon's own derivePipelineFinishedAtMs always backfills a
+    // real finish for terminal pipelines. This exercises the client-side createdAt fallback that
+    // guards against parsePipelineList's unchecked wire-payload cast.
+    const snapshots = [
+      pipelineSnapshot({ pipelineId: "terminal-newest", createdAt: 300, state: "succeeded", finishedAtMs: 900 }),
+      pipelineSnapshot({ pipelineId: "terminal-finishless", createdAt: 500, state: "succeeded", finishedAtMs: null }),
+      pipelineSnapshot({ pipelineId: "terminal-oldest", createdAt: 100, state: "succeeded", finishedAtMs: 300 }),
+    ];
+    const displayNodes = flattenJoined(
+      joinTree(snapshots),
+      new Set(["terminal-newest", "terminal-finishless", "terminal-oldest"]),
+      null,
+      20,
+    );
+
+    expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
+      "terminal-newest",
+      "terminal-finishless",
+      "terminal-oldest",
     ]);
   });
 });
@@ -729,8 +778,8 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
     expect(displayNodes.length).toBeGreaterThan(5);
     expect(displayNodes.filter((node) => node.kind === "pipeline").map((node) => node.id)).toEqual([
       "pipe-active",
-      "pipe-terminal-old",
       "pipe-terminal-new",
+      "pipe-terminal-old",
     ]);
     expect(snapshots).toEqual(snapshotsBefore);
     expect(runs).toEqual(runsBefore);
@@ -767,13 +816,13 @@ describe("flattenMonitorPipelineTree overflow retention", () => {
     const displayNodes = flattenJoined(joinTree([collapsedTerminal, expandedTerminal], runs), expanded, null, 4, runs);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
-      { kind: "pipeline", id: "pipe-collapsed-terminal" },
       { kind: "pipeline", id: "pipe-expanded-terminal" },
       {
         kind: "stage",
         id: monitorPipelineStageNodeId("pipe-expanded-terminal", "plan", "default"),
       },
       { kind: "run", id: "run-expanded-plan" },
+      { kind: "pipeline", id: "pipe-collapsed-terminal" },
     ]);
   });
 });

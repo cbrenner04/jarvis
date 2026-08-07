@@ -2432,7 +2432,10 @@ describe("runTuiEntry", () => {
     );
     expect(initialPaintedTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
     expect(initialPaintedTreeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(
-      pipelines.slice(0, initialPaintedTreeRows.length).map((pipeline) => pipeline.pipelineId),
+      [...pipelines]
+        .reverse()
+        .slice(0, initialPaintedTreeRows.length)
+        .map((pipeline) => pipeline.pipelineId),
     );
 
     const initialSelected = initialState.selectedNodeId;
@@ -2568,7 +2571,7 @@ describe("runTuiEntry", () => {
 
   test("j, k, and off-pane selectNode keep the selected tree row in the painted viewport", async () => {
     const view = createViewHost();
-    const { deps, maxVisibleRows, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
+    const { deps, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
 
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
@@ -2593,9 +2596,10 @@ describe("runTuiEntry", () => {
       assertPaintedTreeSelection();
     }
 
-    const offPanePipeline = pipelines[maxVisibleRows];
+    const offPanePipeline = pipelines[0];
     if (!offPanePipeline) throw new Error("expected an off-pane pipeline");
     const offPaneId = offPanePipeline.pipelineId;
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(offPaneId);
     view.selectNode(offPaneId);
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);

@@ -18,7 +18,7 @@ Full analysis with annotated operator responses: session artifact `tui-command-c
 
 One left-pane surface, three questions in priority order: **what needs me** (pinned attention segment), **what's moving** (running work first), **what happened** (terminals, newest first).
 
-- **Unified work tree** — top-level nodes are pipelines *and* ad-hoc workflow invocations; the Unattributed segment and its FIFO die; everything rides full-flatten + scroll viewport. Order: running → awaiting gate → terminal (newest finish first).
+- **Unified work tree** — top-level nodes are pipelines *and* ad-hoc workflow invocations; the Unattributed segment and its FIFO die; everything rides full-flatten + scroll viewport. Order: running → awaiting gate → terminal (newest finish first) — **shipped**, see `00-three-bucket-top-level-ordering`.
 - **Intent-branch subtree** — pipeline → pre-split stages → one node per fan-out branch → its stages. `default` placeholders and satisfied gates elided from the tree (full records stay in detail). Intent row shows `→ N intents`.
 - **Row anatomy** — `indent · ▼/▶ · label (fill) · right-aligned status cluster` replaces the fixed 10-column grid. Pipeline label = seed slug. Selection by tone; `>` caret retired.
 - **Attention segment** — pinned, capped 6 + `+N more`: awaiting/rejected gates, failed stages/runs, publication failures; selectable, `approve`/`reject` act directly. Status line becomes `N running · N awaiting gate · N failed · N done`.
@@ -54,7 +54,7 @@ Dependency order; 1 and 2 are independent starting points; 5–7 in any order af
 | # | Seed | Delivers | Depends on | State |
 |---|------|----------|------------|-------|
 | 1 | `pipeline-terminal-timestamps` | Terminal stages/runs always stamped; approval `decidedAt` on wire; failed-before-start shape pinned | — | seeded |
-| 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection; running→gated→terminal order | — | seeded |
+| 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | seeded; running→gated→terminal order **shipped** (`00-three-bucket-top-level-ordering`) |
 | 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | seeded |
 | 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | seeded |
 | 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | seeded |

@@ -27,7 +27,7 @@ const ADVERSARY_PREMISE_INSTRUCTION = "Unfalsifiable premises listed in Context 
 
 describe("plan review premise-falsification pass", () => {
   test("flags an invariant criterion with no reachable violation on the base", () => {
-    // @mutate shared/premise-falsification.ts "if (!isPremiseBearingCriterion(block)) continue" -> "if (false) continue"
+    // @mutate shared/premise-falsification.ts "if (!isPremiseBearingCriterion(block)) continue" -> "if (true) continue"
     const markdown = ["# Spec", "", "## Acceptance criteria", "", UNREACHABLE_INVARIANT, ""].join("\n");
     const findings = detectUnfalsifiablePremisesInMarkdown(markdown);
     expect(findings).toHaveLength(1);

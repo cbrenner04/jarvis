@@ -30,19 +30,19 @@ Plans author invariant or rule-out acceptance criteria (*"rules out X"*, *"X may
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` feeds an invariant criterion whose violation is unreachable on the base and asserts plan debate review rendering flags it under `## Unfalsifiable premises`; fails against the pre-fix review roles, which do not check premises.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` feeds invariant criteria whose violations are reachable on the base and asserts no premise finding — the check does not fire on legitimate guards.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` does not flag ordinary behavioral criteria that happen to contain `must not` without invariant/rule-out framing.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` replays the retired fan-out subspec 00 decision bullet verbatim (*Each sibling dispatch owns only its resolved destination `(project, branch)` worktree; neither destination may equal the predecessor worktree.*) embedded in a fixture `## Acceptance criteria` block and reports it as unfalsifiable.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` asserts `buildPlanReviewPassContext` emits `## Unfalsifiable premises` before `## At-risk hollow pins` when both passes fire on the same snapshot, with neither section clobbering the other; omits empty sections when only one pass has findings.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` asserts a flagged premise that is the sole remaining non-human-only criterion in its subspec includes rationale that the subspec would be empty if dropped.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` skips human-only invariant criteria, ignores `index.md` / `intent.md` / nested paths when scanning a spec directory, and scans only `## Acceptance criteria` blocks in top-level staged `.md` files.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` asserts adversary and advocate rendered prompts receive injected premise findings; asserts the adversary rendered prompt includes the unfalsifiable-premise surfacing instruction.
-- [ ] Mutation checkpoint: in `shared/prompts/review-plan-premise-falsification.test.ts`, the test titled `flags an invariant criterion with no reachable violation on the base` carries a `// @mutate` directive disabling the premise-falsification heuristic; the mutation turns that test RED.
-- [ ] `v1/docs/spec-guidance.md` documents that a criterion ruling out a condition must cite how that condition is reachable on the repository base today.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust finalizes the premise-smell bullet: plan debate review falsifies unreachable invariant premises at plan time via `## Unfalsifiable premises`; the seed cleanup placeholder is removed; operator revert-and-rescope guidance for implement-time discovery remains.
-- [ ] `v2/docs/v1-behaviors.md` documents `## Unfalsifiable premises` injection into `REVIEW_PASS_CONTEXT` and composition ahead of `## At-risk hollow pins`.
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, and `bun run test:v2` exit zero.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` feeds an invariant criterion whose violation is unreachable on the base and asserts plan debate review rendering flags it under `## Unfalsifiable premises`; fails against the pre-fix review roles, which do not check premises.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` feeds invariant criteria whose violations are reachable on the base and asserts no premise finding — the check does not fire on legitimate guards.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` does not flag ordinary behavioral criteria that happen to contain `must not` without invariant/rule-out framing.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` replays the retired fan-out subspec 00 decision bullet verbatim (*Each sibling dispatch owns only its resolved destination `(project, branch)` worktree; neither destination may equal the predecessor worktree.*) embedded in a fixture `## Acceptance criteria` block and reports it as unfalsifiable.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` asserts `buildPlanReviewPassContext` emits `## Unfalsifiable premises` before `## At-risk hollow pins` when both passes fire on the same snapshot, with neither section clobbering the other; omits empty sections when only one pass has findings.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` asserts a flagged premise that is the sole remaining non-human-only criterion in its subspec includes rationale that the subspec would be empty if dropped.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` skips human-only invariant criteria, ignores `index.md` / `intent.md` / nested paths when scanning a spec directory, and scans only `## Acceptance criteria` blocks in top-level staged `.md` files.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` asserts adversary and advocate rendered prompts receive injected premise findings; asserts the adversary rendered prompt includes the unfalsifiable-premise surfacing instruction.
+- [x] Mutation checkpoint: in `shared/prompts/review-plan-premise-falsification.test.ts`, the test titled `flags an invariant criterion with no reachable violation on the base` carries a `// @mutate` directive disabling the premise-falsification heuristic; the mutation turns that test RED.
+- [x] `v1/docs/spec-guidance.md` documents that a criterion ruling out a condition must cite how that condition is reachable on the repository base today.
+- [x] `v2/docs/operator-runbook.md` § Gate trust finalizes the premise-smell bullet: plan debate review falsifies unreachable invariant premises at plan time via `## Unfalsifiable premises`; the seed cleanup placeholder is removed; operator revert-and-rescope guidance for implement-time discovery remains.
+- [x] `v2/docs/v1-behaviors.md` documents `## Unfalsifiable premises` injection into `REVIEW_PASS_CONTEXT` and composition ahead of `## At-risk hollow pins`.
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:v1`, and `bun run test:v2` exit zero.
 
 ## Documentation updates
 

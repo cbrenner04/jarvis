@@ -26,7 +26,6 @@ Typed `kill` and `pause` report `recognized_unavailable` naming CLI equivalents;
 - RPC outcomes and post-admission eligibility failures continue through `runSteeringAction`/`steeringFeedback` — rules out moving daemon errors onto the dock status row.
 - Deferred to first consumer: buffer, cursor, and focus behavior after successful typed run steering — pin when dispatch lands and the command editor interaction is observable.
 
-
 ## Work
 
 - Extend `tui-command-parser.ts` with `kill`, `pause`, and `resume-run` command kinds; drop `kill`/`pause` from `UNAVAILABLE_COMMANDS`.
@@ -41,7 +40,6 @@ Typed `kill` and `pause` report `recognized_unavailable` naming CLI equivalents;
 - [ ] `tui-entry.test.tsx` test `typed kill pause and resume-run steer the selected live run` drives dispatch against a fake daemon client, reaches `runSteeringAction` (one `pause`, `kill`, and `resume` RPC each on the selected live run), and fails against the pre-fix code; ineligible selection reports named feedback and issues no RPC.
 - [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed run steering on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the live-run eligibility guard turns that regression RED.
 - [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
-
 
 ## Documentation updates
 

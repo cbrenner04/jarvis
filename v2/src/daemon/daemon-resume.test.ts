@@ -1019,7 +1019,7 @@ test.each(
   const logReader = loopFinishedLogReader(runId, {
     loopOutcomeKind,
     iterationsConsumed: 1,
-    resumable: loopOutcomeKind === "ready_gate_out_of_scope" ? false : true,
+    resumable: loopOutcomeKind !== "ready_gate_out_of_scope",
     ...loopExtra,
   });
   const localHandlers = createHandlers(logReader);

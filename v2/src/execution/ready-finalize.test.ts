@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -392,8 +392,98 @@ describe("ready gate untouched-path classification", () => {
     );
   });
 
+  it("base-ref probe invokes the terminal ready-step scoped command", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "if (v2Mode !== undefined) {" -> "if (false) {"
+    const realRunV2Tests = await import("../../../scripts/run-v2-tests.ts");
+    const runV2Calls: Array<{ mode: string; files: string[] }> = [];
+    const subprocessCalls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    const failingPath = "v2/src/untouched.test.ts";
+    const probeScope = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "v2/spec/demo/index.md",
+    };
+    const allowed = new Set(["v2/src/changed.ts"]);
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git") {
+          if (args?.[0] === "merge-base") {
+            return "abc123\n";
+          }
+          if (args?.[0] === "worktree") {
+            return "";
+          }
+          if (args?.[0] === "diff" && args?.[1] === "--name-only") {
+            return "v2/src/changed.ts\n";
+          }
+          if (args?.[0] === "ls-files") {
+            return "";
+          }
+        }
+        if (cmd === "bun") {
+          subprocessCalls.push({
+            cmd,
+            args: [...args],
+            ...(options?.env !== undefined ? { env: options.env } : {}),
+          });
+        }
+        return "";
+      },
+    };
+
+    mock.module("../../../scripts/run-v2-tests.ts", () => ({
+      ...realRunV2Tests,
+      async runV2TestFiles(mode: string, files: string[]) {
+        runV2Calls.push({ mode, files });
+        return files.map((file) => ({ file, timedOut: false, status: 0 }));
+      },
+    }));
+
+    try {
+      for (const terminalCommand of ["bun run test:v2", "bun run test:integration:v2"] as const) {
+        runV2Calls.length = 0;
+        subprocessCalls.length = 0;
+        const output = gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: terminalCommand, status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: failingPath }],
+        });
+        const error = new ReadyGateError("bun run ready", 1, output);
+        await classifyReadyGateFailure(error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+        expect(runV2Calls).toEqual([
+          {
+            mode: terminalCommand === "bun run test:integration:v2" ? "integration" : "agent",
+            files: [failingPath],
+          },
+        ]);
+        expect(subprocessCalls.some((call) => call.args[0] === "test")).toBe(false);
+        expect(subprocessCalls.some((call) => call.args[0] === "run" && call.args[1] === "test:v2")).toBe(false);
+        expect(subprocessCalls.some((call) => call.args[0] === "run" && call.args[1] === "test:integration:v2")).toBe(
+          false,
+        );
+      }
+
+      subprocessCalls.length = 0;
+      const v1Output = gateOutput({
+        completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v1", status: 1 }],
+        failingFiles: [{ attemptId: "2.1", path: failingPath }],
+      });
+      const v1Error = new ReadyGateError("bun run ready", 1, v1Output);
+      await classifyReadyGateFailure(v1Error, [failingPath], allowed, probeScope, probeSeams, mockRunner);
+      const bunProbe = subprocessCalls.find((call) => call.cmd === "bun");
+      expect(bunProbe?.args).toEqual(["test", failingPath]);
+      expect(bunProbe?.env?.JARVIS_READY_TIER).toBe("full");
+      expect(bunProbe?.env?.JARVIS_READY_TEST_SCOPE).toBe("test:v2 test:integration:v2");
+    } finally {
+      mock.module("../../../scripts/run-v2-tests.ts", () => realRunV2Tests);
+    }
+  });
+
   it("base-ref reproduction classifies a base-passing worktree-failing path as in scope", async () => {
-    // @mutate invert `outcome === "pass"` to `outcome !== "pass"` in `probeOutsidePathsAtBaseRef` (ready-finalize.ts)
     const output = gateOutput({
       completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
       failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],

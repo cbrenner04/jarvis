@@ -8,7 +8,12 @@ import {
   type ReadyStepCompletion,
   TIMEOUT_EXIT_CODE,
 } from "../../../scripts/ready.ts";
-import { FAILING_TEST_FILE_MARKER } from "../../../scripts/run-v2-tests.ts";
+import {
+  aggregateExitCode,
+  FAILING_TEST_FILE_MARKER,
+  runV2TestFiles,
+  type SpawnOutcome,
+} from "../../../scripts/run-v2-tests.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -287,11 +292,44 @@ function formatBaseRefProbeError(error: unknown, exitCode?: number, output?: str
   return parts.join(": ");
 }
 
-function buildBaseRefProbeCommandArgs(terminalCommand: string, failingPath: string): string[] {
-  if (/^bun run test/.test(terminalCommand)) {
-    return ["test", failingPath];
-  }
+function buildBaseRefProbeCommandArgs(_terminalCommand: string, failingPath: string): string[] {
   return ["test", failingPath];
+}
+
+function v2ProbeModeFromTerminalCommand(terminalCommand: string): "agent" | "integration" | undefined {
+  if (terminalCommand === "bun run test:v2") {
+    return "agent";
+  }
+  if (terminalCommand === "bun run test:integration:v2") {
+    return "integration";
+  }
+  return undefined;
+}
+
+function createWorktreeSpawn(
+  runner: AsyncSubprocessRunner,
+  worktreeDir: string,
+): (command: string, args: string[], options: { timeout: number }) => Promise<SpawnOutcome> {
+  return async (command, args, options) => {
+    try {
+      await runner.runAsync(command, args, worktreeDir, {
+        maxBuffer: READY_GATE_MAX_BUFFER,
+        timeoutMs: options.timeout,
+      });
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError) {
+        return {
+          status: error.status ?? 1,
+          signal: null,
+          stdout: error.stdout,
+          stderr: error.stderr,
+          timedOut: error.status === TIMEOUT_EXIT_CODE,
+        };
+      }
+      throw error;
+    }
+  };
 }
 
 async function removeDetachedWorktree(
@@ -317,9 +355,19 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
       ).trim();
       worktreeDir = mkdtempSync(join(tmpdir(), "jarvis-ready-base-ref-probe-"));
       await runner.runAsync("git", ["worktree", "add", "--detach", worktreeDir, baseCommit], scope.worktreePath);
+      const probeEnv = await deriveReadyGateChildEnv(runner, scope.worktreePath, scope.baseRef);
+      const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
       try {
+        if (v2Mode !== undefined) {
+          const results = await runV2TestFiles(v2Mode, [path], createWorktreeSpawn(runner, worktreeDir));
+          if (aggregateExitCode(results) === 0) {
+            return "pass";
+          }
+          return "fail";
+        }
         await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
           maxBuffer: READY_GATE_MAX_BUFFER,
+          env: probeEnv,
         });
         return "pass";
       } catch (error) {
@@ -812,16 +860,20 @@ async function getChangedPathsWithResolvability(
   }
 }
 
+async function deriveReadyGateChildEnv(
+  runner: AsyncSubprocessRunner,
+  worktreePath: string,
+  baseRef: string,
+): Promise<NodeJS.ProcessEnv> {
+  const { paths: changedPaths, baseResolvable } = await getChangedPathsWithResolvability(runner, worktreePath, baseRef);
+  const scope = resolveCiTestScope(changedPaths, baseResolvable);
+  const testScope = scope === "full" ? "full" : scope.join(" ");
+  return { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
+}
+
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   return async (worktreePath: string, baseRef: string): Promise<void> => {
-    const { paths: changedPaths, baseResolvable } = await getChangedPathsWithResolvability(
-      runner,
-      worktreePath,
-      baseRef,
-    );
-    const scope = resolveCiTestScope(changedPaths, baseResolvable);
-    const testScope = scope === "full" ? "full" : scope.join(" ");
-    const env = { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
+    const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
     try {
       await runner.runAsync("bun", ["run", "ready"], worktreePath, {
         maxBuffer: READY_GATE_MAX_BUFFER,

@@ -438,31 +438,40 @@ The loop classifies and routes results:
      non-human-only acceptance criteria must all be ticked; re-reads the spec
      from the worktree to catch agent edits. On every implement `done` /
      `no-work` — independent of whether the unticked-row gate registered — the
-     same contract id also verifies **ticked** non-human-only criteria whose
+     same contract id also verifies **ticked** non-human-only guard criteria whose
      assembled bullet block contains `Mutation checkpoint:` or a directive-shaped `@mutate`
-     occurrence: pinning-test resolution and directive linking read that same full block
-     (aligned with selection); wrapped pinning-test references and enclosing-test names on
-     continuation lines resolve. Each linked `// @mutate` directive in the named pinning test
-     (path-qualified first, basename only when unambiguous) is applied in the
-     worktree, scoped suites run with `AbortSignal` and remaining
-     write-iteration wall budget, and the file is restored (snapshot restore on
-     abort, timeout, or throw — abnormal settle does not count as verification).
-     Hollow checkpoints (suite stayed green), comment-leading unparseable
-     directives, and unresolved pinning-test references settle `contract_miss`
-     with named coordinates. Repromptable unparseable directives (`target_absent`,
-     `target_ambiguous` in opened pinning files with no hollow checkpoint and no
-     mixed unparseable reasons) reprompt within `maxIterations` via
-     `write.mutation-directive-reprompt` instead of terminal `contract_miss`;
-     budget exhaustion still settles `contract_miss` with harness `## Blocker`.
-     Verify-run unrestored directives are tracked;
-     completion refuses when staged or `HEAD` blob content still carries
-     replacement text without the original (including pending-commit resume).
+     occurrence, and **ticked** `Keystone checkpoint:` criteria (`Keystone checkpoint:` prefix
+     required for selection; `@mutate` in the block links only). Guard criteria containing
+     `Keystone checkpoint:` are excluded from guard selection. When ticked guard mutation-checkpoint
+     criteria exist and zero ticked keystone criteria exist, completion refuses (`Missing keystone
+     checkpoint`); more than one ticked keystone criterion refuses (`Multiple keystone checkpoints`).
+     Pinning-test resolution and directive linking read the assembled full bullet block (aligned
+     with selection); wrapped pinning-test references and enclosing-test names on continuation
+     lines resolve. Each linked `// @mutate` directive in the named pinning test (path-qualified
+     first, basename only when unambiguous) is applied in the worktree, scoped suites run with
+     `AbortSignal` and remaining write-iteration wall budget, and the file is restored (snapshot
+     restore on abort, timeout, or throw — abnormal settle does not count as verification). Guard
+     hollow checkpoints (suite stayed green) settle `contract_miss` with `Hollow mutation checkpoints`
+     messaging. Keystone directives whose scoped suite stays green after apply refuse with `Inert
+     headline change` (distinct from hollow guard messaging); keystone caught completes normally.
+     A ticked keystone criterion with no linked `// @mutate` on the named pin refuses with `Unlinked
+     keystone checkpoints` (distinct from guard hollow). Comment-leading unparseable directives and
+     unresolved pinning-test references settle `contract_miss` with named coordinates. Repromptable
+     unparseable directives (`target_absent`, `target_ambiguous` in opened pinning files with no
+     hollow checkpoint, no inert-headline checkpoint, no unlinked keystone, and no mixed unparseable
+     reasons) reprompt within `maxIterations` via `write.mutation-directive-reprompt` instead of
+     terminal `contract_miss`; budget exhaustion still settles `contract_miss` with harness
+     `## Blocker`. Missing keystone, multiple keystone, unlinked keystone, inert headline, and hollow
+     guard checkpoints hard-block without reprompt. Verify-run unrestored directives are tracked;
+     completion refuses when staged or `HEAD` blob content still carries replacement text without
+     the original (including pending-commit resume).
   
   All contracts pass → success (`complete`). Repromptable mutation-directive misses
-  (`target_absent`, `target_ambiguous` with no hollow checkpoint and no mixed
-  unparseable reasons) reprompt within `maxIterations` via
-  `write.mutation-directive-reprompt` instead of appending `## Blocker` and
-  settling terminal `contract_miss`; budget exhaustion still hard-blocks. Other
+  (`target_absent`, `target_ambiguous` with no hollow checkpoint, no inert-headline checkpoint,
+  no unlinked keystone, and no mixed unparseable reasons) reprompt within `maxIterations` via
+  `write.mutation-directive-reprompt` instead of appending `## Blocker` and settling terminal
+  `contract_miss`; budget exhaustion still hard-blocks. Missing keystone, multiple keystone,
+  unlinked keystone, inert headline, and hollow guard checkpoints hard-block without reprompt. Other
   contract failures append `## Blocker` to the artifact
   (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index
   for linked runs) and stop (`contract_miss`). A missing terminal

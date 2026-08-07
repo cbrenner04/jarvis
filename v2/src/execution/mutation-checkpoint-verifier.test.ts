@@ -17,6 +17,8 @@ import {
 const REPO_ROOT = join(import.meta.dir, "../../..");
 const EMPTY_CHECKPOINT_REPORT: MutationCheckpointReport = {
   hollow: [],
+  inertHeadline: [],
+  keystoneUnlinked: [],
   unparseable: [],
   caught: [],
   unrestored: [],

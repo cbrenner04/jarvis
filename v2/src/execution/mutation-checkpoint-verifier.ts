@@ -2,8 +2,8 @@ import { type Dirent, existsSync, readdirSync, readFileSync, statSync, unlinkSyn
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import {
-  CRITERION_MARKER,
   DIRECTIVE_PATTERN,
+  selectKeystoneCheckpointCriteria,
   selectMutationCheckpointCriteria,
 } from "../../../shared/mutation-checkpoint-criteria.ts";
 import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -48,15 +48,21 @@ export type UnparseableDirective = {
   rawReference?: string;
 };
 
-export type HollowCheckpoint = {
+export type CriterionCheckpoint = {
   criterionText: string;
   /** Absent when the criterion linked no directive at all. */
   directive: MutateDirective | undefined;
   detail: string;
 };
 
+export type HollowCheckpoint = CriterionCheckpoint;
+export type InertHeadlineCheckpoint = CriterionCheckpoint;
+export type KeystoneUnlinkedCheckpoint = CriterionCheckpoint;
+
 export type MutationCheckpointReport = {
   hollow: HollowCheckpoint[];
+  inertHeadline: InertHeadlineCheckpoint[];
+  keystoneUnlinked: KeystoneUnlinkedCheckpoint[];
   unparseable: UnparseableDirective[];
   caught: MutateDirective[];
   /** Directives applied during this verify run and not confirmed restored. */
@@ -69,6 +75,8 @@ const UNRESTORED_DIRECTIVES_FILENAME = "jarvis-mutation-unrestored.json";
 
 const EMPTY_MUTATION_CHECKPOINT_REPORT: MutationCheckpointReport = {
   hollow: [],
+  inertHeadline: [],
+  keystoneUnlinked: [],
   unparseable: [],
   caught: [],
   unrestored: [],
@@ -371,11 +379,15 @@ export function describeUnparseable(directive: UnparseableDirective): string {
   return `${directive.sourceFile}:${directive.sourceLine}: ${directive.reason}: ${directive.raw}`;
 }
 
-export function describeHollow(checkpoint: HollowCheckpoint): string {
+export function describeCriterionCheckpoint(checkpoint: CriterionCheckpoint): string {
   if (checkpoint.directive === undefined) return checkpoint.detail;
   const { sourceFile, sourceLine, raw } = checkpoint.directive;
   return `${sourceFile}:${sourceLine}: ${raw} — ${checkpoint.detail}`;
 }
+
+export const describeHollow = describeCriterionCheckpoint;
+export const describeInertHeadline = describeCriterionCheckpoint;
+export const describeKeystoneUnlinked = describeCriterionCheckpoint;
 
 /**
  * Verify every ticked, non-human-only criterion that claims a mutation turns a
@@ -402,11 +414,14 @@ export async function verifyMutationCheckpoints(
   if (!existsSync(subspecPath)) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const subspec = readFile(subspecPath);
-  const selectedCriteria = selectMutationCheckpointCriteria(subspec, { requireChecked: true });
-  if (selectedCriteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
+  const guardCriteria = selectMutationCheckpointCriteria(subspec, { requireChecked: true });
+  const keystoneCriteria = selectKeystoneCheckpointCriteria(subspec, { requireChecked: true });
+  if (guardCriteria.length === 0 && keystoneCriteria.length === 0) return EMPTY_MUTATION_CHECKPOINT_REPORT;
 
   const report_: MutationCheckpointReport = {
     hollow: [],
+    inertHeadline: [],
+    keystoneUnlinked: [],
     unparseable: [],
     caught: [],
     unrestored: [],
@@ -416,33 +431,39 @@ export async function verifyMutationCheckpoints(
   const unrestored = new Map<string, MutateDirective>();
 
   try {
-    for (const entry of selectedCriteria) {
-      throwIfAborted(signal);
-      // biome-ignore format: kept single-line so the mutation-checkpoint @mutate directive can match this call verbatim
-      const linked = resolveLinkedDirectives(
-        worktreeRoot,
-        subspecPath,
-        entry.block,
-        entry.firstLine,
-        parsedFiles,
-        readFile,
-        report_,
-      );
-      if (linked === undefined) continue;
-
-      for (const directive of linked) {
+    for (const [criteria, role] of [
+      [guardCriteria, "guard"],
+      [keystoneCriteria, "keystone"],
+    ] as const) {
+      for (const entry of criteria) {
         throwIfAborted(signal);
-        await applyAndClassify(
+        const linked = resolveLinkedDirectives(
           worktreeRoot,
+          subspecPath,
+          entry.block,
           entry.firstLine,
-          directive,
-          { readFile, writeFile, runScopedTests },
+          parsedFiles,
+          readFile,
           report_,
-          snapshots,
-          unrestored,
-          signal,
-          remainingIterationWallMs,
+          role,
         );
+        if (linked === undefined) continue;
+
+        for (const directive of linked) {
+          throwIfAborted(signal);
+          await applyAndClassify(
+            worktreeRoot,
+            entry.firstLine,
+            directive,
+            { readFile, writeFile, runScopedTests },
+            report_,
+            snapshots,
+            unrestored,
+            signal,
+            remainingIterationWallMs,
+            role,
+          );
+        }
       }
     }
   } finally {
@@ -467,6 +488,7 @@ function resolveLinkedDirectives(
   parsedFiles: Map<string, { directives: MutateDirective[]; unparseable: UnparseableDirective[] }>,
   readFile: (path: string) => string,
   report_: MutationCheckpointReport,
+  role: "guard" | "keystone",
 ): MutateDirective[] | undefined {
   const resolved = resolvePinningTestPath(worktreeRoot, block);
   if (!resolved.ok) {
@@ -496,11 +518,12 @@ function resolveLinkedDirectives(
   const linked = linkDirectivesToCriterion(block, parsed.directives);
   if (linked.length === 0) {
     // The loophole this contract closes: a prose comment is not evidence.
-    report_.hollow.push({
-      criterionText,
-      directive: undefined,
-      detail: `no ${DIRECTIVE_MARKER} directive linked to this criterion; add ${DIRECTIVE_FORM} on the named pin`,
-    });
+    const detail = `no ${DIRECTIVE_MARKER} directive linked to this criterion; add ${DIRECTIVE_FORM} on the named pin`;
+    if (role === "keystone") {
+      report_.keystoneUnlinked.push({ criterionText, directive: undefined, detail });
+    } else {
+      report_.hollow.push({ criterionText, directive: undefined, detail });
+    }
     return undefined;
   }
   return linked;
@@ -521,6 +544,7 @@ async function applyAndClassify(
   unrestored: Map<string, MutateDirective>,
   signal: AbortSignal | undefined,
   remainingIterationWallMs: (() => number) | undefined,
+  role: "guard" | "keystone",
 ): Promise<void> {
   const resolved = resolveTarget(worktreeRoot, directive, io.readFile);
   if (!resolved.ok) {
@@ -561,7 +585,15 @@ async function applyAndClassify(
   }
 
   if (survived) {
-    report_.hollow.push({ criterionText, directive, detail: "scoped suite stayed green under this mutation" });
+    if (role === "keystone") {
+      report_.inertHeadline.push({
+        criterionText,
+        directive,
+        detail: "scoped suite stayed green under headline revert",
+      });
+    } else {
+      report_.hollow.push({ criterionText, directive, detail: "scoped suite stayed green under this mutation" });
+    }
   } else {
     report_.caught.push(directive);
   }

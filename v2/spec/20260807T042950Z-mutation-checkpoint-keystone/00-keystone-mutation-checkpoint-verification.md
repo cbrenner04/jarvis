@@ -61,11 +61,11 @@ Guard mutation checkpoints prove inverting a guard turns a pinning test red; the
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives` drives completion over an embedded fixture subspec whose keystone directive survives its mutation and asserts a named inert-headline blocker distinct from hollow guard checkpoint text; fails against the pre-fix completion boundary.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `allows completion when keystone mutation turns its pin red`, `refuses when guard checkpoints exist but no keystone criterion`, and `refuses when more than one ticked keystone criterion` prove caught keystone completes normally, guard-without-keystone is refused, and >1 ticked keystone criteria are refused with messaging distinct from hollow and inert-survival blockers; fail pre-fix.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives`; Mutation checkpoint: its pinning test carries `// @mutate` removing the inert-headline refusal; reverting that refusal turns the named pin red.
-- [ ] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — Keystone checkpoint on this subspec: reverting the inert-headline refusal turns its named pin red (`caught`), proving the headline change matters; not green survival on that pin.
-- [ ] `bun run typecheck`, `bun run check`, `bun run test:shared`, and `bun run test:v2` exit zero.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives` drives completion over an embedded fixture subspec whose keystone directive survives its mutation and asserts a named inert-headline blocker distinct from hollow guard checkpoint text; fails against the pre-fix completion boundary.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `allows completion when keystone mutation turns its pin red`, `refuses when guard checkpoints exist but no keystone criterion`, and `refuses when more than one ticked keystone criterion` prove caught keystone completes normally, guard-without-keystone is refused, and >1 ticked keystone criteria are refused with messaging distinct from hollow and inert-survival blockers; fail pre-fix.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — `refuses completion when keystone mutation survives`; Mutation checkpoint: its pinning test carries `// @mutate` removing the inert-headline refusal; reverting that refusal turns the named pin red.
+- [x] `v2/src/execution/mutation-checkpoint-keystone.test.ts` — Keystone checkpoint on this subspec: reverting the inert-headline refusal turns its named pin red (`caught`), proving the headline change matters; not green survival on that pin.
+- [x] `bun run typecheck`, `bun run check`, `bun run test:shared`, and `bun run test:v2` exit zero.
 
 ## Documentation updates
 

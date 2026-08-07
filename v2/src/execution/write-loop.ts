@@ -86,7 +86,12 @@ import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
-import { executeWrite, isMutationCheckpointCriteriaTickedMiss, type WriteExecuteInput } from "./write.ts";
+import {
+  executeWrite,
+  isMutationCheckpointCriteriaTickedMiss,
+  isRepromptEligibleMutationCheckpointMiss,
+  type WriteExecuteInput,
+} from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -302,7 +307,9 @@ function blockingUnparseableEntries(report: MutationCheckpointReport) {
 function repromptableMutationDirectiveBlocking(
   report: MutationCheckpointReport,
 ): readonly UnparseableDirective[] | undefined {
-  if (report.hollow.length > 0) return undefined;
+  if (report.hollow.length > 0 || report.inertHeadline.length > 0 || report.keystoneUnlinked.length > 0) {
+    return undefined;
+  }
   const blocking = blockingUnparseableEntries(report);
   if (
     blocking.length === 0 ||
@@ -1475,6 +1482,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         if (
           result.failedContractId === "spec.criteria-ticked" &&
           isMutationCheckpointCriteriaTickedMiss(result.failureReason) &&
+          isRepromptEligibleMutationCheckpointMiss(result.failureReason) &&
           args.promptId === "patch.prompt.body" &&
           args.expectedArtifactPath.length > 0
         ) {

@@ -330,28 +330,37 @@ async function executeIntentSplitWrite(
     throw new Error("intent split write requires SEED_LABEL and SEED_CONTENT placeholders");
   }
 
-  const reprompt = args.landingContractReprompt;
+  const landingReprompt = args.landingContractReprompt;
+  const lintReprompt = args.stagedMarkdownLintReprompt;
   const preserveStage =
-    reprompt !== undefined ||
+    landingReprompt !== undefined ||
+    lintReprompt !== undefined ||
     (existsSync(expectedArtifactPath) && listIntentStageMarkdownFiles(expectedArtifactPath).length > 0);
   if (!preserveStage) {
     rmSync(expectedArtifactPath, { recursive: true, force: true });
   }
   mkdirSync(expectedArtifactPath, { recursive: true });
   const prompt =
-    reprompt !== undefined
+    landingReprompt !== undefined
       ? renderArtifactTemplate(loadPromptRegistry().getById("write.landing-contract-reprompt"), {
-          VIOLATION: reprompt.violation,
-          OFFENDING_FILE: reprompt.offendingFile,
+          VIOLATION: landingReprompt.violation,
+          OFFENDING_FILE: landingReprompt.offendingFile,
           STAGING_DIR: args.expectedArtifactPath,
         })
-      : buildIntentSplitPrompt({
-          workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-          seedLabel,
-          seedContent,
-          stagingDir: args.expectedArtifactPath,
-          stepRules: args.stepRules,
-        });
+      : lintReprompt !== undefined
+        ? renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
+            RULE_ID: lintReprompt.ruleId,
+            OFFENDING_FILE: lintReprompt.offendingFile,
+            STAGING_DIR: args.expectedArtifactPath,
+            VIOLATION: lintReprompt.message,
+          })
+        : buildIntentSplitPrompt({
+            workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+            seedLabel,
+            seedContent,
+            stagingDir: args.expectedArtifactPath,
+            stepRules: args.stepRules,
+          });
 
   return runWriteStep(args, worktreePath, {
     prompt,

@@ -166,7 +166,7 @@ describe("plan write step staged Markdown lint", () => {
       offendingFile: ".jarvis-plan-stage/00-one.md",
     });
     // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn this test RED.
-    // @mutate v2/src/execution/write-loop.ts "        if (lintResult.kind === \"violation\") {" -> "        if (false) {"
+    // @mutate v2/src/execution/write-loop.ts "// \"plan write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (lintResult.kind === \"violation\") {" -> "// \"plan write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (false) {"
   });
 
   test("plan write step clean staged Markdown finalizes without extra invocation", async () => {
@@ -318,5 +318,195 @@ describe("plan write step staged Markdown lint", () => {
     expect(result.kind).toBe("complete");
     const stageDir = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
     expect(readFileSync(join(stageDir, goodSubspecFile), "utf8")).toBe(goodSubspec);
+  });
+});
+
+function stageIntentFromFixture(stagePath: string, fixtureName: string, intentFile = "lint-violation.md"): void {
+  mkdirSync(stagePath, { recursive: true });
+  writeFileSync(join(stagePath, intentFile), readFileSync(join(FIXTURES_DIR, fixtureName), "utf8"), "utf8");
+}
+
+async function runIntentSplitLoop(args: {
+  jarvisRoot: string;
+  stateDbPath: string;
+  branchName: string;
+  bindings: readonly InvocationBinding[];
+  maxIterations?: number;
+  logSink?: LogSink;
+}) {
+  roots.push(join(args.jarvisRoot, ".."));
+  const store = openStateStore(args.stateDbPath);
+  const loopInput: WriteLoopInput = {
+    worktree: {
+      projectRoot: "/fake",
+      projectName: "demo",
+      branchName: args.branchName,
+      baseRef: "HEAD",
+      jarvisRoot: args.jarvisRoot,
+    },
+    specPath: "ready-intents",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: ".jarvis-intent-stage",
+    promptId: "intent.prompt.split",
+    promptPlaceholders: {
+      SEED_LABEL: "inline",
+      SEED_CONTENT: "Split the seed into ready intents",
+    },
+    publishCompletion: false,
+    freshDispatch: true,
+    bindings: args.bindings,
+    stateStore: store,
+    withExternalWorktree: createGitAwareFakeWithExternalWorktree(args.jarvisRoot),
+    sessionsDir: join(args.jarvisRoot, "sessions"),
+    ...(args.maxIterations !== undefined ? { maxIterations: args.maxIterations } : {}),
+    ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+  };
+  try {
+    return await executeWriteLoop(loopInput);
+  } finally {
+    store.close();
+  }
+}
+
+describe("intent write step staged Markdown lint", () => {
+  test("intent write step staged Markdown lint violation reprompts before finalize", async () => {
+    if (skipWithoutHarnessMarkdownlint("intent write step staged Markdown lint violation reprompts before finalize")) {
+      return;
+    }
+
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+    let repromptPrompt = "";
+    const branchName = `intent-md-lint-reprompt-${Date.now()}`;
+    const cleanBytes = readFileSync(join(FIXTURES_DIR, "intent-md038-clean.md"), "utf8");
+
+    const result = await runIntentSplitLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      maxIterations: 3,
+      logSink: sink,
+      bindings: [
+        {
+          id: "split",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd, prompt }) => {
+            invocations += 1;
+            const stage = join(cwd, ".jarvis-intent-stage");
+            if (invocations === 1) {
+              stageIntentFromFixture(stage, "intent-md038-violation.md");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            repromptPrompt = prompt;
+            writeFileSync(join(stage, "lint-violation.md"), cleanBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("complete");
+    expect(repromptPrompt).toContain("MD025");
+    expect(repromptPrompt).toContain(".jarvis-intent-stage/lint-violation.md");
+    expect(result.iterationsConsumed).toBe(2);
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("staged_markdown_lint_reprompt");
+    expect(events).not.toContain("contract_miss_detail");
+    const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "staged_markdown_lint_reprompt");
+    expect(reprompt).toMatchObject({
+      kind: "staged_markdown_lint_reprompt",
+      ruleId: "MD025",
+      offendingFile: ".jarvis-intent-stage/lint-violation.md",
+    });
+    // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn this test RED.
+    // @mutate v2/src/execution/write-loop.ts "// \"intent write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (lintResult.kind === \"violation\") {" -> "// \"intent write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (false) {"
+  });
+
+  test("intent write step clean staged Markdown finalizes without extra invocation", async () => {
+    if (skipWithoutHarnessMarkdownlint("intent write step clean staged Markdown finalizes without extra invocation")) {
+      return;
+    }
+
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    let invocations = 0;
+    const branchName = `intent-md-lint-clean-${Date.now()}`;
+
+    const result = await runIntentSplitLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      bindings: [
+        {
+          id: "split",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd }) => {
+            invocations += 1;
+            stageIntentFromFixture(join(cwd, ".jarvis-intent-stage"), "intent-md038-clean.md", "lint-clean.md");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(1);
+    expect(result.kind).toBe("complete");
+    expect(result.iterationsConsumed).toBe(1);
+  });
+
+  test("intent write step landing-contract reprompt takes precedence over staged Markdown lint", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+    let repromptPrompt = "";
+    const branchName = `intent-landing-before-md-lint-${Date.now()}`;
+
+    const result = await runIntentSplitLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      maxIterations: 3,
+      logSink: sink,
+      bindings: [
+        {
+          id: "split",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd, prompt }) => {
+            invocations += 1;
+            const stage = join(cwd, ".jarvis-intent-stage");
+            if (invocations === 1) {
+              stageIntentFromFixture(stage, "intent-landing-and-md038-violation.md", "bad-intent.md");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            repromptPrompt = prompt;
+            writeFileSync(
+              join(stage, "bad-intent.md"),
+              "---\nname: bad-intent\n---\n\n# Bad Intent\n\n## Prerequisites\n\n- prior behavior exists\n",
+              "utf8",
+            );
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(2);
+    expect(result.kind).toBe("complete");
+    expect(repromptPrompt).toContain("must list prerequisites as one bullet per line");
+    expect(repromptPrompt).toContain("bad-intent.md");
+    expect(repromptPrompt).not.toContain("MD025");
+    expect(result.iterationsConsumed).toBe(2);
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("landing_contract_reprompt");
+    expect(events).not.toContain("staged_markdown_lint_reprompt");
+    const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "landing_contract_reprompt");
+    expect(reprompt).toMatchObject({
+      kind: "landing_contract_reprompt",
+      offendingFile: "bad-intent.md",
+    });
+    expect(reprompt && "violation" in reprompt ? reprompt.violation : "").toContain(
+      "must list prerequisites as one bullet per line",
+    );
   });
 });

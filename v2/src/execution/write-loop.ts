@@ -1221,6 +1221,123 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           continue;
         }
         pendingLandingReprompt = undefined;
+
+        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, { worktreePath });
+        // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn
+        // "intent write step staged Markdown lint violation reprompts before finalize" RED.
+        if (lintResult.kind === "violation") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          if (iterationsConsumed >= maxIterations) {
+            store.commitCompletionBoundary({
+              attemptId,
+              runStatus: "failed",
+              outcomeKind: "landing_failed",
+            });
+            args.logSink?.append(runId, {
+              kind: "boundary_committed",
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            });
+            store.setRunStatus(runId, "failed");
+            args.logSink?.append(runId, {
+              kind: "loop_finished",
+              loopOutcomeKind: "landing_failed",
+              iterationsConsumed,
+              resumable: true,
+            });
+            return {
+              kind: "landing_failed",
+              runId,
+              iterationsConsumed,
+              resumable: true,
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            };
+          }
+
+          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "progress",
+            runStatus: "in-progress",
+          });
+          args.logSink?.append(runId, {
+            kind: "staged_markdown_lint_reprompt",
+            attemptId,
+            ruleId: lintResult.ruleId,
+            violation: truncateLogText(lintResult.message),
+            offendingFile: lintResult.filePath,
+          });
+          pendingStagedMarkdownLintReprompt = {
+            ruleId: lintResult.ruleId,
+            offendingFile: lintResult.filePath,
+            message: lintResult.message,
+          };
+          if (args.signal?.aborted) {
+            return finishLoop(args, runId, "progress", iterationsConsumed, true);
+          }
+          if (args.pauseSignal?.aborted) {
+            store.setRunStatus(runId, "paused");
+            return finishLoop(args, runId, "paused", iterationsConsumed, true);
+          }
+          continue;
+        }
+        if (lintResult.kind === "invocation_error") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          store.commitCompletionBoundary({
+            attemptId,
+            runStatus: "failed",
+            outcomeKind: "landing_failed",
+          });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "landing_failed",
+            runStatus: "failed",
+          });
+          store.setRunStatus(runId, "failed");
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "landing_failed",
+            iterationsConsumed,
+            resumable: false,
+          });
+          return {
+            kind: "landing_failed",
+            runId,
+            iterationsConsumed,
+            resumable: false,
+            attemptId,
+            outcomeKind: "landing_failed",
+            runStatus: "failed",
+          };
+        }
+        pendingStagedMarkdownLintReprompt = undefined;
       }
 
       if (result.kind === "complete" && args.promptId === PLAN_DRAFT_PROMPT_ID) {

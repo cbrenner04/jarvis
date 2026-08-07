@@ -26,11 +26,11 @@ The intent write step drafts Markdown under `.jarvis-intent-stage/` on the same 
 
 ## Acceptance criteria
 
-- [ ] `write-loop-staged-markdown-lint.test.ts` `intent write step staged Markdown lint violation reprompts before finalize` drives an intent write with a staged `MD038` violation (post-autofix state), asserts a reprompt with rule id and file path before finalize, and fails against pre-fix code that finalizes unconditionally.
-- [ ] `write-loop-staged-markdown-lint.test.ts` `intent write step clean staged Markdown finalizes without extra invocation` asserts one agent invocation and finalize on clean intent staging; fails against pre-fix code if a second lint-only invocation runs.
-- [ ] `write-loop-staged-markdown-lint.test.ts` `intent write step landing-contract reprompt takes precedence over staged Markdown lint` drives an intent write violating both and asserts a single reprompt per iteration with the landing-contract miss reported first.
-- [ ] Mutation checkpoint: in `write-loop-staged-markdown-lint.test.ts`, the test titled `intent write step staged Markdown lint violation reprompts before finalize` carries a `// @mutate` directive (inside the test body) on the intent-split lint guard line in `write-loop.ts`; the mutation turns that test RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop-staged-markdown-lint.test.ts` `intent write step staged Markdown lint violation reprompts before finalize` drives an intent write with a staged `MD038` violation (post-autofix state), asserts a reprompt with rule id and file path before finalize, and fails against pre-fix code that finalizes unconditionally.
+- [x] `write-loop-staged-markdown-lint.test.ts` `intent write step clean staged Markdown finalizes without extra invocation` asserts one agent invocation and finalize on clean intent staging; fails against pre-fix code if a second lint-only invocation runs.
+- [x] `write-loop-staged-markdown-lint.test.ts` `intent write step landing-contract reprompt takes precedence over staged Markdown lint` drives an intent write violating both and asserts a single reprompt per iteration with the landing-contract miss reported first.
+- [x] Mutation checkpoint: in `write-loop-staged-markdown-lint.test.ts`, the test titled `intent write step staged Markdown lint violation reprompts before finalize` carries a `// @mutate` directive (inside the test body) on the intent-split lint guard line in `write-loop.ts`; the mutation turns that test RED.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

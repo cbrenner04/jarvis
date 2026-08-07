@@ -30,6 +30,7 @@ Terminal runs and stages can reach the wire with no finish time. `list` omits `f
 - `v2/docs/daemon-host.md` § RPC table `list` row — `finishedAtMs` is non-null for every terminal status and no longer omitted when attempts carry none.
 - `v2/docs/daemon-host.md` § RPC table `pipeline_list` row — approval `decidedAt` on the projected stage shape; `startedAt` stays null on a stage that failed before start.
 - `v2/docs/daemon-host.md` § Pipeline stage dispatch — every settle path writes `endedAt`; the failed-before-start shape.
+- `v2/docs/v1-behaviors.md` — record that `list` now always reports `finishedAtMs` for terminal runs and `pipeline_list` now projects approval `decidedAt`.
 
 ## Prerequisites
 

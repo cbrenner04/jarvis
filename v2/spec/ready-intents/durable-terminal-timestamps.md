@@ -31,6 +31,7 @@ Terminal rows can be persisted with no finish time. `setRunStatus(runId, "failed
 
 - `v2/docs/state-store.md` § Schema — the run finish column and stage `decided_at`.
 - `v2/docs/state-store.md` § API and § Semantics — terminal run transitions and terminal stage writes always record a finish time; `commitApprovalDecision` records `decidedAt`; `startedAt` stays null on a stage that failed before start.
+- `v2/docs/v1-behaviors.md` — record that `setRunStatus`, `commitGuardedKill`, and terminal `updateStage`/`skipRemainingStages` writes now always carry a finish timestamp, and approval decisions now record `decidedAt`.
 
 ## Prerequisites
 

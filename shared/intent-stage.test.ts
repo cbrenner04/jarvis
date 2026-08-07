@@ -21,6 +21,19 @@ function writeIntent(dir: string, name: string, content: string): string {
   return path;
 }
 
+function expectValidPrerequisitesIntent(prerequisitesBody: string): void {
+  const dir = stage();
+  const path = writeIntent(
+    dir,
+    "one-thing",
+    `---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\n\n${prerequisitesBody}`,
+  );
+  expect(validateIntentStageContent([{ slug: "one-thing", path }])).toEqual({
+    ok: true,
+    intents: [{ slug: "one-thing", path }],
+  });
+}
+
 describe("intent stage contract", () => {
   test("accepts valid flat intents", () => {
     const dir = stage();
@@ -94,6 +107,21 @@ describe("intent stage contract", () => {
       error: "intent: one-thing.md must declare name: one-thing",
     });
     writeFileSync(path, "---\nname: one-thing\n---\n\n# One Thing\n\n## Prerequisites\nprose\n", "utf8");
-    expect(validateIntentStageContent([{ slug: "one-thing", path }]).ok).toBe(false);
+    const proseResult = validateIntentStageContent([{ slug: "one-thing", path }]);
+    expect(proseResult.ok).toBe(false);
+    if (!proseResult.ok) {
+      expect(proseResult.error).toContain("must list prerequisites as one bullet per line");
+    }
+  });
+
+  test("accepts prerequisites bullet wrapped across two lines", () => {
+    // @mutate shared/intent-stage.ts "assembleBulletBlocks(lines, isPrerequisiteBulletStart)" -> "lines.filter((line) => line.trim().length > 0)"
+    expectValidPrerequisitesIntent("- prerequisite wraps across\n  two physical lines\n");
+  });
+
+  test("accepts prerequisites bullet wrapped across three or more lines", () => {
+    expectValidPrerequisitesIntent(
+      "- prerequisite uses `shared/spec-\nparser.ts` helper\n  and a third continuation line\n",
+    );
   });
 });

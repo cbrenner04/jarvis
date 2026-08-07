@@ -306,35 +306,41 @@ export function isHumanOnlyCriterion(text: string): boolean {
   return ["(manual)", "visual inspection only", "no automated guard"].some((marker) => lower.includes(marker));
 }
 
-/** Parse acceptance criteria from section lines. */
-function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
-  const acceptanceCriteria: AcceptanceCriterion[] = [];
+/** Marker line plus continuations until the next bullet-start or `##` heading; continuation lines trimmed. */
+export function assembleBulletBlocks(sectionLines: string[], isBulletStart: (line: string) => boolean): string[] {
+  const blocks: string[] = [];
   let i = 0;
   while (i < sectionLines.length) {
     const line = sectionLines[i] ?? "";
-    const taskMatch = line.match(taskPattern);
-    if (!taskMatch?.[2]) {
+    if (!isBulletStart(line)) {
       i += 1;
       continue;
     }
-    const text = taskMatch[2].trim();
-    let blockText = text;
+    let blockText = line;
     i += 1;
     while (i < sectionLines.length) {
       const nextLine = sectionLines[i] ?? "";
-      if (taskPattern.test(nextLine) || nextLine.match(headingPattern)?.[1] === "##") {
+      if (isBulletStart(nextLine) || nextLine.match(headingPattern)?.[1] === "##") {
         break;
       }
       blockText += `\n${nextLine.trim()}`;
       i += 1;
     }
-    acceptanceCriteria.push({
-      checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
-      text,
-      humanOnly: isHumanOnlyCriterion(blockText),
-    });
+    blocks.push(blockText);
   }
-  return acceptanceCriteria;
+  return blocks;
+}
+
+/** Parse acceptance criteria from section lines. */
+function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
+  return assembleBulletBlocks(sectionLines, (line) => taskPattern.test(line)).flatMap((block) => {
+    const firstLine = block.split("\n")[0] ?? "";
+    const taskMatch = firstLine.match(taskPattern);
+    if (!taskMatch?.[2]) return [];
+    const text = taskMatch[2].trim();
+    const blockText = block.length > firstLine.length ? `${text}${block.slice(firstLine.length)}` : text;
+    return [{ checked: (taskMatch[1] ?? " ").toLowerCase() === "x", text, humanOnly: isHumanOnlyCriterion(blockText) }];
+  });
 }
 
 /** Detect if an acceptance criterion is a behavioral/preservation AC.

@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { keepIssueReferencesOffLineStart, runMarkdownlintAutofix } from "./markdownlint-repair.ts";
+import { assembleBulletBlocks } from "./spec-parser.ts";
 
 export type IntentStageFile = { slug: string; path: string };
 type Result = { ok: true; intents: IntentStageFile[] } | { ok: false; error: string };
@@ -41,6 +42,10 @@ function hasFirstBodyH1(text: string): boolean {
   return false;
 }
 
+function isPrerequisiteBulletStart(line: string): boolean {
+  return /^- \S/.test(line);
+}
+
 function validPrerequisites(text: string): boolean {
   const normalized = text.replace(/\r\n/g, "\n");
   const match = /^## Prerequisites\s*$/m.exec(normalized);
@@ -49,10 +54,16 @@ function validPrerequisites(text: string): boolean {
   const next = after.search(/^##\s/m);
   const body = (next === -1 ? after : after.slice(0, next)).trim();
   if (body.length === 0) return true;
-  return body
-    .split("\n")
-    .filter((line) => line.trim().length > 0)
-    .every((line) => /^- \S.*$/.test(line));
+  const lines = body.split("\n");
+  const blocks = assembleBulletBlocks(lines, isPrerequisiteBulletStart);
+  const nonEmpty = lines.filter((line) => line.trim().length > 0);
+  if (nonEmpty.length === 0) return true;
+  const firstLine = nonEmpty[0] ?? "";
+  if (!isPrerequisiteBulletStart(firstLine)) return false;
+  return (
+    blocks.length > 0 &&
+    (blocks.length === 1 || blocks.every((block) => isPrerequisiteBulletStart(block.split("\n")[0] ?? "")))
+  );
 }
 
 function normalizePrerequisitesSpacing(text: string): string {

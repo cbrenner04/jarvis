@@ -23,4 +23,13 @@ describe("spec-guidance § Mutation-checkpoint criteria", () => {
     expect(MUTATION_CHECKPOINT_CRITERIA).toContain("on the pinned-argv test in `write.test.ts`");
     expect(MUTATION_CHECKPOINT_CRITERIA).toContain("pinned argv passes through unchanged");
   });
+
+  test("documents inside-the-test-body placement and adjacent-line above-test tolerance", () => {
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/inside the enclosing test body/i);
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/below the `test\("…", …\) => \{` line/i);
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/line immediately above the `test`\/`it` declaration/i);
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/next physical line/i);
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/verifier-tolerated/i);
+    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/inside-the-body is preferred/i);
+  });
 });

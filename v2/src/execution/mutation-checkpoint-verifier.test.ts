@@ -111,6 +111,20 @@ describe("parseMutateDirectives", () => {
     expect(directives[0]?.pinTitle).toBeUndefined();
   });
 
+  test("a directive immediately above its test declaration uses forward-line pin attribution", () => {
+    const content = [
+      'test("prior pin", () => {});',
+      '// @mutate v2/src/thing.ts "a" -> "b"',
+      'test("target pin", () => {});',
+    ].join("\n");
+
+    const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", content);
+
+    expect(unparseable).toEqual([]);
+    expect(directives).toHaveLength(1);
+    expect(directives[0]?.pinTitle).toBe("target pin");
+  });
+
   test("escaped quotes survive into the target text", () => {
     const { directives } = parseMutateDirectives("/wt/x.test.ts", '// @mutate a.ts "say \\"hi\\"" -> "silent"');
     expect(directives[0]?.originalText).toBe('say "hi"');
@@ -292,6 +306,27 @@ describe("verifyMutationCheckpoints", () => {
     const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
 
     expectSingleCatch(report);
+  });
+
+  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "PIN_TITLE_PATTERN.exec(lines[lineIndex + 1] ?? \"\")" -> "undefined"
+  test("directive immediately above test declaration links to that pin title", async () => {
+    const root = makeWorktree();
+    writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");
+    writeAt(
+      root,
+      "v2/src/guard.test.ts",
+      [
+        'test("prior pin", () => {});',
+        '// @mutate v2/src/guard.ts "a > 0" -> "a >= 0"',
+        'test("target pin", () => {});',
+      ].join("\n"),
+    );
+    const subspec = writeAt(root, "spec/00.md", subspecNaming("guard.test.ts", "target pin"));
+
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
+    expect(report.caught[0]?.pinTitle).toBe("target pin");
   });
 
   test("a directive whose mutation turns the suite red is caught", async () => {

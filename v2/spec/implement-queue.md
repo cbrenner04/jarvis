@@ -9,8 +9,7 @@ Authority: operator priorities. Updated 2026-08-07 (queue-drain session: gate-re
 ## Start here next (in order)
 
 1. `seeds/gate-repair-baseref-probe-runs-scoped-command` — **new follow-up to gate-repair-fence.** The base-ref probe runs raw `bun test`, not the terminal step's scoped command (dead branch in `buildBaseRefProbeCommandArgs`); can re-strand env-sensitive tests. Small, high value (completes the gate-correctness fix).
-2. `seeds/mutate-directive-placed-above-test-goes-hollow` — **new; blocked `#2667` this session.** Agents place `// @mutate` above the `test(...)` line → `enclosingPinTitle` links the wrong pin → hollow `contract_miss`. Distinct from the criterion-naming rule (shipped `#2655`).
-3. The other open seeds below, then TUI slice 6.
+2. The other open seeds below, then TUI slice 6.
 
 ## Landed 2026-08-06/07 (queue-drain session — gate-repair + 6 specs)
 
@@ -76,8 +75,7 @@ Notes: each seed ran the full intent→plan→implement pipeline (cursor-first, 
 | Order | Seed | Notes |
 | --- | --- | --- |
 | 1 | `seeds/gate-repair-baseref-probe-runs-scoped-command` | **New** — base-ref probe runs raw `bun test`, not the terminal step's scoped command; completes the gate-repair-fence correctness fix. |
-| 2 | `seeds/mutate-directive-placed-above-test-goes-hollow` | **New** — `// @mutate` above the `test(...)` line links the wrong pin → hollow; blocked `#2667`. Distinct from the criterion-naming rule (#2655). |
-| 3 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
+| 2 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
 
 `seeds/tui-waitstate-is-polled-but-no-longer-rendered` rides TUI slice 6.
 

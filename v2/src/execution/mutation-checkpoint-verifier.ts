@@ -194,6 +194,8 @@ function countOccurrences(haystack: string, needle: string): number {
 
 /** Title of the nearest enclosing `test`/`it` block above `lineIndex`, when present. */
 function enclosingPinTitle(lines: readonly string[], lineIndex: number): string | undefined {
+  const forwardMatch = PIN_TITLE_PATTERN.exec(lines[lineIndex + 1] ?? "");
+  if (forwardMatch?.[2] !== undefined) return unescapeDirectiveText(forwardMatch[2]);
   for (let i = lineIndex; i >= 0; i -= 1) {
     const match = PIN_TITLE_PATTERN.exec(lines[i] ?? "");
     if (match?.[2] !== undefined) return unescapeDirectiveText(match[2]);

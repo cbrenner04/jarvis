@@ -190,6 +190,7 @@ Rules the harness enforces:
   not unique in the worktree, use a repo-relative path (for example
   `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on
   basename search. A bare basename must resolve to exactly one file.
+- Place `// @mutate` inside the enclosing test body (below the `test("…", …) => {` line). A directive on the line immediately above the `test`/`it` declaration (next physical line, no blank line or intervening comment) is verifier-tolerated but inside-the-body is preferred.
 - Every mutation-checkpoint criterion must include the enclosing `test()` title (pin title / `directive.pinTitle`). Linker matching is case-sensitive `criterionText.includes(directive.pinTitle)` with no all-directives-in-file fallback — a substring of the full title suffices; different casing does not match. Loose references go `hollow`. Bad: "on the pinned-argv test in `write.test.ts`". Good: embed `pinned argv passes through unchanged` from `test("pinned argv passes through unchanged", …)`.
 - The directive's target text must occur **exactly once** in the named path. Zero or
   several occurrences is unparseable — reported on stderr and, when the pinning file is

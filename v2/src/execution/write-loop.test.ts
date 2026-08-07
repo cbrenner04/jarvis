@@ -3031,6 +3031,58 @@ export function isLoadSensitive(file: string): boolean {
         return { worktreePath, baseRef };
       }
 
+      function initPlanMarkdownOnlyRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string } {
+        const worktreePath = initGitRepairWorktree(jarvisRoot, branchName);
+        mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
+        mkdirSync(join(worktreePath, PLAN_DRAFT_SPEC_PATH), { recursive: true });
+        writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        writeFileSync(join(worktreePath, PLAN_DRAFT_SPEC_PATH, "index.md"), "# index\n", "utf8");
+        writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        writeMultiSurfacePlanDraftStage(join(worktreePath, ".jarvis-plan-stage"));
+        writeFileSync(join(worktreePath, PLAN_DRAFT_SPEC_PATH, "index.md"), "# Plan Index\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+        return { worktreePath, baseRef };
+      }
+
+      function initIntentMarkdownOnlyRepairFenceWorktree(
+        jarvisRoot: string,
+        branchName: string,
+      ): { worktreePath: string; baseRef: string } {
+        const worktreePath = initGitRepairWorktree(jarvisRoot, branchName);
+        mkdirSync(join(worktreePath, "v2", "src"), { recursive: true });
+        mkdirSync(join(worktreePath, "scripts"), { recursive: true });
+        mkdirSync(join(worktreePath, "v1", "test"), { recursive: true });
+        mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+        mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+        writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+        writeFileSync(join(worktreePath, "ready-intents", "seed.md"), "# seed\n", "utf8");
+        writeFileSync(join(worktreePath, "ready-intents", "index.md"), "# Ready Intents\n", "utf8");
+        writeFileSync(join(worktreePath, ".jarvis-intent-stage", "draft.md"), "# draft\n", "utf8");
+        writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "export {}\n", "utf8");
+        writeFileSync(join(worktreePath, "scripts", "helper.ts"), "export {}\n", "utf8");
+        writeFileSync(join(worktreePath, "v1/test/sample.test.ts"), "export {}\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+        const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        writeFileSync(join(worktreePath, "ready-intents", "seed.md"), "ok\n", "utf8");
+        execFileSync("git", ["-C", worktreePath, "add", "ready-intents/seed.md"], { stdio: "pipe" });
+        execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
+        return { worktreePath, baseRef };
+      }
+
       function initPlanRepairFenceWorktree(
         jarvisRoot: string,
         branchName: string,
@@ -3984,6 +4036,68 @@ export function isLoadSensitive(file: string): boolean {
           }) ?? [],
         );
         expect(withoutMarkdownFence).toBe("v2/src/untouched.test.ts");
+      });
+
+      test("markdown-only plan completion settles outside-diff ready gate", async () => {
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "markdown-only-plan-outside-diff-gate";
+        const logSink = new TestLogSink();
+        const { baseRef } = initPlanMarkdownOnlyRepairFenceWorktree(jarvisRoot, branchName);
+
+        const { result } = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          ...planRepairLoopDefaults,
+          gateFailurePath: outsidePath,
+          lintMdOnly: false,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
+          logSink,
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        expect(result.resumable).toBe(false);
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([]);
+        expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          resumable: false,
+          readyGateOutsidePaths: [outsidePath],
+        });
+      });
+
+      test("markdown-only intent completion settles outside-diff ready gate", async () => {
+        const outsidePath = "v2/src/untouched.test.ts";
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const branchName = "markdown-only-intent-outside-diff-gate";
+        const logSink = new TestLogSink();
+        const { baseRef } = initIntentMarkdownOnlyRepairFenceWorktree(jarvisRoot, branchName);
+
+        const { result } = await runRepairFenceLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          baseRef,
+          ...intentRepairLoopDefaults,
+          gateFailurePath: outsidePath,
+          lintMdOnly: false,
+          readyGateScopeSeams: baseRefProbeFailsSeam,
+          logSink,
+          repairEdit: touchUntouchedRepairEdit,
+        });
+
+        expect(result.kind).toBe("ready_gate_out_of_scope");
+        expect(result.resumable).toBe(false);
+        expect(logSink.getEventsForRun(result.runId).filter((event) => event.kind === "ready_gate_repair")).toEqual([]);
+        expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_out_of_scope",
+          resumable: false,
+          readyGateOutsidePaths: [outsidePath],
+        });
       });
     });
 

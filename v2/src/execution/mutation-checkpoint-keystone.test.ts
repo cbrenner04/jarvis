@@ -122,7 +122,7 @@ describe("keystone mutation checkpoints at implement completion", () => {
     expect(result.result.kind).toBe("complete");
   });
 
-  test("refuses when guard checkpoints exist but no keystone criterion", async () => {
+  test("completes when guard checkpoints exist without a keystone criterion (keystones are opt-in)", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
@@ -144,10 +144,9 @@ describe("keystone mutation checkpoints at implement completion", () => {
       mutationCheckpointSeams: { runScopedTests: async () => false },
     });
 
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failureReason).toContain("Missing keystone checkpoint");
-    }
+    // Keystones are verified when present but not required: a guard-only subspec whose guard
+    // mutation reddens completes. (Requiring a keystone on every guard spec would brick the pipeline.)
+    expect(result.result.kind).toBe("complete");
   });
 
   test("refuses when keystone criterion has no linked directive on the pin", async () => {

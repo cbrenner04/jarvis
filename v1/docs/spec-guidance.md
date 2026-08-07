@@ -211,7 +211,7 @@ Headline behavior changes need a keystone checkpoint alongside guard checkpoints
 
 - Selection requires the `Keystone checkpoint:` prefix on a ticked non-human-only criterion; `@mutate` in the block links the pinning test only — not alternate selection without the prefix.
 - Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
-- When ticked guard `Mutation checkpoint:` criteria exist and zero ticked `Keystone checkpoint:` criteria exist, completion refuses (`Missing keystone checkpoint`). Headline-only missing-keystone enforcement without guard checkpoints is deferred.
+- Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
 - Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.
 
 Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.

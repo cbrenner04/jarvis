@@ -484,7 +484,6 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("base-ref reproduction classifies a base-passing worktree-failing path as in scope", async () => {
-    // @mutate invert `outcome === "pass"` to `outcome !== "pass"` in `probeOutsidePathsAtBaseRef` (ready-finalize.ts)
     const output = gateOutput({
       completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
       failingFiles: [{ attemptId: "2.1", path: "v2/src/untouched.test.ts" }],

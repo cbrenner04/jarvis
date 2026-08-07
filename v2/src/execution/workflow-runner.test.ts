@@ -18,6 +18,7 @@ import type {
   InvocationCompletedRecord,
   InvocationResult,
 } from "../../../shared/invocation/execute.ts";
+import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
@@ -2049,6 +2050,37 @@ function createDebateStep(
     profileContext: { specPath: "index.md", cwd: "/fake", baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
     ...overrides,
   };
+}
+
+const REVIEW_MD_LINT_FIXTURES = join(import.meta.dir, "fixtures", "write-loop-staged-markdown-lint");
+const LINT_CLEAN_INTENT_EXAMPLE_MD = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "intent-md038-clean.md"), "utf8");
+const REVIEW_MD_LINT_HARNESS_ROOT = resolveHarnessRoot(join(import.meta.dir, "..", "..", ".."));
+
+function hasHarnessMarkdownlintForReview(): boolean {
+  if (REVIEW_MD_LINT_HARNESS_ROOT === null) return false;
+  return existsSync(join(REVIEW_MD_LINT_HARNESS_ROOT, "node_modules", "markdownlint-cli2", "markdownlint-cli2.js"));
+}
+
+function skipReviewWithoutHarnessMarkdownlint(reason: string): boolean {
+  if (hasHarnessMarkdownlintForReview()) return false;
+  process.stderr.write(`skip: ${reason}; pinned markdownlint binary not installed in this worktree\n`);
+  return true;
+}
+
+function writeLintCleanPlanStage(
+  stage: string,
+  subspecFile = "00-one.md",
+  subspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8"),
+): void {
+  mkdirSync(stage, { recursive: true });
+  writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+  writeFileSync(join(stage, "index.md"), `# Index\n\n- [ ] [One](./${subspecFile})\n`, "utf8");
+  writeFileSync(join(stage, subspecFile), subspecBody, "utf8");
+}
+
+function writeLintCleanIntentStageFile(stage: string, fileName = "existing.md"): void {
+  mkdirSync(stage, { recursive: true });
+  writeFileSync(join(stage, fileName), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
 }
 
 function loadTelemetryRows(path: string): InvocationCompletedRecord[] {
@@ -5675,6 +5707,179 @@ describe("executeWorkflow implement patch light review", () => {
   });
 });
 
+describe("executeWorkflow review actuator staged Markdown lint", () => {
+  test("review actuator staged Markdown lint violation blocks completion before landing", async () => {
+    // @mutate v2/src/execution/reviewed-staged-markdown-lint.ts "if (result.kind === \"clean\") return { kind: \"pass\" };" -> "if (true) return { kind: \"pass\" };"
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "review actuator staged Markdown lint violation blocks completion before landing",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-block-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-block");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-block",
+      cwd: root,
+      branch: "review-md-lint-block",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 0,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ACT") {
+            writeFileSync(join(cwd, ".jarvis-plan-stage", "00-one.md"), violationBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(result.kind).toBe("landing_failed");
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      expect(store.loadRun(result.runId)?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(false);
+      expect(existsSync(durable)).toBe(false);
+      expect(existsSync(join(stage, "00-one.md"))).toBe(true);
+      expect(readFileSync(join(stage, "00-one.md"), "utf8")).toBe(violationBytes);
+    });
+  });
+
+  test("review actuator staged Markdown lint violation reprompts before completion", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint("review actuator staged Markdown lint violation reprompts before completion")
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-reprompt-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-reprompt");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+    let actuatorInvocations = 0;
+    let repromptPrompt = "";
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-reprompt",
+      cwd: root,
+      branch: "review-md-lint-reprompt",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd, prompt }) => {
+          if (adapterModel === "ACT") {
+            actuatorInvocations += 1;
+            const stageDir = join(cwd, ".jarvis-plan-stage");
+            if (actuatorInvocations === 1) {
+              writeFileSync(join(stageDir, "00-one.md"), violationBytes, "utf8");
+            } else {
+              repromptPrompt = prompt;
+              writeFileSync(join(stageDir, "00-one.md"), cleanSubspec, "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result.kind).toBe("complete");
+      expect(actuatorInvocations).toBe(2);
+      expect(existsSync(join(durable, "00-one.md"))).toBe(true);
+      const reprompt = logSink
+        .getEventsForRun(result.runId)
+        .find((event) => event.kind === "staged_markdown_lint_reprompt");
+      expect(reprompt).toMatchObject({
+        kind: "staged_markdown_lint_reprompt",
+        ruleId: "MD038",
+        offendingFile: ".jarvis-plan-stage/00-one.md",
+      });
+      expect(repromptPrompt).toContain("MD038");
+      expect(repromptPrompt).toContain(".jarvis-plan-stage/00-one.md");
+      expect(repromptPrompt).toContain(".jarvis-plan-stage");
+    });
+  });
+
+  test("review actuator staged Markdown lint exhaustion settles landing_failed with preserved stage", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "review actuator staged Markdown lint exhaustion settles landing_failed with preserved stage",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-exhaust",
+      cwd: root,
+      branch: "review-md-lint-exhaust",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ACT") {
+            writeFileSync(join(cwd, ".jarvis-plan-stage", "00-one.md"), violationBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result.kind).toBe("landing_failed");
+      expect(result.resumable).toBe(true);
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      expect(store.loadRun(result.runId)?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(false);
+      expect(existsSync(durable)).toBe(false);
+      expect(readFileSync(join(stage, "00-one.md"), "utf8")).toBe(violationBytes);
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "landing_failed",
+        resumable: true,
+      });
+    });
+  });
+});
+
 describe("executeWorkflow review dispatch", () => {
   const config: AgentModelConfig = {
     claude: {
@@ -5685,9 +5890,7 @@ describe("executeWorkflow review dispatch", () => {
   };
 
   function stageReviewedIntent(workspace: string): void {
-    const stage = join(workspace, ".jarvis-intent-stage");
-    mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "existing.md"), "---\nname: existing\n---\n\n## Prerequisites\n", "utf8");
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"));
   }
 
   function seedFailedIntentReviewResumeRun(
@@ -6540,11 +6743,7 @@ describe("executeWorkflow review dispatch", () => {
       createBinding: createBindingFactory(async ({ cwd }) => {
         splitCalls += 1;
         mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
-        writeFileSync(
-          join(cwd, ".jarvis-intent-stage", "example.md"),
-          "---\nname: example\n---\n\n## Prerequisites\n",
-          "utf8",
-        );
+        writeFileSync(join(cwd, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
@@ -6677,11 +6876,7 @@ describe("executeWorkflow review dispatch", () => {
       withExternalWorktree,
       createBinding: createBindingFactory(async ({ cwd }) => {
         mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
-        writeFileSync(
-          join(cwd, ".jarvis-intent-stage", "example.md"),
-          "---\nname: example\n---\n\n## Prerequisites\n",
-          "utf8",
-        );
+        writeFileSync(join(cwd, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
@@ -9154,12 +9349,9 @@ describe("executeWorkflow plan review dispatch", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
-    mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    writeLintCleanPlanStage(stage, "01-test.md", "# Before\n");
     const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-landing", async (agentId) => {
-      if (agentId === "codex") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
+      if (agentId === "codex") writeFileSync(join(stage, "01-test.md"), "# After review\n", "utf8");
       return { kind: "ok", stdout: agentId === "claude" ? "Apply edit" : "done", stderr: "" };
     });
 
@@ -9170,7 +9362,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(stage)).toBe(false);
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
-    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review");
+    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review\n");
     expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Apply edit");
   });
 
@@ -9178,11 +9370,8 @@ describe("executeWorkflow plan review dispatch", () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-failure-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
-    mkdirSync(stage, { recursive: true });
     mkdirSync(durable, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-    writeFileSync(join(stage, "01-test.md"), "# Staged", "utf8");
+    writeLintCleanPlanStage(stage, "01-test.md", "# Staged\n");
     writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
     const verdictPath = join(stage, "verdict-plan.md");
     let criticCalls = 0;
@@ -9214,10 +9403,7 @@ describe("executeWorkflow plan review dispatch", () => {
     const durable = join(root, "spec", "2026-reviewed");
     let criticCalls = 0;
     const stagePlan = () => {
-      mkdirSync(stage, { recursive: true });
-      writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-      writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-      writeFileSync(join(stage, "01-test.md"), "# Test", "utf8");
+      writeLintCleanPlanStage(stage, "01-test.md", "# Test\n");
     };
     const step = reviewedPlanLandingStep(root, stage, durable, "plan-reviewed-fresh", async (agentId) => {
       if (agentId === "claude") criticCalls += 1;
@@ -9243,10 +9429,7 @@ describe("executeWorkflow plan review dispatch", () => {
     const durable = join(root, "spec", "2026-reviewed-debate-fresh");
     let adjudicatorCalls = 0;
     const stagePlan = () => {
-      mkdirSync(stage, { recursive: true });
-      writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-      writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-      writeFileSync(join(stage, "01-test.md"), "# Test", "utf8");
+      writeLintCleanPlanStage(stage, "01-test.md", "# Test\n");
       writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
     };
     const step = createDebateStep({
@@ -9283,10 +9466,7 @@ describe("executeWorkflow plan review dispatch", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-debate");
-    mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    writeLintCleanPlanStage(stage, "01-test.md", "# Before\n");
     const verdictPath = join(stage, "verdict-plan.md");
     writeFileSync(verdictPath, "", "utf8");
     const step = createDebateStep({
@@ -9306,7 +9486,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(stage)).toBe(false);
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
-    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# Before");
+    expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# Before\n");
     expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("");
   });
 
@@ -9491,11 +9671,8 @@ describe("executeWorkflow plan review dispatch", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-debate");
-    mkdirSync(stage, { recursive: true });
     mkdirSync(durable, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-    writeFileSync(join(stage, "01-test.md"), "# Staged", "utf8");
+    writeLintCleanPlanStage(stage, "01-test.md", "# Staged\n");
     writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
     const verdictPath = join(stage, "verdict-plan.md");
     const step = createDebateStep({
@@ -9532,10 +9709,7 @@ describe("executeWorkflow plan review dispatch", () => {
     const stage = join(workspace, ".jarvis-plan-stage");
     const reviewDurable = join(workspace, "spec", "2026-reviewed-debate");
     const writeDurable = join(workspace, "spec", "2026-eager-write");
-    mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index", "utf8");
-    writeFileSync(join(stage, "intent.md"), "Intent", "utf8");
-    writeFileSync(join(stage, "01-test.md"), "# Before", "utf8");
+    writeLintCleanPlanStage(stage, "01-test.md", "# Before\n");
     const verdictPath = join(stage, "verdict-plan.md");
 
     const writeStep = createStep({
@@ -9555,6 +9729,11 @@ describe("executeWorkflow plan review dispatch", () => {
       localPath: workspace,
     };
     writeStep.withExternalWorktree = harness.withExternalWorktree;
+    writeStep.createBinding = createBindingFactory(async ({ cwd }) => {
+      writeLintCleanPlanStage(join(cwd, ".jarvis-plan-stage"), "01-test.md", "# Before\n");
+      writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
 
     const debateStep = createDebateStep({
       stepId: "review-debate",
@@ -9563,7 +9742,7 @@ describe("executeWorkflow plan review dispatch", () => {
       verdictPath,
       landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: reviewDurable },
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
-        if (adapterModel === "ACT") writeFileSync(join(stage, "01-test.md"), "# After review", "utf8");
+        if (adapterModel === "ACT") writeFileSync(join(stage, "01-test.md"), "# After review\n", "utf8");
         return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply this fix" : "ok", stderr: "" } as const;
       }),
     });
@@ -9575,7 +9754,7 @@ describe("executeWorkflow plan review dispatch", () => {
 
     // Only the review step's deferred landing ran; the write step's landing was never eager-applied.
     expect(existsSync(stage)).toBe(false);
-    expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review");
+    expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review\n");
     expect(readFileSync(join(reviewDurable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
     expect(existsSync(writeDurable)).toBe(false);
   });

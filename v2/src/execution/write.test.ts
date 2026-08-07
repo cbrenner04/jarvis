@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -503,8 +504,61 @@ describe("write behavior", () => {
       expect(result.result.failedContractId).toBe("spec.criteria-ticked");
       expect(result.result.failureReason).toContain("criterion:");
       expect(result.result.failureReason).toContain("reference: write.test.ts");
-      expect(result.result.failureReason).toContain("reason: unresolved_pinning_test");
+      expect(result.result.failureReason).toContain("reason: ambiguous_pinning_basename");
+      expect(result.result.failureReason).toContain("candidates:");
+      expect(result.result.failureReason).toContain("v2/src/a/write.test.ts");
+      expect(result.result.failureReason).toContain("v2/src/b/write.test.ts");
     }
+  });
+
+  test("bare basename disambiguates via completion changed paths", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
+    mkdirSync(join(worktree, "v2/src/commands"), { recursive: true });
+    writeFileSync(join(worktree, "v2/src/execution/guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "v2/src/execution/write.test.ts"),
+      'test("completion disambig pin", () => {\n  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+    writeFileSync(join(worktree, "v2/src/commands/write.test.ts"), 'test("commands pin", () => {});\n', "utf8");
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    seedKeystoneGuardPin(worktree);
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      withKeystoneCriteria(
+        "- [x] `write.test.ts` — `completion disambig pin`; Mutation checkpoint: completion basename disambiguation.\n",
+      ),
+    );
+
+    execFileSync("git", ["init", worktree], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktree, "config", "user.name", "Test User"], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktree, "add", "-A"], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktree, "commit", "-m", "seed"], { stdio: "pipe" });
+    writeFileSync(
+      join(worktree, "v2/src/execution/guard.ts"),
+      "export const ok = (a: number) => a > 0;\nexport const touched = true;\n",
+      "utf8",
+    );
+
+    const scopedCalls: string[][] = [];
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: {
+        runScopedTests: async (_cwd, scope) => {
+          scopedCalls.push([...scope]);
+          return false;
+        },
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+    expect(scopedCalls.filter((scope) => scope.includes("test:v2"))).toEqual([["test:v2", "test:integration:v2"]]);
   });
 
   test("mutation-directive reprompt uses structured directives when log display is truncated", async () => {

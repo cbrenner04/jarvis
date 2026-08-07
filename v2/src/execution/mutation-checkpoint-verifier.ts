@@ -6,7 +6,11 @@ import {
   selectKeystoneCheckpointCriteria,
   selectMutationCheckpointCriteria,
 } from "../../../shared/mutation-checkpoint-criteria.ts";
-import { AsyncSubprocessError, type AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 
 export { DIRECTIVE_PATTERN } from "../../../shared/mutation-checkpoint-criteria.ts";
 
@@ -41,11 +45,19 @@ export type UnparseableDirective = {
   sourceFile: string;
   sourceLine: number;
   raw: string;
-  reason: "malformed" | "unresolvable_path" | "target_absent" | "target_ambiguous" | "unresolved_pinning_test";
-  /** Present for `unresolved_pinning_test`: the criterion that named the pinning test. */
+  reason:
+    | "malformed"
+    | "unresolvable_path"
+    | "target_absent"
+    | "target_ambiguous"
+    | "unresolved_pinning_test"
+    | "ambiguous_pinning_basename";
+  /** Present for pinning-resolution failures: the criterion that named the pinning test. */
   criterionText?: string;
-  /** Present for `unresolved_pinning_test`: the backticked pinning reference from the criterion. */
+  /** Present for pinning-resolution failures: the backticked pinning reference from the criterion. */
   rawReference?: string;
+  /** Present for `ambiguous_pinning_basename`: every repo-relative path that matched the bare basename. */
+  candidates?: string[];
 };
 
 export type CriterionCheckpoint = {
@@ -101,6 +113,8 @@ export type MutationCheckpointSeams = {
   remainingIterationWallMs?: () => number;
   /** Test seam for scoped `bun` subprocess execution. */
   asyncSubprocessRunner?: AsyncSubprocessRunner;
+  /** Repo-relative paths from `git diff --name-only <baseRef>`; basename disambiguation when multiple matches. */
+  changedPaths?: readonly string[];
 };
 
 const COMMENT_DIRECTIVE_LINE = /^\s*\/\/.*@mutate/;
@@ -299,7 +313,56 @@ function normalizeRepoRelativePath(path: string): string {
     .replace(/\/+/g, "/");
 }
 
-type PinningTestResolution = { ok: true; testPath: string } | { ok: false; rawReference: string };
+type PinningTestResolution =
+  | { ok: true; testPath: string }
+  | {
+      ok: false;
+      rawReference: string;
+      reason: "unresolved_pinning_test" | "ambiguous_pinning_basename";
+      candidates?: string[];
+    };
+
+function parentDirectoryOfRepoRelativePath(path: string): string {
+  const normalized = normalizeRepoRelativePath(path);
+  const slash = normalized.lastIndexOf("/");
+  return slash === -1 ? "" : normalized.slice(0, slash);
+}
+
+function repoRelativePath(worktreeRoot: string, absolutePath: string): string {
+  return normalizeRepoRelativePath(relative(worktreeRoot, absolutePath));
+}
+
+function filterMatchesByChangedPathParents(
+  worktreeRoot: string,
+  matches: readonly string[],
+  changedPaths: readonly string[],
+): string[] {
+  if (changedPaths.length === 0) return [...matches];
+  const changedParents = new Set(changedPaths.map(parentDirectoryOfRepoRelativePath));
+  return matches.filter((absPath) =>
+    changedParents.has(parentDirectoryOfRepoRelativePath(repoRelativePath(worktreeRoot, absPath))),
+  );
+}
+
+/** Repo-relative changed paths from `git diff --name-only <baseRef> --` (untracked excluded). */
+export async function repoRelativeChangedPathsFromBaseRef(
+  worktreeRoot: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[]> {
+  if (!existsSync(join(worktreeRoot, ".git"))) return [];
+  try {
+    const output = await runner.runAsync("git", ["diff", "--name-only", baseRef, "--"], worktreeRoot, {
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
 function findBareBasenameMatches(worktreeRoot: string, basename: string): string[] {
   const primary = findByBasename(worktreeRoot, basename);
@@ -314,10 +377,14 @@ function findBareBasenameMatches(worktreeRoot: string, basename: string): string
 }
 
 /** Resolve a criterion's pinning test by path-qualified or basename lookup. */
-function resolvePinningTestPath(worktreeRoot: string, criterionText: string): PinningTestResolution {
+function resolvePinningTestPath(
+  worktreeRoot: string,
+  criterionText: string,
+  changedPaths?: readonly string[],
+): PinningTestResolution {
   const rawReference = pinningTestReferenceFromCriterion(criterionText);
   if (rawReference === undefined) {
-    return { ok: false, rawReference: "" };
+    return { ok: false, rawReference: "", reason: "unresolved_pinning_test" };
   }
 
   const normalized = normalizeRepoRelativePath(rawReference);
@@ -326,20 +393,25 @@ function resolvePinningTestPath(worktreeRoot: string, criterionText: string): Pi
     const relativeToRoot = relative(worktreeRoot, absolutePath);
     const escapesRoot = relativeToRoot.startsWith("..");
     if (escapesRoot || !existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
-      return { ok: false, rawReference };
+      return { ok: false, rawReference, reason: "unresolved_pinning_test" };
     }
     return { ok: true, testPath: absolutePath };
   }
 
   const matches = findBareBasenameMatches(worktreeRoot, normalized);
-  if (matches.length !== 1) {
-    return { ok: false, rawReference };
+  if (matches.length === 0) {
+    return { ok: false, rawReference, reason: "unresolved_pinning_test" };
   }
-  const testPath = matches[0];
-  if (testPath === undefined) {
-    return { ok: false, rawReference };
+  if (matches.length === 1) {
+    return { ok: true, testPath: matches[0]! };
   }
-  return { ok: true, testPath };
+
+  const candidates = matches.map((path) => repoRelativePath(worktreeRoot, path)).sort();
+  const filtered = filterMatchesByChangedPathParents(worktreeRoot, matches, changedPaths ?? []);
+  if (filtered.length === 1) {
+    return { ok: true, testPath: filtered[0]! };
+  }
+  return { ok: false, rawReference, reason: "ambiguous_pinning_basename", candidates };
 }
 
 /** Directives whose enclosing pin the criterion names. */
@@ -393,10 +465,26 @@ export function scopeForTarget(worktreeRoot: string, absolutePath: string): stri
   return scope === "full" ? ["test"] : scope;
 }
 
+export function blockingUnparseableEntries(report: MutationCheckpointReport): UnparseableDirective[] {
+  return report.unparseable.filter(
+    (entry) =>
+      entry.reason === "unresolved_pinning_test" ||
+      entry.reason === "ambiguous_pinning_basename" ||
+      report.openedPinningFiles.includes(entry.sourceFile),
+  );
+}
+
 export function describeUnparseable(directive: UnparseableDirective): string {
-  if (directive.reason === "unresolved_pinning_test" && directive.criterionText !== undefined) {
+  if (
+    (directive.reason === "unresolved_pinning_test" || directive.reason === "ambiguous_pinning_basename") &&
+    directive.criterionText !== undefined
+  ) {
     const reference = directive.rawReference ?? directive.raw;
-    return `criterion: ${directive.criterionText}; reference: ${reference}; reason: ${directive.reason}`;
+    const base = `criterion: ${directive.criterionText}; reference: ${reference}; reason: ${directive.reason}`;
+    if (directive.reason === "ambiguous_pinning_basename" && directive.candidates !== undefined) {
+      return `${base}; candidates: ${directive.candidates.join(", ")}`;
+    }
+    return base;
   }
   return `${directive.sourceFile}:${directive.sourceLine}: ${directive.reason}: ${directive.raw}`;
 }
@@ -431,6 +519,7 @@ export async function verifyMutationCheckpoints(
   const report = seams.report ?? ((message: string) => process.stderr.write(`mutation-checkpoint: ${message}\n`));
   const signal = seams.signal;
   const remainingIterationWallMs = seams.remainingIterationWallMs;
+  const changedPaths = seams.changedPaths;
   const snapshots = new Map<string, string>();
 
   if (!existsSync(subspecPath)) return EMPTY_MUTATION_CHECKPOINT_REPORT;
@@ -468,6 +557,7 @@ export async function verifyMutationCheckpoints(
           readFile,
           report_,
           role,
+          changedPaths,
         );
         if (linked === undefined) continue;
 
@@ -511,16 +601,18 @@ function resolveLinkedDirectives(
   readFile: (path: string) => string,
   report_: MutationCheckpointReport,
   role: "guard" | "keystone",
+  changedPaths: readonly string[] | undefined,
 ): MutateDirective[] | undefined {
-  const resolved = resolvePinningTestPath(worktreeRoot, block);
+  const resolved = resolvePinningTestPath(worktreeRoot, block, changedPaths);
   if (!resolved.ok) {
     report_.unparseable.push({
       sourceFile: subspecPath,
       sourceLine: 0,
       raw: criterionText,
-      reason: "unresolved_pinning_test",
+      reason: resolved.reason,
       criterionText,
       rawReference: resolved.rawReference,
+      ...(resolved.candidates !== undefined ? { candidates: resolved.candidates } : {}),
     });
     return undefined;
   }

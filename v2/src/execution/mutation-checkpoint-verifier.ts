@@ -299,9 +299,7 @@ function normalizeRepoRelativePath(path: string): string {
     .replace(/\/+/g, "/");
 }
 
-export type PinningTestResolution =
-  | { ok: true; testPath: string; rawReference: string }
-  | { ok: false; rawReference: string };
+type PinningTestResolution = { ok: true; testPath: string } | { ok: false; rawReference: string };
 
 function findBareBasenameMatches(worktreeRoot: string, basename: string): string[] {
   const primary = findByBasename(worktreeRoot, basename);
@@ -315,61 +313,8 @@ function findBareBasenameMatches(worktreeRoot: string, basename: string): string
   return [...matches];
 }
 
-/** Every resolvable `test()`/`it()` title in a pinning file, including multiline `test.each` continuations. */
-export function pinTitlesInTestFile(content: string): readonly string[] {
-  const lines = content.split("\n");
-  const titles: string[] = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    const match = PIN_TITLE_PATTERN.exec(line);
-    if (match?.[2] !== undefined) {
-      titles.push(unescapeDirectiveText(match[2]));
-      continue;
-    }
-    if (TEST_EACH_OPENER_PATTERN.test(line)) {
-      for (let j = i + 1; j < lines.length; j += 1) {
-        const continuationMatch = CONTINUATION_TITLE_PATTERN.exec(lines[j] ?? "");
-        if (continuationMatch?.[2] !== undefined) {
-          titles.push(unescapeDirectiveText(continuationMatch[2]));
-          break;
-        }
-      }
-    }
-  }
-  return titles;
-}
-
-function isTestFileReference(token: string): boolean {
-  return /\.test\.[cm]?[jt]sx?$/i.test(token) || token.includes(".test.");
-}
-
-/** Backtick- or quote-named pin-title candidates in criterion text, excluding pinning-file paths. */
-export function pinTitleCandidatesFromCriterion(block: string): readonly string[] {
-  const withoutDirectives = block
-    .replace(/\/\/\s*@mutate[^\n]*/g, "")
-    .replace(new RegExp(DIRECTIVE_PATTERN.source, "g"), "");
-  const backtickTokens = [...withoutDirectives.matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? "");
-  const quoteTokens = [...withoutDirectives.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1] ?? "");
-  const candidates: string[] = [];
-  for (const token of [...backtickTokens, ...quoteTokens]) {
-    if (isTestFileReference(token)) continue;
-    const trimmed = token.trim();
-    if (trimmed.length > 0) candidates.push(trimmed);
-  }
-  return candidates;
-}
-
-export function describeEnclosingTestMiss(
-  criterionText: string,
-  rawReference: string,
-  reason: "missing_enclosing_test_title" | "unresolvable_enclosing_test_title",
-  title: string,
-): string {
-  return `criterion: ${criterionText}; reference: ${rawReference}; reason: ${reason}; title: ${title}`;
-}
-
 /** Resolve a criterion's pinning test by path-qualified or basename lookup. */
-export function resolvePinningTestPath(worktreeRoot: string, criterionText: string): PinningTestResolution {
+function resolvePinningTestPath(worktreeRoot: string, criterionText: string): PinningTestResolution {
   const rawReference = pinningTestReferenceFromCriterion(criterionText);
   if (rawReference === undefined) {
     return { ok: false, rawReference: "" };
@@ -383,7 +328,7 @@ export function resolvePinningTestPath(worktreeRoot: string, criterionText: stri
     if (escapesRoot || !existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
       return { ok: false, rawReference };
     }
-    return { ok: true, testPath: absolutePath, rawReference };
+    return { ok: true, testPath: absolutePath };
   }
 
   const matches = findBareBasenameMatches(worktreeRoot, normalized);
@@ -394,7 +339,7 @@ export function resolvePinningTestPath(worktreeRoot: string, criterionText: stri
   if (testPath === undefined) {
     return { ok: false, rawReference };
   }
-  return { ok: true, testPath, rawReference };
+  return { ok: true, testPath };
 }
 
 /** Directives whose enclosing pin the criterion names. */

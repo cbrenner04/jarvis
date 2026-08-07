@@ -12,7 +12,10 @@ import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
-import { selectKeystoneCheckpointCriteria } from "../../../shared/mutation-checkpoint-criteria.ts";
+import {
+  selectKeystoneCheckpointCriteria,
+  selectMutationCheckpointCriteria,
+} from "../../../shared/mutation-checkpoint-criteria.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -30,8 +33,12 @@ import {
 } from "./external-worktree.ts";
 import {
   describeCriterionCheckpoint,
+  describeEnclosingTestMiss,
   describeUnparseable,
   type MutationCheckpointSeams,
+  pinTitleCandidatesFromCriterion,
+  pinTitlesInTestFile,
+  resolvePinningTestPath,
   type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
@@ -127,8 +134,61 @@ function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: str
   return { valid: true };
 }
 
+function validatePlanDraftEnclosingTests(
+  worktreeRoot: string,
+  draftDir: string,
+): { ok: true } | { ok: false; reason: string } {
+  const subspecFiles = readdirSync(draftDir)
+    .filter((f: string) => /^\d{2}-.*\.md$/.test(f))
+    .sort();
+  for (const file of subspecFiles) {
+    const content = readFileSync(join(draftDir, file), "utf8");
+    const criteria = [...selectMutationCheckpointCriteria(content), ...selectKeystoneCheckpointCriteria(content)];
+    for (const { block } of criteria) {
+      const resolution = resolvePinningTestPath(worktreeRoot, block);
+      if (!resolution.ok) continue;
+
+      let pinContent: string;
+      try {
+        pinContent = readFileSync(resolution.testPath, "utf8");
+      } catch {
+        continue;
+      }
+
+      const pinTitles = pinTitlesInTestFile(pinContent);
+      if (pinTitles.length === 0) continue;
+
+      const matchingTitles = pinTitles.filter((title) => block.includes(title));
+      if (matchingTitles.length > 0) continue;
+
+      const candidates = pinTitleCandidatesFromCriterion(block);
+      const unresolvable = candidates.find((candidate) => !pinTitles.includes(candidate));
+      if (unresolvable !== undefined) {
+        return {
+          ok: false,
+          reason: describeEnclosingTestMiss(
+            block,
+            resolution.rawReference,
+            "unresolvable_enclosing_test_title",
+            unresolvable,
+          ),
+        };
+      }
+
+      const missingTitle = pinTitles[0];
+      if (missingTitle === undefined) continue;
+      return {
+        ok: false,
+        reason: describeEnclosingTestMiss(block, resolution.rawReference, "missing_enclosing_test_title", missingTitle),
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function validatePlanDraft(
   draftDir: string,
+  worktreeRoot: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
 ): { ok: true } | { ok: false; reason: string } {
   const shape = shapeValidator(draftDir);
@@ -145,22 +205,26 @@ function validatePlanDraft(
     return { ok: false, reason: message };
   }
 
+  const enclosing = validatePlanDraftEnclosingTests(worktreeRoot, draftDir);
+  if (!enclosing.ok) return enclosing;
+
   return { ok: true };
 }
 
 function composePlanDraftArtifactCheck(
   stagingDir: string,
   durableDir: string,
+  worktreeRoot: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
 ): boolean | { ok: false; reason: string } {
-  const staging = validatePlanDraft(stagingDir, shapeValidator);
+  const staging = validatePlanDraft(stagingDir, worktreeRoot, shapeValidator);
   if (staging.ok) return true;
 
   if (staging.reason !== PLAN_DRAFT_SHAPE_REASON) {
     return staging;
   }
 
-  const durable = validatePlanDraft(durableDir, shapeValidator);
+  const durable = validatePlanDraft(durableDir, worktreeRoot, shapeValidator);
   return durable.ok ? true : { ok: false, reason: staging.reason };
 }
 
@@ -304,16 +368,16 @@ async function executePlanDraftWrite(
   contracts.push({
     id: "artifact.exists",
     reason: PLAN_DRAFT_SHAPE_REASON,
-    check: () => composePlanDraftArtifactCheck(specDir, durable, shapeValidator),
+    check: () => composePlanDraftArtifactCheck(specDir, durable, worktreePath, shapeValidator),
   });
 
   const result = await runWriteStep(args, worktreePath, { prompt, contracts });
   if (result.kind === "complete") {
-    const staging = validatePlanDraft(specDir, shapeValidator);
-    if (!staging.ok && validatePlanDraft(durable, shapeValidator).ok) {
+    const staging = validatePlanDraft(specDir, worktreePath, shapeValidator);
+    if (!staging.ok && validatePlanDraft(durable, worktreePath, shapeValidator).ok) {
       for (const file of readdirSync(durable)) copyFileSync(join(durable, file), join(specDir, file));
       rmSync(durable, { recursive: true, force: true });
-      validatePlanDraft(specDir, shapeValidator);
+      validatePlanDraft(specDir, worktreePath, shapeValidator);
     }
   }
   return result;

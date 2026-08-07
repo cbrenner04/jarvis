@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWrite } from "./write.ts";
@@ -148,6 +148,24 @@ async function runPlanDraftWrite(args: {
     ],
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
+}
+
+function writePlanDraftStage(
+  stagePath: string,
+  subspecFile: string,
+  criteria: string,
+  worktreePath?: string,
+  pinningFile?: { path: string; content: string },
+): void {
+  mkdirSync(stagePath, { recursive: true });
+  writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
+  writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+  writeFileSync(join(stagePath, subspecFile), `# One\n\n## Acceptance criteria\n\n${criteria}`, "utf8");
+  if (worktreePath !== undefined && pinningFile !== undefined) {
+    const pinningPath = join(worktreePath, pinningFile.path);
+    mkdirSync(dirname(pinningPath), { recursive: true });
+    writeFileSync(pinningPath, pinningFile.content, "utf8");
+  }
 }
 
 describe("write behavior", () => {
@@ -1108,6 +1126,159 @@ describe("write behavior", () => {
       expect(result.result.failureReason).not.toContain("Plan index");
       expect(result.result.failureReason).not.toContain("multi-surface");
     }
+  });
+
+  // @mutate v2/src/execution/write.ts "if (!enclosing.ok) return enclosing;" -> "if (false && !enclosing.ok) return enclosing;"
+  test("plan-draft contract_miss when mutation-checkpoint criterion omits enclosing test title", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const pinTitle = "plan-draft contract_miss when mutation-checkpoint criterion omits enclosing test title";
+    const criterion =
+      "- [ ] `enclosing-pin.test.ts` — Mutation checkpoint: named on that pin without the enclosing test title.\n";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-mutation-miss",
+      agentSetup: (cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criterion, cwd, {
+          path: "enclosing-pin.test.ts",
+          content: `test("${pinTitle}", () => {\n  // @mutate v2/src/execution/write.ts "if (!enclosing.ok) return enclosing;" -> "if (false && !enclosing.ok) return enclosing;"\n});\n`,
+        });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("criterion:");
+      expect(result.result.failureReason).toContain("reference:");
+      expect(result.result.failureReason).toContain("reason: missing_enclosing_test_title");
+      expect(result.result.failureReason).toContain(pinTitle);
+      expect(result.result.failureReason).toContain("Mutation checkpoint:");
+    }
+  });
+
+  test("plan-draft contract_miss when keystone-checkpoint criterion omits enclosing test title", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const pinTitle = "keystone enclosing pin";
+    const criterion =
+      "- [ ] `keystone-pin.test.ts` — Keystone checkpoint: headline revert without enclosing test title.\n";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-keystone-miss",
+      agentSetup: (cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criterion, cwd, {
+          path: "keystone-pin.test.ts",
+          content: `test("${pinTitle}", () => {\n  // @mutate headline.ts "value = 1" -> "value = 2"\n});\n`,
+        });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("criterion:");
+      expect(result.result.failureReason).toContain("reference:");
+      expect(result.result.failureReason).toContain("reason: missing_enclosing_test_title");
+      expect(result.result.failureReason).toContain(pinTitle);
+    }
+  });
+
+  test("plan-draft contract_miss when directive-shaped criterion omits enclosing test title", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const pinTitle = "directive-shaped enclosing pin";
+    const criterion = '- [ ] `directive-pin.test.ts` — `// @mutate guard.ts "a > 0" -> "a >= 0"` turns this RED.\n';
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-directive-miss",
+      agentSetup: (cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criterion, cwd, {
+          path: "directive-pin.test.ts",
+          content: `test("${pinTitle}", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n`,
+        });
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("artifact.exists");
+      expect(result.result.failureReason).toContain("criterion:");
+      expect(result.result.failureReason).toContain("reference:");
+      expect(result.result.failureReason).toContain("reason: missing_enclosing_test_title");
+      expect(result.result.failureReason).toContain(pinTitle);
+    }
+  });
+
+  test("plan-draft completes when mutation-checkpoint, keystone, and directive criteria name enclosing test titles", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const mutationPin = "mutation enclosing pin";
+    const keystonePin = "keystone enclosing pin";
+    const directivePin = "directive enclosing pin";
+    const criteria = [
+      `- [ ] \`mutation-pin.test.ts\` — \`${mutationPin}\`; Mutation checkpoint: guard flip turns RED.\n`,
+      `- [ ] \`keystone-pin.test.ts\` — \`${keystonePin}\`; Keystone checkpoint: headline revert turns RED.\n`,
+      `- [ ] \`directive-pin.test.ts\` — \`${directivePin}\`; \`// @mutate guard.ts "a > 0" -> "a >= 0"\` turns RED.\n`,
+    ].join("");
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-pass",
+      agentSetup: (cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criteria, cwd, {
+          path: "mutation-pin.test.ts",
+          content: `test("${mutationPin}", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n`,
+        });
+        writeFileSync(
+          join(cwd, "keystone-pin.test.ts"),
+          `test("${keystonePin}", () => {\n  // @mutate headline.ts "value = 1" -> "value = 2"\n});\n`,
+          "utf8",
+        );
+        writeFileSync(
+          join(cwd, "directive-pin.test.ts"),
+          `test("${directivePin}", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n`,
+          "utf8",
+        );
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("plan-draft completes when pinning file is missing on disk", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const criterion = "- [ ] `absent-pin.test.ts` — Mutation checkpoint: named on a file that does not exist yet.\n";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-missing-file-skip",
+      agentSetup: (_cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criterion);
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
+  test("plan-draft completes when mutation-checkpoint criterion has no pinning-file reference", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const subspecFile = "00-one.md";
+    const criterion = "- [ ] Mutation checkpoint: no backticked pinning file reference.\n";
+
+    const result = await runPlanDraftWrite({
+      jarvisRoot,
+      branchName: "plan-enclosing-no-reference-skip",
+      agentSetup: (_cwd, stagePath) => {
+        writePlanDraftStage(stagePath, subspecFile, criterion);
+      },
+    });
+
+    expect(result.result.kind).toBe("complete");
   });
 
   test("intentSeed branch: delimiter-violating intent seed fails as model_config", async () => {

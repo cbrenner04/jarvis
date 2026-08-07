@@ -769,7 +769,7 @@ describe("monitorSelectableNodeIds", () => {
     const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
     const { treeRows: paintedTreeRows } = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS);
 
-    expect(selectableIds).toEqual(pipelines.map((pipeline) => pipeline.pipelineId));
+    expect(selectableIds).toEqual([...pipelines].reverse().map((pipeline) => pipeline.pipelineId));
     expect(paintedTreeRows.length).toBeLessThanOrEqual(maxVisibleRows);
     expect(paintedTreeRows.length).toBeLessThan(selectableIds.length);
   });
@@ -797,7 +797,10 @@ describe("monitorSelectableNodeIds", () => {
 
     expect(monitorSelectableNodeIds(scrolled, TREE_NOW_MS)).toEqual(baseSelectable);
     expect(treeRows.map((row) => row.id)).toEqual(
-      pipelines.slice(scrollOffset, scrollOffset + maxVisibleRows).map((pipeline) => pipeline.pipelineId),
+      [...pipelines]
+        .reverse()
+        .slice(scrollOffset, scrollOffset + maxVisibleRows)
+        .map((pipeline) => pipeline.pipelineId),
     );
   });
 });
@@ -1152,8 +1155,8 @@ describe("monitorRightPaneSegmentRows", () => {
 
   test("resolves pipeline detail for off-pane tree row selection", () => {
     // Mutation checkpoint: resolving selection from painted treeRows only must turn off-pane right-pane detail pin RED.
-    const { state, layout, maxVisibleRows, pipelines } = overflowPaneMonitorFixture();
-    const offPanePipeline = pipelines[maxVisibleRows];
+    const { state, layout, pipelines } = overflowPaneMonitorFixture();
+    const offPanePipeline = pipelines[0];
     if (!offPanePipeline) throw new Error("expected an off-pane pipeline");
     const offPanePipelineId = offPanePipeline.pipelineId;
     const paintedIds = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS).treeRows.map((row) => row.id);
@@ -1167,7 +1170,7 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines).not.toContain("No run selected.");
     expect(lines.slice(0, 4)).toEqual([
       `pipelineId: ${offPanePipelineId}`,
-      `name: pipeline-${maxVisibleRows}`,
+      "name: pipeline-0",
       "project: demo",
       "state: succeeded",
     ]);

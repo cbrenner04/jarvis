@@ -613,7 +613,10 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   terminal orphans drop oldest-by-rollup-finish first when retained body rows would
   exceed the budget; finishless terminals are never dropped by FIFO; retained rows
   sort actives first (earliest `createdAt`) then terminals (oldest finish first); the
-  segment heading `─ Unattributed (N) ─` is always shown including `N = 0`.
+  segment heading `─ Unattributed (N) ─` is always shown including `N = 0`. This
+  oldest-finish-first retention sort is now inconsistent with the pipeline tree's
+  newest-finish-first top-level terminal order (`tui-monitor-pipeline-tree.ts`);
+  pending removal via the queued `tui-unified-work-tree` seed.
   Pipeline-attributed runs join under their stage without that cap. The legacy
   one-hour / twenty-row `filterMonitorRunsForLiveWindow` helper (non-terminal rows
   pass through; terminal rows need `finishedAtMs` within the last hour, or stay
@@ -635,7 +638,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   `v2/src/tui/tui-monitor-pipeline-tree.ts`
 - [v2 additive] TUI pipeline tree: the left pane merges daemon `pipeline_list`
   snapshots with run rows by `workflowInvocationId`, nests pipeline → stage → run,
-  and keeps unattributed runs in a flat segment below. Selection is three-deep
+  and keeps unattributed runs in a flat segment below. Top-level pipeline rows order running → awaiting gate (`awaiting-approval` derived state) → terminal (`isPipelineTerminal`); running and gated rows sort by `createdAt` ascending; terminal rows sort by `finishedAtMs` descending (newest finish first), falling back to `createdAt` when `finishedAtMs` is `null` — a defensive default guarding `parsePipelineList`'s unvalidated wire-payload cast in `tui-daemon-client.ts`, not a state the daemon's own `derivePipelineFinishedAtMs` produces. Initial selection (`firstSelectableNodeId`) is order-derived, so on an all-terminal tree it now lands on the newest-finish pipeline instead of the oldest. Selection is three-deep
   (pipeline, stage, or run): pipeline selection shows pipeline context and stage
   roll-up; stage selection adds the selected durable-stage record; an attributed
   run adds selected durable-run workflow/outcome/error/PR/worktree detail from its

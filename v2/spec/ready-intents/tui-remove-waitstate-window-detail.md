@@ -17,18 +17,20 @@ name: tui-remove-waitstate-window-detail
 
 ## Acceptance criteria
 
-- [ ] `jarvis tui` issues no `wait` RPC on selection change; a test drives a selection change against a fake daemon client and asserts zero `wait` calls.
+- [ ] `tui-entry.test.tsx` test `selection change issues no wait RPC` drives a selection change against a fake daemon client, asserts zero `wait` calls, and fails against the pre-fix code.
 - [ ] `waitState` and `buildWaitStateForSelection` are gone from `tui-entry.tsx` and `tui-monitor-types.ts`; `bun run typecheck` proves no reader remains.
-- [ ] Steering feedback still renders after run detail; a regression covers it.
-- [ ] A run outside the left pane's retention window renders `No run selected.`-equivalent detail rather than full run detail; a regression fails against the current unwindowed fallback.
-- [ ] Mutation checkpoint: in the pinning test for the windowed fallback, a `// @mutate` directive reverting the fallback to the unwindowed run list turns that regression RED.
+- [ ] `tui-monitor-lines.test.tsx` test `attributed run detail is resolved only from the selected durable row` stays green after `waitState` removal (steering feedback still renders after run detail).
+- [ ] `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window` fails against the current unwindowed fallback and passes after windowing.
+- [ ] Mutation checkpoint: in `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window`, a `// @mutate` directive reverting the fallback to the unwindowed run list turns that regression RED.
 - [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` § Observe — the right pane resolves detail only from selectable runs.
+- `v2/docs/v1-behaviors.md` — record right-pane detail windowing to selectable runs.
 
 ## Prerequisites
 
+- Fan-out order: first of `tui-remove-waitstate-window-detail` → `tui-dock-pipeline-steering` → `tui-dock-run-steering` → `tui-dock-log-follow`; `tui-unattributed-segment-retention-label` lands after this intent or in parallel on `tui-monitor-lines.ts`.
 - `buildWaitStateForSelection` and `TuiMonitorState.waitState` exist on the monitor entry path.
 - `monitorSelectableRuns` and `monitorSelectableNodeIds` exist in `tui-monitor-lines.ts`.

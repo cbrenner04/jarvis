@@ -16,15 +16,17 @@ Unattributed runs appear in the left pane without the FIFO retention rule or seg
 
 ## Acceptance criteria
 
-- [ ] Unattributed segment applies FIFO retention (active shown always; terminals oldest-by-finish drop first); a pure-function test covers the retention ordering.
-- [ ] The left pane labels the unattributed segment with its retained run count.
+- [ ] `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first` covers retention ordering and fails against the pre-fix code.
+- [ ] `tui-monitor-lines.test.ts` test `left pane labels unattributed segment with retained run count` fails against the pre-fix code.
+- [ ] Mutation checkpoint: in `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first`, a `// @mutate` directive inverting the FIFO retention guard turns that regression RED.
 - [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 
-None — the brief already documents segment FIFO; this intent aligns unattributed with shipped pipeline retention.
+- `v2/spec/tui-overhaul-brief.md` — mark slice 6 shipped; note steering, log follow, wait removal, detail windowing, and unattributed FIFO are in-dock.
 
 ## Prerequisites
 
+- Fan-out order: capstone of slice 6; lands after `tui-remove-waitstate-window-detail` or in parallel on `tui-monitor-lines.ts` (disjoint from the steering chain through `tui-dock-log-follow`).
 - Left-pane FIFO retention for pipeline trees is shipped.
 - `buildMonitorPipelineTreeJoin` and `monitorLeftPaneTreeRows` produce unattributed rows from orphan candidates.

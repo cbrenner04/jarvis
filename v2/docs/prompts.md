@@ -26,7 +26,7 @@ Re-prompt issued when `intent.prompt.split` staged output fails landing-shape va
 
 ### `write.staged-markdown-lint-reprompt`
 
-Re-prompt issued when `plan.prompt.draft` staged output fails markdownlint before write-loop completion. Injects `RULE_ID`, `VIOLATION` (markdownlint message), `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`workflow-runner.md`](./workflow-runner.md).
+Re-prompt issued when staged plan or intent Markdown fails markdownlint before write-loop completion or before review actuator landing. Injects `RULE_ID`, `VIOLATION` (markdownlint message), `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop and the review completion seam (`landReviewedOutputOrFail`, `finishReviewedLanding`); see [`workflow-runner.md`](./workflow-runner.md#review-dispatch) and [`write-behavior.md`](./write-behavior.md#intent-review-cycle).
 
 ### `write.ready-repair`
 

@@ -5878,6 +5878,362 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
       });
     });
   });
+
+  test("review actuator staged Markdown lint exhaustion checkpoint re-entry completes after hand-fix", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "review actuator staged Markdown lint exhaustion checkpoint re-entry completes after hand-fix",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-exhaust-recover-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust-recover");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+    let adjudicatorCalls = 0;
+    let actuatorCalls = 0;
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-exhaust-recover",
+      cwd: root,
+      branch: "review-md-lint-exhaust-recover",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ADJ") adjudicatorCalls += 1;
+          if (adapterModel === "ACT") {
+            actuatorCalls += 1;
+            writeFileSync(join(cwd, ".jarvis-plan-stage", "00-one.md"), violationBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return { kind: "ok", stdout: "ok", stderr: "" };
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(failed).toMatchObject({ kind: "landing_failed", resumable: true });
+      expect(store.loadRun(failed.runId)?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      const roleCallsAfterFirstPass = adjudicatorCalls + actuatorCalls;
+
+      writeFileSync(join(stage, "00-one.md"), cleanSubspec, "utf8");
+      const recovered = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(recovered).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
+      expect(adjudicatorCalls + actuatorCalls).toBe(roleCallsAfterFirstPass);
+      expect(existsSync(join(durable, "00-one.md"))).toBe(true);
+    });
+  });
+
+  test("review actuator staged Markdown lint blocks a checkpoint re-entry landing", async () => {
+    // @mutate v2/src/execution/reviewed-staged-markdown-lint.ts "if (result.kind === \"clean\") return { kind: \"pass\" };" -> "if (true) return { kind: \"pass\" };"
+    if (
+      skipReviewWithoutHarnessMarkdownlint("review actuator staged Markdown lint blocks a checkpoint re-entry landing")
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    mkdirSync(durable, { recursive: true });
+    writeLintCleanPlanStage(stage, "01-test.md");
+    writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
+    writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
+    let adjudicatorCalls = 0;
+    let actuatorCalls = 0;
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-checkpoint",
+      cwd: root,
+      branch: "review-md-lint-checkpoint",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 0,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ADJ") adjudicatorCalls += 1;
+        if (adapterModel === "ACT") actuatorCalls += 1;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "apply fix" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(adjudicatorCalls).toBe(1);
+      const roleCallsAfterFirstPass = adjudicatorCalls + actuatorCalls;
+
+      rmSync(join(durable, "01-test.md"));
+      writeFileSync(join(stage, "01-test.md"), violationBytes, "utf8");
+      const retried = await executeWorkflow({ steps: [step], stateStore: store });
+      expect(retried).toMatchObject({ kind: "landing_failed", resumable: true, iterationsConsumed: 0 });
+      expect(adjudicatorCalls + actuatorCalls).toBe(roleCallsAfterFirstPass);
+      expect(store.loadRun(retried.runId)?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      expect(store.loadRun(retried.runId)?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(false);
+      expect(existsSync(join(durable, "01-test.md"))).toBe(false);
+      expect(readFileSync(join(stage, "01-test.md"), "utf8")).toBe(violationBytes);
+    });
+  });
+
+  test("review actuator staged Markdown lint reprompts on checkpoint re-entry landing", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "review actuator staged Markdown lint reprompts on checkpoint re-entry landing",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "workflow-review-md-lint-checkpoint-reprompt-"));
+    roots.push(root);
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint-reprompt");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    mkdirSync(durable, { recursive: true });
+    writeLintCleanPlanStage(stage, "01-test.md");
+    writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
+    writeFileSync(join(durable, "01-test.md"), "# Different", "utf8");
+    let adjudicatorCalls = 0;
+    let actuatorCalls = 0;
+    let repromptPrompt = "";
+
+    const step = createDebateStep({
+      stepId: "review-debate-md-lint-checkpoint-reprompt",
+      cwd: root,
+      branch: "review-md-lint-checkpoint-reprompt",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd, prompt }) => {
+          if (adapterModel === "ADJ") adjudicatorCalls += 1;
+          if (adapterModel === "ACT") {
+            actuatorCalls += 1;
+            const stageDir = join(cwd, ".jarvis-plan-stage");
+            if (actuatorCalls > 1) {
+              repromptPrompt = prompt;
+              writeFileSync(join(stageDir, "01-test.md"), cleanSubspec, "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return { kind: "ok", stdout: "ok", stderr: "" };
+        },
+      }),
+    });
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(failed).toMatchObject({ kind: "invocation_failure", resumable: true });
+      expect(adjudicatorCalls).toBe(1);
+      const roleCallsAfterFirstPass = adjudicatorCalls + actuatorCalls;
+
+      rmSync(join(durable, "01-test.md"));
+      writeFileSync(join(stage, "01-test.md"), violationBytes, "utf8");
+      expect(existsSync(join(durable, "01-test.md"))).toBe(false);
+
+      const retried = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(retried).toMatchObject({ kind: "complete", iterationsConsumed: 0 });
+      expect(adjudicatorCalls + actuatorCalls).toBe(roleCallsAfterFirstPass + 1);
+      expect(adjudicatorCalls).toBe(1);
+      expect(existsSync(join(durable, "01-test.md"))).toBe(true);
+      const reprompt = logSink
+        .getEventsForRun(retried.runId)
+        .find((event) => event.kind === "staged_markdown_lint_reprompt");
+      expect(reprompt).toMatchObject({
+        kind: "staged_markdown_lint_reprompt",
+        ruleId: "MD038",
+        offendingFile: ".jarvis-plan-stage/01-test.md",
+      });
+      expect(repromptPrompt).toContain("MD038");
+      expect(repromptPrompt).toContain(".jarvis-plan-stage/01-test.md");
+      expect(repromptPrompt).toContain(".jarvis-plan-stage");
+    });
+  });
+
+  test("intent publication resume admits lint-exhausted landing_failed and completes after hand-fix", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "intent publication resume admits lint-exhausted landing_failed and completes after hand-fix",
+      )
+    ) {
+      return;
+    }
+
+    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-exhaust-admit-"));
+    const withExternalWorktree = externalWorktreeBinding(workspace);
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "intent-md038-violation.md"), "utf8");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+    let criticCalls = 0;
+    let actuatorCalls = 0;
+
+    const writeStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent/resume-md-lint-exhaust-admit",
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+      creationTitle: "intent: resume-md-lint-exhaust-admit",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-resume-md-lint-exhaust-admit",
+        baseRef: "none",
+      },
+      withExternalWorktree,
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        writeLintCleanIntentStageFile(join(cwd, ".jarvis-intent-stage"));
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      }),
+    });
+    const reviewStep = createDebateStep({
+      stepId: "review",
+      cwd: workspace,
+      branch: "intent/resume-md-lint-exhaust-admit",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: join(workspace, "ready-intents") },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "intent-resume-md-lint-exhaust-admit",
+        baseRef: "none",
+      },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ADV" || adapterModel === "ADVOC") criticCalls += 1;
+          if (adapterModel === "ACT") {
+            actuatorCalls += 1;
+            writeFileSync(join(cwd, ".jarvis-intent-stage", "existing.md"), violationBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const failed = await executeWorkflow({ steps: [writeStep, reviewStep], stateStore: store });
+      expect(failed).toMatchObject({ kind: "landing_failed", resumable: true });
+      const reviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "intent/resume-md-lint-exhaust-admit",
+        stepId: "review",
+      });
+      if (!reviewRun) throw new Error("expected review run");
+      expect(reviewRun.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      const roleCallsAfterFirstPass = criticCalls + actuatorCalls;
+      expect(resolveIntentFinalizationResumeContext(reviewRun, store)).toMatchObject({ ok: true });
+
+      writeFileSync(join(workspace, ".jarvis-intent-stage", "existing.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
+      const outcome = await resumePopulatedIntentPublication(reviewRun, store, {
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
+        readyFinalizer: async () => {},
+      });
+      expect(outcome).toMatchObject({ ok: true });
+      expect(criticCalls + actuatorCalls).toBe(roleCallsAfterFirstPass);
+      expect(store.loadRun(reviewRun.id)?.status).toBe("completed");
+      expect(existsSync(join(workspace, "ready-intents", "existing.md"))).toBe(true);
+    });
+  });
+
+  test("intent publication resume re-lints staged Markdown and settles landing_failed on violation", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "intent publication resume re-lints staged Markdown and settles landing_failed on violation",
+      )
+    ) {
+      return;
+    }
+
+    const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-"));
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "intent-md038-violation.md"), "utf8");
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"));
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+    let actuatorCalls = 0;
+
+    await withStateStore(async (store) => {
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch: "intent/resume-md-lint",
+        workflowSnapshot: {
+          invocationId: "intent-resume-md-lint",
+          creationTitle: "intent: resume-md-lint",
+          steps: [
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: ["claude"],
+            },
+            { stepId: "review", role: "", durable: true, behavior: "review" as const },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      store.setRunStatus(reviewRunId, "failed");
+      const seedAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: seedAttemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+      writeFileSync(join(workspace, ".jarvis-intent-stage", "existing.md"), violationBytes, "utf8");
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const logSink = new TestLogSink();
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        logSink,
+        completionCommitter: async () => {
+          actuatorCalls += 1;
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: createCompletionPublisher(),
+        readyFinalizer: async () => {},
+      });
+
+      expect(outcome).toMatchObject({ ok: false });
+      expect(actuatorCalls).toBe(0);
+      const settled = store.loadRun(reviewRunId);
+      expect(settled?.status).toBe("failed");
+      expect(settled?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      expect(settled?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(false);
+      expect(existsSync(join(workspace, ".jarvis-intent-stage", "existing.md"))).toBe(true);
+      expect(readFileSync(join(workspace, ".jarvis-intent-stage", "existing.md"), "utf8")).toBe(violationBytes);
+      expect(existsSync(join(workspace, "ready-intents", "existing.md"))).toBe(false);
+      expect(logSink.getEventsForRun(reviewRunId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "landing_failed",
+        resumable: true,
+      });
+    });
+  });
 });
 
 describe("executeWorkflow review dispatch", () => {
@@ -6742,8 +7098,7 @@ describe("executeWorkflow review dispatch", () => {
       withExternalWorktree,
       createBinding: createBindingFactory(async ({ cwd }) => {
         splitCalls += 1;
-        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
-        writeFileSync(join(cwd, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
+        writeLintCleanIntentStageFile(join(cwd, ".jarvis-intent-stage"), "example.md");
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
@@ -6875,8 +7230,7 @@ describe("executeWorkflow review dispatch", () => {
       creationTitle: "intent: finalize-debate-baseref",
       withExternalWorktree,
       createBinding: createBindingFactory(async ({ cwd }) => {
-        mkdirSync(join(cwd, ".jarvis-intent-stage"), { recursive: true });
-        writeFileSync(join(cwd, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_EXAMPLE_MD, "utf8");
+        writeLintCleanIntentStageFile(join(cwd, ".jarvis-intent-stage"), "example.md");
         return { kind: "ok" as const, stdout: "done", stderr: "" };
       }),
     });
@@ -6948,11 +7302,7 @@ describe("executeWorkflow review dispatch", () => {
   test("intent-resume committer-throw failure logs the same completionCommitError as the resume outcome", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-commit-throw-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(
-      join(workspace, ".jarvis-intent-stage", "example.md"),
-      "---\nname: example\n---\n\n## Prerequisites\n",
-      "utf8",
-    );
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
 
     await withStateStore(async (store) => {
@@ -6988,11 +7338,7 @@ describe("executeWorkflow review dispatch", () => {
     execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
     execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(
-      join(workspace, ".jarvis-intent-stage", "example.md"),
-      "---\nname: example\n---\n\n## Prerequisites\n",
-      "utf8",
-    );
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
 
     try {

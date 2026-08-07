@@ -497,6 +497,8 @@ jarvis run resume <runId>    # write-step runId — re-enters the write loop
 
 **Review row** (`runId` on the review/finalization step) settled `landing_failed` with populated stage replays finalization only (`resolveIntentFinalizationResumeContext`), not the write loop.
 
+When `landing_failed` follows review-path staged-Markdown lint budget exhaustion (`staged_markdown_lint_reprompt` events in `jarvis run log`), hand-edit the violating file under `.jarvis-intent-stage/` or `.jarvis-plan-stage/`, then resume the review row. Checkpoint re-entry (`finishReviewedLanding`) may reprompt the actuator while lint-reprompt budget remains; when exhausted, intent populated-stage resume (`resumePopulatedIntentPublication`) re-lints only — fix violations on disk first, then `jarvis run resume` — it never re-invokes critic or actuator.
+
 Prerequisites: the failure must be git-enabled (git-disabled runs have nothing to commit/push and aren't covered by this recovery path) and the stage must still hold files — an empty/missing stage reports `unsupported_resume_context` instead and needs manual inspection.
 
 Recover a **review row** with:

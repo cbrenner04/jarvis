@@ -36,6 +36,11 @@ import {
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 
+const LINT_CLEAN_INTENT_STAGE_MD = readFileSync(
+  join(import.meta.dir, "..", "execution", "fixtures", "write-loop-staged-markdown-lint", "intent-md038-clean.md"),
+  "utf8",
+);
+
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
 const { roots } = trackedTempRoots();
@@ -1224,9 +1229,27 @@ function failReviewRunAtLanding(runId: string): void {
   });
 }
 
+function failReviewRunAtLintExhaustion(runId: string): void {
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "landing_failed",
+  });
+}
+
 function landingFailedLogReader(runId: string): LogReader {
   return loopFinishedLogReader(runId, {
     loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: true,
+  });
+}
+
+function lintExhaustedLandingFailedLogReader(runId: string): LogReader {
+  return loopFinishedLogReader(runId, {
+    loopOutcomeKind: "landing_failed",
     iterationsConsumed: 0,
     resumable: true,
   });
@@ -1247,7 +1270,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
   try {
     mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), "content\n", "utf8");
+    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({
@@ -1260,6 +1283,46 @@ test("admits a populated-stage intent finalization landing_failed row instead of
     const localHandlers = createRunControlHandlers({
       stateStore,
       logReader: landingFailedLogReader(reviewRunId),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      intentFinalizationResumeDeps: {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    const row = await listRow(localHandlers, reviewRunId);
+    expect(row.error?.reason).toBe("landing_failed");
+    expect(row.error?.nextAction).toBe("resume");
+    expect(await listResumable(localHandlers, reviewRunId)).toBe(true);
+
+    const response = await resumeDirect(localHandlers, reviewRunId);
+    expect(response.kind).toBe("response");
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("admits a lint-exhausted populated-stage landing_failed row instead of unsupported_resume_context", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-lint-exhaust-"));
+  try {
+    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
+    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
+    mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+
+    const { reviewRunId } = createIntentFinalizationRuns({
+      invocationId: "intent-finalize-lint-exhaust",
+      worktreePath,
+      branch: "intent/lint-exhaust",
+      durableDir: "ready-intents",
+    });
+    failReviewRunAtLintExhaustion(reviewRunId);
+    const localHandlers = createRunControlHandlers({
+      stateStore,
+      logReader: lintExhaustedLandingFailedLogReader(reviewRunId),
       writeLoopExecutor: fakeExecutor.executor,
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
@@ -1316,11 +1379,7 @@ test("resumes a populated-stage intent finalization end to end: landing_failed p
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-e2e-"));
   try {
     mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(
-      join(worktreePath, ".jarvis-intent-stage", "example.md"),
-      "---\nname: example\n---\n\n## Prerequisites\n",
-      "utf8",
-    );
+    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({

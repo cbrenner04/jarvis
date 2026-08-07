@@ -2470,6 +2470,14 @@ async function tryActuatorOnlyReviewDebateRetry(
   };
 }
 
+function isReviewLandingRecoveryAttempt(lastAttempt: Attempt | undefined): boolean {
+  if (lastAttempt === undefined) return false;
+  if (lastAttempt.outcomeKind === "landing_failed") return true;
+  return (
+    lastAttempt.outcomeKind === "invocation_failure" && lastAttempt.invocationFailureDetail?.failureKind === "landing"
+  );
+}
+
 /**
  * A review step's own durable completion checkpoint, keyed like a write step's run row.
  * Retrying landing, commit, push, PR, or finalization re-enters `runReviewStep` for this step;
@@ -2482,9 +2490,7 @@ function findReviewLandingCheckpoint(
   const existing = store.findRunByProjectBranch({ project: step.project, branch: step.branch, stepId: step.stepId });
   const lastAttempt = existing?.attempts.at(-1);
   return existing?.status === "completed" ||
-    (existing?.status === "failed" &&
-      lastAttempt?.outcomeKind === "invocation_failure" &&
-      lastAttempt.invocationFailureDetail?.failureKind === "landing")
+    (existing?.status === "failed" && isReviewLandingRecoveryAttempt(lastAttempt))
     ? existing
     : undefined;
 }
@@ -2583,8 +2589,32 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
+function buildCheckpointReviewLandingActuatorContext(
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+): ReviewedLandingActuatorRepromptContext {
+  const verdict = existsSync(step.verdictPath) ? readFileSync(step.verdictPath, "utf8") : "";
+  if (step.behavior === "review-debate") {
+    const resolveBindings = step.createBinding ?? createResolvedAgentBinding;
+    const bindings = Object.fromEntries(
+      REVIEW_DEBATE_ROLES.map((role) => [
+        role,
+        resolveInvocationBindings(
+          resolveExecutableRole(role),
+          step.agents[role],
+          step.agentModelConfig,
+          resolveBindings,
+        ),
+      ]),
+    ) as ReviewDebateRoleBindings;
+    return buildReviewDebateLandingActuatorContext(step, landing, bindings, verdict, step.profileContext, {});
+  }
+  const bindings = resolveReviewStepBindings(step);
+  return buildStandardReviewLandingActuatorContext(step, landing, bindings, verdict, step.profileContext ?? {}, {});
+}
+
 async function finishReviewedLanding(
-  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch" | "project">,
+  step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   runId: string,
   store: StateStore,
@@ -2593,27 +2623,36 @@ async function finishReviewedLanding(
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
   logSink?.append(runId, { kind: "iteration_started", attemptId });
-  const landed = await landReviewedPublicationOutput(step.cwd, deferred, step.verdictPath, {
-    logSink,
+  const landingFailure = await landReviewedOutputOrFail(
+    step,
+    deferred,
+    attemptId,
     runId,
-    branch: step.branch,
-    persistHandoff: { store, project: step.project, branch: step.branch, writeTarget: { reviewRunId: runId } },
-  });
-  if (!landed.ok) {
-    store.commitCompletionBoundary({
-      attemptId,
-      runStatus: "failed",
-      outcomeKind: "invocation_failure",
-      invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landed.message },
-    });
-    const outcome: ReviewStepOutcome = { kind: "invocation_failure", runId, iterationsConsumed: 0, resumable: true };
-    logSink?.append(runId, {
-      kind: "loop_finished",
-      loopOutcomeKind: outcome.kind,
-      iterationsConsumed: outcome.iterationsConsumed,
-      resumable: outcome.resumable,
-    });
-    return outcome;
+    0,
+    store,
+    logSink,
+    buildCheckpointReviewLandingActuatorContext(step, deferred),
+  );
+  if (landingFailure !== undefined) {
+    if (landingFailure.kind === "landing_failed") {
+      logSink?.append(runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "landing_failed",
+        iterationsConsumed: landingFailure.iterationsConsumed,
+        resumable: landingFailure.resumable,
+      });
+    } else if (
+      landingFailure.kind === "invocation_failure" &&
+      store.loadRun(runId)?.attempts.at(-1)?.invocationFailureDetail?.failureKind === "landing"
+    ) {
+      logSink?.append(runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: landingFailure.kind,
+        iterationsConsumed: landingFailure.iterationsConsumed,
+        resumable: landingFailure.resumable,
+      });
+    }
+    return landingFailure;
   }
   store.commitCompletionBoundary({
     attemptId,
@@ -2804,9 +2843,10 @@ export function hasPopulatedIntentStage(worktreePath: string): boolean {
 
 /**
  * Admission and reconstruction for resuming a review-behavior step's `landing_failed` row without
- * re-entering review: requires a failed review/review-debate row whose last attempt recorded a
- * landing invocation failure, a populated `.jarvis-intent-stage/`, and the sibling durable write
- * step's own row — the only row carrying the resolved `durableDir` (its `specPath`).
+ * re-entering review: requires a failed review/review-debate row whose last attempt recorded
+ * `landing_failed` or a landing `invocation_failure`, a populated `.jarvis-intent-stage/`, and
+ * the sibling durable write step's own row — the only row carrying the resolved `durableDir`
+ * (its `specPath`).
  */
 export function resolveIntentFinalizationResumeContext(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
@@ -2816,10 +2856,7 @@ export function resolveIntentFinalizationResumeContext(
   if (!head.ok) return head;
   const { snapshot, writeRun, completionAgent } = head.head;
   const lastAttempt = run.attempts.at(-1);
-  if (
-    lastAttempt?.outcomeKind !== "invocation_failure" ||
-    lastAttempt.invocationFailureDetail?.failureKind !== "landing"
-  ) {
+  if (!isReviewLandingRecoveryAttempt(lastAttempt)) {
     return { ok: false, message: "run did not fail at landing" };
   }
   if (!hasPopulatedIntentStage(run.worktreePath)) {
@@ -2863,6 +2900,23 @@ export type IntentFinalizationResumeDeps = {
   readyFinalizer?: ReadyFinalizer;
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
 };
+
+function settleIntentResumeStagedMarkdownLintFailure(
+  store: StateStore,
+  context: IntentFinalizationResumeContext,
+  attemptId: string,
+  resumable: boolean,
+  deps: IntentFinalizationResumeDeps,
+): IntentFinalizationResumeOutcome {
+  settleReviewedStagedMarkdownLintFailure(store, attemptId, context.runId, 0, resumable, deps.logSink);
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "landing_failed",
+    iterationsConsumed: 0,
+    resumable,
+  });
+  return { ok: false, message: "staged markdown lint failed" };
+}
 
 /** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */
 function settleIntentResumeFailure(
@@ -3091,6 +3145,17 @@ export async function resumePopulatedIntentPublication(
         "invocation_failure",
         0,
         "no completion agent available to attribute the publication commit",
+        deps,
+      );
+    }
+
+    const lintResult = await lintReviewedStagedMarkdownOrFail(context.worktreePath, context.landing);
+    if (lintResult.kind === "violation" || lintResult.kind === "invocation_error") {
+      return settleIntentResumeStagedMarkdownLintFailure(
+        store,
+        context,
+        attemptId,
+        lintResult.kind === "violation",
         deps,
       );
     }

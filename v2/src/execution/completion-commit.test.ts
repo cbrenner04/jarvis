@@ -594,7 +594,7 @@ describe("createCompletionCommitter", () => {
     const { worktreePath, seedHead } = initRealGitWorktree();
     writeUnformattedExample(worktreePath);
     const timeoutRunner: AsyncSubprocessRunner = {
-      async runAsync(_cmd, _args, _cwd, opts) {
+      async runAsync(_cmd, _args, _cwd, _opts) {
         throw new AsyncSubprocessError("timeout", undefined, "", "", "ETIMEDOUT");
       },
     };

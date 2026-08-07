@@ -24,5 +24,12 @@ Approval rows record `approved`/`rejected` with no decision timestamp, so gate w
 
 ## Documentation updates
 
-- `v2/docs/state-store.md` § Schema/API/Semantics — the stage `decided_at` column; `commitApprovalDecision` records `decidedAt`; reopen clears it.
+- `v2/docs/state-store.md` § Schema, API, and Semantics — the stage `decided_at` column; `commitApprovalDecision` records `decidedAt`; reopen clears it.
 - `v2/docs/v1-behaviors.md` — approval decisions now record `decidedAt`.
+
+## Prerequisites
+
+- `commitApprovalDecision` transitions one approval row `awaiting` → `approved` or `rejected` by durable `PipelineStageRecord.id`, first writer wins, and writes no decision timestamp today.
+- `loadPipeline` and `listPipelines` expose stage records; no `decidedAt`/`decided_at` field exists anywhere in the codebase yet.
+- `reopenFailedPipeline` clears prior-attempt lifecycle payloads on the reopened row and its skipped suffix.
+- Store schema changes are forward-only appended migrations (`reconciled_at` landed that way).

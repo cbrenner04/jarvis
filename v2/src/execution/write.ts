@@ -32,6 +32,7 @@ import {
   describeCriterionCheckpoint,
   describeUnparseable,
   type MutationCheckpointSeams,
+  type UnparseableDirective,
   verifyMutationCheckpoints,
 } from "./mutation-checkpoint-verifier.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";

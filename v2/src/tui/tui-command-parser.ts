@@ -6,7 +6,10 @@ export type TuiCommand =
   | { kind: "collapse" }
   | { kind: "approve" }
   | { kind: "reject" }
-  | { kind: "resume" };
+  | { kind: "resume" }
+  | { kind: "kill" }
+  | { kind: "pause" }
+  | { kind: "resume-run" };
 
 export type TuiCommandErrorCode =
   | "malformed_input"
@@ -33,12 +36,10 @@ export type TuiCommandParseResult = TuiCommand | TuiCommandError;
 export type TuiTokenizeResult = { kind: "tokens"; tokens: string[] } | { kind: "error"; code: "unterminated_quote" };
 
 const UNAVAILABLE_COMMANDS: Readonly<Record<string, string>> = {
-  kill: "jarvis run kill",
-  pause: "jarvis run pause",
   log: "jarvis tui log",
 };
 
-const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume"]);
+const ZERO_ARG_VERBS = new Set(["expand", "collapse", "approve", "reject", "resume", "kill", "pause", "resume-run"]);
 
 export function tokenizeTuiCommand(input: string): TuiTokenizeResult {
   const tokens: string[] = [];
@@ -139,5 +140,7 @@ export function parseTuiCommand(input: string): TuiCommandParseResult {
   if (verb === "start") return parseStart(tokens);
   if (!ZERO_ARG_VERBS.has(verb)) return error("unknown_verb");
   if (tokens.length > 1) return error("unexpected_arguments");
-  return { kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" };
+  return {
+    kind: verb as "expand" | "collapse" | "approve" | "reject" | "resume" | "kill" | "pause" | "resume-run",
+  };
 }

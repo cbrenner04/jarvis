@@ -16,6 +16,7 @@ import type {
 } from "./tui-daemon-client.ts";
 import { TUI_DAEMON_SOCKET_DISPLAY } from "./tui-daemon-errors.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import * as tuiEntry from "./tui-entry.tsx";
 import {
   commandSubmissionBlockedByPendingAdmission,
   expansionCommandSelectionError,
@@ -684,8 +685,8 @@ function nextFakeResponse<T>(responses: T[] | undefined, index: number): [T | un
   return [responses[Math.min(index, responses.length - 1)], index + 1];
 }
 
-function countRpcMethod(methods: string[] | undefined, method: string): number {
-  return methods?.filter((entry) => entry === method).length ?? 0;
+function countRpcMethod(methods: string[] | undefined, method: string, prefix = false): number {
+  return methods?.filter((entry) => (prefix ? entry.startsWith(method) : entry === method)).length ?? 0;
 }
 
 async function flushIntervalTick(scheduler: ReturnType<typeof createIntervalScheduler>): Promise<void> {
@@ -733,6 +734,7 @@ function steeringFailureAsserter(
   clientOptions: FakeClientOptions,
   verb: string,
   rpcMethod: string,
+  rpcPrefix = false,
 ): (feedback: string, setup?: () => void) => void {
   return (feedback, setup = () => {}) => {
     setup();
@@ -742,9 +744,9 @@ function steeringFailureAsserter(
     }
     view.insertCommandText(verb);
     const commandBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
-    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod);
+    const rpcBefore = countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix);
     view.submitCommand(commandBuffer);
-    expect(countRpcMethod(clientOptions.methods, rpcMethod)).toBe(rpcBefore);
+    expect(countRpcMethod(clientOptions.methods, rpcMethod, rpcPrefix)).toBe(rpcBefore);
     expect(view.monitorStates.at(-1)).toMatchObject({
       focus: "command",
       commandBuffer,
@@ -4412,6 +4414,208 @@ describe("runTuiEntry", () => {
 
     view.quit();
     await pending;
+  });
+
+  test("typed kill pause and resume-run steer the selected live run", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      for (const verb of ["pause", "kill", "resume-run"] as const) {
+        view.focusCommand();
+        while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+          view.deleteCommandBackward();
+        }
+        view.insertCommandText(verb);
+        view.submitCommand(verb);
+        await flush();
+      }
+      expect(countRpcMethod(clientOptions.methods, "pause:", true)).toBe(1);
+      expect(countRpcMethod(clientOptions.methods, "kill:", true)).toBe(1);
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(1);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed resume-run issues a resume RPC and no wait RPC", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      view.focusCommand();
+      view.insertCommandText("resume-run");
+      view.submitCommand("resume-run");
+      await flush();
+      expect(clientOptions.methods).toContain("resume:run-matched");
+      expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed run steering on ineligible selection reports feedback and issues no RPC", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "if (method !== \"resume\" && !isLiveRunSteerable(currentState, runId))" -> "if (method !== \"resume\" && isLiveRunSteerable(currentState, runId))"
+    const emptyView = createViewHost();
+    const emptyPending = runTuiEntry(
+      entryDeps(
+        { methods: [], listResponses: [{ runs: [] }], pipelineListResponses: [{ pipelines: [] }] },
+        { viewHost: emptyView.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+      ).deps,
+    );
+    await emptyView.waitUntilOpen();
+    await flush();
+    emptyView.focusCommand();
+    emptyView.insertCommandText("kill");
+    emptyView.submitCommand("kill");
+    expect(emptyView.monitorStates.at(-1)?.lastCommandResult).toBe("no_selection");
+    emptyView.quit();
+    expect(await emptyPending).toBe(0);
+
+    const terminalMatchedRun: DaemonListRunRow = {
+      ...PIPELINE_RUN_MATCHED,
+      status: "completed",
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    };
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [terminalMatchedRun, PIPELINE_RUN_ORPHAN] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
+      const expectPauseFailure = steeringFailureAsserter(view, clientOptions, "pause", "pause:", true);
+
+      view.selectNode("pipe-alpha");
+      expectKillFailure("stale_non_expandable");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", PIPELINE_STAGE_ALPHA);
+      expectKillFailure("stale_non_expandable");
+
+      view.selectNode("run-orphan");
+      expectKillFailure("unattributed");
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      expectKillFailure("not_live_run");
+
+      expectPauseFailure("not_live_run");
+
+      const runIdSpy = spyOn(tuiEntry, "selectedRunIdFromState").mockReturnValue(null);
+      try {
+        const expectResumeRunFailure = steeringFailureAsserter(view, clientOptions, "resume-run", "resume:", true);
+        expectKillFailure("stale_non_expandable");
+        expectPauseFailure("stale_non_expandable");
+        expectResumeRunFailure("stale_non_expandable");
+      } finally {
+        runIdSpy.mockRestore();
+      }
+
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("resume-run");
+      const resumeBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      const resumeBefore = countRpcMethod(clientOptions.methods, "resume:", true);
+      view.submitCommand(resumeBuffer);
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "resume:", true)).toBe(resumeBefore + 1);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("typed run steering works during pending pipeline admission", async () => {
+    const view = createViewHost();
+    const admissionGate = deferred<PipelineStartAdmissionResult>();
+    let admissionCalls = 0;
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: pipelineTreeListFixture() }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        admitDetachedPipelineStart: async () => {
+          admissionCalls += 1;
+          return admissionGate.promise;
+        },
+      },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      view.focusCommand();
+      view.insertCommandText("start demo --seed-text pending");
+      const startBuffer = view.monitorStates.at(-1)?.commandBuffer ?? "";
+      view.submitCommand(startBuffer);
+      expect(admissionCalls).toBe(1);
+
+      await expandPipelineAndSelect(view, "pipe-alpha", "run-matched");
+      view.focusCommand();
+      while ((view.monitorStates.at(-1)?.commandBuffer ?? "").length > 0) {
+        view.deleteCommandBackward();
+      }
+      view.insertCommandText("pause");
+      view.submitCommand("pause");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pause:", true)).toBe(1);
+
+      const expectKillFailure = steeringFailureAsserter(view, clientOptions, "kill", "kill:", true);
+      view.selectNode("pipe-alpha");
+      expectKillFailure("stale_non_expandable");
+
+      view.submitCommand(startBuffer);
+      expect(admissionCalls).toBe(1);
+
+      admissionGate.resolve({ kind: "admitted", pipelineId: "pipe-admitted" });
+      await flush();
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
   });
 
   test("typed approve issues pipeline_approve for the selected awaiting stage", async () => {

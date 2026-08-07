@@ -31,11 +31,11 @@ Typed `kill`, `pause`, and `resume-run` are recognized parser verbs (after `00-c
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` test `typed kill pause and resume-run steer the selected live run` drives dispatch against a fake daemon client, issues one `pause`, `kill`, and `resume` RPC each on the selected live run, and fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed resume-run issues a resume RPC and no wait RPC` drives dispatch against a fake daemon client, asserts one `resume` run RPC on the selected live run and zero `wait` RPCs (wait was removed by `tui-remove-waitstate-window-detail`), and fails against the pre-fix code.
-- [ ] `tui-entry.test.tsx` test `typed run steering on ineligible selection reports feedback and issues no RPC` pins `lastCommandResult` codes and issues no run RPC for: pipeline/stage selection (`stale_non_expandable`), unattributed selection (`unattributed`), non-actionable retained row on `kill`/`pause` (`not_live_run`), and `resume-run` on a killed retained row (eligible — no pre-RPC refusal, contrasted with `kill`/`pause` on the same row).
-- [ ] Mutation checkpoint: in `tui-entry.test.tsx` test `typed run steering on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the live-run eligibility guard turns that regression RED.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
+- [x] `tui-entry.test.tsx` test `typed kill pause and resume-run steer the selected live run` drives dispatch against a fake daemon client, issues one `pause`, `kill`, and `resume` RPC each on the selected live run, and fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed resume-run issues a resume RPC and no wait RPC` drives dispatch against a fake daemon client, asserts one `resume` run RPC on the selected live run and zero `wait` RPCs (wait was removed by `tui-remove-waitstate-window-detail`), and fails against the pre-fix code.
+- [x] `tui-entry.test.tsx` test `typed run steering on ineligible selection reports feedback and issues no RPC` pins `lastCommandResult` codes and issues no run RPC for: pipeline/stage selection (`stale_non_expandable`), unattributed selection (`unattributed`), non-actionable retained row on `kill`/`pause` (`not_live_run`), and `resume-run` on a killed retained row (eligible — no pre-RPC refusal, contrasted with `kill`/`pause` on the same row).
+- [x] Mutation checkpoint: in `tui-entry.test.tsx` test `typed run steering on ineligible selection reports feedback and issues no RPC`, a `// @mutate` directive inverting the live-run eligibility guard turns that regression RED.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 

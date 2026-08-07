@@ -37,6 +37,7 @@ import type {
   TuiRefreshScheduler,
   TuiViewState,
 } from "./tui-monitor-types.ts";
+import { isActiveRunStatus } from "./tui-monitor-workflow-collapse.ts";
 import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
@@ -88,7 +89,7 @@ function createIntervalScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefre
   };
 }
 
-function selectedRunIdFromState(state: TuiMonitorState): string | null {
+export function selectedRunIdFromState(state: TuiMonitorState): string | null {
   const nodeId = state.selectedNodeId;
   if (nodeId === null) return null;
   return state.runs.some((run) => run.runId === nodeId) ? nodeId : null;
@@ -155,6 +156,11 @@ function pipelineNodesForState(state: TuiMonitorState) {
 
 export function commandSubmissionBlockedByPendingAdmission(admissionPending: boolean): boolean {
   return admissionPending;
+}
+
+function isRunSteeringCommandBuffer(commandBuffer: string): boolean {
+  const verb = commandBuffer.trim().split(/\s+/)[0];
+  return verb === "kill" || verb === "pause" || verb === "resume-run";
 }
 
 export function shouldApplyCommandSettlement(
@@ -347,6 +353,25 @@ export function expansionCommandSelectionError(
   if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
   if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
   return "stale_non_expandable";
+}
+
+function runSteeringCommandSelectionError(
+  state: TuiMonitorState,
+  nowMs: number,
+): Exclude<ExpansionCommandSelectionError, "run_leaf"> | null {
+  const err = expansionCommandSelectionError(state, nowMs);
+  if (err === "run_leaf") return null;
+  if (err === null) return "stale_non_expandable";
+  return err;
+}
+
+function isLiveRunSteerable(state: TuiMonitorState, runId: string): boolean {
+  const selectedRun = state.runs.find((run) => run.runId === runId);
+  return (
+    selectedRun?.isLive === true &&
+    isActiveRunStatus(selectedRun.status) &&
+    (state.actionableRunIds?.includes(selectedRun.runId) ?? true)
+  );
 }
 
 function formatCommandParseFeedback(error: TuiCommandError): string {
@@ -724,7 +749,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         },
         submitCommand(commandBuffer) {
           // Mutation checkpoint: negating commandSubmissionBlockedByPendingAdmission must turn single in-flight admission RED.
-          if (commandSubmissionBlockedByPendingAdmission(admissionPending)) return;
+          if (
+            commandSubmissionBlockedByPendingAdmission(admissionPending) &&
+            !isRunSteeringCommandBuffer(commandBuffer)
+          ) {
+            return;
+          }
 
           const parsed = parseTuiCommand(commandBuffer);
           if (parsed.kind === "error") {
@@ -828,6 +858,42 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
                 admissionPending = false;
               }
             })();
+            return;
+          }
+
+          if (parsed.kind === "kill" || parsed.kind === "pause" || parsed.kind === "resume-run") {
+            const method = parsed.kind === "resume-run" ? "resume" : parsed.kind;
+            const selectionError = runSteeringCommandSelectionError(currentState, nowMsFn());
+            if (selectionError !== null) {
+              setState({
+                ...currentState,
+                lastCommandResult: selectionError,
+              });
+              return;
+            }
+            const runId = selectedRunIdFromState(currentState);
+            if (runId === null) {
+              setState({
+                ...currentState,
+                lastCommandResult: "stale_non_expandable",
+              });
+              return;
+            }
+            if (getOwner(runId) === undefined) {
+              setState({
+                ...currentState,
+                lastCommandResult: "stale_non_expandable",
+              });
+              return;
+            }
+            if (method !== "resume" && !isLiveRunSteerable(currentState, runId)) {
+              setState({
+                ...currentState,
+                lastCommandResult: "not_live_run",
+              });
+              return;
+            }
+            runSteeringAction(method);
             return;
           }
 

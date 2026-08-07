@@ -23,11 +23,11 @@ Typed `kill` and `pause` report `recognized_unavailable` naming CLI equivalents;
 
 ## Acceptance criteria
 
-- [ ] `tui-command-parser.test.ts` test `parses resume-run as a run-steering verb` fails against the pre-fix code (`unknown_verb`) and passes after implementation.
-- [ ] `tui-command-parser.test.ts` test `parses kill and pause as run-steering verbs` fails against the pre-fix code (`recognized_unavailable`) and passes after implementation.
-- [ ] `tui-command-parser.test.ts` proves `kill`, `pause`, and `resume-run` return typed command kinds with `unexpected_arguments` when trailing tokens are present.
-- [ ] The parser maps `resume-run` to a run-steering command kind; `kill` and `pause` no longer map to `recognized_unavailable`; `log` still maps to `recognized_unavailable`.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass.
+- [x] `tui-command-parser.test.ts` test `parses resume-run as a run-steering verb` fails against the pre-fix code (`unknown_verb`) and passes after implementation.
+- [x] `tui-command-parser.test.ts` test `parses kill and pause as run-steering verbs` fails against the pre-fix code (`recognized_unavailable`) and passes after implementation.
+- [x] `tui-command-parser.test.ts` proves `kill`, `pause`, and `resume-run` return typed command kinds with `unexpected_arguments` when trailing tokens are present.
+- [x] The parser maps `resume-run` to a run-steering command kind; `kill` and `pause` no longer map to `recognized_unavailable`; `log` still maps to `recognized_unavailable`.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

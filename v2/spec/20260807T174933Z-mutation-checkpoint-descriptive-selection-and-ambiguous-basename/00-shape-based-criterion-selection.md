@@ -33,20 +33,26 @@ Authoritative for implement runs: acceptance criteria, documentation updates, an
 
 ## Acceptance criteria
 
-- [ ] `mutation-checkpoint-verifier.test.ts` — `subspecNaming` suffix-first guard checkpoints and `mutation-checkpoint-regression.test.ts` rows still select and verify (preserved against pre-fix suffix-only narrowing).
-- [ ] `mutation-checkpoint-verifier.test.ts` — prefix-first intent-style guard checkpoints (`Mutation checkpoint: in \`file\` test \`title\`` with linked pinning-file directive) still select and verify; fails against suffix-only narrowing.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `prose @mutate without a directive-shaped occurrence is not selected` and `a ticked criterion quoting a directive-shaped @mutate occurrence is still verified` stay green.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `canonical suffix template quoted as contract prose does not select` proves a ticked criterion quoting `` `file` — `title`; Mutation checkpoint:`` as documentation without pin linkage produces no `hollow`, `caught`, or pinning-resolution unparseable entries; fails pre-fix.
-- [ ] `v2/src/execution/write.test.ts` — `functional AC mentioning checkpoint tokens descriptively does not contract_miss` embeds a subspec whose functional AC mention `@mutate`, `Mutation checkpoint:`, `Keystone checkpoint:`, and `` `write.test.ts` `` only as descriptive prose (no canonical checkpoint suffix, no prefix-first shape, no real `// @mutate` directive) and asserts implement completion does not settle `contract_miss` for mutation-checkpoint parsing; fails pre-fix.
-- [ ] `v2/src/execution/write.test.ts` — `functional AC mentioning checkpoint tokens descriptively does not contract_miss`; Mutation checkpoint: its pinning test carries `// @mutate shared/mutation-checkpoint-criteria.ts` inverting the criterion-selection shape guard using a uniquely occurring anchor in landed code; the mutation turns the AC-5 regression RED.
-- [ ] `shared/prompts/review-plan-hollow-pin.test.ts` stays green after narrowed guard selection (hollow-pin plan-review surface preserved).
-- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents prefix-first and canonical-suffix guard shapes, descriptive checkpoint-token mentions in functional AC without selection, and that canonical `` `file` — `title`; Mutation checkpoint:`` / `` `file` — `title`; Keystone checkpoint:`` suffix remains the preferred authoring contract.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust documents that descriptive criteria mentioning checkpoint tokens without canonical checkpoint shape or prefix-first pin linkage no longer select.
-- [ ] `v2/docs/v1-behaviors.md` implement-write mutation-checkpoint bullet records shape-based guard/keystone selection.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
+- [x] `mutation-checkpoint-verifier.test.ts` — `subspecNaming` suffix-first guard checkpoints and `mutation-checkpoint-regression.test.ts` rows still select and verify (preserved against pre-fix suffix-only narrowing).
+- [x] `mutation-checkpoint-verifier.test.ts` — prefix-first intent-style guard checkpoints (`Mutation checkpoint: in \`file\` test \`title\`` with linked pinning-file directive) still select and verify; fails against suffix-only narrowing.
+- [x] `mutation-checkpoint-verifier.test.ts` — `prose @mutate without a directive-shaped occurrence is not selected` and `a ticked criterion quoting a directive-shaped @mutate occurrence is still verified` stay green.
+- [x] `mutation-checkpoint-verifier.test.ts` — `canonical suffix template quoted as contract prose does not select` proves a ticked criterion quoting `` `file` — `title`; Mutation checkpoint:`` as documentation without pin linkage produces no `hollow`, `caught`, or pinning-resolution unparseable entries; fails pre-fix.
+- [x] `v2/src/execution/write.test.ts` — `functional AC mentioning checkpoint tokens descriptively does not contract_miss` embeds a subspec whose functional AC mention `@mutate`, `Mutation checkpoint:`, `Keystone checkpoint:`, and `` `write.test.ts` `` only as descriptive prose (no canonical checkpoint suffix, no prefix-first shape, no real `// @mutate` directive) and asserts implement completion does not settle `contract_miss` for mutation-checkpoint parsing; fails pre-fix.
+- [x] `v2/src/execution/write.test.ts` — `functional AC mentioning checkpoint tokens descriptively does not contract_miss`; Mutation checkpoint: its pinning test carries `// @mutate shared/mutation-checkpoint-criteria.ts` inverting the criterion-selection shape guard using a uniquely occurring anchor in landed code; the mutation turns the AC-5 regression RED.
+- [x] `shared/prompts/review-plan-hollow-pin.test.ts` stays green after narrowed guard selection (hollow-pin plan-review surface preserved).
+- [x] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents prefix-first and canonical-suffix guard shapes, descriptive checkpoint-token mentions in functional AC without selection, and that canonical `` `file` — `title`; Mutation checkpoint:`` / `` `file` — `title`; Keystone checkpoint:`` suffix remains the preferred authoring contract.
+- [x] `v2/docs/operator-runbook.md` § Gate trust documents that descriptive criteria mentioning checkpoint tokens without canonical checkpoint shape or prefix-first pin linkage no longer select.
+- [x] `v2/docs/v1-behaviors.md` implement-write mutation-checkpoint bullet records shape-based guard/keystone selection.
+- [x] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 
 - `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria — prefix-first (`Mutation checkpoint: in \`file\` test \`title\``) and canonical-suffix guard shapes; functional AC may mention checkpoint tokens descriptively without selecting; canonical suffix remains the preferred authoring contract.
 - `v2/docs/operator-runbook.md` § Gate trust — descriptive criteria mentioning checkpoint tokens without canonical checkpoint shape or prefix-first pin linkage no longer select.
 - `v2/docs/v1-behaviors.md` — implement-write mutation-checkpoint selection bullets.
+
+## Blocker
+
+Artifact contract check failed: Multiple keystone checkpoints (exactly one ticked Keystone checkpoint criterion per runtime-behavior subspec):
+- `v2/src/execution/write.test.ts` — `functional AC mentioning checkpoint tokens descriptively does not contract_miss` embeds a subspec whose functional AC mention `@mutate`, `Mutation checkpoint:`, `Keystone checkpoint:`, and `` `write.test.ts` `` only as descriptive prose (no canonical checkpoint suffix, no prefix-first shape, no real `// @mutate` directive) and asserts implement completion does not settle `contract_miss` for mutation-checkpoint parsing; fails pre-fix.
+- `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents prefix-first and canonical-suffix guard shapes, descriptive checkpoint-token mentions in functional AC without selection, and that canonical `` `file` — `title`; Mutation checkpoint:`` / `` `file` — `title`; Keystone checkpoint:`` suffix remains the preferred authoring contract.

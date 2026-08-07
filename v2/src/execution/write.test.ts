@@ -375,6 +375,24 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
   });
 
+  test("functional AC mentioning checkpoint tokens descriptively does not contract_miss", async () => {
+    // @mutate shared/mutation-checkpoint-criteria.ts "if (DIRECTIVE_PATTERN.test(block)) return true;" -> "if (block.includes(CRITERION_MARKER)) return true;"
+    const { jarvisRoot } = createJarvisHome();
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      "- [x] Functional AC may name `@mutate`, `Mutation checkpoint:`, `Keystone checkpoint:`, and `write.test.ts` descriptively without guard selection.\n",
+    );
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+    });
+
+    expect(result.result.kind).toBe("complete");
+  });
+
   test("unparseable in a referenced pinning file refuses completion", async () => {
     // @mutate v2/src/execution/write.ts "report.unparseable.length === 0" -> "true"
     const { jarvisRoot } = createJarvisHome();

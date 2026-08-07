@@ -20,6 +20,10 @@ export type LintStagedMarkdownDeps = {
 
 const MARKDOWNLINT_VIOLATION_PATTERN = /^(.+?):(\d+)(?::\d+)?\s+(MD\d+)\/\S+\s+(.+)$/;
 
+function isIgnoredStagedMarkdownFile(fileName: string): boolean {
+  return /^verdict-.*\.md$/i.test(fileName);
+}
+
 function listStagedMarkdownFiles(stagingRoot: string): string[] {
   const files: string[] = [];
   function walk(dir: string): void {
@@ -27,7 +31,7 @@ function listStagedMarkdownFiles(stagingRoot: string): string[] {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(path);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      } else if (entry.isFile() && entry.name.endsWith(".md") && !isIgnoredStagedMarkdownFile(entry.name)) {
         files.push(path);
       }
     }

@@ -26,6 +26,7 @@ import {
   type PersistedRecord,
   priorLogRecordsFromSink,
   type RunExecutionFailedEvent,
+  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -78,6 +79,13 @@ import {
   type ReviewRoleInvocationExecution,
   reviewRoleFailureKind,
 } from "./review-role-invocation.ts";
+import {
+  lintReviewedStagedMarkdownOrFail,
+  REVIEW_STAGED_MARKDOWN_LINT_MAX_REPROMPTS,
+  type ReviewedStagedMarkdownLintReprompt,
+  renderReviewedStagedMarkdownLintReprompt,
+  reviewedStagingDir,
+} from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import {
@@ -237,6 +245,7 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
+  stagedMarkdownLintMaxReprompts?: number;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -249,6 +258,7 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
+  stagedMarkdownLintMaxReprompts?: number;
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -1692,6 +1702,12 @@ type ReviewDebateStepOutcome =
       completionAgent?: string;
     }
   | {
+      kind: "landing_failed";
+      runId: string;
+      iterationsConsumed: number;
+      resumable: boolean;
+    }
+  | {
       kind: "invocation_failure";
       runId: string;
       iterationsConsumed: number;
@@ -1699,7 +1715,18 @@ type ReviewDebateStepOutcome =
       invocationFailureMessage?: string;
     };
 
-type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" };
+type ReviewedLandingActuatorRepromptContext = {
+  cwd: string;
+  bindings: readonly InvocationBinding[];
+  resolveActuatorPrompt: (reprompt: ReviewedStagedMarkdownLintReprompt | undefined) => Promise<string>;
+  roleTimeoutMs?: number;
+  idleOutputMs?: number;
+  signal?: AbortSignal;
+  telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
+  onActuatorStart?: () => void;
+};
+
+type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" | "landing_failed" };
 
 function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
   kind: "complete" | "invocation_failure";
@@ -1769,6 +1796,56 @@ async function raceStepSuccessorShellIdle<T>(
  * Resolve each of the step's four per-role `agents` orders to that role's bindings and run
  * the debate. The fixed cycle is one durable attempt; mid-cycle resume remains deferred.
  */
+async function finishReviewDebateLanding(
+  step: ReviewDebateWorkflowStep,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  result: Awaited<ReturnType<typeof executeReviewDebate>>,
+  bindings: ReviewDebateRoleBindings,
+  attemptId: string,
+  runId: string,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  telemetryFields: ReturnType<typeof buildReviewRoleTelemetryFields>,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  const lastCycle = result.cycles.at(-1);
+  const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
+  const verdict = lastCycle?.kind === "completed" || lastCycle?.kind === "role_failed" ? (lastCycle.verdict ?? "") : "";
+  const priorCycle = result.cycles.at(-2);
+  const priorVerdict = priorCycle?.kind === "completed" ? priorCycle.verdict : undefined;
+  const actuatorContext = actuatorRan
+    ? buildReviewDebateLandingActuatorContext(
+        step,
+        landing,
+        bindings,
+        verdict,
+        cycleProfileContext(step.profileContext, result.cycles.length, priorVerdict),
+        telemetryFields,
+      )
+    : undefined;
+  const landingFailure = await landReviewedOutputOrFail(
+    step,
+    landing,
+    attemptId,
+    runId,
+    result.cycles.length,
+    store,
+    logSink,
+    actuatorContext,
+  );
+  if (landingFailure === undefined) {
+    return undefined;
+  }
+  if (landingFailure.kind === "landing_failed") {
+    logSink?.append(runId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "landing_failed",
+      iterationsConsumed: landingFailure.iterationsConsumed,
+      resumable: landingFailure.resumable,
+    });
+  }
+  return landingFailure;
+}
+
 async function runReviewDebateStep(
   step: ReviewDebateWorkflowStep,
   stepIndex: number,
@@ -1883,16 +1960,20 @@ async function runReviewDebateStep(
   });
 
   if (kind === "complete" && landing !== undefined && landing.kind !== "none") {
-    const landingFailure = await landReviewedOutputOrFail(
+    const landingFailure = await finishReviewDebateLanding(
       step,
       landing,
+      result,
+      bindings,
       attemptId,
       runId,
-      result.cycles.length,
       store,
       logSink,
+      telemetryFields,
     );
-    if (landingFailure !== undefined) return landingFailure;
+    if (landingFailure !== undefined) {
+      return landingFailure;
+    }
   }
 
   const failed = result.cycles.at(-1);
@@ -1966,15 +2047,201 @@ function persistIntentHandoff(
 }
 
 /** Lands a review step's deferred publication output, failing the attempt on error. */
+function settleReviewedStagedMarkdownLintFailure(
+  store: StateStore,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  resumable: boolean,
+  logSink?: LogSink,
+): ReviewDebateStepOutcome {
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "landing_failed",
+  });
+  logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "landing_failed",
+    runStatus: "failed",
+  });
+  store.setRunStatus(runId, "failed");
+  return {
+    kind: "landing_failed",
+    runId,
+    iterationsConsumed,
+    resumable,
+  };
+}
+
+function buildReviewDebateLandingActuatorContext(
+  step: ReviewDebateWorkflowStep,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  bindings: ReviewDebateRoleBindings,
+  verdict: string,
+  profileContext: unknown,
+  telemetryFields: { telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds"> },
+  hooks?: { signal?: AbortSignal; onActuatorStart?: () => void },
+): ReviewedLandingActuatorRepromptContext {
+  const profile = rehydrateReviewPromptProfile(step.profile);
+  const stagingDir = reviewedStagingDir(landing) ?? "";
+  return {
+    cwd: step.cwd,
+    bindings: bindings.actuator,
+    resolveActuatorPrompt: async (reprompt) => {
+      if (reprompt !== undefined) {
+        return renderReviewedStagedMarkdownLintReprompt(reprompt, stagingDir);
+      }
+      if (profile?.render.actuator) {
+        return await profile.render.actuator(profileContext, verdict);
+      }
+      return verdict;
+    },
+    ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
+    ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+    ...(hooks?.signal !== undefined ? { signal: hooks.signal } : {}),
+    ...(telemetryFields.telemetry !== undefined ? { telemetry: telemetryFields.telemetry } : {}),
+    ...(hooks?.onActuatorStart !== undefined ? { onActuatorStart: hooks.onActuatorStart } : {}),
+  };
+}
+
+function buildStandardReviewLandingActuatorContext(
+  step: ReviewWorkflowStep,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  bindings: ReturnType<typeof resolveReviewStepBindings>,
+  verdict: string,
+  profileContext: unknown,
+  telemetryFields: ReturnType<typeof buildReviewStepTelemetryFields>,
+  hooks?: { signal?: AbortSignal; onActuatorStart?: () => void },
+): ReviewedLandingActuatorRepromptContext {
+  const profile = rehydrateReviewPromptProfile(step.profile);
+  const stagingDir = reviewedStagingDir(landing) ?? "";
+  return {
+    cwd: step.cwd,
+    bindings: bindings.actuator,
+    resolveActuatorPrompt: async (reprompt) => {
+      if (reprompt !== undefined) {
+        return renderReviewedStagedMarkdownLintReprompt(reprompt, stagingDir);
+      }
+      if (profile?.render.actuator) {
+        return await profile.render.actuator(profileContext, verdict);
+      }
+      return verdict;
+    },
+    ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
+    ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
+    ...(hooks?.signal !== undefined ? { signal: hooks.signal } : {}),
+    ...(telemetryFields.telemetry !== undefined ? { telemetry: telemetryFields.telemetry } : {}),
+    ...(hooks?.onActuatorStart !== undefined ? { onActuatorStart: hooks.onActuatorStart } : {}),
+  };
+}
+
+async function repromptReviewedStagedMarkdownLintOrFail(
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "stagedMarkdownLintMaxReprompts">,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  attemptId: string,
+  runId: string,
+  iterationsConsumed: number,
+  store: StateStore,
+  logSink: LogSink | undefined,
+  actuatorContext: ReviewedLandingActuatorRepromptContext | undefined,
+  maxReprompts: number,
+): Promise<ReviewDebateStepOutcome | undefined> {
+  let lintRepromptsRemaining = maxReprompts;
+
+  while (true) {
+    const lintResult = await lintReviewedStagedMarkdownOrFail(step.cwd, landing);
+    if (lintResult.kind === "skip" || lintResult.kind === "pass") {
+      return undefined;
+    }
+    if (lintResult.kind === "invocation_error") {
+      return settleReviewedStagedMarkdownLintFailure(store, attemptId, runId, iterationsConsumed, false, logSink);
+    }
+    if (actuatorContext === undefined || lintRepromptsRemaining <= 0) {
+      return settleReviewedStagedMarkdownLintFailure(store, attemptId, runId, iterationsConsumed, true, logSink);
+    }
+
+    lintRepromptsRemaining -= 1;
+    logSink?.append(runId, {
+      kind: "staged_markdown_lint_reprompt",
+      attemptId,
+      ruleId: lintResult.ruleId,
+      violation: truncateLogText(lintResult.message),
+      offendingFile: lintResult.filePath,
+    });
+
+    const reprompt: ReviewedStagedMarkdownLintReprompt = {
+      ruleId: lintResult.ruleId,
+      offendingFile: lintResult.filePath,
+      message: lintResult.message,
+    };
+    const prompt = await actuatorContext.resolveActuatorPrompt(reprompt);
+    const execution = await invokeReviewRole(
+      {
+        cwd: actuatorContext.cwd,
+        ...(actuatorContext.roleTimeoutMs !== undefined ? { roleTimeoutMs: actuatorContext.roleTimeoutMs } : {}),
+        ...(actuatorContext.idleOutputMs !== undefined ? { idleOutputMs: actuatorContext.idleOutputMs } : {}),
+        ...(actuatorContext.signal !== undefined ? { signal: actuatorContext.signal } : {}),
+        ...(actuatorContext.telemetry !== undefined ? { telemetry: actuatorContext.telemetry } : {}),
+        onRoleStart: () => actuatorContext.onActuatorStart?.(),
+      },
+      "actuator",
+      prompt,
+      actuatorContext.bindings,
+    );
+    const failureKind = reviewRoleFailureKind(execution);
+    if (failureKind !== null) {
+      const detail = buildReviewInvocationFailureDetail(failureKind, "actuator", execution);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: detail,
+      });
+      return {
+        kind: "invocation_failure",
+        runId,
+        iterationsConsumed,
+        resumable: isPostCommitReviewRetryableFailureKind(detail),
+      };
+    }
+  }
+}
+
 async function landReviewedOutputOrFail(
-  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "verdictPath" | "branch" | "project">,
+  step: Pick<
+    ReviewDebateWorkflowStep | ReviewWorkflowStep,
+    "cwd" | "verdictPath" | "branch" | "project" | "stagedMarkdownLintMaxReprompts"
+  >,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
   runId: string,
   iterationsConsumed: number,
   store: StateStore,
   logSink?: LogSink,
+  actuatorContext?: ReviewedLandingActuatorRepromptContext,
+  options?: { stagedMarkdownLintMaxReprompts?: number },
 ): Promise<ReviewDebateStepOutcome | undefined> {
+  const maxReprompts =
+    options?.stagedMarkdownLintMaxReprompts ??
+    step.stagedMarkdownLintMaxReprompts ??
+    REVIEW_STAGED_MARKDOWN_LINT_MAX_REPROMPTS;
+  const lintFailure = await repromptReviewedStagedMarkdownLintOrFail(
+    step,
+    landing,
+    attemptId,
+    runId,
+    iterationsConsumed,
+    store,
+    logSink,
+    actuatorContext,
+    maxReprompts,
+  );
+  if (lintFailure !== undefined) {
+    return lintFailure;
+  }
+
   const landed = await landReviewedPublicationOutput(step.cwd, landing, step.verdictPath, {
     logSink,
     runId,
@@ -2135,8 +2402,56 @@ async function tryActuatorOnlyReviewDebateRetry(
     execution.final?.result.kind === "ok" ? execution.final.binding.metadata?.agent?.trim() : undefined;
 
   if (step.landing !== undefined && step.landing.kind !== "none") {
-    const landingFailure = await landReviewedOutputOrFail(step, step.landing, attemptId, runId, 1, store, logSink);
-    if (landingFailure !== undefined) return landingFailure;
+    const profileContext = cycleProfileContext(step.profileContext, 1, undefined);
+    const verdict = existsSync(step.verdictPath) ? readFileSync(step.verdictPath, "utf8") : "";
+    const actuatorBindings = resolveInvocationBindings(
+      resolveExecutableRole("actuator"),
+      step.agents.actuator,
+      step.agentModelConfig,
+      step.createBinding ?? createResolvedAgentBinding,
+    );
+    const telemetryFields = buildReviewRoleTelemetryFields(telemetry, {
+      runId,
+      attemptId,
+      project: step.project,
+      stepId: step.stepId,
+      cwd: step.cwd,
+      branch: step.branch,
+    });
+    const actuatorContext = buildReviewDebateLandingActuatorContext(
+      step,
+      step.landing,
+      {
+        adversary: [],
+        advocate: [],
+        adjudicator: [],
+        actuator: actuatorBindings,
+      },
+      verdict,
+      profileContext,
+      telemetryFields,
+    );
+    const landingFailure = await landReviewedOutputOrFail(
+      step,
+      step.landing,
+      attemptId,
+      runId,
+      1,
+      store,
+      logSink,
+      actuatorContext,
+    );
+    if (landingFailure !== undefined) {
+      if (landingFailure.kind === "landing_failed") {
+        logSink?.append(runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "landing_failed",
+          iterationsConsumed: landingFailure.iterationsConsumed,
+          resumable: landingFailure.resumable,
+        });
+      }
+      return landingFailure;
+    }
   }
 
   store.commitCompletionBoundary({
@@ -3855,14 +4170,33 @@ async function finalizeStandardReviewStep(
   landing: ReviewWorkflowStep["landing"],
   result: Extract<ReviewCycleResult, { kind: "complete" }>,
   ids: ReviewStepExecutionIds,
+  bindings: ReturnType<typeof resolveReviewStepBindings>,
+  telemetry: WorkflowTelemetryContext | undefined,
   store: StateStore,
   logSink?: LogSink,
+  shellIdle?: { signal?: AbortSignal; onActuatorStart?: () => void },
 ): Promise<ReviewStepOutcome> {
   const completionAgent =
     result.cycles.at(-1)?.kind === "completed"
       ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
       : undefined;
   if (landing !== undefined && landing.kind !== "none") {
+    const lastCycle = result.cycles.at(-1);
+    const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
+    const verdict = lastCycle?.kind === "completed" ? lastCycle.verdict : "";
+    const priorCycle = result.cycles.at(-2);
+    const priorVerdict = priorCycle?.kind === "completed" ? priorCycle.verdict : undefined;
+    const actuatorContext = actuatorRan
+      ? buildStandardReviewLandingActuatorContext(
+          step,
+          landing,
+          bindings,
+          verdict,
+          cycleProfileContext(step.profileContext, result.cycles.length, priorVerdict),
+          buildReviewStepTelemetryFields(step, ids, telemetry),
+          shellIdle,
+        )
+      : undefined;
     const landingFailure = await landReviewedOutputOrFail(
       step,
       landing,
@@ -3871,8 +4205,19 @@ async function finalizeStandardReviewStep(
       result.cycles.length,
       store,
       logSink,
+      actuatorContext,
     );
-    if (landingFailure !== undefined) return landingFailure;
+    if (landingFailure !== undefined) {
+      if (landingFailure.kind === "landing_failed") {
+        logSink?.append(ids.runId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "landing_failed",
+          iterationsConsumed: landingFailure.iterationsConsumed,
+          resumable: landingFailure.resumable,
+        });
+      }
+      return landingFailure;
+    }
   }
   store.commitCompletionBoundary({
     attemptId: ids.attemptId,
@@ -4037,7 +4382,7 @@ async function runStandardReviewStep(
     return evidenceFailureOutcome;
   }
 
-  return finalizeStandardReviewStep(step, landing, result, ids, store, logSink);
+  return finalizeStandardReviewStep(step, landing, result, ids, bindings, telemetry, store, logSink, shellIdle);
 }
 
 async function runReviewDispatch(

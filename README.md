@@ -112,7 +112,7 @@ jarvis --version
 
 Implemented: write loop, daemon host with restart reconciliation and memory-watermark admission, IPC, SQLite state store, structured per-run logs, workflow runner with `intent`/`plan`/`implement` presets, light and debate review behaviors, shrink pass, PR publication, TUI.
 
-Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume), per-invocation `--agent`/`--model` overrides, the local-model terminal fallback, and the natural-language prompt router (`jarvis "<intent>"`). Roadmap: [v2/spec/v2-meta-index.md](v2/spec/v2-meta-index.md).
+Not yet: resuming a paused _ad-hoc_ run (workflow-started steps do resume), per-invocation `--agent`/`--model` overrides, the local-model terminal fallback, and the natural-language prompt router (`jarvis "<intent>"`).
 
 ### v2 documentation
 

@@ -304,7 +304,7 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 - The documented workflow requires spec-first sequencing: create a spec PR, merge spec files to `main`, and only then start implementation runs against that merged spec. Sources: `v1/docs/spec-guidance.md`
 - `jarvis1 plan` can generate spec trees, but generated specs follow the same merge-first rule before `jarvis1 run` implementation work begins. Sources: `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`
 - External plan output (`modes.plan.commit: false`) produces Jarvis-owned spec trees written to a configured external spec root directory (not inside the target repo) with a required `repo:` binding so later `jarvis1 run` invocations can resolve the target checkout. Sources: `v1/src/modes/plan/spec-paths.ts`, `v1/docs/spec-guidance.md`, `v1/docs/config.md`
-- For v2 phase-led execution (`v2/spec/v2-meta-index.md`), operator input should be a build brief sourced from the chosen phase line and matching `v2/docs/v2-build-order.md` section; `jarvis1 plan` is the drafting step, `jarvis1 run` is the implementation step, and phase completion is merged `v2/src` code rather than generated intent/spec artifacts. Sources: `v2/spec/v2-meta-index.md`, `v2/docs/v2-build-order.md`, `v1/docs/spec-guidance.md`
+- For v2 phase-led execution, operator input should be a build brief matching the relevant `v2/docs/v2-build-order.md` section; `jarvis1 plan` is the drafting step, `jarvis1 run` is the implementation step, and phase completion is merged `v2/src` code rather than generated intent/spec artifacts. Sources: `v2/docs/v2-build-order.md`, `v1/docs/spec-guidance.md`
 
 ## Config and project resolution
 

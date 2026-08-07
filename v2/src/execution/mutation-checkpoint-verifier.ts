@@ -106,6 +106,9 @@ export type MutationCheckpointSeams = {
 const COMMENT_DIRECTIVE_LINE = /^\s*\/\/.*@mutate/;
 const DIRECTIVE_MARKER = "@mutate";
 const PIN_TITLE_PATTERN = /^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
+const TEST_EACH_OPENER_PATTERN = /^\s*test\.each\s*\(/;
+const CONTINUATION_TITLE_PATTERN = /^\s*\]\)\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
+const EXTENSION_TOLERANT_TEST_SUFFIXES = [".test.ts", ".test.tsx", ".test.js", ".test.jsx"] as const;
 const DIRECTIVE_FORM = '// @mutate <path> "<original>" -> "<replacement>"';
 
 function unescapeDirectiveText(text: string): string {
@@ -200,13 +203,20 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-/** Title of the nearest enclosing `test`/`it` block above `lineIndex`, when present. */
+/** Nearest enclosing pin title above `lineIndex`: adjacent-line forward `test`/`it`, backward `test`/`it`, or opener-anchored `test.each` continuation. */
 function enclosingPinTitle(lines: readonly string[], lineIndex: number): string | undefined {
   const forwardMatch = PIN_TITLE_PATTERN.exec(lines[lineIndex + 1] ?? "");
   if (forwardMatch?.[2] !== undefined) return unescapeDirectiveText(forwardMatch[2]);
   for (let i = lineIndex; i >= 0; i -= 1) {
-    const match = PIN_TITLE_PATTERN.exec(lines[i] ?? "");
+    const line = lines[i] ?? "";
+    const match = PIN_TITLE_PATTERN.exec(line);
     if (match?.[2] !== undefined) return unescapeDirectiveText(match[2]);
+    if (TEST_EACH_OPENER_PATTERN.test(line)) {
+      for (let j = i + 1; j <= lineIndex; j += 1) {
+        const continuationMatch = CONTINUATION_TITLE_PATTERN.exec(lines[j] ?? "");
+        if (continuationMatch?.[2] !== undefined) return unescapeDirectiveText(continuationMatch[2]);
+      }
+    }
   }
   return undefined;
 }
@@ -291,6 +301,18 @@ function normalizeRepoRelativePath(path: string): string {
 
 type PinningTestResolution = { ok: true; testPath: string } | { ok: false; rawReference: string };
 
+function findBareBasenameMatches(worktreeRoot: string, basename: string): string[] {
+  const primary = findByBasename(worktreeRoot, basename);
+  if (primary.length !== 0) return primary;
+  const stemMatch = /^(.+)\.test\.(ts|tsx|js|jsx)$/.exec(basename);
+  if (stemMatch?.[1] === undefined) return primary;
+  const matches = new Set<string>();
+  for (const suffix of EXTENSION_TOLERANT_TEST_SUFFIXES) {
+    for (const path of findByBasename(worktreeRoot, `${stemMatch[1]}${suffix}`)) matches.add(path);
+  }
+  return [...matches];
+}
+
 /** Resolve a criterion's pinning test by path-qualified or basename lookup. */
 function resolvePinningTestPath(worktreeRoot: string, criterionText: string): PinningTestResolution {
   const rawReference = pinningTestReferenceFromCriterion(criterionText);
@@ -309,7 +331,7 @@ function resolvePinningTestPath(worktreeRoot: string, criterionText: string): Pi
     return { ok: true, testPath: absolutePath };
   }
 
-  const matches = findByBasename(worktreeRoot, normalized);
+  const matches = findBareBasenameMatches(worktreeRoot, normalized);
   if (matches.length !== 1) {
     return { ok: false, rawReference };
   }

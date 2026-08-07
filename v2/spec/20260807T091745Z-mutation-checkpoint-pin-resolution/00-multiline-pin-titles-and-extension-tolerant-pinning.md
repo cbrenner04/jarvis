@@ -37,14 +37,14 @@ Plan-draft hollow-pin guards (#2655 criterion naming, missing pinning file on di
 
 ## Acceptance criteria
 
-- [ ] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive` proves a `// @mutate` inside multiline `test.each([...])("<title>", …)` resolves `pinTitle` to `<title>` and links to a criterion naming `<title>` (reaches `caught`, not `hollow`); fails against pre-fix continuation-title resolution in `enclosingPinTitle`.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves` proves pin resolution links a criterion naming `foo.test.tsx` to an on-disk `foo.test.ts` (reaches `caught`, not `unresolved_pinning_test`); fails pre-fix.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive`; Mutation checkpoint: its pinning test carries a `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` directive that inverts continuation-title resolution in `enclosingPinTitle` using a uniquely occurring anchor in landed code; the mutation turns the named pin RED.
-- [ ] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves`; Mutation checkpoint: its pinning test carries a `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` directive that inverts extension-tolerant basename lookup in `resolvePinningTestPath` using a uniquely occurring anchor in landed code; the mutation turns the named pin RED.
-- [ ] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents multiline-`test.each` continuation-title resolvability, bare-basename extension match when stem is not unique or alternates collide, enclosing `test()` title still required, and `.mts`/`.cts` outside the tolerance set.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust reconciles with adjacent-line-forward behavior and documents hollow-on-multiline-`test.each` continuation-title and `unresolved_pinning_test`-on-extension-mismatch failure modes and hand-fix when tolerance does not apply.
-- [ ] `v2/docs/v1-behaviors.md` records opener-anchored continuation pin-title resolution for multiline `test.each` and extension-tolerant bare-basename lookup for mutation-checkpoint pinning.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive` proves a `// @mutate` inside multiline `test.each([...])("<title>", …)` resolves `pinTitle` to `<title>` and links to a criterion naming `<title>` (reaches `caught`, not `hollow`); fails against pre-fix continuation-title resolution in `enclosingPinTitle`.
+- [x] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves` proves pin resolution links a criterion naming `foo.test.tsx` to an on-disk `foo.test.ts` (reaches `caught`, not `unresolved_pinning_test`); fails pre-fix.
+- [x] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive`; Mutation checkpoint: its pinning test carries a `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` directive that inverts continuation-title resolution in `enclosingPinTitle` using a uniquely occurring anchor in landed code; the mutation turns the named pin RED.
+- [x] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves`; Mutation checkpoint: its pinning test carries a `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` directive that inverts extension-tolerant basename lookup in `resolvePinningTestPath` using a uniquely occurring anchor in landed code; the mutation turns the named pin RED.
+- [x] `v1/docs/spec-guidance.md` § Mutation-checkpoint criteria documents multiline-`test.each` continuation-title resolvability, bare-basename extension match when stem is not unique or alternates collide, enclosing `test()` title still required, and `.mts`/`.cts` outside the tolerance set.
+- [x] `v2/docs/operator-runbook.md` § Gate trust reconciles with adjacent-line-forward behavior and documents hollow-on-multiline-`test.each` continuation-title and `unresolved_pinning_test`-on-extension-mismatch failure modes and hand-fix when tolerance does not apply.
+- [x] `v2/docs/v1-behaviors.md` records opener-anchored continuation pin-title resolution for multiline `test.each` and extension-tolerant bare-basename lookup for mutation-checkpoint pinning.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
